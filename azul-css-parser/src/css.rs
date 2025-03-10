@@ -1,23 +1,18 @@
 //! High-level types and functions related to CSS parsing
-use core::{
-    num::ParseIntError,
-    fmt,
+use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
+use core::{fmt, num::ParseIntError};
+
+use azul_css::{
+    AzString, CombinedCssPropertyType, Css, CssDeclaration, CssKeyMap, CssNthChildSelector,
+    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector, CssPropertyType,
+    CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
+    NodeTypeTagParseErrorOwned, Stylesheet,
 };
-use alloc::collections::BTreeMap;
-use alloc::string::ToString;
-use alloc::vec::Vec;
 pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
 use crate::css_parser;
 pub use crate::css_parser::{CssParsingError, CssParsingErrorOwned};
-use azul_css::{
-    Css, CssDeclaration, Stylesheet, DynamicCssProperty, AzString,
-    CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
-    CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
-    NodeTypeTag, NodeTypeTagParseError, CombinedCssPropertyType, CssKeyMap,
-    NodeTypeTagParseErrorOwned,
-};
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
 #[repr(transparent)]
@@ -32,7 +27,7 @@ impl CssApiWrapper {
 
     pub fn from_string(s: AzString) -> Self {
         Self {
-            css: crate::new_from_str(s.as_str()).unwrap_or_default()
+            css: crate::new_from_str(s.as_str()).unwrap_or_default(),
         }
     }
 }
@@ -44,7 +39,6 @@ pub struct CssParseError<'a> {
     pub error: CssParseErrorInner<'a>,
     pub location: (ErrorLocation, ErrorLocation),
 }
-
 
 /// Owned version of CssParseError, without references.
 #[derive(Debug, Clone, PartialEq)]
@@ -98,15 +92,19 @@ pub enum CssParseErrorInner<'a> {
     PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
     /// The path has to be either `*`, `div`, `p` or something like that
     NodeTypeTag(NodeTypeTagParseError<'a>),
-    /// A certain property has an unknown key, for example: `alsdfkj: 500px` = `unknown CSS key "alsdfkj: 500px"`
+    /// A certain property has an unknown key, for example: `alsdfkj: 500px` = `unknown CSS key
+    /// "alsdfkj: 500px"`
     UnknownPropertyKey(&'a str, &'a str),
-    /// `var()` can't be used on properties that expand to multiple values, since they would be ambigouus
-    /// and degrade performance - for example `margin: var(--blah)` would be ambigouus because it's not clear
-    /// when setting the variable, whether all sides should be set, instead, you have to use `margin-top: var(--blah)`,
-    /// `margin-bottom: var(--baz)` in order to work around this limitation.
-    VarOnShorthandProperty { key: CombinedCssPropertyType, value: &'a str },
+    /// `var()` can't be used on properties that expand to multiple values, since they would be
+    /// ambigouus and degrade performance - for example `margin: var(--blah)` would be ambigouus
+    /// because it's not clear when setting the variable, whether all sides should be set,
+    /// instead, you have to use `margin-top: var(--blah)`, `margin-bottom: var(--baz)` in order
+    /// to work around this limitation.
+    VarOnShorthandProperty {
+        key: CombinedCssPropertyType,
+        value: &'a str,
+    },
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParseErrorInnerOwned {
@@ -117,7 +115,10 @@ pub enum CssParseErrorInnerOwned {
     PseudoSelectorParseError(CssPseudoSelectorParseErrorOwned),
     NodeTypeTag(NodeTypeTagParseErrorOwned),
     UnknownPropertyKey(String, String),
-    VarOnShorthandProperty { key: CombinedCssPropertyType, value: String },
+    VarOnShorthandProperty {
+        key: CombinedCssPropertyType,
+        value: String,
+    },
 }
 
 impl<'a> CssParseErrorInner<'a> {
@@ -126,14 +127,24 @@ impl<'a> CssParseErrorInner<'a> {
             CssParseErrorInner::ParseError(e) => CssParseErrorInnerOwned::ParseError(e.clone()),
             CssParseErrorInner::UnclosedBlock => CssParseErrorInnerOwned::UnclosedBlock,
             CssParseErrorInner::MalformedCss => CssParseErrorInnerOwned::MalformedCss,
-            CssParseErrorInner::DynamicCssParseError(e) => CssParseErrorInnerOwned::DynamicCssParseError(e.to_contained()),
-            CssParseErrorInner::PseudoSelectorParseError(e) => CssParseErrorInnerOwned::PseudoSelectorParseError(e.to_contained()),
-            CssParseErrorInner::NodeTypeTag(e) => CssParseErrorInnerOwned::NodeTypeTag(e.to_contained()),
-            CssParseErrorInner::UnknownPropertyKey(a, b) => CssParseErrorInnerOwned::UnknownPropertyKey(a.to_string(), b.to_string()),
-            CssParseErrorInner::VarOnShorthandProperty { key, value } => CssParseErrorInnerOwned::VarOnShorthandProperty {
-                key: key.clone(),
-                value: value.to_string(),
-            },
+            CssParseErrorInner::DynamicCssParseError(e) => {
+                CssParseErrorInnerOwned::DynamicCssParseError(e.to_contained())
+            }
+            CssParseErrorInner::PseudoSelectorParseError(e) => {
+                CssParseErrorInnerOwned::PseudoSelectorParseError(e.to_contained())
+            }
+            CssParseErrorInner::NodeTypeTag(e) => {
+                CssParseErrorInnerOwned::NodeTypeTag(e.to_contained())
+            }
+            CssParseErrorInner::UnknownPropertyKey(a, b) => {
+                CssParseErrorInnerOwned::UnknownPropertyKey(a.to_string(), b.to_string())
+            }
+            CssParseErrorInner::VarOnShorthandProperty { key, value } => {
+                CssParseErrorInnerOwned::VarOnShorthandProperty {
+                    key: key.clone(),
+                    value: value.to_string(),
+                }
+            }
         }
     }
 }
@@ -144,19 +155,29 @@ impl CssParseErrorInnerOwned {
             CssParseErrorInnerOwned::ParseError(e) => CssParseErrorInner::ParseError(e.clone()),
             CssParseErrorInnerOwned::UnclosedBlock => CssParseErrorInner::UnclosedBlock,
             CssParseErrorInnerOwned::MalformedCss => CssParseErrorInner::MalformedCss,
-            CssParseErrorInnerOwned::DynamicCssParseError(e) => CssParseErrorInner::DynamicCssParseError(e.to_shared()),
-            CssParseErrorInnerOwned::PseudoSelectorParseError(e) => CssParseErrorInner::PseudoSelectorParseError(e.to_shared()),
-            CssParseErrorInnerOwned::NodeTypeTag(e) => CssParseErrorInner::NodeTypeTag(e.to_shared()),
-            CssParseErrorInnerOwned::UnknownPropertyKey(a, b) => CssParseErrorInner::UnknownPropertyKey(a, b),
-            CssParseErrorInnerOwned::VarOnShorthandProperty { key, value } => CssParseErrorInner::VarOnShorthandProperty {
-                key: key.clone(),
-                value,
-            },
+            CssParseErrorInnerOwned::DynamicCssParseError(e) => {
+                CssParseErrorInner::DynamicCssParseError(e.to_shared())
+            }
+            CssParseErrorInnerOwned::PseudoSelectorParseError(e) => {
+                CssParseErrorInner::PseudoSelectorParseError(e.to_shared())
+            }
+            CssParseErrorInnerOwned::NodeTypeTag(e) => {
+                CssParseErrorInner::NodeTypeTag(e.to_shared())
+            }
+            CssParseErrorInnerOwned::UnknownPropertyKey(a, b) => {
+                CssParseErrorInner::UnknownPropertyKey(a, b)
+            }
+            CssParseErrorInnerOwned::VarOnShorthandProperty { key, value } => {
+                CssParseErrorInner::VarOnShorthandProperty {
+                    key: key.clone(),
+                    value,
+                }
+            }
         }
     }
 }
 
-impl_display!{ CssParseErrorInner<'a>, {
+impl_display! { CssParseErrorInner<'a>, {
     ParseError(e) => format!("Parse Error: {:?}", e),
     UnclosedBlock => "Unclosed block",
     MalformedCss => "Malformed Css",
@@ -189,7 +210,9 @@ pub enum CssPseudoSelectorParseError<'a> {
 }
 
 impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
-    fn from(e: ParseIntError) -> Self { CssPseudoSelectorParseError::InvalidNthChild(e) }
+    fn from(e: ParseIntError) -> Self {
+        CssPseudoSelectorParseError::InvalidNthChild(e)
+    }
 }
 
 impl_display! { CssPseudoSelectorParseError<'a>, {
@@ -211,7 +234,6 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
 }}
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssPseudoSelectorParseErrorOwned {
     EmptyNthChild,
@@ -223,13 +245,21 @@ pub enum CssPseudoSelectorParseErrorOwned {
 impl<'a> CssPseudoSelectorParseError<'a> {
     pub fn to_contained(&self) -> CssPseudoSelectorParseErrorOwned {
         match self {
-            CssPseudoSelectorParseError::EmptyNthChild => CssPseudoSelectorParseErrorOwned::EmptyNthChild,
-            CssPseudoSelectorParseError::UnknownSelector(a, b) => CssPseudoSelectorParseErrorOwned::UnknownSelector(
-                a.to_string(),
-                b.map(|s| s.to_string())
-            ),
-            CssPseudoSelectorParseError::InvalidNthChildPattern(s) => CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string()),
-            CssPseudoSelectorParseError::InvalidNthChild(e) => CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone()),
+            CssPseudoSelectorParseError::EmptyNthChild => {
+                CssPseudoSelectorParseErrorOwned::EmptyNthChild
+            }
+            CssPseudoSelectorParseError::UnknownSelector(a, b) => {
+                CssPseudoSelectorParseErrorOwned::UnknownSelector(
+                    a.to_string(),
+                    b.map(|s| s.to_string()),
+                )
+            }
+            CssPseudoSelectorParseError::InvalidNthChildPattern(s) => {
+                CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string())
+            }
+            CssPseudoSelectorParseError::InvalidNthChild(e) => {
+                CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone())
+            }
         }
     }
 }
@@ -237,13 +267,18 @@ impl<'a> CssPseudoSelectorParseError<'a> {
 impl CssPseudoSelectorParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssPseudoSelectorParseError<'a> {
         match self {
-            CssPseudoSelectorParseErrorOwned::EmptyNthChild => CssPseudoSelectorParseError::EmptyNthChild,
-            CssPseudoSelectorParseErrorOwned::UnknownSelector(a, b) => CssPseudoSelectorParseError::UnknownSelector(
-                a,
-                b.as_deref(),
-            ),
-            CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s) => CssPseudoSelectorParseError::InvalidNthChildPattern(s),
-            CssPseudoSelectorParseErrorOwned::InvalidNthChild(e) => CssPseudoSelectorParseError::InvalidNthChild(e.clone()),
+            CssPseudoSelectorParseErrorOwned::EmptyNthChild => {
+                CssPseudoSelectorParseError::EmptyNthChild
+            }
+            CssPseudoSelectorParseErrorOwned::UnknownSelector(a, b) => {
+                CssPseudoSelectorParseError::UnknownSelector(a, b.as_deref())
+            }
+            CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s) => {
+                CssPseudoSelectorParseError::InvalidNthChildPattern(s)
+            }
+            CssPseudoSelectorParseErrorOwned::InvalidNthChild(e) => {
+                CssPseudoSelectorParseError::InvalidNthChild(e.clone())
+            }
         }
     }
 }
@@ -257,7 +292,7 @@ pub enum DynamicCssParseError<'a> {
     UnexpectedValue(CssParsingError<'a>),
 }
 
-impl_display!{ DynamicCssParseError<'a>, {
+impl_display! { DynamicCssParseError<'a>, {
     InvalidBraceContents(e) => format!("Invalid contents of var() function: var({})", e),
     UnexpectedValue(e) => format!("{}", e),
 }}
@@ -268,7 +303,6 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseErrorOwned {
     InvalidBraceContents(String),
@@ -278,8 +312,12 @@ pub enum DynamicCssParseErrorOwned {
 impl<'a> DynamicCssParseError<'a> {
     pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
         match self {
-            DynamicCssParseError::InvalidBraceContents(s) => DynamicCssParseErrorOwned::InvalidBraceContents(s.to_string()),
-            DynamicCssParseError::UnexpectedValue(e) => DynamicCssParseErrorOwned::UnexpectedValue(e.to_contained()),
+            DynamicCssParseError::InvalidBraceContents(s) => {
+                DynamicCssParseErrorOwned::InvalidBraceContents(s.to_string())
+            }
+            DynamicCssParseError::UnexpectedValue(e) => {
+                DynamicCssParseErrorOwned::UnexpectedValue(e.to_contained())
+            }
         }
     }
 }
@@ -287,17 +325,22 @@ impl<'a> DynamicCssParseError<'a> {
 impl DynamicCssParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> DynamicCssParseError<'a> {
         match self {
-            DynamicCssParseErrorOwned::InvalidBraceContents(s) => DynamicCssParseError::InvalidBraceContents(s),
-            DynamicCssParseErrorOwned::UnexpectedValue(e) => DynamicCssParseError::UnexpectedValue(e.to_shared()),
+            DynamicCssParseErrorOwned::InvalidBraceContents(s) => {
+                DynamicCssParseError::InvalidBraceContents(s)
+            }
+            DynamicCssParseErrorOwned::UnexpectedValue(e) => {
+                DynamicCssParseError::UnexpectedValue(e.to_shared())
+            }
         }
     }
 }
 
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
-fn pseudo_selector_from_str<'a>(selector: &'a str, value: Option<&'a str>)
--> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>>
-{
+fn pseudo_selector_from_str<'a>(
+    selector: &'a str,
+    value: Option<&'a str>,
+) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
     match selector {
         "first" => Ok(CssPathPseudoSelector::First),
         "last" => Ok(CssPathPseudoSelector::Last),
@@ -308,18 +351,19 @@ fn pseudo_selector_from_str<'a>(selector: &'a str, value: Option<&'a str>)
             let value = value.ok_or(CssPseudoSelectorParseError::EmptyNthChild)?;
             let parsed = parse_nth_child_selector(value)?;
             Ok(CssPathPseudoSelector::NthChild(parsed))
-        },
-        _ => {
-            Err(CssPseudoSelectorParseError::UnknownSelector(selector, value))
-        },
+        }
+        _ => Err(CssPseudoSelectorParseError::UnknownSelector(
+            selector, value,
+        )),
     }
 }
 
 /// Parses the inner value of the `:nth-child` selector, including numbers and patterns.
 ///
 /// I.e.: `"2n+3"` -> `Pattern { repeat: 2, offset: 3 }`
-fn parse_nth_child_selector<'a>(value: &'a str) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
-
+fn parse_nth_child_selector<'a>(
+    value: &'a str,
+) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
     let value = value.trim();
 
     if value.is_empty() {
@@ -339,8 +383,9 @@ fn parse_nth_child_selector<'a>(value: &'a str) -> Result<CssNthChildSelector, C
 }
 
 /// Parses the pattern between the braces of a "nth-child" (such as "2n+3").
-fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
-
+fn parse_nth_child_pattern<'a>(
+    value: &'a str,
+) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
     use azul_css::CssNthChildPattern;
 
     let value = value.trim();
@@ -350,7 +395,9 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
     }
 
     // TODO: Test for "+"
-    let repeat = value.split("n").next()
+    let repeat = value
+        .split("n")
+        .next()
         .ok_or(CssPseudoSelectorParseError::InvalidNthChildPattern(value))?
         .trim()
         .parse::<u32>()?;
@@ -369,7 +416,7 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
             } else {
                 offset_string.parse::<u32>()?
             }
-        },
+        }
         None => 0,
     };
 
@@ -378,11 +425,9 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
 
 #[test]
 fn test_css_pseudo_selector_parse() {
+    use azul_css::{CssNthChildPattern, CssNthChildSelector::*};
 
-    use self::CssPathPseudoSelector::*;
-    use self::CssPseudoSelectorParseError::*;
-    use azul_css::CssNthChildSelector::*;
-    use azul_css::CssNthChildPattern;
+    use self::{CssPathPseudoSelector::*, CssPseudoSelectorParseError::*};
     let ok_res = [
         (("first", None), First),
         (("last", None), Last),
@@ -392,8 +437,20 @@ fn test_css_pseudo_selector_parse() {
         (("nth-child", Some("4")), NthChild(Number(4))),
         (("nth-child", Some("even")), NthChild(Even)),
         (("nth-child", Some("odd")), NthChild(Odd)),
-        (("nth-child", Some("5n")), NthChild(Pattern(CssNthChildPattern { repeat: 5, offset: 0 }))),
-        (("nth-child", Some("2n+3")), NthChild(Pattern(CssNthChildPattern { repeat: 2, offset: 3 }))),
+        (
+            ("nth-child", Some("5n")),
+            NthChild(Pattern(CssNthChildPattern {
+                repeat: 5,
+                offset: 0,
+            })),
+        ),
+        (
+            ("nth-child", Some("2n+3")),
+            NthChild(Pattern(CssNthChildPattern {
+                repeat: 2,
+                offset: 3,
+            })),
+        ),
     ];
 
     let err = [
@@ -421,7 +478,6 @@ pub struct ErrorLocation {
 impl ErrorLocation {
     /// Given an error location, returns the (line, column)
     pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
-
         let error_location = self.original_pos.saturating_sub(1);
         let (mut line_number, mut total_characters) = (0, 0);
 
@@ -442,9 +498,13 @@ impl<'a> fmt::Display for CssParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let start_location = self.location.0.get_line_column_from_error(self.css_string);
         let end_location = self.location.1.get_line_column_from_error(self.css_string);
-        write!(f, "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n    reason: {}",
-            start_location.0, start_location.1,
-            end_location.0, end_location.1,
+        write!(
+            f,
+            "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n    reason: {}",
+            start_location.0,
+            start_location.1,
+            end_location.0,
+            end_location.1,
             self.get_error_string(),
             self.error,
         )
@@ -454,7 +514,9 @@ impl<'a> fmt::Display for CssParseError<'a> {
 pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
     let (stylesheet, _warnings) = new_from_str_inner(css_string, &mut tokenizer)?;
-    Ok(Css { stylesheets: vec![stylesheet].into() })
+    Ok(Css {
+        stylesheets: vec![stylesheet].into(),
+    })
 }
 
 /// Returns the location of where the parser is currently in the document
@@ -486,7 +548,6 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssPathParseErrorOwned {
     EmptyPath,
@@ -501,11 +562,19 @@ impl<'a> CssPathParseError<'a> {
     pub fn to_contained(&self) -> CssPathParseErrorOwned {
         match self {
             CssPathParseError::EmptyPath => CssPathParseErrorOwned::EmptyPath,
-            CssPathParseError::InvalidTokenEncountered(s) => CssPathParseErrorOwned::InvalidTokenEncountered(s.to_string()),
-            CssPathParseError::UnexpectedEndOfStream(s) => CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string()),
+            CssPathParseError::InvalidTokenEncountered(s) => {
+                CssPathParseErrorOwned::InvalidTokenEncountered(s.to_string())
+            }
+            CssPathParseError::UnexpectedEndOfStream(s) => {
+                CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string())
+            }
             CssPathParseError::SyntaxError(e) => CssPathParseErrorOwned::SyntaxError(e.clone()),
-            CssPathParseError::NodeTypeTag(e) => CssPathParseErrorOwned::NodeTypeTag(e.to_contained()),
-            CssPathParseError::PseudoSelectorParseError(e) => CssPathParseErrorOwned::PseudoSelectorParseError(e.to_contained()),
+            CssPathParseError::NodeTypeTag(e) => {
+                CssPathParseErrorOwned::NodeTypeTag(e.to_contained())
+            }
+            CssPathParseError::PseudoSelectorParseError(e) => {
+                CssPathParseErrorOwned::PseudoSelectorParseError(e.to_contained())
+            }
         }
     }
 }
@@ -514,11 +583,17 @@ impl CssPathParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssPathParseError<'a> {
         match self {
             CssPathParseErrorOwned::EmptyPath => CssPathParseError::EmptyPath,
-            CssPathParseErrorOwned::InvalidTokenEncountered(s) => CssPathParseError::InvalidTokenEncountered(s),
-            CssPathParseErrorOwned::UnexpectedEndOfStream(s) => CssPathParseError::UnexpectedEndOfStream(s),
+            CssPathParseErrorOwned::InvalidTokenEncountered(s) => {
+                CssPathParseError::InvalidTokenEncountered(s)
+            }
+            CssPathParseErrorOwned::UnexpectedEndOfStream(s) => {
+                CssPathParseError::UnexpectedEndOfStream(s)
+            }
             CssPathParseErrorOwned::SyntaxError(e) => CssPathParseError::SyntaxError(e.clone()),
             CssPathParseErrorOwned::NodeTypeTag(e) => CssPathParseError::NodeTypeTag(e.to_shared()),
-            CssPathParseErrorOwned::PseudoSelectorParseError(e) => CssPathParseError::PseudoSelectorParseError(e.to_shared()),
+            CssPathParseErrorOwned::PseudoSelectorParseError(e) => {
+                CssPathParseError::PseudoSelectorParseError(e.to_shared())
+            }
         }
     }
 }
@@ -545,13 +620,13 @@ impl CssPathParseErrorOwned {
 ///             DirectChildren,
 ///             Class("class".to_string().into()),
 ///             PseudoSelector(NthChild(Number(2))),
-///         ].into()
+///         ]
+///         .into()
 ///     })
 /// );
 /// ```
 pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'a>> {
-
-    use azul_simplecss::{Token, Combinator};
+    use azul_simplecss::{Combinator, Token};
 
     let input = input.trim();
     if input.is_empty() {
@@ -566,25 +641,27 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
         match token {
             Token::UniversalSelector => {
                 selectors.push(CssPathSelector::Global);
-            },
+            }
             Token::TypeSelector(div_type) => {
                 selectors.push(CssPathSelector::Type(NodeTypeTag::from_str(div_type)?));
-            },
+            }
             Token::IdSelector(id) => {
                 selectors.push(CssPathSelector::Id(id.to_string().into()));
-            },
+            }
             Token::ClassSelector(class) => {
                 selectors.push(CssPathSelector::Class(class.to_string().into()));
-            },
+            }
             Token::Combinator(Combinator::GreaterThan) => {
                 selectors.push(CssPathSelector::DirectChildren);
-            },
+            }
             Token::Combinator(Combinator::Space) => {
                 selectors.push(CssPathSelector::Children);
-            },
+            }
             Token::PseudoClass { selector, value } => {
-                selectors.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value)?));
-            },
+                selectors.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(
+                    selector, value,
+                )?));
+            }
             Token::EndOfStream => {
                 break;
             }
@@ -595,7 +672,9 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
     }
 
     if !selectors.is_empty() {
-        Ok(CssPath { selectors: selectors.into() })
+        Ok(CssPath {
+            selectors: selectors.into(),
+        })
     } else {
         Err(CssPathParseError::EmptyPath)
     }
@@ -609,7 +688,6 @@ pub struct UnparsedCssRuleBlock<'a> {
     pub declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
 }
 
-
 /// Owned version of UnparsedCssRuleBlock, with BTreeMap of Strings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnparsedCssRuleBlockOwned {
@@ -621,7 +699,9 @@ impl<'a> UnparsedCssRuleBlock<'a> {
     pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
         UnparsedCssRuleBlockOwned {
             path: self.path.clone(),
-            declarations: self.declarations.iter()
+            declarations: self
+                .declarations
+                .iter()
                 .map(|(k, (v, loc))| (k.to_string(), (v.to_string(), loc.clone())))
                 .collect(),
         }
@@ -632,7 +712,9 @@ impl UnparsedCssRuleBlockOwned {
     pub fn to_shared<'a>(&'a self) -> UnparsedCssRuleBlock<'a> {
         UnparsedCssRuleBlock {
             path: self.path.clone(),
-            declarations: self.declarations.iter()
+            declarations: self
+                .declarations
+                .iter()
                 .map(|(k, (v, loc))| (k.as_str(), (v.as_str(), loc.clone())))
                 .collect(),
         }
@@ -676,7 +758,6 @@ pub enum CssParseWarnMsgInner<'a> {
     UnsupportedKeyValuePair { key: &'a str, value: &'a str },
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParseWarnMsgInnerOwned {
     UnsupportedKeyValuePair { key: String, value: String },
@@ -685,10 +766,12 @@ pub enum CssParseWarnMsgInnerOwned {
 impl<'a> CssParseWarnMsgInner<'a> {
     pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
         match self {
-            CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value } => CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair {
-                key: key.to_string(),
-                value: value.to_string(),
-            },
+            CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value } => {
+                CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                }
+            }
         }
     }
 }
@@ -696,10 +779,9 @@ impl<'a> CssParseWarnMsgInner<'a> {
 impl CssParseWarnMsgInnerOwned {
     pub fn to_shared<'a>(&'a self) -> CssParseWarnMsgInner<'a> {
         match self {
-            CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair { key, value } => CssParseWarnMsgInner::UnsupportedKeyValuePair {
-                key,
-                value,
-            },
+            CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair { key, value } => {
+                CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value }
+            }
         }
     }
 }
@@ -709,10 +791,11 @@ impl CssParseWarnMsgInnerOwned {
 /// May return "warning" messages, i.e. messages that just serve as a warning,
 /// instead of being actual errors. These warnings may be ignored by the caller,
 /// but can be useful for debugging.
-fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
--> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
-
-    use azul_simplecss::{Token, Combinator};
+fn new_from_str_inner<'a>(
+    css_string: &'a str,
+    tokenizer: &mut Tokenizer<'a>,
+) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
+    use azul_simplecss::{Combinator, Token};
 
     let mut css_blocks = Vec::new();
 
@@ -732,32 +815,35 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
     let mut last_error_location = ErrorLocation { original_pos: 0 };
 
     loop {
-
         let token = tokenizer.parse_next().map_err(|e| CssParseError {
             css_string,
             error: e.into(),
-            location: (last_error_location, get_error_location(tokenizer))
+            location: (last_error_location, get_error_location(tokenizer)),
         })?;
 
-        macro_rules! check_parser_is_outside_block {() => {
-            if parser_in_block {
-                return Err(CssParseError {
-                    css_string,
-                    error: CssParseErrorInner::MalformedCss,
-                    location: (last_error_location, get_error_location(tokenizer)),
-                });
-            }
-        }}
+        macro_rules! check_parser_is_outside_block {
+            () => {
+                if parser_in_block {
+                    return Err(CssParseError {
+                        css_string,
+                        error: CssParseErrorInner::MalformedCss,
+                        location: (last_error_location, get_error_location(tokenizer)),
+                    });
+                }
+            };
+        }
 
-        macro_rules! check_parser_is_inside_block {() => {
-            if !parser_in_block {
-                return Err(CssParseError {
-                    css_string,
-                    error: CssParseErrorInner::MalformedCss,
-                    location: (last_error_location, get_error_location(tokenizer)),
-                });
-            }
-        }}
+        macro_rules! check_parser_is_inside_block {
+            () => {
+                if !parser_in_block {
+                    return Err(CssParseError {
+                        css_string,
+                        error: CssParseErrorInner::MalformedCss,
+                        location: (last_error_location, get_error_location(tokenizer)),
+                    });
+                }
+            };
+        }
 
         match token {
             Token::BlockStart => {
@@ -766,76 +852,77 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
                 block_nesting += 1;
                 current_paths.push(last_path.clone());
                 last_path.clear();
-            },
+            }
             Token::Comma => {
                 check_parser_is_outside_block!();
                 current_paths.push(last_path.clone());
                 last_path.clear();
-            },
+            }
             Token::BlockEnd => {
-
                 block_nesting -= 1;
                 check_parser_is_inside_block!();
                 parser_in_block = false;
 
-                css_blocks.extend(current_paths.drain(..).map(|path| {
-                    UnparsedCssRuleBlock {
-                        path: CssPath { selectors: path.into() },
-                        declarations: current_rules.clone(),
-                    }
+                css_blocks.extend(current_paths.drain(..).map(|path| UnparsedCssRuleBlock {
+                    path: CssPath {
+                        selectors: path.into(),
+                    },
+                    declarations: current_rules.clone(),
                 }));
 
                 current_rules.clear();
                 last_path.clear(); // technically unnecessary, but just to be sure
-            },
+            }
 
             // tokens that adjust the last_path
             Token::UniversalSelector => {
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Global);
-            },
+            }
             Token::TypeSelector(div_type) => {
                 check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::Type(NodeTypeTag::from_str(div_type).map_err(|e| {
-                    CssParseError {
+                last_path.push(CssPathSelector::Type(
+                    NodeTypeTag::from_str(div_type).map_err(|e| CssParseError {
                         css_string,
                         error: e.into(),
                         location: (last_error_location, get_error_location(tokenizer)),
-                    }
-                })?));
-            },
+                    })?,
+                ));
+            }
             Token::IdSelector(id) => {
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Id(id.to_string().into()));
-            },
+            }
             Token::ClassSelector(class) => {
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Class(class.to_string().into()));
-            },
+            }
             Token::Combinator(Combinator::GreaterThan) => {
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::DirectChildren);
-            },
+            }
             Token::Combinator(Combinator::Space) => {
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Children);
-            },
+            }
             Token::PseudoClass { selector, value } => {
                 check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value).map_err(|e| {
-                    CssParseError {
+                last_path.push(CssPathSelector::PseudoSelector(
+                    pseudo_selector_from_str(selector, value).map_err(|e| CssParseError {
                         css_string,
                         error: e.into(),
                         location: (last_error_location, get_error_location(tokenizer)),
-                    }
-                })?));
-            },
+                    })?,
+                ));
+            }
             Token::Declaration(key, val) => {
                 check_parser_is_inside_block!();
-                current_rules.insert(key, (val, (last_error_location, get_error_location(tokenizer))));
-            },
+                current_rules.insert(
+                    key,
+                    (val, (last_error_location, get_error_location(tokenizer))),
+                );
+            }
             Token::EndOfStream => {
-
                 // uneven number of open / close braces
                 if block_nesting != 0 {
                     return Err(CssParseError {
@@ -846,7 +933,7 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
                 }
 
                 break;
-            },
+            }
             _ => {
                 // attributes, lang-attributes and @keyframes are not supported
             }
@@ -858,38 +945,45 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
     unparsed_css_blocks_to_stylesheet(css_blocks, css_string)
 }
 
-fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a>>, css_string: &'a str)
--> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
-
-    // Actually parse the properties (TODO: this could be done in parallel and in a separate function)
+fn unparsed_css_blocks_to_stylesheet<'a>(
+    css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
+    css_string: &'a str,
+) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
+    // Actually parse the properties (TODO: this could be done in parallel and in a separate
+    // function)
     let css_key_map = azul_css::get_css_key_map();
 
     let mut warnings = Vec::new();
 
-    let parsed_css_blocks = css_blocks.into_iter().map(|unparsed_css_block| {
+    let parsed_css_blocks = css_blocks
+        .into_iter()
+        .map(|unparsed_css_block| {
+            let mut declarations = Vec::<CssDeclaration>::new();
 
-        let mut declarations = Vec::<CssDeclaration>::new();
+            for (unparsed_css_key, (unparsed_css_value, location)) in
+                unparsed_css_block.declarations
+            {
+                parse_css_declaration(
+                    unparsed_css_key,
+                    unparsed_css_value,
+                    location,
+                    &css_key_map,
+                    &mut warnings,
+                    &mut declarations,
+                )
+                .map_err(|e| CssParseError {
+                    css_string,
+                    error: e.into(),
+                    location,
+                })?;
+            }
 
-        for (unparsed_css_key, (unparsed_css_value, location)) in unparsed_css_block.declarations {
-            parse_css_declaration(
-                unparsed_css_key,
-                unparsed_css_value,
-                location,
-                &css_key_map,
-                &mut warnings,
-                &mut declarations,
-            ).map_err(|e| CssParseError {
-                css_string,
-                error: e.into(),
-                location,
-            })?;
-        }
-
-        Ok(CssRuleBlock {
-            path: unparsed_css_block.path.into(),
-            declarations: declarations.into(),
+            Ok(CssRuleBlock {
+                path: unparsed_css_block.path.into(),
+                declarations: declarations.into(),
+            })
         })
-    }).collect::<Result<Vec<CssRuleBlock>, CssParseError>>()?;
+        .collect::<Result<Vec<CssRuleBlock>, CssParseError>>()?;
 
     Ok((parsed_css_blocks.into(), warnings))
 }
@@ -902,28 +996,32 @@ pub fn parse_css_declaration<'a>(
     warnings: &mut Vec<CssParseWarnMsg<'a>>,
     declarations: &mut Vec<CssDeclaration>,
 ) -> Result<(), CssParseErrorInner<'a>> {
-
-    use self::CssParseErrorInner::*;
-    use self::CssParseWarnMsgInner::*;
+    use self::{CssParseErrorInner::*, CssParseWarnMsgInner::*};
 
     if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, &css_key_map) {
         if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
             // margin: var(--my-variable);
-            return Err(VarOnShorthandProperty { key: combined_key, value: unparsed_css_value });
+            return Err(VarOnShorthandProperty {
+                key: combined_key,
+                value: unparsed_css_value,
+            });
         } else {
             // margin: 10px;
             let parsed_css_properties =
                 css_parser::parse_combined_css_property(combined_key, unparsed_css_value)
-                .map_err(|e| DynamicCssParseError(e.into()))?;
+                    .map_err(|e| DynamicCssParseError(e.into()))?;
 
-            declarations.extend(parsed_css_properties.into_iter().map(|val| CssDeclaration::Static(val)));
+            declarations.extend(
+                parsed_css_properties
+                    .into_iter()
+                    .map(|val| CssDeclaration::Static(val)),
+            );
         }
     } else if let Some(normal_key) = CssPropertyType::from_str(unparsed_css_key, css_key_map) {
         if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
             // margin-left: var(--my-variable);
             let (css_var_id, css_var_default) = css_var?;
-            let parsed_default_value =
-                css_parser::parse_css_property(normal_key, css_var_default)
+            let parsed_default_value = css_parser::parse_css_property(normal_key, css_var_default)
                 .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
@@ -932,8 +1030,7 @@ pub fn parse_css_declaration<'a>(
             }));
         } else {
             // margin-left: 10px;
-            let parsed_css_value =
-                css_parser::parse_css_property(normal_key, unparsed_css_value)
+            let parsed_css_value = css_parser::parse_css_property(normal_key, unparsed_css_value)
                 .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Static(parsed_css_value));
@@ -941,7 +1038,10 @@ pub fn parse_css_declaration<'a>(
     } else {
         // asldfkjasdf: 10px;
         warnings.push(CssParseWarnMsg {
-            warning: UnsupportedKeyValuePair { key: unparsed_css_key, value: unparsed_css_value },
+            warning: UnsupportedKeyValuePair {
+                key: unparsed_css_key,
+                value: unparsed_css_value,
+            },
             location,
         });
     }
@@ -949,15 +1049,19 @@ pub fn parse_css_declaration<'a>(
     Ok(())
 }
 
-fn check_if_value_is_css_var<'a>(unparsed_css_value: &'a str) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
-
+fn check_if_value_is_css_var<'a>(
+    unparsed_css_value: &'a str,
+) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
     const DEFAULT_VARIABLE_DEFAULT: &str = "none";
 
     let (_, brace_contents) = css_parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
 
     // value is a CSS variable, i.e. var(--main-bg-color)
     Some(match parse_css_variable_brace_contents(brace_contents) {
-        Some((variable_id, default_value)) => Ok((variable_id, default_value.unwrap_or(DEFAULT_VARIABLE_DEFAULT))),
+        Some((variable_id, default_value)) => Ok((
+            variable_id,
+            default_value.unwrap_or(DEFAULT_VARIABLE_DEFAULT),
+        )),
         None => Err(DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
     })
 }
@@ -969,7 +1073,6 @@ fn check_if_value_is_css_var<'a>(unparsed_css_value: &'a str) -> Option<Result<(
 /// "--main-bg-col"       => (Some("main-bg-col"), None)
 /// ```
 fn parse_css_variable_brace_contents<'a>(input: &'a str) -> Option<(&'a str, Option<&'a str>)> {
-
     let input = input.trim();
 
     let mut split_comma_iter = input.splitn(2, ",");
@@ -985,15 +1088,16 @@ fn parse_css_variable_brace_contents<'a>(input: &'a str) -> Option<(&'a str, Opt
 
 #[test]
 fn test_css_parse_1() {
-
     use azul_css::*;
 
-    let parsed_css = new_from_str("
+    let parsed_css = new_from_str(
+        "
         div#my_id .my_class:first {
             background-color: red;
         }
-    ").unwrap();
-
+    ",
+    )
+    .unwrap();
 
     let expected_css_rules = vec![CssRuleBlock {
         path: CssPath {
@@ -1005,17 +1109,23 @@ fn test_css_parse_1() {
                 // and ".my_class" is important, but gets ignored for now
                 CssPathSelector::Class("my_class".to_string().into()),
                 CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
-            ].into(),
+            ]
+            .into(),
         },
         declarations: vec![CssDeclaration::Static(CssProperty::BackgroundContent(
-            CssPropertyValue::Exact(vec![StyleBackgroundContent::Color(ColorU {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255,
-            })].into()),
-        ))].into(),
-    }].into();
+            CssPropertyValue::Exact(
+                vec![StyleBackgroundContent::Color(ColorU {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                })]
+                .into(),
+            ),
+        ))]
+        .into(),
+    }]
+    .into();
 
     assert_eq!(
         parsed_css,
@@ -1027,8 +1137,9 @@ fn test_css_parse_1() {
 
 #[test]
 fn test_css_simple_selector_parse() {
-    use self::CssPathSelector::*;
     use azul_css::NodeTypeTag;
+
+    use self::CssPathSelector::*;
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
         Type(NodeTypeTag::Div),
@@ -1037,68 +1148,80 @@ fn test_css_simple_selector_parse() {
         DirectChildren,
         Type(NodeTypeTag::P),
         Children,
-        Class("new".to_string().into())
+        Class("new".to_string().into()),
     ];
-    assert_eq!(new_from_str(css).unwrap(), Css {
-        stylesheets: vec![Stylesheet {
-            rules: vec![CssRuleBlock {
-                path: CssPath { selectors: parsed.into() },
-                declarations: Vec::new().into(),
-            }].into(),
-        }].into(),
-    });
+    assert_eq!(
+        new_from_str(css).unwrap(),
+        Css {
+            stylesheets: vec![Stylesheet {
+                rules: vec![CssRuleBlock {
+                    path: CssPath {
+                        selectors: parsed.into()
+                    },
+                    declarations: Vec::new().into(),
+                }]
+                .into(),
+            }]
+            .into(),
+        }
+    );
 }
 
 #[cfg(test)]
 mod stylesheet_parse {
 
     use azul_css::*;
+
     use super::*;
 
     fn test_css(css: &str, expected: Vec<CssRuleBlock>) {
         let css = new_from_str(css).unwrap();
-        assert_eq!(css, Css { stylesheets: vec![expected.into()].into() });
+        assert_eq!(
+            css,
+            Css {
+                stylesheets: vec![expected.into()].into()
+            }
+        );
     }
 
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-        let red = CssProperty::BackgroundContent(CssPropertyValue::Exact(StyleBackgroundContentVec::from(vec![
-            StyleBackgroundContent::Color(ColorU {
+        let red = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+            StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU {
                 r: 255,
                 g: 0,
                 b: 0,
                 a: 255,
-            }),
-        ])));
-        let blue = CssProperty::BackgroundContent(CssPropertyValue::Exact(StyleBackgroundContentVec::from(vec![
-            StyleBackgroundContent::Color(ColorU {
+            })]),
+        ));
+        let blue = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+            StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU {
                 r: 0,
                 g: 0,
                 b: 255,
                 a: 255,
-            }),
-        ])));
-        let black = CssProperty::BackgroundContent(CssPropertyValue::Exact(StyleBackgroundContentVec::from(vec![
-            StyleBackgroundContent::Color(ColorU {
+            })]),
+        ));
+        let black = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+            StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 255,
-            }),
-        ])));
+            })]),
+        ));
 
         // Simple example
         {
             let css_1 = ".my_class { background-color: red; }";
-            let expected_rules = vec![
-                CssRuleBlock {
-                    path: CssPath {
-                        selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(),
-                    },
-                    declarations: vec![CssDeclaration::Static(red.clone())].into(),
+            let expected_rules = vec![CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(),
                 },
-            ].into();
+                declarations: vec![CssDeclaration::Static(red.clone())].into(),
+            }]
+            .into();
             test_css(css_1, expected_rules);
         }
 
@@ -1107,11 +1230,16 @@ mod stylesheet_parse {
             let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Id("my_id".to_string().into())].into(), },
+                    path: CssPath {
+                        selectors: vec![CssPathSelector::Id("my_id".to_string().into())].into(),
+                    },
                     declarations: vec![CssDeclaration::Static(red.clone())].into(),
                 },
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(), },
+                    path: CssPath {
+                        selectors: vec![CssPathSelector::Class("my_class".to_string().into())]
+                            .into(),
+                    },
                     declarations: vec![CssDeclaration::Static(blue.clone())].into(),
                 },
             ];
@@ -1120,21 +1248,34 @@ mod stylesheet_parse {
 
         // Even more complex example
         {
-            let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
+            let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; \
+                         } .my_class { background-color: blue; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Global].into() },
+                    path: CssPath {
+                        selectors: vec![CssPathSelector::Global].into(),
+                    },
                     declarations: vec![CssDeclaration::Static(black.clone())].into(),
                 },
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".to_string().into()), CssPathSelector::Id("my_id".to_string().into())].into(), },
+                    path: CssPath {
+                        selectors: vec![
+                            CssPathSelector::Class("my_class".to_string().into()),
+                            CssPathSelector::Id("my_id".to_string().into()),
+                        ]
+                        .into(),
+                    },
                     declarations: vec![CssDeclaration::Static(red.clone())].into(),
                 },
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into() },
+                    path: CssPath {
+                        selectors: vec![CssPathSelector::Class("my_class".to_string().into())]
+                            .into(),
+                    },
                     declarations: vec![CssDeclaration::Static(blue.clone())].into(),
                 },
-            ].into();
+            ]
+            .into();
             test_css(css_3, expected_rules);
         }
     }
@@ -1144,35 +1285,87 @@ mod stylesheet_parse {
 #[test]
 fn test_multiple_rules() {
     use azul_css::*;
+
     use self::CssPathSelector::*;
 
-    let parsed_css = new_from_str("
+    let parsed_css = new_from_str(
+        "
         * { }
         * div.my_class#my_id { }
         * div#my_id { }
         * #my_id { }
         div.my_class.specific#my_id { }
-    ").unwrap();
+    ",
+    )
+    .unwrap();
 
     let expected_rules = vec![
         // Rules are sorted by order of appearance in source string
-        CssRuleBlock { path: CssPath { selectors: vec![Global].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypeTag::Div), Class("my_class".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypeTag::Div), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypeTag::Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock {
+            path: CssPath {
+                selectors: vec![Global].into(),
+            },
+            declarations: Vec::new().into(),
+        },
+        CssRuleBlock {
+            path: CssPath {
+                selectors: vec![
+                    Global,
+                    Type(NodeTypeTag::Div),
+                    Class("my_class".to_string().into()),
+                    Id("my_id".to_string().into()),
+                ]
+                .into(),
+            },
+            declarations: Vec::new().into(),
+        },
+        CssRuleBlock {
+            path: CssPath {
+                selectors: vec![
+                    Global,
+                    Type(NodeTypeTag::Div),
+                    Id("my_id".to_string().into()),
+                ]
+                .into(),
+            },
+            declarations: Vec::new().into(),
+        },
+        CssRuleBlock {
+            path: CssPath {
+                selectors: vec![Global, Id("my_id".to_string().into())].into(),
+            },
+            declarations: Vec::new().into(),
+        },
+        CssRuleBlock {
+            path: CssPath {
+                selectors: vec![
+                    Type(NodeTypeTag::Div),
+                    Class("my_class".to_string().into()),
+                    Class("specific".to_string().into()),
+                    Id("my_id".to_string().into()),
+                ]
+                .into(),
+            },
+            declarations: Vec::new().into(),
+        },
     ];
 
-    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()].into() });
+    assert_eq!(
+        parsed_css,
+        Css {
+            stylesheets: vec![expected_rules.into()].into()
+        }
+    );
 }
 
 #[test]
 fn test_case_issue_93() {
-
     use azul_css::*;
+
     use self::CssPathSelector::*;
 
-    let parsed_css = new_from_str("
+    let parsed_css = new_from_str(
+        "
         .tabwidget-tab-label {
           color: #FFFFFF;
         }
@@ -1184,7 +1377,9 @@ fn test_case_issue_93() {
         .tabwidget-tab.active .tabwidget-tab-close {
           color: #FF0000;
         }
-    ").unwrap();
+    ",
+    )
+    .unwrap();
 
     fn declaration(classes: &[CssPathSelector], color: ColorU) -> CssRuleBlock {
         CssRuleBlock {
@@ -1193,15 +1388,55 @@ fn test_case_issue_93() {
             },
             declarations: vec![CssDeclaration::Static(CssProperty::TextColor(
                 CssPropertyValue::Exact(StyleTextColor { inner: color }),
-            ))].into(),
+            ))]
+            .into(),
         }
     }
 
     let expected_rules = vec![
-        declaration(&[Class("tabwidget-tab-label".to_string().into())], ColorU { r: 255, g: 255, b: 255, a: 255 }),
-        declaration(&[Class("tabwidget-tab".to_string().into()), Class("active".to_string().into()), Children, Class("tabwidget-tab-label".to_string().into())], ColorU { r: 0, g: 0, b: 0, a: 255 }),
-        declaration(&[Class("tabwidget-tab".to_string().into()), Class("active".to_string().into()), Children, Class("tabwidget-tab-close".to_string().into())], ColorU { r: 255, g: 0, b: 0, a: 255 }),
+        declaration(
+            &[Class("tabwidget-tab-label".to_string().into())],
+            ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+        ),
+        declaration(
+            &[
+                Class("tabwidget-tab".to_string().into()),
+                Class("active".to_string().into()),
+                Children,
+                Class("tabwidget-tab-label".to_string().into()),
+            ],
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        ),
+        declaration(
+            &[
+                Class("tabwidget-tab".to_string().into()),
+                Class("active".to_string().into()),
+                Children,
+                Class("tabwidget-tab-close".to_string().into()),
+            ],
+            ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        ),
     ];
 
-    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()].into() });
+    assert_eq!(
+        parsed_css,
+        Css {
+            stylesheets: vec![expected_rules.into()].into()
+        }
+    );
 }

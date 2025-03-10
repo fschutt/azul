@@ -46,28 +46,25 @@ macro_rules! impl_display {
     };
 }
 
-/// Implements `Debug` to use `Display` instead - assumes the that the type has implemented `Display`
+/// Implements `Debug` to use `Display` instead - assumes the that the type has implemented
+/// `Display`
 macro_rules! impl_debug_as_display {
     // For a type with a lifetime
-    ($enum:ident<$lt:lifetime>) => {
-
+    ($enum:ident < $lt:lifetime >) => {
         impl<$lt> ::core::fmt::Debug for $enum<$lt> {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
-
     };
 
     // For a type without a lifetime
     ($enum:ident) => {
-
         impl ::core::fmt::Debug for $enum {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
-
     };
 }
 
@@ -81,11 +78,10 @@ macro_rules! impl_debug_as_display {
 ///
 /// impl_from!(BarError<'a>, Error::Bar);
 /// impl_from!(BarError<'a>, Error::Bar);
-///
 /// ```
 macro_rules! impl_from {
     // From a type with a lifetime to a type which also has a lifetime
-    ($a:ident<$c:lifetime>, $b:ident::$enum_type:ident) => {
+    ($a:ident < $c:lifetime > , $b:ident:: $enum_type:ident) => {
         impl<$c> From<$a<$c>> for $b<$c> {
             fn from(e: $a<$c>) -> Self {
                 $b::$enum_type(e)
@@ -94,7 +90,7 @@ macro_rules! impl_from {
     };
 
     // From a type without a lifetime to a type which also does not have a lifetime
-    ($a:ident, $b:ident::$enum_type:ident) => {
+    ($a:ident, $b:ident:: $enum_type:ident) => {
         impl From<$a> for $b {
             fn from(e: $a) -> Self {
                 $b::$enum_type(e)

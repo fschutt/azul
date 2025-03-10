@@ -1,9 +1,11 @@
 //! Types and methods used to describe the style of an application
-use crate::css_properties::{CssProperty, CssPropertyType};
-use crate::AzString;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use core::fmt;
+
+use crate::{
+    AzString,
+    css_properties::{CssProperty, CssPropertyType},
+};
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
@@ -197,7 +199,8 @@ impl<T> From<T> for CssPropertyValue<T> {
 }
 
 impl<T> CssPropertyValue<T> {
-    /// Transforms a `CssPropertyValue<T>` into a `CssPropertyValue<U>` by applying a mapping function
+    /// Transforms a `CssPropertyValue<T>` into a `CssPropertyValue<U>` by applying a mapping
+    /// function
     #[inline]
     pub fn map_property<F: Fn(T) -> U, U>(self, map_fn: F) -> CssPropertyValue<U> {
         match self {
@@ -355,7 +358,6 @@ impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
         }
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NodeTypeTagParseErrorOwned {
@@ -658,144 +660,4 @@ fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
         })
         .count();
     (id_count, class_count, div_count, path.selectors.len())
-}
-
-#[test]
-fn test_specificity() {
-    use self::CssPathSelector::*;
-    use alloc::string::ToString;
-    assert_eq!(
-        get_specificity(&CssPath {
-            selectors: vec![Id("hello".to_string().into())].into()
-        }),
-        (1, 0, 0, 1)
-    );
-    assert_eq!(
-        get_specificity(&CssPath {
-            selectors: vec![Class("hello".to_string().into())].into()
-        }),
-        (0, 1, 0, 1)
-    );
-    assert_eq!(
-        get_specificity(&CssPath {
-            selectors: vec![Type(NodeTypeTag::Div)].into()
-        }),
-        (0, 0, 1, 1)
-    );
-    assert_eq!(
-        get_specificity(&CssPath {
-            selectors: vec![Id("hello".to_string().into()), Type(NodeTypeTag::Div)].into()
-        }),
-        (1, 0, 1, 2)
-    );
-}
-
-// Assert that order of the style items is correct
-// (in order of CSS path specificity, lowest-to-highest)
-#[test]
-fn test_specificity_sort() {
-    use self::CssPathSelector::*;
-    use crate::NodeTypeTag::*;
-    use alloc::string::ToString;
-
-    let input_style = Stylesheet {
-        rules: vec![
-            // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![Global].into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![
-                        Global,
-                        Type(Div),
-                        Class("my_class".to_string().into()),
-                        Id("my_id".to_string().into()),
-                    ]
-                    .into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![Global, Type(Div), Id("my_id".to_string().into())].into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![Global, Id("my_id".to_string().into())].into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![
-                        Type(Div),
-                        Class("my_class".to_string().into()),
-                        Class("specific".to_string().into()),
-                        Id("my_id".to_string().into()),
-                    ]
-                    .into(),
-                },
-                declarations: Vec::new().into(),
-            },
-        ]
-        .into(),
-    }
-    .sort_by_specificity();
-
-    let expected_style = Stylesheet {
-        rules: vec![
-            // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![Global].into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![Global, Id("my_id".to_string().into())].into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![Global, Type(Div), Id("my_id".to_string().into())].into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![
-                        Global,
-                        Type(Div),
-                        Class("my_class".to_string().into()),
-                        Id("my_id".to_string().into()),
-                    ]
-                    .into(),
-                },
-                declarations: Vec::new().into(),
-            },
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![
-                        Type(Div),
-                        Class("my_class".to_string().into()),
-                        Class("specific".to_string().into()),
-                        Id("my_id".to_string().into()),
-                    ]
-                    .into(),
-                },
-                declarations: Vec::new().into(),
-            },
-        ]
-        .into(),
-    };
-
-    assert_eq!(input_style, expected_style);
 }

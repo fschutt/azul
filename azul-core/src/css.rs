@@ -1,10 +1,9 @@
 //! Module for printing the CSS to Rust code
 
-use alloc::collections::btree_map::BTreeMap;
-use alloc::string::String;
-use alloc::vec::Vec;
-use azul_css::*;
+use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::hash::Hash;
+
+use azul_css::*;
 
 // In order to generate the Rust code, all items that implement Drop
 // have to be declared before being used.
@@ -72,8 +71,11 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{}", t));
 
-            result.push_str(&format!("\r\n    const STYLE_BACKGROUND_SIZE_{}_ITEMS: &[StyleBackgroundSize] = &[\r\n{}{}\r\n{}];",
-            key, t2, val, t));
+            result.push_str(&format!(
+                "\r\n    const STYLE_BACKGROUND_SIZE_{}_ITEMS: &[StyleBackgroundSize] = \
+                 &[\r\n{}{}\r\n{}];",
+                key, t2, val, t
+            ));
         }
 
         for (key, item) in self.style_background_repeats.iter() {
@@ -83,8 +85,11 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{}", t));
 
-            result.push_str(&format!("\r\n    const STYLE_BACKGROUND_REPEAT_{}_ITEMS: &[StyleBackgroundRepeat] = &[\r\n{}{}\r\n{}];",
-            key, t2, val, t));
+            result.push_str(&format!(
+                "\r\n    const STYLE_BACKGROUND_REPEAT_{}_ITEMS: &[StyleBackgroundRepeat] = \
+                 &[\r\n{}{}\r\n{}];",
+                key, t2, val, t
+            ));
         }
 
         for (key, item) in self.style_background_contents.iter() {
@@ -94,8 +99,11 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{}", t));
 
-            result.push_str(&format!("\r\n    const STYLE_BACKGROUND_CONTENT_{}_ITEMS: &[StyleBackgroundContent] = &[\r\n{}{}\r\n{}];",
-            key, t2, val, t));
+            result.push_str(&format!(
+                "\r\n    const STYLE_BACKGROUND_CONTENT_{}_ITEMS: &[StyleBackgroundContent] = \
+                 &[\r\n{}{}\r\n{}];",
+                key, t2, val, t
+            ));
         }
 
         for (key, item) in self.style_background_positions.iter() {
@@ -105,8 +113,11 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{}", t));
 
-            result.push_str(&format!("\r\n    const STYLE_BACKGROUND_POSITION_{}_ITEMS: &[StyleBackgroundPosition] = &[\r\n{}{}\r\n{}];",
-            key, t2, val, t));
+            result.push_str(&format!(
+                "\r\n    const STYLE_BACKGROUND_POSITION_{}_ITEMS: &[StyleBackgroundPosition] = \
+                 &[\r\n{}{}\r\n{}];",
+                key, t2, val, t
+            ));
         }
 
         for (key, item) in self.style_transforms.iter() {
@@ -130,15 +141,21 @@ impl VecContents {
         for (key, item) in self.linear_color_stops.iter() {
             let val = format_linear_color_stops(item.as_ref(), 1);
 
-            result.push_str(&format!("\r\n    const LINEAR_COLOR_STOP_{}_ITEMS: &[NormalizedLinearColorStop] = &[\r\n{}{}\r\n{}];",
-            key, t2, val, t));
+            result.push_str(&format!(
+                "\r\n    const LINEAR_COLOR_STOP_{}_ITEMS: &[NormalizedLinearColorStop] = \
+                 &[\r\n{}{}\r\n{}];",
+                key, t2, val, t
+            ));
         }
 
         for (key, item) in self.radial_color_stops.iter() {
             let val = format_radial_color_stops(item.as_ref(), tabs);
 
-            result.push_str(&format!("\r\n    const RADIAL_COLOR_STOP_{}_ITEMS: &[NormalizedRadialColorStop] = &[\r\n{}{}\r\n{}];",
-            key, t2, val, t));
+            result.push_str(&format!(
+                "\r\n    const RADIAL_COLOR_STOP_{}_ITEMS: &[NormalizedRadialColorStop] = \
+                 &[\r\n{}{}\r\n{}];",
+                key, t2, val, t
+            ));
         }
 
         result
@@ -151,7 +168,8 @@ impl VecContents {
                 for family in v.iter() {
                     match family {
                         StyleFontFamily::System(s) => {
-                            // if the font-family is surrounded by quotes, strip them ("Arial" -> Arial)
+                            // if the font-family is surrounded by quotes, strip them ("Arial" ->
+                            // Arial)
                             let s = s.as_str();
                             let s = s.trim();
                             let s = s.trim_start_matches('\"');
@@ -992,15 +1010,25 @@ impl FormatAsRustCode for ScrollbarStyle {
 fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("ScrollbarInfo {{\r\n{}width: {},\r\n{}padding_left: {},\r\n{}padding_right: {},\r\n{}track: {},\r\n{}thumb: {},\r\n{}button: {},\r\n{}button: {},\r\n{}resizer: {},\r\n{}}}",
+    format!(
+        "ScrollbarInfo {{\r\n{}width: {},\r\n{}padding_left: {},\r\n{}padding_right: \
+         {},\r\n{}track: {},\r\n{}thumb: {},\r\n{}button: {},\r\n{}button: {},\r\n{}resizer: \
+         {},\r\n{}}}",
         t1,
-        s.width.format_as_rust_code(tabs + 1), t1,
-        s.padding_left.format_as_rust_code(tabs + 1), t1,
-        s.padding_right.format_as_rust_code(tabs + 1), t1,
-        format_style_background_content(&s.track, tabs + 1), t1,
-        format_style_background_content(&s.thumb, tabs + 1), t1,
-        format_style_background_content(&s.button, tabs + 1), t1,
-        format_style_background_content(&s.corner, tabs + 1), t1,
+        s.width.format_as_rust_code(tabs + 1),
+        t1,
+        s.padding_left.format_as_rust_code(tabs + 1),
+        t1,
+        s.padding_right.format_as_rust_code(tabs + 1),
+        t1,
+        format_style_background_content(&s.track, tabs + 1),
+        t1,
+        format_style_background_content(&s.thumb, tabs + 1),
+        t1,
+        format_style_background_content(&s.button, tabs + 1),
+        t1,
+        format_style_background_content(&s.corner, tabs + 1),
+        t1,
         format_style_background_content(&s.resizer, tabs + 1),
         t
     )
@@ -1117,10 +1145,16 @@ fn format_direction(d: &Direction, tabs: usize) -> String {
 fn format_linear_gradient(l: &LinearGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_{}_ITEMS),\r\n{}}}",
-        t1, format_direction(&l.direction, tabs + 1), t1,
-        l.extend_mode.format_as_rust_code(tabs + 1), t1,
-        l.stops.get_hash(), t,
+    format!(
+        "LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: \
+         NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_{}_ITEMS),\r\n{}}}",
+        t1,
+        format_direction(&l.direction, tabs + 1),
+        t1,
+        l.extend_mode.format_as_rust_code(tabs + 1),
+        t1,
+        l.stops.get_hash(),
+        t,
     )
 }
 
@@ -1128,24 +1162,39 @@ fn format_conic_gradient(r: &ConicGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
-    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: NormalizedRadialColorStopVec::from_const_slice(RADIAL_COLOR_STOP_{}_ITEMS),\r\n{}}}",
+    format!(
+        "ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: \
+         NormalizedRadialColorStopVec::from_const_slice(RADIAL_COLOR_STOP_{}_ITEMS),\r\n{}}}",
         t1,
-        r.extend_mode.format_as_rust_code(tabs + 1), t1,
-        format_style_background_position(&r.center, tabs + 1), t1,
-        format_angle_value(&r.angle), t1,
-        r.stops.get_hash(), t,
+        r.extend_mode.format_as_rust_code(tabs + 1),
+        t1,
+        format_style_background_position(&r.center, tabs + 1),
+        t1,
+        format_angle_value(&r.angle),
+        t1,
+        r.stops.get_hash(),
+        t,
     )
 }
 
 fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}position: {},\r\n{}size: RadialGradientSize::{:?},\r\n{}stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_{}_ITEMS),\r\n{}}}",
-        t1, r.shape.format_as_rust_code(tabs + 1), t1,
-        r.extend_mode.format_as_rust_code(tabs + 1), t1,
-        format_style_background_position(&r.position, tabs + 1), t1,
-        r.size, t1,
-        r.stops.get_hash(), t,
+    format!(
+        "RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}position: {},\r\n{}size: \
+         RadialGradientSize::{:?},\r\n{}stops: \
+         NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_{}_ITEMS),\r\n{}}}",
+        t1,
+        r.shape.format_as_rust_code(tabs + 1),
+        t1,
+        r.extend_mode.format_as_rust_code(tabs + 1),
+        t1,
+        format_style_background_position(&r.position, tabs + 1),
+        t1,
+        r.size,
+        t1,
+        r.stops.get_hash(),
+        t,
     )
 }
 
@@ -1264,46 +1313,112 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
     let tabs_minus_one = String::from("    ").repeat(tabs);
     let tabs = String::from("    ").repeat(tabs + 1);
     match st {
-        StyleTransform::Matrix(m) => format!("StyleTransform::Matrix(StyleTransformMatrix2D {{ a: {}, b: {}, c: {}, d: {}, tx: {}, ty: {} }})", format_pixel_value(&m.a), format_pixel_value(&m.b), format_pixel_value(&m.c), format_pixel_value(&m.d), format_pixel_value(&m.tx), format_pixel_value(&m.ty)),
-        StyleTransform::Matrix3D(m) => format!("StyleTransform::Matrix3D(StyleTransformMatrix3D {{\r\n{tabs}m11: {},\r\n{tabs}m12: {},\r\n{tabs}m13: {},\r\n{tabs}m14: {},\r\n{tabs}m21: {},\r\n{tabs}m22: {},\r\n{tabs}m23: {},\r\n{tabs}m24: {},\r\n{tabs}m31: {},\r\n{tabs}m32: {},\r\n{tabs}m33: {},\r\n{tabs}m34: {},\r\n{tabs}m41: {},\r\n{tabs}m42: {},\r\n{tabs}m43: {},\r\n{tabs}m44: {}\r\n{tabs_minus_one}}})",
-           format_pixel_value(&m.m11),
-           format_pixel_value(&m.m12),
-           format_pixel_value(&m.m13),
-           format_pixel_value(&m.m14),
-           format_pixel_value(&m.m21),
-           format_pixel_value(&m.m22),
-           format_pixel_value(&m.m23),
-           format_pixel_value(&m.m24),
-           format_pixel_value(&m.m31),
-           format_pixel_value(&m.m32),
-           format_pixel_value(&m.m33),
-           format_pixel_value(&m.m34),
-           format_pixel_value(&m.m41),
-           format_pixel_value(&m.m42),
-           format_pixel_value(&m.m43),
-           format_pixel_value(&m.m44),
-           tabs = tabs,
-           tabs_minus_one = tabs_minus_one,
-       ),
-        StyleTransform::Translate(t) => format!("StyleTransform::Translate(StyleTransformTranslate2D {{ x: {}, y: {} }})", format_pixel_value(&t.x), format_pixel_value(&t.y)),
-        StyleTransform::Translate3D(t) => format!("StyleTransform::Translate3D(StyleTransformTranslate3D {{ x: {}, y: {}, z: {})", format_pixel_value(&t.x), format_pixel_value(&t.y), format_pixel_value(&t.z)),
-        StyleTransform::TranslateX(x) => format!("StyleTransform::TranslateX({})", format_pixel_value(&x)),
-        StyleTransform::TranslateY(y) => format!("StyleTransform::TranslateY({})", format_pixel_value(&y)),
-        StyleTransform::TranslateZ(z) => format!("StyleTransform::TranslateZ({})", format_pixel_value(&z)),
+        StyleTransform::Matrix(m) => format!(
+            "StyleTransform::Matrix(StyleTransformMatrix2D {{ a: {}, b: {}, c: {}, d: {}, tx: {}, \
+             ty: {} }})",
+            format_pixel_value(&m.a),
+            format_pixel_value(&m.b),
+            format_pixel_value(&m.c),
+            format_pixel_value(&m.d),
+            format_pixel_value(&m.tx),
+            format_pixel_value(&m.ty)
+        ),
+        StyleTransform::Matrix3D(m) => format!(
+            "StyleTransform::Matrix3D(StyleTransformMatrix3D {{\r\n{tabs}m11: {},\r\n{tabs}m12: \
+             {},\r\n{tabs}m13: {},\r\n{tabs}m14: {},\r\n{tabs}m21: {},\r\n{tabs}m22: \
+             {},\r\n{tabs}m23: {},\r\n{tabs}m24: {},\r\n{tabs}m31: {},\r\n{tabs}m32: \
+             {},\r\n{tabs}m33: {},\r\n{tabs}m34: {},\r\n{tabs}m41: {},\r\n{tabs}m42: \
+             {},\r\n{tabs}m43: {},\r\n{tabs}m44: {}\r\n{tabs_minus_one}}})",
+            format_pixel_value(&m.m11),
+            format_pixel_value(&m.m12),
+            format_pixel_value(&m.m13),
+            format_pixel_value(&m.m14),
+            format_pixel_value(&m.m21),
+            format_pixel_value(&m.m22),
+            format_pixel_value(&m.m23),
+            format_pixel_value(&m.m24),
+            format_pixel_value(&m.m31),
+            format_pixel_value(&m.m32),
+            format_pixel_value(&m.m33),
+            format_pixel_value(&m.m34),
+            format_pixel_value(&m.m41),
+            format_pixel_value(&m.m42),
+            format_pixel_value(&m.m43),
+            format_pixel_value(&m.m44),
+            tabs = tabs,
+            tabs_minus_one = tabs_minus_one,
+        ),
+        StyleTransform::Translate(t) => format!(
+            "StyleTransform::Translate(StyleTransformTranslate2D {{ x: {}, y: {} }})",
+            format_pixel_value(&t.x),
+            format_pixel_value(&t.y)
+        ),
+        StyleTransform::Translate3D(t) => format!(
+            "StyleTransform::Translate3D(StyleTransformTranslate3D {{ x: {}, y: {}, z: {})",
+            format_pixel_value(&t.x),
+            format_pixel_value(&t.y),
+            format_pixel_value(&t.z)
+        ),
+        StyleTransform::TranslateX(x) => {
+            format!("StyleTransform::TranslateX({})", format_pixel_value(&x))
+        }
+        StyleTransform::TranslateY(y) => {
+            format!("StyleTransform::TranslateY({})", format_pixel_value(&y))
+        }
+        StyleTransform::TranslateZ(z) => {
+            format!("StyleTransform::TranslateZ({})", format_pixel_value(&z))
+        }
         StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_angle_value(&r)),
-        StyleTransform::Rotate3D(r) => format!("StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})", format_percentage_value(&r.x), format_percentage_value(&r.y), format_percentage_value(&r.z), format_angle_value(&r.angle)),
-        StyleTransform::RotateX(x) => format!("StyleTransform::RotateX({})", format_angle_value(&x)),
-        StyleTransform::RotateY(y) => format!("StyleTransform::RotateY({})", format_angle_value(&y)),
-        StyleTransform::RotateZ(z) => format!("StyleTransform::RotateZ({})", format_angle_value(&z)),
-        StyleTransform::Scale(s) => format!("StyleTransform::Scale(StyleTransformScale2D {{ x: {}, y: {} }})", format_percentage_value(&s.x), format_percentage_value(&s.y)),
-        StyleTransform::Scale3D(s) => format!("StyleTransform::Scale3D(StyleTransformScale3D {{ x; {}, y: {}, z: {} }})", format_percentage_value(&s.x), format_percentage_value(&s.y), format_percentage_value(&s.z)),
-        StyleTransform::ScaleX(x) => format!("StyleTransform::ScaleX({})", format_percentage_value(&x)),
-        StyleTransform::ScaleY(y) => format!("StyleTransform::ScaleY({})", format_percentage_value(&y)),
-        StyleTransform::ScaleZ(z) => format!("StyleTransform::ScaleZ({})", format_percentage_value(&z)),
-        StyleTransform::Skew(sk) => format!("StyleTransform::Skew(StyleTransformSkew2D {{ x: {}, y: {} }})", format_percentage_value(&sk.x), format_percentage_value(&sk.y)),
-        StyleTransform::SkewX(x) => format!("StyleTransform::SkewX({})", format_percentage_value(&x)),
-        StyleTransform::SkewY(y) => format!("StyleTransform::SkewY({})", format_percentage_value(&y)),
-        StyleTransform::Perspective(dist) => format!("StyleTransform::Perspective({})", format_pixel_value(&dist)),
+        StyleTransform::Rotate3D(r) => format!(
+            "StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})",
+            format_percentage_value(&r.x),
+            format_percentage_value(&r.y),
+            format_percentage_value(&r.z),
+            format_angle_value(&r.angle)
+        ),
+        StyleTransform::RotateX(x) => {
+            format!("StyleTransform::RotateX({})", format_angle_value(&x))
+        }
+        StyleTransform::RotateY(y) => {
+            format!("StyleTransform::RotateY({})", format_angle_value(&y))
+        }
+        StyleTransform::RotateZ(z) => {
+            format!("StyleTransform::RotateZ({})", format_angle_value(&z))
+        }
+        StyleTransform::Scale(s) => format!(
+            "StyleTransform::Scale(StyleTransformScale2D {{ x: {}, y: {} }})",
+            format_percentage_value(&s.x),
+            format_percentage_value(&s.y)
+        ),
+        StyleTransform::Scale3D(s) => format!(
+            "StyleTransform::Scale3D(StyleTransformScale3D {{ x; {}, y: {}, z: {} }})",
+            format_percentage_value(&s.x),
+            format_percentage_value(&s.y),
+            format_percentage_value(&s.z)
+        ),
+        StyleTransform::ScaleX(x) => {
+            format!("StyleTransform::ScaleX({})", format_percentage_value(&x))
+        }
+        StyleTransform::ScaleY(y) => {
+            format!("StyleTransform::ScaleY({})", format_percentage_value(&y))
+        }
+        StyleTransform::ScaleZ(z) => {
+            format!("StyleTransform::ScaleZ({})", format_percentage_value(&z))
+        }
+        StyleTransform::Skew(sk) => format!(
+            "StyleTransform::Skew(StyleTransformSkew2D {{ x: {}, y: {} }})",
+            format_percentage_value(&sk.x),
+            format_percentage_value(&sk.y)
+        ),
+        StyleTransform::SkewX(x) => {
+            format!("StyleTransform::SkewX({})", format_percentage_value(&x))
+        }
+        StyleTransform::SkewY(y) => {
+            format!("StyleTransform::SkewY({})", format_percentage_value(&y))
+        }
+        StyleTransform::Perspective(dist) => {
+            format!("StyleTransform::Perspective({})", format_pixel_value(&dist))
+        }
     }
 }
 
@@ -1422,12 +1537,21 @@ impl FormatAsRustCode for StyleBorderBottomStyle {
 impl FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
-        format!("StyleBoxShadow {{\r\n{}    offset: [{}, {}],\r\n{}    color: {},\r\n{}    blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: BoxShadowClipMode::{:?},\r\n{}}}",
-            t, format_pixel_value_no_percent(&self.offset[0]), format_pixel_value_no_percent(&self.offset[1]),
-            t, format_color_value(&self.color),
-            t, format_pixel_value_no_percent(&self.blur_radius),
-            t, format_pixel_value_no_percent(&self.spread_radius),
-            t, self.clip_mode,
+        format!(
+            "StyleBoxShadow {{\r\n{}    offset: [{}, {}],\r\n{}    color: {},\r\n{}    \
+             blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: \
+             BoxShadowClipMode::{:?},\r\n{}}}",
+            t,
+            format_pixel_value_no_percent(&self.offset[0]),
+            format_pixel_value_no_percent(&self.offset[1]),
+            t,
+            format_color_value(&self.color),
+            t,
+            format_pixel_value_no_percent(&self.blur_radius),
+            t,
+            format_pixel_value_no_percent(&self.spread_radius),
+            t,
+            self.clip_mode,
             t
         )
     }

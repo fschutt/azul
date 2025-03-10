@@ -1,24 +1,15 @@
 #![allow(unused_variables)]
 
+use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
 use core::fmt;
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use alloc::string::String;
-use alloc::boxed::Box;
-use azul_core::{
-    impl_from,
-    dom::Dom,
-    styled_dom::StyledDom,
-    window::StringPairVec,
-};
-use azul_css::{AzString, U8Vec, OptionAzString, Css};
-use azul_css_parser::{CssParseError, CssApiWrapper};
-use xmlparser::Tokenizer;
-
 #[cfg(feature = "std")]
 use std::path::Path;
 
 pub use azul_core::xml::*;
+use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom, window::StringPairVec};
+use azul_css::{AzString, Css, OptionAzString, U8Vec};
+use azul_css_parser::{CssApiWrapper, CssParseError};
+use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml {
@@ -26,16 +17,24 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
 
     let parsed = match parse_xml_string(&xml) {
         Ok(parsed) => parsed,
-        Err(e) => return DomXml {
-            parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(error_css.clone()),
-        },
+        Err(e) => {
+            return DomXml {
+                parsed_dom: Dom::body()
+                    .with_children(vec![Dom::text(format!("{}", e))].into())
+                    .style(error_css.clone()),
+            };
+        }
     };
 
     let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
         Ok(o) => o,
-        Err(e) => return DomXml {
-            parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(error_css.clone()),
-        },
+        Err(e) => {
+            return DomXml {
+                parsed_dom: Dom::body()
+                    .with_children(vec![Dom::text(format!("{}", e))].into())
+                    .style(error_css.clone()),
+            };
+        }
     };
 
     DomXml { parsed_dom }
@@ -47,21 +46,30 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
 /// use this in release builds! This function deliberately never fails: In an error case,
 /// the error gets rendered as a `NodeType::Label`.
 #[cfg(all(feature = "std", feature = "xml"))]
-pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap) -> DomXml {
-
+pub fn domxml_from_file<I: AsRef<Path>>(
+    file_path: I,
+    component_map: &mut XmlComponentMap,
+) -> DomXml {
     use std::fs;
 
     let mut error_css = CssApiWrapper::empty();
 
     let xml = match fs::read_to_string(file_path.as_ref()) {
         Ok(xml) => xml,
-        Err(e) => return DomXml {
-            parsed_dom: Dom::body()
-            .with_children(vec![
-                Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
-            ].into())
-            .style(error_css.clone()),
-        },
+        Err(e) => {
+            return DomXml {
+                parsed_dom: Dom::body()
+                    .with_children(
+                        vec![Dom::text(format!(
+                            "Error reading: \"{}\": {}",
+                            file_path.as_ref().to_string_lossy(),
+                            e
+                        ))]
+                        .into(),
+                    )
+                    .style(error_css.clone()),
+            };
+        }
     };
 
     domxml_from_str(&xml, component_map)
@@ -80,22 +88,17 @@ pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlCom
 /// # use azulc::xml::{XmlNode, parse_xml_string};
 /// assert_eq!(
 ///     parse_xml_string("<app><p /><div id='thing' /></app>").unwrap(),
-///     vec![
-///          XmlNode::new("app").with_children(vec![
-///             XmlNode::new("p"),
-///             XmlNode::new("div").with_attribute("id", "thing"),
-///         ])
-///     ]
+///     vec![XmlNode::new("app").with_children(vec![
+///         XmlNode::new("p"),
+///         XmlNode::new("div").with_attribute("id", "thing"),
+///     ])]
 /// )
 /// ```
 #[cfg(feature = "xml")]
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
+    use xmlparser::{ElementEnd::*, Token::*, Tokenizer};
+
     use self::XmlParseError::*;
-    use xmlparser::{
-        ElementEnd::*,
-        Token::*,
-        Tokenizer,
-    };
 
     let mut root_node = XmlNode::default();
 
@@ -160,11 +163,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
             Attribute { local, value, .. } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     // NOTE: Only lowercase the key ("local"), not the value!
-                    last.attributes
-                        .push(azul_core::window::AzStringPair {
-                            key: local.to_string().into(), 
-                            value: value.as_str().to_string().into(),
-                        });
+                    last.attributes.push(azul_core::window::AzStringPair {
+                        key: local.to_string().into(),
+                        value: value.as_str().to_string().into(),
+                    });
                 }
             }
             Text { text } => {
@@ -189,10 +191,11 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
     Ok(root_node.children.into())
 }
 
-
 #[cfg(feature = "xml")]
 pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
-    Ok(Xml { root: parse_xml_string(s)?.into() })
+    Ok(Xml {
+        root: parse_xml_string(s)?.into(),
+    })
 }
 
 #[cfg(not(feature = "xml"))]
@@ -203,11 +206,13 @@ pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
 // to_string(&self) -> String
 
 #[cfg(feature = "xml")]
-pub fn translate_roxmltree_expandedname<'a, 'b>(e: roxmltree::ExpandedName<'a, 'b>) -> XmlQualifiedName {
+pub fn translate_roxmltree_expandedname<'a, 'b>(
+    e: roxmltree::ExpandedName<'a, 'b>,
+) -> XmlQualifiedName {
     let ns: Option<AzString> = e.namespace().map(|e| e.to_string().into());
     XmlQualifiedName {
         name: e.name().to_string().into(),
-        namespace: ns.into()
+        namespace: ns.into(),
     }
 }
 
@@ -215,7 +220,7 @@ pub fn translate_roxmltree_expandedname<'a, 'b>(e: roxmltree::ExpandedName<'a, '
 fn translate_roxmltree_attribute<'a>(e: roxmltree::Attribute<'a>) -> XmlQualifiedName {
     XmlQualifiedName {
         name: e.name().to_string().into(),
-        namespace: e.namespace().map(|e| e.to_string().into()).into()
+        namespace: e.namespace().map(|e| e.to_string().into()).into(),
     }
 }
 
@@ -229,47 +234,154 @@ fn translate_xmlparser_streamerror(e: xmlparser::StreamError) -> XmlStreamError 
         xmlparser::StreamError::InvalidCommentData => XmlStreamError::InvalidCommentData,
         xmlparser::StreamError::InvalidCommentEnd => XmlStreamError::InvalidCommentEnd,
         xmlparser::StreamError::InvalidCharacterData => XmlStreamError::InvalidCharacterData,
-        xmlparser::StreamError::NonXmlChar(c, tp) => XmlStreamError::NonXmlChar(NonXmlCharError { ch: c.into(), pos: translate_roxml_textpos(tp) }),
-        xmlparser::StreamError::InvalidChar(a, b, tp) => XmlStreamError::InvalidChar(InvalidCharError { expected: a, got: b, pos: translate_roxml_textpos(tp) }),
-        xmlparser::StreamError::InvalidCharMultiple(a, b, tp) => XmlStreamError::InvalidCharMultiple(InvalidCharMultipleError { expected: a, got: b.to_vec().into(), pos: translate_roxml_textpos(tp) }),
-        xmlparser::StreamError::InvalidQuote(a, tp) => XmlStreamError::InvalidQuote(InvalidQuoteError { got: a.into(), pos: translate_roxml_textpos(tp) }),
-        xmlparser::StreamError::InvalidSpace(a, tp) => XmlStreamError::InvalidSpace(InvalidSpaceError { got: a.into(), pos: translate_roxml_textpos(tp) }),
-        xmlparser::StreamError::InvalidString(a, tp) => XmlStreamError::InvalidString(InvalidStringError { got: a.to_string().into(), pos: translate_roxml_textpos(tp) }),
+        xmlparser::StreamError::NonXmlChar(c, tp) => XmlStreamError::NonXmlChar(NonXmlCharError {
+            ch: c.into(),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::StreamError::InvalidChar(a, b, tp) => {
+            XmlStreamError::InvalidChar(InvalidCharError {
+                expected: a,
+                got: b,
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        xmlparser::StreamError::InvalidCharMultiple(a, b, tp) => {
+            XmlStreamError::InvalidCharMultiple(InvalidCharMultipleError {
+                expected: a,
+                got: b.to_vec().into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        xmlparser::StreamError::InvalidQuote(a, tp) => {
+            XmlStreamError::InvalidQuote(InvalidQuoteError {
+                got: a.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        xmlparser::StreamError::InvalidSpace(a, tp) => {
+            XmlStreamError::InvalidSpace(InvalidSpaceError {
+                got: a.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        xmlparser::StreamError::InvalidString(a, tp) => {
+            XmlStreamError::InvalidString(InvalidStringError {
+                got: a.to_string().into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
     }
 }
 
 #[cfg(feature = "xml")]
 fn translate_xmlparser_error(e: xmlparser::Error) -> XmlParseError {
     match e {
-        xmlparser::Error::InvalidDeclaration(se, tp) => XmlParseError::InvalidDeclaration(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidComment(se, tp) => XmlParseError::InvalidComment(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidPI(se, tp) => XmlParseError::InvalidPI(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidDoctype(se, tp) => XmlParseError::InvalidDoctype(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidEntity(se, tp) => XmlParseError::InvalidEntity(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidElement(se, tp) => XmlParseError::InvalidElement(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidAttribute(se, tp) => XmlParseError::InvalidAttribute(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidCdata(se, tp) => XmlParseError::InvalidCdata(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::InvalidCharData(se, tp) => XmlParseError::InvalidCharData(XmlTextError { stream_error: translate_xmlparser_streamerror(se), pos: translate_roxml_textpos(tp) }),
-        xmlparser::Error::UnknownToken(tp) => XmlParseError::UnknownToken(translate_roxml_textpos(tp)),
+        xmlparser::Error::InvalidDeclaration(se, tp) => {
+            XmlParseError::InvalidDeclaration(XmlTextError {
+                stream_error: translate_xmlparser_streamerror(se),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        xmlparser::Error::InvalidComment(se, tp) => XmlParseError::InvalidComment(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::InvalidPI(se, tp) => XmlParseError::InvalidPI(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::InvalidDoctype(se, tp) => XmlParseError::InvalidDoctype(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::InvalidEntity(se, tp) => XmlParseError::InvalidEntity(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::InvalidElement(se, tp) => XmlParseError::InvalidElement(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::InvalidAttribute(se, tp) => {
+            XmlParseError::InvalidAttribute(XmlTextError {
+                stream_error: translate_xmlparser_streamerror(se),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        xmlparser::Error::InvalidCdata(se, tp) => XmlParseError::InvalidCdata(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::InvalidCharData(se, tp) => XmlParseError::InvalidCharData(XmlTextError {
+            stream_error: translate_xmlparser_streamerror(se),
+            pos: translate_roxml_textpos(tp),
+        }),
+        xmlparser::Error::UnknownToken(tp) => {
+            XmlParseError::UnknownToken(translate_roxml_textpos(tp))
+        }
     }
 }
 
 #[cfg(feature = "xml")]
 pub(crate) fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
     match e {
-        roxmltree::Error::InvalidXmlPrefixUri(s) => XmlError::InvalidXmlPrefixUri(translate_roxml_textpos(s)),
-        roxmltree::Error::UnexpectedXmlUri(s) => XmlError::UnexpectedXmlUri(translate_roxml_textpos(s)),
-        roxmltree::Error::UnexpectedXmlnsUri(s) => XmlError::UnexpectedXmlnsUri(translate_roxml_textpos(s)),
-        roxmltree::Error::InvalidElementNamePrefix(s) => XmlError::InvalidElementNamePrefix(translate_roxml_textpos(s)),
-        roxmltree::Error::DuplicatedNamespace(s, tp) => XmlError::DuplicatedNamespace(DuplicatedNamespaceError { ns: s.into(), pos: translate_roxml_textpos(tp) }),
-        roxmltree::Error::UnknownNamespace(s, tp) => XmlError::UnknownNamespace(UnknownNamespaceError { ns: s.into(), pos: translate_roxml_textpos(tp) }),
-        roxmltree::Error::UnexpectedCloseTag { expected, actual, pos } => XmlError::UnexpectedCloseTag(UnexpectedCloseTagError { expected: expected.into(), actual: actual.into(), pos: translate_roxml_textpos(pos) }),
-        roxmltree::Error::UnexpectedEntityCloseTag(s) => XmlError::UnexpectedEntityCloseTag(translate_roxml_textpos(s)),
-        roxmltree::Error::UnknownEntityReference(s, tp) => XmlError::UnknownEntityReference(UnknownEntityReferenceError { entity: s.into(), pos: translate_roxml_textpos(tp) }),
-        roxmltree::Error::MalformedEntityReference(s) => XmlError::MalformedEntityReference(translate_roxml_textpos(s)),
-        roxmltree::Error::EntityReferenceLoop(s) => XmlError::EntityReferenceLoop(translate_roxml_textpos(s)),
-        roxmltree::Error::InvalidAttributeValue(s) => XmlError::InvalidAttributeValue(translate_roxml_textpos(s)),
-        roxmltree::Error::DuplicatedAttribute(s, tp) => XmlError::DuplicatedAttribute(DuplicatedAttributeError { attribute: s.into(), pos: translate_roxml_textpos(tp) }),
+        roxmltree::Error::InvalidXmlPrefixUri(s) => {
+            XmlError::InvalidXmlPrefixUri(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::UnexpectedXmlUri(s) => {
+            XmlError::UnexpectedXmlUri(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::UnexpectedXmlnsUri(s) => {
+            XmlError::UnexpectedXmlnsUri(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::InvalidElementNamePrefix(s) => {
+            XmlError::InvalidElementNamePrefix(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::DuplicatedNamespace(s, tp) => {
+            XmlError::DuplicatedNamespace(DuplicatedNamespaceError {
+                ns: s.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        roxmltree::Error::UnknownNamespace(s, tp) => {
+            XmlError::UnknownNamespace(UnknownNamespaceError {
+                ns: s.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        roxmltree::Error::UnexpectedCloseTag {
+            expected,
+            actual,
+            pos,
+        } => XmlError::UnexpectedCloseTag(UnexpectedCloseTagError {
+            expected: expected.into(),
+            actual: actual.into(),
+            pos: translate_roxml_textpos(pos),
+        }),
+        roxmltree::Error::UnexpectedEntityCloseTag(s) => {
+            XmlError::UnexpectedEntityCloseTag(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::UnknownEntityReference(s, tp) => {
+            XmlError::UnknownEntityReference(UnknownEntityReferenceError {
+                entity: s.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
+        roxmltree::Error::MalformedEntityReference(s) => {
+            XmlError::MalformedEntityReference(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::EntityReferenceLoop(s) => {
+            XmlError::EntityReferenceLoop(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::InvalidAttributeValue(s) => {
+            XmlError::InvalidAttributeValue(translate_roxml_textpos(s))
+        }
+        roxmltree::Error::DuplicatedAttribute(s, tp) => {
+            XmlError::DuplicatedAttribute(DuplicatedAttributeError {
+                attribute: s.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
         roxmltree::Error::NoRootNode => XmlError::NoRootNode,
         roxmltree::Error::SizeLimit => XmlError::SizeLimit,
         roxmltree::Error::DtdDetected => XmlError::DtdDetected,
@@ -280,6 +392,8 @@ pub(crate) fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
 #[cfg(feature = "xml")]
 #[inline(always)]
 const fn translate_roxml_textpos(o: roxmltree::TextPos) -> XmlTextPos {
-    XmlTextPos { row: o.row, col: o.col }
+    XmlTextPos {
+        row: o.row,
+        col: o.col,
+    }
 }
-

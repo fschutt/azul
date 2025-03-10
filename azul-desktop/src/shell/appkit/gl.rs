@@ -1,7 +1,10 @@
+use std::{
+    ffi::{CString, c_char, c_void},
+    fmt,
+    rc::Rc,
+};
+
 use gl_context_loader::GenericGlContext;
-use std::rc::Rc;
-use std::fmt;
-use std::ffi::{CString, c_void, c_char};
 
 // Ensure we can call dlopen/dlsym/dlclose
 #[link(name = "dl")]
@@ -23,14 +26,17 @@ pub struct GlFunctions {
 impl fmt::Debug for GlFunctions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Just show the pointer’s numeric value
-        write!(f, "GlFunctions {{ handle = {:0x?} }}", self._opengl_lib_handle as usize)
+        write!(
+            f,
+            "GlFunctions {{ handle = {:0x?} }}",
+            self._opengl_lib_handle as usize
+        )
     }
 }
 
 impl GlFunctions {
     /// Allocates and loads the OpenGL function pointers via dlopen
     pub fn initialize() -> Result<Self, String> {
-
         fn get_func(symbol_name: &str, handle: *mut c_void) -> *mut gl_context_loader::c_void {
             let c_string = CString::new(symbol_name).unwrap();
             (unsafe { dlsym(handle, c_string.as_ptr()) }) as *mut _
@@ -43,8 +49,8 @@ impl GlFunctions {
 
         // Full path to Apple’s OpenGL framework library
         // Alternatively: "/System/Library/Frameworks/OpenGL.framework/OpenGL"
-        let framework_path = CString::new("/System/Library/Frameworks/OpenGL.framework/OpenGL")
-            .unwrap();
+        let framework_path =
+            CString::new("/System/Library/Frameworks/OpenGL.framework/OpenGL").unwrap();
 
         // RTLD_NOW means "resolve all symbols immediately".
         // RTLD_GLOBAL or RTLD_LOCAL depends on your use-case.
@@ -62,24 +68,15 @@ impl GlFunctions {
             glArrayElement: get_func("glArrayElement", handle),
             glAttachShader: get_func("glAttachShader", handle),
             glBegin: get_func("glBegin", handle),
-            glBeginConditionalRender: get_func(
-                "glBeginConditionalRender",
-                handle,
-            ),
+            glBeginConditionalRender: get_func("glBeginConditionalRender", handle),
             glBeginQuery: get_func("glBeginQuery", handle),
-            glBeginTransformFeedback: get_func(
-                "glBeginTransformFeedback",
-                handle,
-            ),
+            glBeginTransformFeedback: get_func("glBeginTransformFeedback", handle),
             glBindAttribLocation: get_func("glBindAttribLocation", handle),
             glBindBuffer: get_func("glBindBuffer", handle),
             glBindBufferBase: get_func("glBindBufferBase", handle),
             glBindBufferRange: get_func("glBindBufferRange", handle),
             glBindFragDataLocation: get_func("glBindFragDataLocation", handle),
-            glBindFragDataLocationIndexed: get_func(
-                "glBindFragDataLocationIndexed",
-                handle,
-            ),
+            glBindFragDataLocationIndexed: get_func("glBindFragDataLocationIndexed", handle),
             glBindFramebuffer: get_func("glBindFramebuffer", handle),
             glBindRenderbuffer: get_func("glBindRenderbuffer", handle),
             glBindSampler: get_func("glBindSampler", handle),
@@ -99,10 +96,7 @@ impl GlFunctions {
             glBufferSubData: get_func("glBufferSubData", handle),
             glCallList: get_func("glCallList", handle),
             glCallLists: get_func("glCallLists", handle),
-            glCheckFramebufferStatus: get_func(
-                "glCheckFramebufferStatus",
-                handle,
-            ),
+            glCheckFramebufferStatus: get_func("glCheckFramebufferStatus", handle),
             glClampColor: get_func("glClampColor", handle),
             glClear: get_func("glClear", handle),
             glClearAccum: get_func("glClearAccum", handle),
@@ -161,18 +155,9 @@ impl GlFunctions {
             glCompressedTexImage1D: get_func("glCompressedTexImage1D", handle),
             glCompressedTexImage2D: get_func("glCompressedTexImage2D", handle),
             glCompressedTexImage3D: get_func("glCompressedTexImage3D", handle),
-            glCompressedTexSubImage1D: get_func(
-                "glCompressedTexSubImage1D",
-                handle,
-            ),
-            glCompressedTexSubImage2D: get_func(
-                "glCompressedTexSubImage2D",
-                handle,
-            ),
-            glCompressedTexSubImage3D: get_func(
-                "glCompressedTexSubImage3D",
-                handle,
-            ),
+            glCompressedTexSubImage1D: get_func("glCompressedTexSubImage1D", handle),
+            glCompressedTexSubImage2D: get_func("glCompressedTexSubImage2D", handle),
+            glCompressedTexSubImage3D: get_func("glCompressedTexSubImage3D", handle),
             glCopyBufferSubData: get_func("glCopyBufferSubData", handle),
             glCopyImageSubData: get_func("glCopyImageSubData", handle),
             glCopyPixels: get_func("glCopyPixels", handle),
@@ -185,15 +170,9 @@ impl GlFunctions {
             glCreateShader: get_func("glCreateShader", handle),
             glCullFace: get_func("glCullFace", handle),
             glDebugMessageCallback: get_func("glDebugMessageCallback", handle),
-            glDebugMessageCallbackKHR: get_func(
-                "glDebugMessageCallbackKHR",
-                handle,
-            ),
+            glDebugMessageCallbackKHR: get_func("glDebugMessageCallbackKHR", handle),
             glDebugMessageControl: get_func("glDebugMessageControl", handle),
-            glDebugMessageControlKHR: get_func(
-                "glDebugMessageControlKHR",
-                handle,
-            ),
+            glDebugMessageControlKHR: get_func("glDebugMessageControlKHR", handle),
             glDebugMessageInsert: get_func("glDebugMessageInsert", handle),
             glDebugMessageInsertKHR: get_func("glDebugMessageInsertKHR", handle),
             glDeleteBuffers: get_func("glDeleteBuffers", handle),
@@ -208,30 +187,21 @@ impl GlFunctions {
             glDeleteSync: get_func("glDeleteSync", handle),
             glDeleteTextures: get_func("glDeleteTextures", handle),
             glDeleteVertexArrays: get_func("glDeleteVertexArrays", handle),
-            glDeleteVertexArraysAPPLE: get_func(
-                "glDeleteVertexArraysAPPLE",
-                handle,
-            ),
+            glDeleteVertexArraysAPPLE: get_func("glDeleteVertexArraysAPPLE", handle),
             glDepthFunc: get_func("glDepthFunc", handle),
             glDepthMask: get_func("glDepthMask", handle),
             glDepthRange: get_func("glDepthRange", handle),
             glDetachShader: get_func("glDetachShader", handle),
             glDisable: get_func("glDisable", handle),
             glDisableClientState: get_func("glDisableClientState", handle),
-            glDisableVertexAttribArray: get_func(
-                "glDisableVertexAttribArray",
-                handle,
-            ),
+            glDisableVertexAttribArray: get_func("glDisableVertexAttribArray", handle),
             glDisablei: get_func("glDisablei", handle),
             glDrawArrays: get_func("glDrawArrays", handle),
             glDrawArraysInstanced: get_func("glDrawArraysInstanced", handle),
             glDrawBuffer: get_func("glDrawBuffer", handle),
             glDrawBuffers: get_func("glDrawBuffers", handle),
             glDrawElements: get_func("glDrawElements", handle),
-            glDrawElementsBaseVertex: get_func(
-                "glDrawElementsBaseVertex",
-                handle,
-            ),
+            glDrawElementsBaseVertex: get_func("glDrawElementsBaseVertex", handle),
             glDrawElementsInstanced: get_func("glDrawElementsInstanced", handle),
             glDrawElementsInstancedBaseVertex: get_func(
                 "glDrawElementsInstancedBaseVertex",
@@ -239,19 +209,13 @@ impl GlFunctions {
             ),
             glDrawPixels: get_func("glDrawPixels", handle),
             glDrawRangeElements: get_func("glDrawRangeElements", handle),
-            glDrawRangeElementsBaseVertex: get_func(
-                "glDrawRangeElementsBaseVertex",
-                handle,
-            ),
+            glDrawRangeElementsBaseVertex: get_func("glDrawRangeElementsBaseVertex", handle),
             glEdgeFlag: get_func("glEdgeFlag", handle),
             glEdgeFlagPointer: get_func("glEdgeFlagPointer", handle),
             glEdgeFlagv: get_func("glEdgeFlagv", handle),
             glEnable: get_func("glEnable", handle),
             glEnableClientState: get_func("glEnableClientState", handle),
-            glEnableVertexAttribArray: get_func(
-                "glEnableVertexAttribArray",
-                handle,
-            ),
+            glEnableVertexAttribArray: get_func("glEnableVertexAttribArray", handle),
             glEnablei: get_func("glEnablei", handle),
             glEnd: get_func("glEnd", handle),
             glEndConditionalRender: get_func("glEndConditionalRender", handle),
@@ -276,10 +240,7 @@ impl GlFunctions {
             glFinishFenceAPPLE: get_func("glFinishFenceAPPLE", handle),
             glFinishObjectAPPLE: get_func("glFinishObjectAPPLE", handle),
             glFlush: get_func("glFlush", handle),
-            glFlushMappedBufferRange: get_func(
-                "glFlushMappedBufferRange",
-                handle,
-            ),
+            glFlushMappedBufferRange: get_func("glFlushMappedBufferRange", handle),
             glFogCoordPointer: get_func("glFogCoordPointer", handle),
             glFogCoordd: get_func("glFogCoordd", handle),
             glFogCoorddv: get_func("glFogCoorddv", handle),
@@ -289,18 +250,12 @@ impl GlFunctions {
             glFogfv: get_func("glFogfv", handle),
             glFogi: get_func("glFogi", handle),
             glFogiv: get_func("glFogiv", handle),
-            glFramebufferRenderbuffer: get_func(
-                "glFramebufferRenderbuffer",
-                handle,
-            ),
+            glFramebufferRenderbuffer: get_func("glFramebufferRenderbuffer", handle),
             glFramebufferTexture: get_func("glFramebufferTexture", handle),
             glFramebufferTexture1D: get_func("glFramebufferTexture1D", handle),
             glFramebufferTexture2D: get_func("glFramebufferTexture2D", handle),
             glFramebufferTexture3D: get_func("glFramebufferTexture3D", handle),
-            glFramebufferTextureLayer: get_func(
-                "glFramebufferTextureLayer",
-                handle,
-            ),
+            glFramebufferTextureLayer: get_func("glFramebufferTextureLayer", handle),
             glFrontFace: get_func("glFrontFace", handle),
             glFrustum: get_func("glFrustum", handle),
             glGenBuffers: get_func("glGenBuffers", handle),
@@ -316,24 +271,15 @@ impl GlFunctions {
             glGenerateMipmap: get_func("glGenerateMipmap", handle),
             glGetActiveAttrib: get_func("glGetActiveAttrib", handle),
             glGetActiveUniform: get_func("glGetActiveUniform", handle),
-            glGetActiveUniformBlockName: get_func(
-                "glGetActiveUniformBlockName",
-                handle,
-            ),
-            glGetActiveUniformBlockiv: get_func(
-                "glGetActiveUniformBlockiv",
-                handle,
-            ),
+            glGetActiveUniformBlockName: get_func("glGetActiveUniformBlockName", handle),
+            glGetActiveUniformBlockiv: get_func("glGetActiveUniformBlockiv", handle),
             glGetActiveUniformName: get_func("glGetActiveUniformName", handle),
             glGetActiveUniformsiv: get_func("glGetActiveUniformsiv", handle),
             glGetAttachedShaders: get_func("glGetAttachedShaders", handle),
             glGetAttribLocation: get_func("glGetAttribLocation", handle),
             glGetBooleani_v: get_func("glGetBooleani_v", handle),
             glGetBooleanv: get_func("glGetBooleanv", handle),
-            glGetBufferParameteri64v: get_func(
-                "glGetBufferParameteri64v",
-                handle,
-            ),
+            glGetBufferParameteri64v: get_func("glGetBufferParameteri64v", handle),
             glGetBufferParameteriv: get_func("glGetBufferParameteriv", handle),
             glGetBufferPointerv: get_func("glGetBufferPointerv", handle),
             glGetBufferSubData: get_func("glGetBufferSubData", handle),
@@ -380,18 +326,9 @@ impl GlFunctions {
             glGetQueryObjectui64v: get_func("glGetQueryObjectui64v", handle),
             glGetQueryObjectuiv: get_func("glGetQueryObjectuiv", handle),
             glGetQueryiv: get_func("glGetQueryiv", handle),
-            glGetRenderbufferParameteriv: get_func(
-                "glGetRenderbufferParameteriv",
-                handle,
-            ),
-            glGetSamplerParameterIiv: get_func(
-                "glGetSamplerParameterIiv",
-                handle,
-            ),
-            glGetSamplerParameterIuiv: get_func(
-                "glGetSamplerParameterIuiv",
-                handle,
-            ),
+            glGetRenderbufferParameteriv: get_func("glGetRenderbufferParameteriv", handle),
+            glGetSamplerParameterIiv: get_func("glGetSamplerParameterIiv", handle),
+            glGetSamplerParameterIuiv: get_func("glGetSamplerParameterIuiv", handle),
             glGetSamplerParameterfv: get_func("glGetSamplerParameterfv", handle),
             glGetSamplerParameteriv: get_func("glGetSamplerParameteriv", handle),
             glGetShaderInfoLog: get_func("glGetShaderInfoLog", handle),
@@ -406,26 +343,14 @@ impl GlFunctions {
             glGetTexGenfv: get_func("glGetTexGenfv", handle),
             glGetTexGeniv: get_func("glGetTexGeniv", handle),
             glGetTexImage: get_func("glGetTexImage", handle),
-            glGetTexLevelParameterfv: get_func(
-                "glGetTexLevelParameterfv",
-                handle,
-            ),
-            glGetTexLevelParameteriv: get_func(
-                "glGetTexLevelParameteriv",
-                handle,
-            ),
+            glGetTexLevelParameterfv: get_func("glGetTexLevelParameterfv", handle),
+            glGetTexLevelParameteriv: get_func("glGetTexLevelParameteriv", handle),
             glGetTexParameterIiv: get_func("glGetTexParameterIiv", handle),
             glGetTexParameterIuiv: get_func("glGetTexParameterIuiv", handle),
-            glGetTexParameterPointervAPPLE: get_func(
-                "glGetTexParameterPointervAPPLE",
-                handle,
-            ),
+            glGetTexParameterPointervAPPLE: get_func("glGetTexParameterPointervAPPLE", handle),
             glGetTexParameterfv: get_func("glGetTexParameterfv", handle),
             glGetTexParameteriv: get_func("glGetTexParameteriv", handle),
-            glGetTransformFeedbackVarying: get_func(
-                "glGetTransformFeedbackVarying",
-                handle,
-            ),
+            glGetTransformFeedbackVarying: get_func("glGetTransformFeedbackVarying", handle),
             glGetUniformBlockIndex: get_func("glGetUniformBlockIndex", handle),
             glGetUniformIndices: get_func("glGetUniformIndices", handle),
             glGetUniformLocation: get_func("glGetUniformLocation", handle),
@@ -434,10 +359,7 @@ impl GlFunctions {
             glGetUniformuiv: get_func("glGetUniformuiv", handle),
             glGetVertexAttribIiv: get_func("glGetVertexAttribIiv", handle),
             glGetVertexAttribIuiv: get_func("glGetVertexAttribIuiv", handle),
-            glGetVertexAttribPointerv: get_func(
-                "glGetVertexAttribPointerv",
-                handle,
-            ),
+            glGetVertexAttribPointerv: get_func("glGetVertexAttribPointerv", handle),
             glGetVertexAttribdv: get_func("glGetVertexAttribdv", handle),
             glGetVertexAttribfv: get_func("glGetVertexAttribfv", handle),
             glGetVertexAttribiv: get_func("glGetVertexAttribiv", handle),
@@ -458,15 +380,9 @@ impl GlFunctions {
             glInsertEventMarkerEXT: get_func("glInsertEventMarkerEXT", handle),
             glInterleavedArrays: get_func("glInterleavedArrays", handle),
             glInvalidateBufferData: get_func("glInvalidateBufferData", handle),
-            glInvalidateBufferSubData: get_func(
-                "glInvalidateBufferSubData",
-                handle,
-            ),
+            glInvalidateBufferSubData: get_func("glInvalidateBufferSubData", handle),
             glInvalidateFramebuffer: get_func("glInvalidateFramebuffer", handle),
-            glInvalidateSubFramebuffer: get_func(
-                "glInvalidateSubFramebuffer",
-                handle,
-            ),
+            glInvalidateSubFramebuffer: get_func("glInvalidateSubFramebuffer", handle),
             glInvalidateTexImage: get_func("glInvalidateTexImage", handle),
             glInvalidateTexSubImage: get_func("glInvalidateTexSubImage", handle),
             glIsBuffer: get_func("glIsBuffer", handle),
@@ -773,10 +689,7 @@ impl GlFunctions {
             glTexSubImage2D: get_func("glTexSubImage2D", handle),
             glTexSubImage3D: get_func("glTexSubImage3D", handle),
             glTextureRangeAPPLE: get_func("glTextureRangeAPPLE", handle),
-            glTransformFeedbackVaryings: get_func(
-                "glTransformFeedbackVaryings",
-                handle,
-            ),
+            glTransformFeedbackVaryings: get_func("glTransformFeedbackVaryings", handle),
             glTranslated: get_func("glTranslated", handle),
             glTranslatef: get_func("glTranslatef", handle),
             glUniform1f: get_func("glUniform1f", handle),
@@ -948,7 +861,7 @@ impl GlFunctions {
 
 impl Drop for GlFunctions {
     fn drop(&mut self) {
-        // On drop, close the handle. 
+        // On drop, close the handle.
         if !self._opengl_lib_handle.is_null() {
             unsafe {
                 dlclose(self._opengl_lib_handle);

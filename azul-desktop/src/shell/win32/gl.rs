@@ -951,7 +951,8 @@ impl Drop for GlFunctions {
 pub struct ExtraWglFunctions {
     pub wglCreateContextAttribsARB: Option<extern "system" fn(HDC, HGLRC, *const i32) -> HGLRC>,
     pub wglSwapIntervalEXT: Option<extern "system" fn(i32) -> i32>,
-    pub wglChoosePixelFormatARB: Option<extern "system" fn(HDC, *const i32, *const f32, u32, *mut i32, *mut u32) -> BOOL>,
+    pub wglChoosePixelFormatARB:
+        Option<extern "system" fn(HDC, *const i32, *const f32, u32, *mut i32, *mut u32) -> BOOL>,
 }
 
 impl fmt::Debug for ExtraWglFunctions {
@@ -974,24 +975,18 @@ pub enum ExtraWglFunctionsLoadError {
 
 impl ExtraWglFunctions {
     pub fn load() -> Result<Self, ExtraWglFunctionsLoadError> {
-
         use winapi::um::{
             libloaderapi::GetModuleHandleW,
-            winuser::{
-                CreateWindowExW, GetDC,
-                ReleaseDC, DestroyWindow,
-                CW_USEDEFAULT
-            },
             wingdi::{
-                wglGetProcAddress, ChoosePixelFormat,
-                SetPixelFormat, wglCreateContext,
-                wglMakeCurrent, wglDeleteContext,
+                ChoosePixelFormat, SetPixelFormat, wglCreateContext, wglDeleteContext,
+                wglGetProcAddress, wglMakeCurrent,
             },
+            winuser::{CW_USEDEFAULT, CreateWindowExW, DestroyWindow, GetDC, ReleaseDC},
         };
+
         use self::ExtraWglFunctionsLoadError::*;
 
         unsafe {
-
             let mut hidden_class_name = encode_wide(CLASS_NAME);
             let mut hidden_window_title = encode_wide("Dummy Window");
 

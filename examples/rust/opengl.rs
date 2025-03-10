@@ -1,8 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use azul::prelude::*;
-use azul::str::String as AzString;
-use azul::widgets::Button;
+use azul::{prelude::*, str::String as AzString, widgets::Button};
 
 extern crate serde;
 #[macro_use(Deserialize)]
@@ -37,26 +35,29 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         .with_inline_style("background: linear-gradient(blue, black); padding: 10px;")
         .with_child(
             Dom::image(ImageRef::callback(data.clone(), render_my_texture))
-            .with_inline_style("
+                .with_inline_style(
+                    "
                 flex-grow: 1;
                 border-radius: 50px;
                 box-sizing: border-box;
                 box-shadow: 0px 0px 10px black;
-            ")
-            .with_child(
-                Button::new("Button composited over OpenGL content!")
-                .dom()
-                .with_inline_style("
+            ",
+                )
+                .with_child(
+                    Button::new("Button composited over OpenGL content!")
+                        .dom()
+                        .with_inline_style(
+                            "
                     margin-top: 50px;
                     margin-left: 50px;
-                "),
-            )
+                ",
+                        ),
+                ),
         )
         .style(Css::empty())
 }
 
-extern "C"
-fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
+extern "C" fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
     // size = the calculated size that the div has AFTER LAYOUTING
     // this way you can render the OpenGL texture with the correct size
     // even if you don't know upfront what the size of the texture in the UI is going to be
@@ -111,9 +112,7 @@ fn render_my_texture_inner(
         stroke_vertex_buffer as *const _,
         texture_size,
         ColorU::from_str("#158DE3"),
-        vec![
-            StyleTransform::Rotate(AngleValue::deg(rotation_deg))
-        ],
+        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))],
     );
 
     // TODO: segfault when inserting the following line:
@@ -222,7 +221,6 @@ extern "C" fn animate(
 }
 
 fn main() {
-
     println!("starting!");
 
     let multipolygons = parse_multipolygons(DATA);

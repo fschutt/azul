@@ -1,22 +1,9 @@
-use crate::{
-    app_resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
-    callbacks::{CallbackInfo, RefAny, Update},
-    dom::{
-        CompactDom, Dom, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
-        TabIndex, TagId,
-    },
-    id_tree::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
-    style::{
-        construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
-        CascadeInfoVec,
-    },
-    window::Menu,
-    FastBTreeSet, FastHashMap,
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
 };
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::string::String;
-use alloc::vec::Vec;
+
 use azul_css::{
     AzString, Css, CssPath, CssProperty, CssPropertyType, LayoutAlignContentValue,
     LayoutAlignItemsValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
@@ -41,9 +28,21 @@ use azul_css::{
     StyleWordSpacingValue,
 };
 use azul_css_parser::CssApiWrapper;
-use core::{
-    fmt,
-    hash::{Hash, Hasher},
+
+use crate::{
+    FastBTreeSet, FastHashMap,
+    app_resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
+    callbacks::{CallbackInfo, RefAny, Update},
+    dom::{
+        CompactDom, Dom, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
+        TabIndex, TagId,
+    },
+    id_tree::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
+    style::{
+        CascadeInfo, CascadeInfoVec, construct_html_cascade_tree, matches_html_element,
+        rule_ends_with,
+    },
+    window::Menu,
 };
 
 #[repr(C)]
@@ -224,9 +223,7 @@ impl CssPropertyCache {
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
-        use azul_css::CssDeclaration;
-        use azul_css::CssPathPseudoSelector::*;
-        use azul_css::LayoutDisplay;
+        use azul_css::{CssDeclaration, CssPathPseudoSelector::*, LayoutDisplay};
 
         let css_is_empty = css.is_empty();
 
@@ -372,37 +369,42 @@ impl CssPropertyCache {
 
             // Inherit CSS properties from map A -> map B
             // map B will be populated with all inherited CSS properties
-            macro_rules! inherit_props {($from_inherit_map:expr, $to_inherit_map:expr) => {
-                let parent_inheritable_css_props = $from_inherit_map
-                .get(&parent_id)
-                .and_then(|map| {
-                    let parent_inherit_props = map
-                    .iter()
-                    .filter(|(css_prop_type, _)| css_prop_type.is_inheritable())
-                    .map(|(css_prop_type, css_prop)| (*css_prop_type, css_prop.clone()))
-                    .collect::<Vec<(CssPropertyType, CssProperty)>>();
-                    if parent_inherit_props.is_empty() { None } else { Some(parent_inherit_props) }
-                });
+            macro_rules! inherit_props {
+                ($from_inherit_map:expr, $to_inherit_map:expr) => {
+                    let parent_inheritable_css_props =
+                        $from_inherit_map.get(&parent_id).and_then(|map| {
+                            let parent_inherit_props = map
+                                .iter()
+                                .filter(|(css_prop_type, _)| css_prop_type.is_inheritable())
+                                .map(|(css_prop_type, css_prop)| (*css_prop_type, css_prop.clone()))
+                                .collect::<Vec<(CssPropertyType, CssProperty)>>();
+                            if parent_inherit_props.is_empty() {
+                                None
+                            } else {
+                                Some(parent_inherit_props)
+                            }
+                        });
 
+                    match parent_inheritable_css_props {
+                        Some(pi) => {
+                            // only override the rule if the child does not already have an
+                            // inherited rule
+                            for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
+                                let child_map = $to_inherit_map
+                                    .entry(child_id)
+                                    .or_insert_with(|| BTreeMap::new());
 
-                match parent_inheritable_css_props {
-                    Some(pi) => {
-                        // only override the rule if the child does not already have an inherited rule
-                        for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                            let child_map = $to_inherit_map
-                                .entry(child_id)
-                                .or_insert_with(|| BTreeMap::new());
-
-                            for (inherited_rule_type, inherited_rule_value) in pi.iter() {
-                                let _ = child_map
-                                .entry(*inherited_rule_type)
-                                .or_insert_with(|| inherited_rule_value.clone());
+                                for (inherited_rule_type, inherited_rule_value) in pi.iter() {
+                                    let _ = child_map
+                                        .entry(*inherited_rule_type)
+                                        .or_insert_with(|| inherited_rule_value.clone());
+                                }
                             }
                         }
-                    },
-                    None => { },
-                }
-            };}
+                        None => {}
+                    }
+                };
+            }
 
             // Same as inherit_props, but filters along the inline node data instead
             macro_rules! inherit_inline_css_props {($filter_type:ident, $to_inherit_map:expr) => {
@@ -2395,8 +2397,9 @@ impl StyledDom {
     //
     // The CSS will be left in-place, but will be re-ordered
     pub fn new(dom: &mut Dom, mut css: CssApiWrapper) -> Self {
-        use crate::dom::EventFilter;
         use core::mem;
+
+        use crate::dom::EventFilter;
 
         let mut swap_dom = Dom::body();
 
@@ -2759,8 +2762,9 @@ impl StyledDom {
 
     /// Inject a menu bar into the root component
     pub fn inject_menu_bar(mut self, menu_bar: &Menu) -> Self {
-        use crate::window::MenuItem;
         use azul_css_parser::CssApiWrapper;
+
+        use crate::window::MenuItem;
 
         let menu_dom = menu_bar
             .items
@@ -2798,7 +2802,6 @@ impl StyledDom {
     }
 
     pub fn restyle(&mut self, mut css: CssApiWrapper) {
-
         let new_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css.css,
             &self.node_data.as_container(),
@@ -2836,8 +2839,10 @@ impl StyledDom {
     /// and tabindex-able nodes.
     #[inline]
     pub fn insert_default_system_callbacks(&mut self, config: DefaultCallbacksCfg) {
-        use crate::callbacks::Callback;
-        use crate::dom::{CallbackData, EventFilter, FocusEventFilter, HoverEventFilter};
+        use crate::{
+            callbacks::Callback,
+            dom::{CallbackData, EventFilter, FocusEventFilter, HoverEventFilter},
+        };
 
         let scroll_refany = RefAny::new(DefaultScrollCallbackData {
             smooth_scroll: config.smooth_scroll,
@@ -2915,8 +2920,7 @@ impl StyledDom {
         &self,
         resources: &RendererResources,
     ) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
-        use crate::app_resources::font_size_to_au;
-        use crate::dom::NodeType::*;
+        use crate::{app_resources::font_size_to_au, dom::NodeType::*};
 
         let keys = self
             .node_data
@@ -2974,13 +2978,10 @@ impl StyledDom {
     }
 
     /// Scans the display list for all image keys
-    pub fn scan_for_image_keys(
-        &self,
-        css_image_cache: &ImageCache,
-    ) -> FastBTreeSet<ImageRef> {
-        use crate::app_resources::OptionImageMask;
-        use crate::dom::NodeType::*;
+    pub fn scan_for_image_keys(&self, css_image_cache: &ImageCache) -> FastBTreeSet<ImageRef> {
         use azul_css::StyleBackgroundContentVec;
+
+        use crate::{app_resources::OptionImageMask, dom::NodeType::*};
 
         #[derive(Default)]
         struct ScanImageVec {
@@ -3062,7 +3063,6 @@ impl StyledDom {
         nodes: &[NodeId],
         new_hover_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -3170,7 +3170,6 @@ impl StyledDom {
         nodes: &[NodeId],
         new_active_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -3280,7 +3279,6 @@ impl StyledDom {
         nodes: &[NodeId],
         new_focus_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -3391,7 +3389,6 @@ impl StyledDom {
         node_id: &NodeId,
         new_properties: &[CssProperty],
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-
         let mut map = BTreeMap::default();
 
         if new_properties.is_empty() {
@@ -3671,7 +3668,6 @@ impl StyledDom {
         node_data_container: &NodeDataContainerRef<NodeData>,
         css_property_cache: &CssPropertyCache,
     ) -> ContentGroup {
-
         let children_sorted = non_leaf_nodes
             .iter()
             .filter_map(|parent| {
@@ -3802,7 +3798,6 @@ fn fill_content_group_children(
     group: &mut ContentGroup,
     children_sorted: &BTreeMap<NodeHierarchyItemId, Vec<NodeHierarchyItemId>>,
 ) {
-
     if let Some(c) = children_sorted.get(&group.root) {
         // returns None for leaf nodes
         group.children = c
@@ -3868,7 +3863,8 @@ fn sort_children_by_position<'a>(
     not_absolute_children
 }
 
-// calls get_last_child() recursively until the last child of the last child of the ... has been found
+// calls get_last_child() recursively until the last child of the last child of the ... has been
+// found
 fn recursive_get_last_child(
     node_id: NodeId,
     node_hierarchy: &[NodeHierarchyItem],

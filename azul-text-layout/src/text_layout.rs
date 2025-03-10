@@ -1,35 +1,39 @@
 //! Contains functions for breaking a string into words, calculate
 //! the positions of words / lines and do glyph positioning
 
-pub use crate::text_shaping::ParsedFont;
+use alloc::{string::String, vec::Vec};
+
 pub use azul_core::{
     app_resources::{
-        Words, Word, WordType,
-        ShapedWords, ShapedWord, WordIndex, GlyphIndex, LineLength, IndexOfLineBreak,
-        RemainingSpaceToRight, LineBreaks, WordPositions, LayoutedGlyphs, FontMetrics,
+        FontMetrics, GlyphIndex, IndexOfLineBreak, LayoutedGlyphs, LineBreaks, LineLength,
+        RemainingSpaceToRight, ShapedWord, ShapedWords, Word, WordIndex, WordPositions, WordType,
+        Words,
     },
     callbacks::InlineText,
     display_list::GlyphInstance,
     ui_solver::{
-        ResolvedTextLayoutOptions, TextLayoutOptions, InlineTextLayout,
-        DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
+        DEFAULT_LETTER_SPACING, DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
+        InlineTextLayout, ResolvedTextLayoutOptions, TextLayoutOptions,
     },
-    window::{LogicalRect, LogicalSize, LogicalPosition},
+    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 pub use azul_css::FontRef;
-use alloc::vec::Vec;
-use alloc::string::String;
+
+pub use crate::text_shaping::ParsedFont;
 
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
 /// NOTE: EXPENSIVE function, needs to parse tables, etc.
-pub fn parse_font(font_bytes: &[u8], font_index: usize, parse_outlines: bool) -> Option<ParsedFont> {
+pub fn parse_font(
+    font_bytes: &[u8],
+    font_index: usize,
+    parse_outlines: bool,
+) -> Option<ParsedFont> {
     ParsedFont::from_bytes(font_bytes, font_index, parse_outlines)
 }
 
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
 pub fn split_text_into_words(text: &str) -> Words {
-
     use unicode_normalization::UnicodeNormalization;
 
     // Necessary because we need to handle both \n and \r\n characters
@@ -47,25 +51,20 @@ pub fn split_text_into_words(text: &str) -> Words {
     let mut last_char_was_whitespace = false;
 
     for (ch_idx, ch) in normalized_chars.iter().enumerate() {
-
         let ch = *ch;
         let current_char_is_whitespace = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 
         let should_push_delimiter = match ch {
-            ' ' => {
-                Some(Word {
-                    start: last_char_idx + 1,
-                    end: ch_idx + 1,
-                    word_type: WordType::Space
-                })
-            },
-            '\t' => {
-                Some(Word {
-                    start: last_char_idx + 1,
-                    end: ch_idx + 1,
-                    word_type: WordType::Tab
-                })
-            },
+            ' ' => Some(Word {
+                start: last_char_idx + 1,
+                end: ch_idx + 1,
+                word_type: WordType::Space,
+            }),
+            '\t' => Some(Word {
+                start: last_char_idx + 1,
+                end: ch_idx + 1,
+                word_type: WordType::Tab,
+            }),
             '\n' => {
                 Some(if normalized_chars[last_char_idx] == '\r' {
                     // "\r\n" return
@@ -82,16 +81,17 @@ pub fn split_text_into_words(text: &str) -> Words {
                         word_type: WordType::Return,
                     }
                 })
-            },
+            }
             _ => None,
         };
 
-        // Character is a whitespace or the character is the last character in the text (end of text)
+        // Character is a whitespace or the character is the last character in the text (end of
+        // text)
         let should_push_word = if current_char_is_whitespace && !last_char_was_whitespace {
             Some(Word {
                 start: current_word_start,
                 end: ch_idx,
-                word_type: WordType::Word
+                word_type: WordType::Word,
             })
         } else {
             None
@@ -101,7 +101,7 @@ pub fn split_text_into_words(text: &str) -> Words {
             current_word_start = ch_idx + 1;
         }
 
-        let mut push_words = |arr: [Option<Word>;2]| {
+        let mut push_words = |arr: [Option<Word>; 2]| {
             words.extend(arr.iter().filter_map(|e| *e));
         };
 
@@ -116,12 +116,16 @@ pub fn split_text_into_words(text: &str) -> Words {
         words.push(Word {
             start: current_word_start,
             end: normalized_chars.len(),
-            word_type: WordType::Word
+            word_type: WordType::Word,
         });
     }
 
     // If the last item is a `Return`, remove it
-    if let Some(Word { word_type: WordType::Return, .. }) = words.last() {
+    if let Some(Word {
+        word_type: WordType::Return,
+        ..
+    }) = words.last()
+    {
         words.pop();
     }
 
@@ -135,40 +139,43 @@ pub fn split_text_into_words(text: &str) -> Words {
 /// Takes a text broken into semantic items and shape all the words
 /// (does NOT scale the words, only shapes them)
 pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
-
     use crate::text_shaping;
 
     let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph
-    let space_advance = font.get_space_width().unwrap_or(font.font_metrics.units_per_em as usize);
+    let space_advance = font
+        .get_space_width()
+        .unwrap_or(font.font_metrics.units_per_em as usize);
 
     let mut longest_word_width = 0_usize;
 
     // NOTE: This takes the longest part of the entire layout process -- NEED TO PARALLELIZE
-    let shaped_words = words.items
-    .iter()
-    .filter(|w| w.word_type == WordType::Word)
-    .map(|word| {
-        use crate::text_shaping::ShapedTextBufferUnsized;
+    let shaped_words = words
+        .items
+        .iter()
+        .filter(|w| w.word_type == WordType::Word)
+        .map(|word| {
+            use crate::text_shaping::ShapedTextBufferUnsized;
 
-        let chars = &words.internal_chars.as_ref()[word.start..word.end];
-        let shaped_word = font.shape(chars, script, lang);
-        let word_width = shaped_word.get_word_visual_width_unscaled();
+            let chars = &words.internal_chars.as_ref()[word.start..word.end];
+            let shaped_word = font.shape(chars, script, lang);
+            let word_width = shaped_word.get_word_visual_width_unscaled();
 
-        longest_word_width = longest_word_width.max(word_width);
+            longest_word_width = longest_word_width.max(word_width);
 
-        let ShapedTextBufferUnsized { infos } = shaped_word;
+            let ShapedTextBufferUnsized { infos } = shaped_word;
 
-        ShapedWord {
-            glyph_infos: infos.into(),
-            word_width,
-        }
-    }).collect();
+            ShapedWord {
+                glyph_infos: infos.into(),
+                word_width,
+            }
+        })
+        .collect();
 
     ShapedWords {
         items: shaped_words,
-        longest_word_width: longest_word_width,
+        longest_word_width,
         space_advance,
         font_metrics_units_per_em: font.font_metrics.units_per_em,
         font_metrics_ascender: font.font_metrics.get_ascender_unscaled(),
@@ -177,22 +184,44 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
     }
 }
 
-/// Positions the words on the screen (does not layout any glyph positions!), necessary for estimating
-/// the intrinsic width + height of the text content.
-pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_options: &ResolvedTextLayoutOptions) -> WordPositions {
-
-    use self::WordType::*;
-    use self::LineCaretIntersection::*;
+/// Positions the words on the screen (does not layout any glyph positions!), necessary for
+/// estimating the intrinsic width + height of the text content.
+pub fn position_words(
+    words: &Words,
+    shaped_words: &ShapedWords,
+    text_layout_options: &ResolvedTextLayoutOptions,
+) -> WordPositions {
     use core::f32;
-    use azul_core::app_resources::WordPosition;
-    use azul_core::ui_solver::InlineTextLine;
+
+    use azul_core::{app_resources::WordPosition, ui_solver::InlineTextLine};
+
+    use self::{LineCaretIntersection::*, WordType::*};
 
     let font_size_px = text_layout_options.font_size_px;
     let space_advance_px = shaped_words.get_space_advance_px(text_layout_options.font_size_px);
-    let word_spacing_px = space_advance_px * text_layout_options.word_spacing.as_ref().copied().unwrap_or(DEFAULT_WORD_SPACING);
-    let line_height_px = space_advance_px * text_layout_options.line_height.as_ref().copied().unwrap_or(DEFAULT_LINE_HEIGHT);
-    let tab_width_px = space_advance_px * text_layout_options.tab_width.as_ref().copied().unwrap_or(DEFAULT_TAB_WIDTH);
-    let spacing_multiplier = text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
+    let word_spacing_px = space_advance_px
+        * text_layout_options
+            .word_spacing
+            .as_ref()
+            .copied()
+            .unwrap_or(DEFAULT_WORD_SPACING);
+    let line_height_px = space_advance_px
+        * text_layout_options
+            .line_height
+            .as_ref()
+            .copied()
+            .unwrap_or(DEFAULT_LINE_HEIGHT);
+    let tab_width_px = space_advance_px
+        * text_layout_options
+            .tab_width
+            .as_ref()
+            .copied()
+            .unwrap_or(DEFAULT_TAB_WIDTH);
+    let spacing_multiplier = text_layout_options
+        .letter_spacing
+        .as_ref()
+        .copied()
+        .unwrap_or(0.0);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -208,20 +237,20 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
     for (word_idx, word) in words.items.iter().enumerate() {
         match word.word_type {
             Word => {
-
-                // shaped words only contains the actual shaped words, not spaces / tabs / return chars
+                // shaped words only contains the actual shaped words, not spaces / tabs / return
+                // chars
                 let shaped_word = match shaped_words.items.get(shaped_word_idx) {
                     Some(s) => s,
                     None => continue,
                 };
 
-                let letter_spacing_px = spacing_multiplier * shaped_word
-                .number_of_glyphs().saturating_sub(1) as f32;
+                let letter_spacing_px =
+                    spacing_multiplier * shaped_word.number_of_glyphs().saturating_sub(1) as f32;
 
                 // Calculate where the caret would be for the next word
                 let shaped_word_width = shaped_word.get_word_width(
                     shaped_words.font_metrics_units_per_em,
-                    text_layout_options.font_size_px
+                    text_layout_options.font_size_px,
                 ) + letter_spacing_px;
 
                 // Determine if a line break is necessary
@@ -239,11 +268,14 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                         word_positions.push(WordPosition {
                             shaped_word_index: Some(shaped_word_idx),
                             position: LogicalPosition::new(line_caret_x, line_caret_y),
-                            size: LogicalSize::new(shaped_word_width, font_size_px + line_height_px),
+                            size: LogicalSize::new(
+                                shaped_word_width,
+                                font_size_px + line_height_px,
+                            ),
                         });
                         line_caret_x = new_x;
                         line_caret_y = new_y;
-                    },
+                    }
                     LineBreak { new_x, new_y } => {
                         // push the line break first
                         line_breaks.push(InlineTextLine {
@@ -251,7 +283,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                             word_end: word_idx.saturating_sub(1).max(last_line_start_idx),
                             bounds: LogicalRect::new(
                                 LogicalPosition::new(0.0, line_caret_y),
-                                LogicalSize::new(line_caret_x, font_size_px + line_height_px)
+                                LogicalSize::new(line_caret_x, font_size_px + line_height_px),
                             ),
                         });
                         last_line_start_idx = word_idx;
@@ -259,16 +291,19 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                         word_positions.push(WordPosition {
                             shaped_word_index: Some(shaped_word_idx),
                             position: LogicalPosition::new(new_x, new_y),
-                            size: LogicalSize::new(shaped_word_width, font_size_px + line_height_px),
+                            size: LogicalSize::new(
+                                shaped_word_width,
+                                font_size_px + line_height_px,
+                            ),
                         });
                         line_caret_x = new_x + shaped_word_width; // add word width for the next word
                         line_caret_y = new_y;
-                    },
+                    }
                 }
 
                 shaped_word_idx += 1;
                 last_shaped_word_word_idx = word_idx;
-            },
+            }
             Return => {
                 if word_idx != last_word_idx {
                     line_breaks.push(InlineTextLine {
@@ -291,7 +326,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                     line_caret_x = 0.0;
                     line_caret_y = line_caret_y + font_size_px + line_height_px;
                 }
-            },
+            }
             Space | Tab => {
                 let x_advance = match word.word_type {
                     Space => word_spacing_px,
@@ -316,7 +351,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                         });
                         line_caret_x = new_x;
                         line_caret_y = new_y;
-                    },
+                    }
                     LineBreak { new_x, new_y } => {
                         // push the line break before increasing
                         if word_idx != last_word_idx {
@@ -325,7 +360,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                                 word_end: word_idx.saturating_sub(1).max(last_line_start_idx),
                                 bounds: LogicalRect::new(
                                     LogicalPosition::new(0.0, line_caret_y),
-                                    LogicalSize::new(line_caret_x, font_size_px + line_height_px)
+                                    LogicalSize::new(line_caret_x, font_size_px + line_height_px),
                                 ),
                             });
                             last_line_start_idx = word_idx;
@@ -339,7 +374,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                             line_caret_x = new_x; // don't add the space width here when pushing onto new line
                             line_caret_y = new_y;
                         }
-                    },
+                    }
                 }
             }
         }
@@ -350,16 +385,21 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
         word_end: last_shaped_word_word_idx,
         bounds: LogicalRect::new(
             LogicalPosition::new(0.0, line_caret_y),
-            LogicalSize::new(line_caret_x, font_size_px + line_height_px)
+            LogicalSize::new(line_caret_x, font_size_px + line_height_px),
         ),
     });
 
-    let longest_line_width = line_breaks.iter()
-    .map(|line| line.bounds.size.width)
-    .fold(0.0_f32, f32::max);
+    let longest_line_width = line_breaks
+        .iter()
+        .map(|line| line.bounds.size.width)
+        .fold(0.0_f32, f32::max);
 
     let content_size_y = line_breaks.len() as f32 * (font_size_px + line_height_px);
-    let content_size_x = text_layout_options.max_horizontal_width.as_ref().copied().unwrap_or(longest_line_width);
+    let content_size_x = text_layout_options
+        .max_horizontal_width
+        .as_ref()
+        .copied()
+        .unwrap_or(longest_line_width);
     let content_size = LogicalSize::new(content_size_x, content_size_y);
 
     WordPositions {
@@ -400,28 +440,27 @@ impl LineCaretIntersection {
         line_height: f32,
         max_width: Option<f32>,
     ) -> Self {
-
         match max_width {
             None => LineCaretIntersection::NoLineBreak {
                 new_x: current_x + word_width,
-                new_y: current_y
+                new_y: current_y,
             },
             Some(max) => {
                 // window smaller than minimum word content: don't break line
                 if current_x == 0.0 && max < word_width {
                     LineCaretIntersection::NoLineBreak {
                         new_x: current_x + word_width,
-                        new_y: current_y
+                        new_y: current_y,
                     }
                 } else if (current_x + word_width) > max {
                     LineCaretIntersection::LineBreak {
                         new_x: 0.0,
-                        new_y: current_y + line_height
+                        new_y: current_y + line_height,
                     }
                 } else {
                     LineCaretIntersection::NoLineBreak {
                         new_x: current_x + word_width,
-                        new_y: current_y
+                        new_y: current_y,
                     }
                 }
             }
@@ -430,7 +469,6 @@ impl LineCaretIntersection {
 }
 
 pub fn shape_text(font: &FontRef, text: &str, options: &ResolvedTextLayoutOptions) -> InlineText {
-
     let font_data = font.get_data();
     let parsed_font_downcasted = unsafe { &*(font_data.parsed as *const ParsedFont) };
 
@@ -443,217 +481,6 @@ pub fn shape_text(font: &FontRef, text: &str, options: &ResolvedTextLayoutOption
         &words,
         &shaped_words,
         &word_positions,
-        &inline_text_layout
+        &inline_text_layout,
     )
-}
-
-#[test]
-fn test_split_words() {
-
-    fn print_words(w: &Words) {
-        println!("-- string: {:?}", w.get_str());
-        for item in &w.items {
-            println!("{:?} - ({}..{}) = {:?}", w.get_substr(item), item.start, item.end, item.word_type);
-        }
-    }
-
-    fn string_to_vec(s: String) -> Vec<char> {
-        s.chars().collect()
-    }
-
-    fn assert_words(expected: &Words, got_words: &Words) {
-        for (idx, expected_word) in expected.items.iter().enumerate() {
-            let got = got_words.items.get(idx);
-            if got != Some(expected_word) {
-                println!("expected: ");
-                print_words(expected);
-                println!("got: ");
-                print_words(got_words);
-                panic!("Expected word idx {} - expected: {:#?}, got: {:#?}", idx, Some(expected_word), got);
-            }
-        }
-    }
-
-    let ascii_str = String::from("abc\tdef  \nghi\r\njkl");
-    let words_ascii = split_text_into_words(&ascii_str);
-    let words_ascii_expected = Words {
-        internal_str: ascii_str.clone(),
-        internal_chars: string_to_vec(ascii_str),
-        items: vec![
-            Word { start: 0,    end: 3,     word_type: WordType::Word     }, // "abc" - (0..3) = Word
-            Word { start: 3,    end: 4,     word_type: WordType::Tab      }, // "\t" - (3..4) = Tab
-            Word { start: 4,    end: 7,     word_type: WordType::Word     }, // "def" - (4..7) = Word
-            Word { start: 7,    end: 8,     word_type: WordType::Space    }, // " " - (7..8) = Space
-            Word { start: 8,    end: 9,     word_type: WordType::Space    }, // " " - (8..9) = Space
-            Word { start: 9,    end: 10,    word_type: WordType::Return   }, // "\n" - (9..10) = Return
-            Word { start: 10,   end: 13,    word_type: WordType::Word     }, // "ghi" - (10..13) = Word
-            Word { start: 13,   end: 15,    word_type: WordType::Return   }, // "\r\n" - (13..15) = Return
-            Word { start: 15,   end: 18,    word_type: WordType::Word     }, // "jkl" - (15..18) = Word
-        ],
-    };
-
-    assert_words(&words_ascii_expected, &words_ascii);
-
-    let unicode_str = String::from("㌊㌋㌌㌍㌎㌏㌐㌑ ㌒㌓㌔㌕㌖㌗");
-    let words_unicode = split_text_into_words(&unicode_str);
-    let words_unicode_expected = Words {
-        internal_str: unicode_str.clone(),
-        internal_chars: string_to_vec(unicode_str),
-        items: vec![
-            Word { start: 0,        end: 8,         word_type: WordType::Word   }, // "㌊㌋㌌㌍㌎㌏㌐㌑"
-            Word { start: 8,        end: 9,         word_type: WordType::Space  }, // " "
-            Word { start: 9,        end: 15,        word_type: WordType::Word   }, // "㌒㌓㌔㌕㌖㌗"
-        ],
-    };
-
-    assert_words(&words_unicode_expected, &words_unicode);
-
-    let single_str = String::from("A");
-    let words_single_str = split_text_into_words(&single_str);
-    let words_single_str_expected = Words {
-        internal_str: single_str.clone(),
-        internal_chars: string_to_vec(single_str),
-        items: vec![
-            Word { start: 0,        end: 1,         word_type: WordType::Word   }, // "A"
-        ],
-    };
-
-    assert_words(&words_single_str_expected, &words_single_str);
-}
-
-// Scenario 1:
-//
-// +---------+
-// |+ ------>|+
-// |         |
-// +---------+
-// rectangle: 100x200
-// max-width: none, line-height 1.0, font-size: 20
-// cursor is at: 0x, 20y
-// expect cursor to advance to 100x, 20y
-//
-#[test]
-fn test_caret_intersects_with_holes_1() {
-    let line_caret_x = 0.0;
-    let line_number = 0;
-    let font_size_px = 20.0;
-    let line_height_px = 0.0;
-    let max_width = None;
-    let holes = vec![LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0))];
-
-    let result = caret_intersects_with_holes(
-        line_caret_x,
-        line_number,
-        font_size_px,
-        line_height_px,
-        &holes,
-        max_width,
-    );
-
-    assert_eq!(result, LineCaretIntersection::AdvanceCaretTo(200.0));
-}
-
-// Scenario 2:
-//
-// +---------+
-// |+ -----> |
-// |-------> |
-// |---------|
-// |+        |
-// |         |
-// +---------+
-// rectangle: 100x200
-// max-width: 200px, line-height 1.0, font-size: 20
-// cursor is at: 0x, 20y
-// expect cursor to advance to 0x, 100y (+= 4 lines)
-//
-#[test]
-fn test_caret_intersects_with_holes_2() {
-    let line_caret_x = 0.0;
-    let line_number = 0;
-    let font_size_px = 20.0;
-    let line_height_px = 0.0;
-    let max_width = Some(200.0);
-    let holes = vec![LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0))];
-
-    let result = caret_intersects_with_holes(
-        line_caret_x,
-        line_number,
-        font_size_px,
-        line_height_px,
-        &holes,
-        max_width,
-    );
-
-    assert_eq!(result, LineCaretIntersection::PushCaretOntoNextLine(4, 0.0));
-}
-
-// Scenario 3:
-//
-// +----------------+
-// |      |         |  +----->
-// |------->+       |
-// |------+         |
-// |                |
-// |                |
-// +----------------+
-// rectangle: 100x200
-// max-width: 400px, line-height 1.0, font-size: 20
-// cursor is at: 450x, 20y
-// expect cursor to advance to 200x, 40y (+= 1 lines, leading of 200px)
-//
-#[test]
-fn test_caret_intersects_with_holes_3() {
-    let line_caret_x = 450.0;
-    let line_number = 0;
-    let font_size_px = 20.0;
-    let line_height_px = 0.0;
-    let max_width = Some(400.0);
-    let holes = vec![LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0))];
-
-    let result = caret_intersects_with_holes(
-        line_caret_x,
-        line_number,
-        font_size_px,
-        line_height_px,
-        &holes,
-        max_width,
-    );
-
-    assert_eq!(result, LineCaretIntersection::PushCaretOntoNextLine(1, 200.0));
-}
-
-// Scenario 4:
-//
-// +----------------+
-// | +   +------+   |
-// |     |      |   |
-// |     |      |   |
-// |     +------+   |
-// |                |
-// +----------------+
-// rectangle: 100x200 @ 80.0x, 20.0y
-// max-width: 400px, line-height 1.0, font-size: 20
-// cursor is at: 40x, 20y
-// expect cursor to not advance at all
-//
-#[test]
-fn test_caret_intersects_with_holes_4() {
-    let line_caret_x = 40.0;
-    let line_number = 0;
-    let font_size_px = 20.0;
-    let line_height_px = 0.0;
-    let max_width = Some(400.0);
-    let holes = vec![LogicalRect::new(LogicalPosition::new(80.0, 20.0), LogicalSize::new(200.0, 100.0))];
-
-    let result = caret_intersects_with_holes(
-        line_caret_x,
-        line_number,
-        font_size_px,
-        line_height_px,
-        &holes,
-        max_width,
-    );
-
-    assert_eq!(result, LineCaretIntersection::NoIntersection);
 }

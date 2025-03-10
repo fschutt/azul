@@ -211,12 +211,11 @@
 */
 
 use core::{
-    char,
-    ptr,
+    char, ptr,
     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
 };
-use azul_core::window::{ScanCode, VirtualKeyCode};
 
+use azul_core::window::{ScanCode, VirtualKeyCode};
 use winapi::{
     shared::minwindef::{HKL, HKL__, LPARAM, UINT, WPARAM},
     um::winuser,
@@ -349,8 +348,8 @@ fn layout_uses_altgr() -> bool {
         }
 
         let mut keyboard_state_altgr = [0u8; 256];
-        // AltGr is an alias for Ctrl+Alt for... some reason. Whatever it is, those are the keypresses
-        // we have to emulate to do an AltGr test.
+        // AltGr is an alias for Ctrl+Alt for... some reason. Whatever it is, those are the
+        // keypresses we have to emulate to do an AltGr test.
         keyboard_state_altgr[winuser::VK_MENU as usize] = 0x80;
         keyboard_state_altgr[winuser::VK_CONTROL as usize] = 0x80;
 
@@ -549,11 +548,7 @@ pub fn vkey_to_winit_vkey(vkey: i32) -> Option<VirtualKeyCode> {
     }
 }
 
-pub fn handle_extended_keys(
-    vkey: i32,
-    mut scancode: UINT,
-    extended: bool,
-) -> Option<(i32, UINT)> {
+pub fn handle_extended_keys(vkey: i32, mut scancode: UINT, extended: bool) -> Option<(i32, UINT)> {
     // Welcome to hell https://blog.molecular-matters.com/2011/09/05/properly-handling-keyboard-input/
     scancode = if extended { 0xE000 } else { 0x0000 } | scancode;
     let vkey = match vkey {
@@ -576,8 +571,9 @@ pub fn handle_extended_keys(
         }
         _ => {
             match scancode {
-                // When VK_PAUSE is pressed it emits a LeftControl + NumLock scancode event sequence, but reports VK_PAUSE
-                // as the virtual key on both events, or VK_PAUSE on the first event or 0xFF when using raw input.
+                // When VK_PAUSE is pressed it emits a LeftControl + NumLock scancode event
+                // sequence, but reports VK_PAUSE as the virtual key on both events,
+                // or VK_PAUSE on the first event or 0xFF when using raw input.
                 // Don't emit anything for the LeftControl event in the pair...
                 0xE01D if vkey == winuser::VK_PAUSE => return None,
                 // ...and emit the Pause event for the second event in the pair.
@@ -585,8 +581,9 @@ pub fn handle_extended_keys(
                     scancode = 0xE059;
                     winuser::VK_PAUSE
                 }
-                // VK_PAUSE has an incorrect vkey value when used with modifiers. VK_PAUSE also reports a different
-                // scancode when used with modifiers than when used without
+                // VK_PAUSE has an incorrect vkey value when used with modifiers. VK_PAUSE also
+                // reports a different scancode when used with modifiers than when
+                // used without
                 0xE046 => {
                     scancode = 0xE059;
                     winuser::VK_PAUSE

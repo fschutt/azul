@@ -1,28 +1,32 @@
 #![allow(unused_variables)]
+use alloc::{
+    boxed::Box,
+    rc::Rc,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
+
+use azul_css::{AzString, ColorF, ColorU, StringVec, U8Vec};
+pub use gl_context_loader::{
+    GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat, GLint,
+    GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid, ctypes::*,
+};
+use gl_context_loader::{GenericGlContext, GlType, gl};
+
 use crate::{
+    FastHashMap,
     app_resources::{
         Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat,
     },
     callbacks::DocumentId,
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::{PhysicalSizeU32, RendererType},
-    FastHashMap,
 };
-use alloc::boxed::Box;
-use alloc::rc::Rc;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use azul_css::{AzString, ColorF, ColorU, StringVec, U8Vec};
-use core::{
-    fmt,
-    hash::{Hash, Hasher},
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-};
-pub use gl_context_loader::{
-    ctypes::*, GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat,
-    GLint, GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid,
-};
-use gl_context_loader::{gl, GenericGlContext, GlType};
 
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
@@ -705,7 +709,8 @@ pub(crate) type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageI
 ///
 /// See: https://github.com/servo/webrender/issues/2940
 ///
-/// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever be misused)
+/// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever
+/// be misused)
 static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<DocumentId, GlTextureStorage>> = None;
 
 /// Inserts a new texture into the OpenGL texture cache, returns a new image ID
@@ -2414,7 +2419,8 @@ pub struct Texture {
     pub size: PhysicalSizeU32,
     /// Background color of this texture
     pub background_color: ColorU,
-    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
+    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in
+    /// the destructor)
     pub gl_context: GlContextPtr,
     /// Format of the texture (rgba8, brga8, etc.)
     pub format: RawImageFormat,
@@ -2709,7 +2715,7 @@ macro_rules! impl_traits_for_gl_object {
             }
         }
     };
-    ($struct_name:ident<$lt:lifetime>, $gl_id_field:ident) => {
+    ($struct_name:ident < $lt:lifetime > , $gl_id_field:ident) => {
         impl<$lt> ::core::fmt::Debug for $struct_name<$lt> {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
@@ -2742,7 +2748,7 @@ macro_rules! impl_traits_for_gl_object {
             }
         }
     };
-    ($struct_name:ident<$t:ident: $constraint:ident>, $gl_id_field:ident) => {
+    ($struct_name:ident < $t:ident : $constraint:ident > , $gl_id_field:ident) => {
         impl<$t: $constraint> ::core::fmt::Debug for $struct_name<$t> {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
@@ -2872,9 +2878,11 @@ pub struct VertexAttribute {
     /// If the vertex shader has a specific location, (like `layout(location = 2) vAttrXY`),
     /// use this instead of the name to look up the uniform location.
     pub layout_location: OptionUsize,
-    /// Type of items of this attribute (i.e. for a `FloatVec2`, would be `VertexAttributeType::Float`)
+    /// Type of items of this attribute (i.e. for a `FloatVec2`, would be
+    /// `VertexAttributeType::Float`)
     pub attribute_type: VertexAttributeType,
-    /// Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2 consecutive f32 values))
+    /// Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2 consecutive
+    /// f32 values))
     pub item_count: usize,
 }
 
@@ -2906,7 +2914,8 @@ pub enum VertexAttributeType {
 }
 
 impl VertexAttributeType {
-    /// Returns the OpenGL id for the vertex attribute type, ex. `gl::UNSIGNED_BYTE` for `VertexAttributeType::UnsignedByte`.
+    /// Returns the OpenGL id for the vertex attribute type, ex. `gl::UNSIGNED_BYTE` for
+    /// `VertexAttributeType::UnsignedByte`.
     pub fn get_gl_id(&self) -> GLuint {
         use self::VertexAttributeType::*;
         match self {
@@ -2919,8 +2928,9 @@ impl VertexAttributeType {
     }
 
     pub fn get_mem_size(&self) -> usize {
-        use self::VertexAttributeType::*;
         use core::mem;
+
+        use self::VertexAttributeType::*;
         match self {
             Float => mem::size_of::<f32>(),
             Double => mem::size_of::<f64>(),
@@ -3055,7 +3065,8 @@ impl VertexBuffer {
 
         gl_context.get_integer_v(gl::VERTEX_ARRAY, (&mut current_vertex_array[..]).into());
         // gl_context.get_integer_v(gl::ARRAY_BUFFER, (&mut current_vertex_buffer[..]).into());
-        // gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, (&mut current_index_buffer[..]).into());
+        // gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, (&mut
+        // current_index_buffer[..]).into());
 
         let vertex_array_object = gl_context.gen_vertex_arrays(1);
         let vertex_array_object = vertex_array_object.get(0).unwrap();
@@ -3367,9 +3378,11 @@ impl ::core::fmt::Debug for GlShaderCreateError {
 }
 
 impl GlShader {
-    /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
+    /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader
+    /// string.
     ///
-    /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
+    /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup
+    /// necessary.
     pub fn new(
         gl_context: &GlContextPtr,
         vertex_shader: &str,

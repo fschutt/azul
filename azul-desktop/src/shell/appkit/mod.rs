@@ -1,71 +1,80 @@
 #![cfg(target_os = "macos")]
-use std::collections::BTreeMap;
-use std::ffi::{CStr, CString};
-use std::ptr::NonNull;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use azul_core::app_resources::ImageCache;
-use azul_core::callbacks::{DomNodeId, HitTestItem};
-use azul_core::gl::OptionGlContextPtr;
-use azul_core::task::{Thread, ThreadId, Timer, TimerId};
-use azul_core::ui_solver::QuickResizeResult;
-use azul_core::window_state::NodesToCheck;
-use azul_core::{FastBTreeSet, FastHashMap};
-use gl_context_loader::GenericGlContext;
-use objc2::declare::ClassDecl;
-use objc2::runtime::{AnyClass, AnyObject, Class, ClassBuilder, Object, ProtocolObject, Sel};
-use objc2::*;
-use azul_core::window::{CursorPosition, HwAcceleration, LogicalPosition, MacOSHandle, Menu, MenuCallback, MonitorVec, MouseCursorType, PhysicalPositionI32, PhysicalSize, RendererType, ScrollResult, VirtualKeyCode, WindowFrame, WindowInternal, WindowInternalInit, WindowPosition};
-use azul_core::window::WindowCreateOptions;
-use objc2_core_foundation::CGFloat;
-use crate::app::{self, App, LazyFcCache};
-use crate::compositor::Compositor;
-use crate::wr_translate::{generate_frame, rebuild_display_list, translate_document_id_wr, translate_id_namespace_wr, wr_synchronize_updated_images, wr_translate_document_id, AsyncHitTester};
-use objc2::runtime::YES;
-use objc2::rc::{autoreleasepool, AutoreleasePool, Retained};
-use objc2_app_kit::{
-    NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSView, NSWindowStyleMask,
-    NSWindowWillCloseNotification, NSWindowDidResizeNotification,
-    NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
-    NSWindowDidChangeBackingPropertiesNotification,
-};
-use objc2_app_kit::NSApp;
-use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationCenter, NSNotificationName, NSObjectProtocol};
-use objc2::ffi::id;
-use objc2_foundation::NSRect;
-use objc2_foundation::NSString;
-use objc2::ffi::nil;
-use objc2_app_kit::NSWindow;
-use objc2_foundation::NSSize;
-use objc2_foundation::NSPoint;
-use std::ffi::c_void;
-use objc2_app_kit::NSBackingStoreType;
-use objc2_app_kit::NSApplicationActivationPolicy;
-use std::{fmt, mem, os::raw::c_char, ptr, rc::Rc};
-use self::gl::GlFunctions;
-use objc2::rc::Id;
-use super::{MenuTarget, CommandMap};
-use azul_core::window::{RawWindowHandle, WindowId, WindowsHandle};
-use webrender::{
-    api::{
-        units::{
-            DeviceIntPoint as WrDeviceIntPoint,
-            DeviceIntRect as WrDeviceIntRect,
-            DeviceIntSize as WrDeviceIntSize,
-            LayoutSize as WrLayoutSize,
-        },
-        HitTesterRequest as WrHitTesterRequest,
-        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
-        RenderNotifier as WrRenderNotifier,
+use std::{
+    collections::BTreeMap,
+    ffi::{CStr, CString, c_void},
+    fmt, mem,
+    os::raw::c_char,
+    ptr,
+    ptr::NonNull,
+    rc::Rc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
-    render_api::RenderApi as WrRenderApi,
+};
+
+use azul_core::{
+    FastBTreeSet, FastHashMap,
+    app_resources::ImageCache,
+    callbacks::{DomNodeId, HitTestItem},
+    gl::OptionGlContextPtr,
+    task::{Thread, ThreadId, Timer, TimerId},
+    ui_solver::QuickResizeResult,
+    window::{
+        CursorPosition, HwAcceleration, LogicalPosition, MacOSHandle, Menu, MenuCallback,
+        MonitorVec, MouseCursorType, PhysicalPositionI32, PhysicalSize, RawWindowHandle,
+        RendererType, ScrollResult, VirtualKeyCode, WindowCreateOptions, WindowFrame, WindowId,
+        WindowInternal, WindowInternalInit, WindowPosition, WindowsHandle,
+    },
+    window_state::NodesToCheck,
+};
+use gl_context_loader::GenericGlContext;
+use objc2::{
+    declare::ClassDecl,
+    ffi::{id, nil},
+    rc::{AutoreleasePool, Id, Retained, autoreleasepool},
+    runtime::{AnyClass, AnyObject, Class, ClassBuilder, Object, ProtocolObject, Sel, YES},
+    *,
+};
+use objc2_app_kit::{
+    NSApp, NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplicationActivationPolicy,
+    NSBackingStoreType, NSView, NSWindow, NSWindowDidBecomeKeyNotification,
+    NSWindowDidChangeBackingPropertiesNotification, NSWindowDidResignKeyNotification,
+    NSWindowDidResizeNotification, NSWindowStyleMask, NSWindowWillCloseNotification,
+};
+use objc2_core_foundation::CGFloat;
+use objc2_foundation::{
+    MainThreadMarker, NSNotification, NSNotificationCenter, NSNotificationName, NSObjectProtocol,
+    NSPoint, NSRect, NSSize, NSString,
+};
+use webrender::{
     PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
     RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
     Shaders as WrShaders, Transaction as WrTransaction,
+    api::{
+        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
+        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
+        units::{
+            DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
+            DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
+        },
+    },
+    render_api::RenderApi as WrRenderApi,
 };
 
-mod menu;
+use self::gl::GlFunctions;
+use super::{CommandMap, MenuTarget};
+use crate::{
+    app::{self, App, LazyFcCache},
+    compositor::Compositor,
+    wr_translate::{
+        AsyncHitTester, generate_frame, rebuild_display_list, translate_document_id_wr,
+        translate_id_namespace_wr, wr_synchronize_updated_images, wr_translate_document_id,
+    },
+};
+
 mod gl;
+mod menu;
 
 /// OpenGL context guard, to be returned by window.make_current_gl()
 pub(crate) struct GlContextGuard {
@@ -80,7 +89,7 @@ pub(crate) struct MacApp {
 pub(crate) struct AppData {
     pub userdata: App,
     pub active_menus: BTreeMap<MenuTarget, CommandMap>,
-    pub windows: BTreeMap<WindowId, Window>
+    pub windows: BTreeMap<WindowId, Window>,
 }
 
 pub(crate) struct Window {
@@ -112,11 +121,10 @@ pub(crate) struct Window {
 }
 
 impl Window {
-
     // Creates an NSWindow and hooks up an NSOpenGLView
     fn create(
         mtm: &MainThreadMarker,
-        mut options: WindowCreateOptions, 
+        mut options: WindowCreateOptions,
         ns_opengl_view: &AnyClass,
         ns_menu_view: &AnyClass,
         megaclass: &MacApp,
@@ -147,7 +155,10 @@ impl Window {
         window.center();
         window.setTitle(&NSString::from_str(&options.state.title));
 
-        let dpi_factor = window.screen().map(|s| s.backingScaleFactor()).unwrap_or(1.0);
+        let dpi_factor = window
+            .screen()
+            .map(|s| s.backingScaleFactor())
+            .unwrap_or(1.0);
         options.state.size.dpi = (dpi_factor * 96.0) as u32;
 
         let physical_size = if options.size_to_content {
@@ -206,10 +217,8 @@ impl Window {
         let mut render_api = sender.create_api();
 
         // Our “initial” device size
-        let framebuffer_size = WrDeviceIntSize::new(
-            physical_size.width as i32,
-            physical_size.height as i32,
-        );
+        let framebuffer_size =
+            WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
         let doc_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
         let pipeline_id = azul_core::callbacks::PipelineId::new();
@@ -247,7 +256,9 @@ impl Window {
                 azul_layout::do_the_relayout,
                 |window_state, scroll_states, layout_results| {
                     crate::wr_translate::fullhittest_new_webrender(
-                        &*render_api.request_hit_tester(wr_translate_document_id(doc_id)).resolve(),
+                        &*render_api
+                            .request_hit_tester(wr_translate_document_id(doc_id))
+                            .resolve(),
                         doc_id,
                         window_state.focused_node,
                         layout_results,
@@ -259,7 +270,6 @@ impl Window {
         });
 
         if options.size_to_content {
-
             let content_size = internal.get_content_size();
             let current_frame = window.frame();
             internal.current_window_state.size.dimensions = content_size;
@@ -270,13 +280,14 @@ impl Window {
             );
 
             window.setFrame_display(resized_frame, true);
-
         }
 
         // sync WindowInternal with reality
         let current_frame = window.frame();
-        internal.current_window_state.size.dimensions.width = current_frame.size.width.round() as f32;
-        internal.current_window_state.size.dimensions.height = current_frame.size.height.round() as f32;
+        internal.current_window_state.size.dimensions.width =
+            current_frame.size.width.round() as f32;
+        internal.current_window_state.size.dimensions.height =
+            current_frame.size.height.round() as f32;
         internal.current_window_state.position = WindowPosition::Initialized(PhysicalPositionI32 {
             x: current_frame.origin.x.round() as i32,
             y: current_frame.origin.y.round() as i32,
@@ -304,7 +315,12 @@ impl Window {
         render_api.flush_scene_builder();
 
         // Rebuild display list for the first time
-        rebuild_display_list(&mut internal, &mut render_api, ic1, initial_resource_updates);
+        rebuild_display_list(
+            &mut internal,
+            &mut render_api,
+            ic1,
+            initial_resource_updates,
+        );
         render_api.flush_scene_builder();
         generate_frame(&mut internal, &mut render_api, true);
         render_api.flush_scene_builder();
@@ -327,15 +343,17 @@ impl Window {
         // If you have “hot_reload” => set up a 200ms timer, etc. (omitted for brevity)
         // If you have a create_callback => call it now
         if let Some(create_callback) = options.create_callback.as_mut() {
-
             let gl_context: *mut Object = unsafe { msg_send![gl_view, openGLContext] };
-            unsafe { let _: () = msg_send![gl_context, makeCurrentContext]; }
+            unsafe {
+                let _: () = msg_send![gl_context, makeCurrentContext];
+            }
 
             let ccr = fcc.apply_closure(|mut fc_cache| {
-
-                let raw_window_ptr = window.ns_window.take().map(|s| {
-                    Retained::<NSWindow>::into_raw(s)
-                }).unwrap_or_else(|| std::ptr::null_mut());
+                let raw_window_ptr = window
+                    .ns_window
+                    .take()
+                    .map(|s| Retained::<NSWindow>::into_raw(s))
+                    .unwrap_or_else(|| std::ptr::null_mut());
 
                 let s = window.internal.invoke_single_callback(
                     create_callback,
@@ -356,7 +374,11 @@ impl Window {
             });
 
             let ntc = NodesToCheck::empty(
-                window.internal.current_window_state.mouse_state.mouse_down(),
+                window
+                    .internal
+                    .current_window_state
+                    .mouse_state
+                    .mouse_down(),
                 window.internal.current_window_state.focused_node.clone(),
             );
 
@@ -378,17 +400,13 @@ impl Window {
                 )
             };
 
-            unsafe { let _: () = msg_send![gl_context, flushBuffer]; }
+            unsafe {
+                let _: () = msg_send![gl_context, flushBuffer];
+            }
 
             mem::drop(appdata_lock);
 
-            create_windows(
-                &mtm, 
-                megaclass, 
-                new_windows, 
-                ns_opengl_view, 
-                ns_menu_view
-            );
+            create_windows(&mtm, megaclass, new_windows, ns_opengl_view, ns_menu_view);
 
             destroy_windows(megaclass, destroyed_windows);
         } else {
@@ -397,7 +415,6 @@ impl Window {
 
         Ok((window_id, window))
     }
-
 
     // functions necessary for the az_ event handling
 
@@ -410,7 +427,7 @@ impl Window {
     }
 
     pub fn swap_buffers(&mut self, handle: &RawWindowHandle) {
-        // TODO 
+        // TODO
     }
 
     /// Function that flushes the buffer and "ends" the drawing code
@@ -419,7 +436,7 @@ impl Window {
             let _: () = msg_send![guard.glc, flushBuffer];
         }
     }
-    
+
     /// On macOS, we might do something akin to `[self.ns_window setTitle:new_title]`
     /// or update the menubar, etc.
     pub(crate) fn update_menus(&mut self) {
@@ -440,11 +457,11 @@ impl Window {
     }
 
     pub(crate) fn create_and_open_context_menu(
-        &self, 
-        context_menu: &Menu, 
-        hit: &HitTestItem, 
-        node_id: DomNodeId, 
-        active_menus: &mut BTreeMap<MenuTarget, CommandMap>
+        &self,
+        context_menu: &Menu,
+        hit: &HitTestItem,
+        node_id: DomNodeId,
+        active_menus: &mut BTreeMap<MenuTarget, CommandMap>,
     ) {
         // TODO: on Windows, this creates a menu and calls TrackCursorPosition
     }
@@ -459,12 +476,12 @@ impl Window {
         // TODO: if necessary, deallocation of GL objects, called on window closing
     }
 
-    // --- functions necessary for process.rs handling 
+    // --- functions necessary for process.rs handling
 
     pub(crate) fn start_stop_timers(
         &mut self,
         added: FastHashMap<TimerId, Timer>,
-        removed: FastBTreeSet<TimerId>
+        removed: FastBTreeSet<TimerId>,
     ) {
 
         /*
@@ -489,7 +506,7 @@ impl Window {
     pub(crate) fn start_stop_threads(
         &mut self,
         mut added: FastHashMap<ThreadId, Thread>,
-        removed: FastBTreeSet<ThreadId>
+        removed: FastBTreeSet<ThreadId>,
     ) {
 
         /*
@@ -513,10 +530,12 @@ impl Window {
     // Stop all timers that have a NodeId attached to them because in the next
     // frame the NodeId would be invalid, leading to crashes / panics
     pub(crate) fn stop_timers_with_node_ids(&mut self) {
-        let timers_to_remove = self.internal.timers
-        .iter()
-        .filter_map(|(id, timer)| timer.node_id.as_ref().map(|_| *id))
-        .collect();
+        let timers_to_remove = self
+            .internal
+            .timers
+            .iter()
+            .filter_map(|(id, timer)| timer.node_id.as_ref().map(|_| *id))
+            .collect();
 
         self.start_stop_timers(FastHashMap::default(), timers_to_remove);
     }
@@ -540,7 +559,6 @@ pub fn get_monitors(app: &App) -> MonitorVec {
 }
 
 pub fn run(app: App, root_window: WindowCreateOptions) -> Result<(), String> {
-    
     let context = GlFunctions::initialize()?;
 
     let s = MacApp {
@@ -553,10 +571,9 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<(), String> {
     };
 
     autoreleasepool(|app| {
-
         let mtm = MainThreadMarker::new()
-        .ok_or_else(|| format!("appkit::run(app, root_window) not on main thread"))?;
-        
+            .ok_or_else(|| format!("appkit::run(app, root_window) not on main thread"))?;
+
         let ns_opengl_class = ns_opengl_class();
         let any_opengl_class = ns_opengl_class.register();
 
@@ -564,20 +581,18 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<(), String> {
         let any_menu_class = ns_menu_class.register();
 
         let app = NSApp(mtm);
-        
-        let (window_id, window) = Window::create(
-            &mtm,
-            root_window, 
-            &any_opengl_class, 
-            &any_menu_class,
-            &s
-        )?;
+
+        let (window_id, window) =
+            Window::create(&mtm, root_window, &any_opengl_class, &any_menu_class, &s)?;
 
         // Show the window
-        window.ns_window.as_ref().map(|s| s.makeKeyAndOrderFront(None));
-    
+        window
+            .ns_window
+            .as_ref()
+            .map(|s| s.makeKeyAndOrderFront(None));
+
         s.data.lock().unwrap().windows.insert(window_id, window);
-        
+
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
         app.activateIgnoringOtherApps(true);
         app.run();
@@ -594,13 +609,7 @@ fn create_windows(
     any_menu_class: &AnyClass,
 ) {
     for opts in new {
-        let w = Window::create(
-            &mtm,
-            opts, 
-            &any_opengl_class, 
-            &any_menu_class,
-            &app,
-        );
+        let w = Window::create(&mtm, opts, &any_opengl_class, &any_menu_class, &app);
 
         if let Ok((id, w)) = w {
             if let Ok(mut lock) = app.data.lock() {
@@ -610,17 +619,13 @@ fn create_windows(
     }
 }
 
-fn destroy_windows(
-    app: &MacApp, 
-    old: Vec<WindowId>
-) {
+fn destroy_windows(app: &MacApp, old: Vec<WindowId>) {
     for window in old {
-        let _ = app.data
-        .try_lock().ok()
-        .and_then(|s| {
-            s.windows.get(&window)
-            .and_then(|w| w.ns_window.as_ref())
-            .map(|w| w.close())
+        let _ = app.data.try_lock().ok().and_then(|s| {
+            s.windows
+                .get(&window)
+                .and_then(|w| w.ns_window.as_ref())
+                .map(|w| w.close())
         });
     }
 }
@@ -629,18 +634,14 @@ pub(crate) fn synchronize_window_state_with_os(window: &Window) {
     // TODO: window.set_title
 }
 
-
 fn create_observer(
     center: &NSNotificationCenter,
     name: &NSNotificationName,
     handler: impl Fn(&NSNotification) + 'static,
 ) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
-
-    let block = block2::RcBlock::new(
-        move |notification: NonNull<NSNotification>| {
-            handler(unsafe { notification.as_ref() });
-        }
-    );
+    let block = block2::RcBlock::new(move |notification: NonNull<NSNotification>| {
+        handler(unsafe { notification.as_ref() });
+    });
 
     // SAFETY: Per the docs, `addObserverForName:object:queue:usingBlock:` is safe as long as
     // we keep the observer alive, which we do by storing it in our struct.
@@ -654,12 +655,12 @@ fn create_observer(
     }
 }
 
-fn create_observers(megaclass: &MacApp, window_id: WindowId, mtm: MainThreadMarker) 
--> Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>> {
-
-    let center = unsafe {
-        objc2_foundation::NSNotificationCenter::defaultCenter()
-    };
+fn create_observers(
+    megaclass: &MacApp,
+    window_id: WindowId,
+    mtm: MainThreadMarker,
+) -> Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>> {
+    let center = unsafe { objc2_foundation::NSNotificationCenter::defaultCenter() };
 
     // Add a “will close” observer
     let data_clone2 = megaclass.data.clone();
@@ -734,15 +735,18 @@ fn create_observers(megaclass: &MacApp, window_id: WindowId, mtm: MainThreadMark
 // holds a pointer to the NSObject
 fn ns_opengl_class() -> ClassBuilder {
     use std::ffi::CString;
-    use objc2::declare::ClassDecl;
-    use objc2::runtime::{Class, Object, Sel};
+
+    use objc2::{
+        declare::ClassDecl,
+        runtime::{Class, Object, Sel},
+    };
     use objc2_foundation::NSRect;
 
     let superclass = class!(NSOpenGLView);
     let c = CString::new("AzulOpenGLView").unwrap();
 
-    let mut decl = ClassDecl::new(&c, superclass)
-        .expect("Failed to create ClassDecl for AzulOpenGLView");
+    let mut decl =
+        ClassDecl::new(&c, superclass).expect("Failed to create ClassDecl for AzulOpenGLView");
 
     unsafe {
         // Register the ivars "app" (pointer to MacApp) and "windowid" (WindowId)
@@ -825,9 +829,9 @@ fn create_opengl_view(
     frame: NSRect,
     ns_opengl_view: &AnyClass,
     megaclass: &MacApp,
-) -> (WindowId, id) { // Retained<NSOpenGLView>
+) -> (WindowId, id) {
+    // Retained<NSOpenGLView>
     unsafe {
-
         let new_window_id = WindowId::new();
 
         // 2) Create an NSOpenGLPixelFormat
@@ -842,7 +846,7 @@ fn create_opengl_view(
             8,
             objc2_app_kit::NSOpenGLPFAOpenGLProfile,
             objc2_app_kit::NSOpenGLProfileVersion3_2Core, // <- use OpenGL 3.2 core
-            0, // terminator
+            0,                                            // terminator
         ];
 
         let pixel_format: *mut Object = msg_send![class!(NSOpenGLPixelFormat), alloc];
@@ -850,7 +854,10 @@ fn create_opengl_view(
             pixel_format,
             initWithAttributes: attrs.as_ptr()
         ];
-        assert!(!pixel_format.is_null(), "Failed to create NSOpenGLPixelFormat");
+        assert!(
+            !pixel_format.is_null(),
+            "Failed to create NSOpenGLPixelFormat"
+        );
 
         // 3) Allocate and init our "AzulOpenGLView" instance
         let view: *mut Object = msg_send![ns_opengl_view, alloc];
@@ -882,7 +889,7 @@ extern "C" fn init_with_frame_pixel_format(
     this: *mut Object,
     _sel: Sel,
     frame: NSRect,
-    format: *mut Object
+    format: *mut Object,
 ) -> *mut Object {
     unsafe {
         // Call [super initWithFrame:frame pixelFormat:format]
@@ -897,21 +904,25 @@ extern "C" fn init_with_frame_pixel_format(
     }
 }
 
-extern "C" 
-fn window_will_close(ptr: Arc<Mutex<AppData>>, window_id: WindowId, mtm: MainThreadMarker) {
-    
+extern "C" fn window_will_close(
+    ptr: Arc<Mutex<AppData>>,
+    window_id: WindowId,
+    mtm: MainThreadMarker,
+) {
     let mut app_data = match ptr.try_lock().ok() {
         Some(s) => s,
         None => {
             // close notification can fire twice for the same window,
             // could lead to deadlock, hence try_lock
             return;
-        },
+        }
     };
 
     app_data.windows.remove(&window_id);
     if app_data.windows.is_empty() {
-        unsafe { objc2_app_kit::NSApplication::sharedApplication(mtm).terminate(None); }
+        unsafe {
+            objc2_app_kit::NSApplication::sharedApplication(mtm).terminate(None);
+        }
     }
 }
 
@@ -1013,7 +1024,7 @@ extern "C" fn window_did_become_key(
             return;
         }
     };
-    
+
     let guard = Window::make_current_gl(unsafe { msg_send![&*cv, openGLContext] });
 
     let nswr = Retained::<NSWindow>::into_raw(nsw) as *mut _;
@@ -1026,14 +1037,7 @@ extern "C" fn window_did_become_key(
 
     mem::drop(window);
 
-    let _ = crate::shell::event::handle_process_event_result(
-        r,
-        dw,
-        window_id,
-        ud,
-        &guard,
-        &raw,
-    );
+    let _ = crate::shell::event::handle_process_event_result(r, dw, window_id, ud, &guard, &raw);
 
     if let Some(window) = dw.get_mut(&window_id) {
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1086,14 +1090,7 @@ extern "C" fn window_did_resign_key(
 
     mem::drop(window);
 
-    let _ = crate::shell::event::handle_process_event_result(
-        r,
-        dw,
-        window_id,
-        ud,
-        &guard,
-        &raw,
-    );
+    let _ = crate::shell::event::handle_process_event_result(r, dw, window_id, ud, &guard, &raw);
 
     if let Some(window) = dw.get_mut(&window_id) {
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1103,8 +1100,11 @@ extern "C" fn window_did_resign_key(
 }
 
 // ADDED: Called when the screen’s backing scale changes => “dpichange”
-extern "C" fn window_did_change_backing(ptr: Arc<Mutex<AppData>>, window_id: WindowId, _mtm: MainThreadMarker) {
-
+extern "C" fn window_did_change_backing(
+    ptr: Arc<Mutex<AppData>>,
+    window_id: WindowId,
+    _mtm: MainThreadMarker,
+) {
     let mut data = match ptr.try_lock().ok() {
         Some(s) => s,
         None => return,
@@ -1142,19 +1142,12 @@ extern "C" fn window_did_change_backing(ptr: Arc<Mutex<AppData>>, window_id: Win
         ns_view: Retained::<NSView>::into_raw(cv) as *mut _,
         ns_window: nswr,
     });
-    
+
     let r = crate::shell::event::wm_dpichanged(window, ud, &guard, &raw, new_dpi);
 
     mem::drop(window);
 
-    let _ = crate::shell::event::handle_process_event_result(
-        r,
-        dw,
-        window_id,
-        ud,
-        &guard,
-        &raw,
-    );
+    let _ = crate::shell::event::handle_process_event_result(r, dw, window_id, ud, &guard, &raw);
 
     if let Some(window) = dw.get_mut(&window_id) {
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1218,14 +1211,7 @@ extern "C" fn mouse_down(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1284,14 +1270,7 @@ extern "C" fn mouse_up(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1351,14 +1330,7 @@ extern "C" fn rightMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1418,14 +1390,7 @@ extern "C" fn rightMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1485,14 +1450,7 @@ extern "C" fn otherMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1552,14 +1510,7 @@ extern "C" fn otherMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1575,7 +1526,6 @@ extern "C" fn otherMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
 #[no_mangle]
 extern "C" fn mouseMoved(this: *mut Object, _sel: Sel, event: *mut Object) {
     unsafe {
-        
         let location: NSPoint = msg_send![event, locationInWindow];
         let newpos = LogicalPosition::new(location.x as f32, location.y as f32);
 
@@ -1623,14 +1573,7 @@ extern "C" fn mouseMoved(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1646,7 +1589,6 @@ extern "C" fn mouseMoved(this: *mut Object, _sel: Sel, event: *mut Object) {
 #[no_mangle]
 extern "C" fn scrollWheel(this: *mut Object, _sel: Sel, event: *mut Object) {
     unsafe {
-
         let ptr = (*this).get_ivar::<*const c_void>("app");
         let mac_app = &*(*ptr as *const MacApp);
 
@@ -1693,14 +1635,7 @@ extern "C" fn scrollWheel(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1766,14 +1701,7 @@ extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1790,14 +1718,12 @@ extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 extern "C" fn keyUp(this: *mut Object, _sel: Sel, event: *mut Object) {
     println!("keyUp");
     unsafe {
-
         let keycode: u16 = msg_send![event, keyCode];
         let scancode = keycode as u32;
         let vk: Option<VirtualKeyCode> = cocoa_keycode_to_vkc(keycode);
 
         let ptr = (*this).get_ivar::<*const c_void>("app");
         let mac_app = &*(*ptr as *const MacApp);
-
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
         let wid = WindowId { id: windowid };
@@ -1841,14 +1767,7 @@ extern "C" fn keyUp(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::shell::event::handle_process_event_result(
-            r,
-            dw,
-            wid,
-            ud,
-            &guard,
-            &raw,
-        );
+        let _ = crate::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1898,7 +1817,7 @@ extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
 
         const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
         mac_app.functions.clear_color(1.0, 1.0, 1.0, 1.0);
-        mac_app.functions.clear(GL_COLOR_BUFFER_BIT); 
+        mac_app.functions.clear(GL_COLOR_BUFFER_BIT);
 
         let mut nsw = match window.ns_window.take() {
             Some(s) => s,
@@ -1919,14 +1838,8 @@ extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_paint(
-            window,
-            ud,
-            &glc,
-            &raw,
-            functions,
-        );
-        
+        crate::shell::event::wm_paint(window, ud, &glc, &raw, functions);
+
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
 
         Window::finish_gl(glc);
@@ -1991,8 +1904,8 @@ pub fn cocoa_keycode_to_vkc(keycode: u16) -> Option<VirtualKeyCode> {
         47 => Some(VirtualKeyCode::Period),
         48 => Some(VirtualKeyCode::Tab),
         49 => Some(VirtualKeyCode::Space),
-        50 => Some(VirtualKeyCode::Grave),  // '`' / '~'
-        51 => Some(VirtualKeyCode::Back),   // Backspace
+        50 => Some(VirtualKeyCode::Grave), // '`' / '~'
+        51 => Some(VirtualKeyCode::Back),  // Backspace
         53 => Some(VirtualKeyCode::Escape),
 
         // Numpad & function keys
@@ -2023,7 +1936,7 @@ pub fn cocoa_keycode_to_vkc(keycode: u16) -> Option<VirtualKeyCode> {
         109 => Some(VirtualKeyCode::F12),
         111 => Some(VirtualKeyCode::F15),
         113 => Some(VirtualKeyCode::F16),
-        114 => Some(VirtualKeyCode::Home),  // 'Help' on some keyboards
+        114 => Some(VirtualKeyCode::Home), // 'Help' on some keyboards
         115 => Some(VirtualKeyCode::PageUp),
         116 => Some(VirtualKeyCode::Up),
         117 => Some(VirtualKeyCode::Delete), // 'Fn+Backspace'?

@@ -1,19 +1,6 @@
-use crate::gl::{OptionGlContextPtr, Texture};
-use crate::{
-    app_resources::{
-        AddImageMsg, Epoch, ExternalImageId, FontInstanceKey, GlTextureCache, GlyphOptions,
-        IdNamespace, ImageCache, ImageDescriptor, ImageKey, LoadFontFn, OpacityKey, ParseFontFn,
-        PrimitiveFlags, RendererResources, ResourceUpdate, TransformKey, DpiScaleFactor,
-    },
-    callbacks::{DocumentId, DomNodeId, PipelineId},
-    dom::{ScrollTagId, TagId},
-    id_tree::NodeId,
-    styled_dom::{ContentGroup, DomId, NodeHierarchyItemId, StyledDom},
-    ui_solver::{ComputedTransform3D, ExternalScrollId, LayoutResult, PositionInfo},
-    window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
-};
-use alloc::collections::btree_map::BTreeMap;
-use alloc::vec::Vec;
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+use core::fmt;
+
 use azul_css::{
     BoxShadowClipMode, ColorU, ConicGradient, CssPropertyValue, LayoutBorderBottomWidth,
     LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutPoint, LayoutRect,
@@ -24,8 +11,22 @@ use azul_css::{
     StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleBoxShadow,
     StyleMixBlendMode,
 };
-use core::fmt;
 use rust_fontconfig::FcFontCache;
+
+use crate::{
+    app_resources::{
+        AddImageMsg, DpiScaleFactor, Epoch, ExternalImageId, FontInstanceKey, GlTextureCache,
+        GlyphOptions, IdNamespace, ImageCache, ImageDescriptor, ImageKey, LoadFontFn, OpacityKey,
+        ParseFontFn, PrimitiveFlags, RendererResources, ResourceUpdate, TransformKey,
+    },
+    callbacks::{DocumentId, DomNodeId, PipelineId},
+    dom::{ScrollTagId, TagId},
+    gl::{OptionGlContextPtr, Texture},
+    id_tree::NodeId,
+    styled_dom::{ContentGroup, DomId, NodeHierarchyItemId, StyledDom},
+    ui_solver::{ComputedTransform3D, ExternalScrollId, LayoutResult, PositionInfo},
+    window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
+};
 
 pub type GlyphIndex = u32;
 
@@ -89,17 +90,16 @@ pub enum DisplayListMsg {
 }
 
 impl DisplayListMsg {
-
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
             DisplayListMsg::IFrame(_, s, _, dl) => {
                 s.width *= scale_factor;
                 s.height *= scale_factor;
                 dl.scale_for_dpi(scale_factor);
-            },
+            }
             DisplayListMsg::Frame(f) => {
                 f.scale_for_dpi(scale_factor);
-            },
+            }
             DisplayListMsg::ScrollFrame(sf) => {
                 sf.scale_for_dpi(scale_factor);
             }
@@ -332,10 +332,16 @@ impl DisplayListFrame {
         self.size.width *= scale_factor;
         self.size.height *= scale_factor;
         self.position.scale_for_dpi(scale_factor);
-        self.clip_children.as_mut().map(|s| s.scale_for_dpi(scale_factor));
-        self.clip_mask.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.clip_children
+            .as_mut()
+            .map(|s| s.scale_for_dpi(scale_factor));
+        self.clip_mask
+            .as_mut()
+            .map(|s| s.scale_for_dpi(scale_factor));
         self.border_radius.scale_for_dpi(scale_factor);
-        self.transform.as_mut().map(|(k, v)| v.scale_for_dpi(scale_factor));
+        self.transform
+            .as_mut()
+            .map(|(k, v)| v.scale_for_dpi(scale_factor));
         for c in self.content.iter_mut() {
             c.scale_for_dpi(scale_factor);
         }
@@ -405,10 +411,18 @@ impl StyleBorderRadius {
     }
 
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        self.top_left.as_mut().map(|s| s.scale_for_dpi(scale_factor));
-        self.top_right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
-        self.bottom_left.as_mut().map(|s| s.scale_for_dpi(scale_factor));
-        self.bottom_right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.top_left
+            .as_mut()
+            .map(|s| s.scale_for_dpi(scale_factor));
+        self.top_right
+            .as_mut()
+            .map(|s| s.scale_for_dpi(scale_factor));
+        self.bottom_left
+            .as_mut()
+            .map(|s| s.scale_for_dpi(scale_factor));
+        self.bottom_right
+            .as_mut()
+            .map(|s| s.scale_for_dpi(scale_factor));
     }
 }
 
@@ -463,7 +477,6 @@ pub struct StyleBorderWidths {
 }
 
 impl StyleBorderWidths {
-
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         self.top.as_mut().map(|s| s.scale_for_dpi(scale_factor));
         self.right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
@@ -602,7 +615,7 @@ impl LayoutRectContent {
                     g.scale_for_dpi(scale_factor);
                 }
                 text_shadow.as_mut().map(|s| s.scale_for_dpi(scale_factor));
-            },
+            }
             Background {
                 content,
                 size,
@@ -612,7 +625,7 @@ impl LayoutRectContent {
                 content.scale_for_dpi(scale_factor);
                 size.as_mut().map(|s| s.scale_for_dpi(scale_factor));
                 offset.as_mut().map(|s| s.scale_for_dpi(scale_factor));
-            },
+            }
             Image {
                 size,
                 offset,
@@ -623,14 +636,14 @@ impl LayoutRectContent {
             } => {
                 size.scale_for_dpi(scale_factor);
                 offset.scale_for_dpi(scale_factor);
-            },
+            }
             Border {
                 widths,
                 colors,
                 styles,
             } => {
                 widths.scale_for_dpi(scale_factor);
-            },
+            }
         }
     }
 }
@@ -688,14 +701,9 @@ impl fmt::Debug for LayoutRectContent {
             } => {
                 write!(
                     f,
-                    "Image {{\r\n\
-                        size: {:?},\r\n\
-                        offset: {:?},\r\n\
-                        image_rendering: {:?},\r\n\
-                        alpha_type: {:?},\r\n\
-                        image_key: {:?},\r\n\
-                        background_color: {:?}\r\n\
-                    }}",
+                    "Image {{\r\nsize: {:?},\r\noffset: {:?},\r\nimage_rendering: \
+                     {:?},\r\nalpha_type: {:?},\r\nimage_key: {:?},\r\nbackground_color: \
+                     {:?}\r\n}}",
                     size, offset, image_rendering, alpha_type, image_key, background_color
                 )
             }
@@ -706,11 +714,7 @@ impl fmt::Debug for LayoutRectContent {
             } => {
                 write!(
                     f,
-                    "Border {{\r\n\
-                        widths: {:?},\r\n\
-                        colors: {:?},\r\n\
-                        styles: {:?}\r\n\
-                    }}",
+                    "Border {{\r\nwidths: {:?},\r\ncolors: {:?},\r\nstyles: {:?}\r\n}}",
                     widths, colors, styles,
                 )
             }
@@ -744,10 +748,12 @@ impl RectBackground {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
             RectBackground::Image((_key, descriptor)) => {
-                descriptor.width = libm::round(descriptor.width as f64 * scale_factor as f64) as usize;
-                descriptor.height = libm::round(descriptor.height as f64 * scale_factor as f64) as usize;
+                descriptor.width =
+                    libm::round(descriptor.width as f64 * scale_factor as f64) as usize;
+                descriptor.height =
+                    libm::round(descriptor.height as f64 * scale_factor as f64) as usize;
             }
-            _ => { },
+            _ => {}
         }
     }
     pub fn get_content_size(&self) -> Option<(f32, f32)> {
@@ -854,7 +860,6 @@ pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
 ) -> Option<DisplayListMsg> {
-
     let mut content = displaylist_handle_rect(
         root_content_group.root.into_crate_internal().unwrap(),
         referenced_content,
@@ -879,10 +884,9 @@ pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
 ) -> Option<DisplayListMsg> {
-    use crate::app_resources::ResolvedImage;
-    use crate::dom::NodeType::*;
-    use crate::styled_dom::AzTagId;
     use azul_css::LayoutDisplay;
+
+    use crate::{app_resources::ResolvedImage, dom::NodeType::*, styled_dom::AzTagId};
 
     let DisplayListParametersRef {
         dom_id,
@@ -1141,8 +1145,7 @@ pub fn displaylist_handle_rect<'a>(
             .unwrap_or(&default_bg_repeat_vec);
 
         for (bg_index, bg) in bg.iter().enumerate() {
-            use azul_css::AzString;
-            use azul_css::StyleBackgroundContent::*;
+            use azul_css::{AzString, StyleBackgroundContent::*};
 
             fn get_image_background_key(
                 renderer_resources: &RendererResources,

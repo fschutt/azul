@@ -1,16 +1,14 @@
-use azul::prelude::*;
-use azul::str::String as AzString;
-use azul::widgets::{Button, Label};
+use azul::{
+    prelude::*,
+    str::String as AzString,
+    widgets::{Button, Label},
+};
 
 struct DataModel {
     counter: usize,
 }
 
-extern "C" fn myLayoutFunc(
-    data: &mut RefAny,
-    _: &mut LayoutCallbackInfo
-) -> StyledDom {
-
+extern "C" fn myLayoutFunc(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     let counter = match data.downcast_ref::<DataModel>() {
         Some(d) => format!("{}", d.counter),
         None => return StyledDom::default(),
@@ -25,13 +23,12 @@ extern "C" fn myLayoutFunc(
     button.set_inline_style("flex-grow: 1");
 
     Dom::body()
-    .with_child(label)
-    .with_child(button)
-    .style(Css::empty())
+        .with_child(label)
+        .with_child(button)
+        .style(Css::empty())
 }
 
-extern "C"
-fn myOnClick(data: &mut RefAny, _:  &mut CallbackInfo) -> Update {
+extern "C" fn myOnClick(data: &mut RefAny, _: &mut CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DataModel>() {
         Some(s) => s,
         None => return Update::DoNothing, // error

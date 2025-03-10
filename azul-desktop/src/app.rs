@@ -1,7 +1,9 @@
 use alloc::sync::Arc;
+use std::{fmt, sync::Mutex, thread::JoinHandle};
+
 use azul_core::{
     app_resources::{AppConfig, ImageCache, ImageRef},
-    callbacks::{RefAny, Update},
+    callbacks::{Dummy, RefAny, Update},
     display_list::RenderCallbacks,
     task::{Timer, TimerId},
     window::{MonitorVec, WindowCreateOptions},
@@ -9,9 +11,6 @@ use azul_core::{
 use azul_css::AzString;
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use rust_fontconfig::FcFontCache;
-use std::fmt;
-use std::sync::Mutex;
-use std::thread::JoinHandle;
 
 pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
     insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
@@ -69,12 +68,6 @@ impl AzAppPtr {
     }
 }
 
-// NOTE: must be repr(C), otherwise UB
-// due to zero-sized allocation in RefAny::new_c
-// TODO: fix later!
-#[repr(C)]
-struct Dummy { _dummy: u8 }
-
 /// Graphical application that maintains some kind of application state
 #[derive(Debug)]
 pub struct App {
@@ -93,7 +86,6 @@ pub struct App {
 }
 
 impl App {
-    #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Creates a new, empty application using a specified callback.
     ///
@@ -110,12 +102,14 @@ impl App {
         #[cfg(all(
             feature = "logging",
             feature = "use_fern_logger",
-            not(feature = "use_pyo3_logger"))
-        )] {
+            not(feature = "use_pyo3_logger")
+        ))]
+        {
             crate::logging::set_up_logging(translate_log_level(app_config.log_level));
         }
 
-        #[cfg(feature = "logging")] {
+        #[cfg(feature = "logging")]
+        {
             if app_config.enable_logging_on_panic {
                 crate::logging::set_up_panic_hooks();
             }
@@ -149,15 +143,18 @@ impl App {
 
     /// Returns a list of monitors available on the system
     pub fn get_monitors(&self) -> MonitorVec {
-        #[cfg(target_os = "windows")] {
+        #[cfg(target_os = "windows")]
+        {
             crate::shell::win32::get_monitors(self)
         }
 
-        #[cfg(target_os = "linux")] {
+        #[cfg(target_os = "linux")]
+        {
             crate::shell::x11::get_monitors(self)
         }
 
-        #[cfg(target_os = "macos")] {
+        #[cfg(target_os = "macos")]
+        {
             crate::shell::appkit::get_monitors(self)
         }
     }
@@ -165,9 +162,8 @@ impl App {
     /// Start the rendering loop for the currently added windows. The run() function
     /// takes one `WindowCreateOptions` as an argument, which is the "root" window, i.e.
     /// the main application window.
-    #[cfg(all(not(test), feature = "std"))]
+    #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
-
         #[cfg(target_os = "windows")]
         let err = crate::shell::win32::run(self, root_window);
 
@@ -185,8 +181,7 @@ impl App {
 }
 
 #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
-const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel)
--> log::LevelFilter {
+const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel) -> log::LevelFilter {
     match log_level {
         azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
         azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
@@ -284,21 +279,29 @@ impl Drop for Clipboard {
 
 pub mod extra {
 
-    use azul_core::dom::{Dom, NodeType};
-    use azul_core::styled_dom::StyledDom;
-    use azul_css::Css;
-    use azul_css::ColorU;
+    use azul_core::{
+        dom::{Dom, NodeType},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{ColorU, Css};
 
     pub fn coloru_from_str(s: &str) -> ColorU {
-        azul_css_parser::parse_css_color(s).ok().unwrap_or(ColorU::BLACK)
+        azul_css_parser::parse_css_color(s)
+            .ok()
+            .unwrap_or(ColorU::BLACK)
     }
 
     // extra functions that can't be implemented in azul_core
     #[cfg(not(feature = "xml"))]
     pub fn styled_dom_from_file(_: &str) -> StyledDom {
-        Dom::body().with_children(vec![
-            Dom::text(format!("library was not compiled with --feature=\"xml\""))
-        ].into()).style(&mut Css::empty())
+        Dom::body()
+            .with_children(
+                vec![Dom::text(format!(
+                    "library was not compiled with --feature=\"xml\""
+                ))]
+                .into(),
+            )
+            .style(&mut Css::empty())
     }
 
     #[cfg(feature = "xml")]
@@ -309,9 +312,14 @@ pub mod extra {
 
     #[cfg(not(feature = "xml"))]
     pub fn styled_dom_from_str(_: &str) -> StyledDom {
-        Dom::body().with_children(vec![
-            Dom::text(format!("library was not compiled with --feature=\"xml\""))
-        ].into()).style(&mut Css::empty())
+        Dom::body()
+            .with_children(
+                vec![Dom::text(format!(
+                    "library was not compiled with --feature=\"xml\""
+                ))]
+                .into(),
+            )
+            .style(&mut Css::empty())
     }
 
     #[cfg(feature = "xml")]

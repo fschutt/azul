@@ -1,13 +1,14 @@
-use azul::prelude::*;
-use azul::str::String as AzString;
-use azul::widgets::{Ribbon, RibbonOnTabClickedCallback};
+use azul::{
+    prelude::*,
+    str::String as AzString,
+    widgets::{Ribbon, RibbonOnTabClickedCallback},
+};
 
 struct DataModel {
     current_active_tab: i32,
 }
 
 extern "C" fn myLayoutFunc(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
-
     println!("myLayoutFunc!");
 
     let data_clone = data.clone();
@@ -16,11 +17,13 @@ extern "C" fn myLayoutFunc(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Sty
         None => return StyledDom::default(),
     };
 
-    let mut ribbon = Ribbon { tab_active: data.current_active_tab };
+    let mut ribbon = Ribbon {
+        tab_active: data.current_active_tab,
+    };
 
     Dom::body()
-    .with_child(ribbon.dom(RibbonOnTabClickedCallback { cb: update_tab }, data_clone))
-    .style(Css::empty())
+        .with_child(ribbon.dom(RibbonOnTabClickedCallback { cb: update_tab }, data_clone))
+        .style(Css::empty())
 }
 
 extern "C" fn update_tab(data: &mut RefAny, info: &mut CallbackInfo, new_tab: i32) -> Update {
@@ -37,7 +40,9 @@ extern "C" fn update_tab(data: &mut RefAny, info: &mut CallbackInfo, new_tab: i3
 }
 
 fn main() {
-    let data = DataModel { current_active_tab: 3 };
+    let data = DataModel {
+        current_active_tab: 3,
+    };
     let app = App::new(RefAny::new(data), AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(myLayoutFunc);
     app.run(window);

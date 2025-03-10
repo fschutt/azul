@@ -4,92 +4,84 @@
 //! Win32 implementation of the window shell containing all functions
 //! related to running the application
 
-mod event;
 mod dpi;
+mod event;
 mod gl;
 
-use crate::{
-    app::{App, LazyFcCache},
-    wr_translate::{
-        rebuild_display_list,
-        generate_frame,
-        synchronize_gpu_values,
-        scroll_all_nodes,
-        wr_synchronize_updated_images,
-        AsyncHitTester,
-    }
-};
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
-    sync::Arc
+    sync::Arc,
 };
+use core::{
+    cell::{BorrowError, BorrowMutError, RefCell},
+    convert::TryInto,
+    ffi::c_void,
+    fmt, mem, ptr,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
+
 use azul_core::{
     FastBTreeSet, FastHashMap,
     app_resources::{
-        ImageMask, ImageRef, Epoch,
-        AppConfig, ImageCache, ResourceUpdate,
-        RendererResources, GlTextureCache, DpiScaleFactor,
+        AppConfig, DpiScaleFactor, Epoch, GlTextureCache, ImageCache, ImageMask, ImageRef,
+        RendererResources, ResourceUpdate,
     },
-    callbacks::{
-        RefAny, UpdateImageType,
-        DomNodeId, DocumentId
-    },
+    callbacks::{DocumentId, DomNodeId, RefAny, UpdateImageType},
+    display_list::RenderCallbacks,
+    dom::NodeId,
     gl::OptionGlContextPtr,
+    styled_dom::DomId,
     task::{Thread, ThreadId, Timer, TimerId},
     ui_solver::LayoutResult,
-    styled_dom::DomId,
-    dom::NodeId,
-    display_list::RenderCallbacks,
     window::{
-        LogicalSize, Menu, MenuCallback, MenuItem,
-        MonitorVec, WindowCreateOptions, WindowInternal,
-        WindowState, FullWindowState, ScrollResult,
-        MouseCursorType, CallCallbacksResult, ProcessEventResult,
+        CallCallbacksResult, FullWindowState, LogicalSize, Menu, MenuCallback, MenuItem,
+        MonitorVec, MouseCursorType, ProcessEventResult, ScrollResult, WindowCreateOptions,
+        WindowInternal, WindowState,
     },
     window_state::NodesToCheck,
 };
-use core::{
-    fmt,
-    convert::TryInto,
-    cell::{BorrowError, BorrowMutError, RefCell},
-    ffi::c_void,
-    mem, ptr,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-};
+use azul_css::FloatValue;
 use webrender::{
-    api::{
-        units::{
-            DeviceIntPoint as WrDeviceIntPoint,
-            DeviceIntRect as WrDeviceIntRect,
-            DeviceIntSize as WrDeviceIntSize,
-            LayoutSize as WrLayoutSize,
-        },
-        HitTesterRequest as WrHitTesterRequest,
-        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
-        RenderNotifier as WrRenderNotifier,
-    },
-    render_api::RenderApi as WrRenderApi,
     PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
     RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
     Shaders as WrShaders, Transaction as WrTransaction,
+    api::{
+        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
+        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
+        units::{
+            DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
+            DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
+        },
+    },
+    render_api::RenderApi as WrRenderApi,
 };
 use winapi::{
+    ctypes::wchar_t,
     shared::{
         minwindef::{BOOL, HINSTANCE, LPARAM, LRESULT, TRUE, UINT, WPARAM},
         ntdef::HRESULT,
-        windef::{HDC, HGLRC, HMENU, HWND, RECT, POINT},
+        windef::{HDC, HGLRC, HMENU, HWND, POINT, RECT},
     },
-    ctypes::wchar_t,
-    um::dwmapi::{DWM_BB_ENABLE, DWM_BLURBEHIND},
-    um::uxtheme::MARGINS,
-    um::winuser::WM_APP,
+    um::{
+        dwmapi::{DWM_BB_ENABLE, DWM_BLURBEHIND},
+        uxtheme::MARGINS,
+        winuser::WM_APP,
+    },
 };
-use self::dpi::DpiFunctions;
-use self::gl::{GlFunctions, ExtraWglFunctions, ExtraWglFunctionsLoadError};
-use azul_css::FloatValue;
-use super::Notifier;
-use super::{AZ_TICK_REGENERATE_DOM, AZ_THREAD_TICK};
+
+use self::{
+    dpi::DpiFunctions,
+    gl::{ExtraWglFunctions, ExtraWglFunctionsLoadError, GlFunctions},
+};
+use super::{AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM, Notifier};
+use crate::{
+    app::{App, LazyFcCache},
+    wr_translate::{
+        AsyncHitTester, generate_frame, rebuild_display_list, scroll_all_nodes,
+        synchronize_gpu_values, wr_synchronize_updated_images,
+    },
+};
 
 const AZ_REGENERATE_DOM: u32 = WM_APP + 1;
 const AZ_REGENERATE_DISPLAY_LIST: u32 = WM_APP + 2;
@@ -122,21 +114,18 @@ pub fn get_monitors(app: &App) -> MonitorVec {
 
 /// Main function that starts when app.run() is invoked
 pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsStartupError> {
-
     use winapi::{
         shared::minwindef::FALSE,
         um::{
             libloaderapi::GetModuleHandleW,
-            wingdi::{wglMakeCurrent, CreateSolidBrush},
             winbase::{INFINITE, WAIT_FAILED},
+            wingdi::{CreateSolidBrush, wglMakeCurrent},
             winuser::{
-                DispatchMessageW, GetDC, GetMessageW,
-                RegisterClassW, ReleaseDC, SetProcessDPIAware,
-                TranslateMessage, MsgWaitForMultipleObjects,
-                PeekMessageW, GetForegroundWindow,
-                CS_HREDRAW, CS_OWNDC, QS_ALLEVENTS,
-                CS_VREDRAW, MSG, WNDCLASSW, PM_NOREMOVE, PM_NOYIELD
-            }
+                CS_HREDRAW, CS_OWNDC, CS_VREDRAW, DispatchMessageW, GetDC, GetForegroundWindow,
+                GetMessageW, MSG, MsgWaitForMultipleObjects, PM_NOREMOVE, PM_NOYIELD, PeekMessageW,
+                QS_ALLEVENTS, RegisterClassW, ReleaseDC, SetProcessDPIAware, TranslateMessage,
+                WNDCLASSW,
+            },
         },
     };
 
@@ -192,7 +181,9 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         let w = Window::create(
             hinstance,
             root_window,
-            SharedApplicationData { inner: app_data_inner.clone() }
+            SharedApplicationData {
+                inner: app_data_inner.clone(),
+            },
         )?;
 
         active_hwnds.try_borrow_mut()?.insert(w.hwnd);
@@ -202,7 +193,13 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             .insert(w.get_id(), w);
 
         for opts in windows {
-            if let Ok(w) = Window::create(hinstance, opts, SharedApplicationData { inner: app_data_inner.clone() }) {
+            if let Ok(w) = Window::create(
+                hinstance,
+                opts,
+                SharedApplicationData {
+                    inner: app_data_inner.clone(),
+                },
+            ) {
                 active_hwnds.try_borrow_mut()?.insert(w.hwnd);
                 app_data_inner
                     .try_borrow_mut()?
@@ -221,11 +218,10 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
     let mut hwnds = Vec::new();
 
     'main: loop {
-
         match active_hwnds.try_borrow().ok() {
             Some(windows_vec) => {
                 hwnds = windows_vec.clone().into_iter().collect();
-            },
+            }
             None => break 'main, // borrow error
         }
 
@@ -240,7 +236,6 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         };
 
         if is_multiwindow {
-
             for hwnd in hwnds.iter() {
                 unsafe {
                     let r = PeekMessageW(&mut msg, *hwnd, 0, 0, PM_NOREMOVE);
@@ -263,7 +258,10 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             // (that the user is interacting with) and then
             // wait until some event happens to that foreground window
             let mut dump_msg: MSG = unsafe { mem::zeroed() };
-            while !hwnds.iter().any(|hwnd| unsafe { PeekMessageW(&mut dump_msg, *hwnd, 0, 0, PM_NOREMOVE) > 0 }) {
+            while !hwnds
+                .iter()
+                .any(|hwnd| unsafe { PeekMessageW(&mut dump_msg, *hwnd, 0, 0, PM_NOREMOVE) > 0 })
+            {
                 // reduce CPU load for multi-window apps
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
@@ -322,11 +320,7 @@ pub fn load_dll(name: &'static str) -> Option<HINSTANCE> {
     use winapi::um::libloaderapi::LoadLibraryW;
     let mut dll_name = encode_wide(name);
     let dll = unsafe { LoadLibraryW(dll_name.as_mut_ptr()) };
-    if dll.is_null() {
-        None
-    } else {
-        Some(dll)
-    }
+    if dll.is_null() { None } else { Some(dll) }
 }
 
 #[derive(Debug)]
@@ -473,7 +467,9 @@ impl DwmFunctions {
 impl Drop for DwmFunctions {
     fn drop(&mut self) {
         use winapi::um::libloaderapi::FreeLibrary;
-        unsafe { FreeLibrary(self._dwmapi_dll_handle); }
+        unsafe {
+            FreeLibrary(self._dwmapi_dll_handle);
+        }
     }
 }
 
@@ -522,7 +518,7 @@ impl fmt::Debug for Window {
 
 impl Drop for Window {
     fn drop(&mut self) {
-        use winapi::um::wingdi::{wglMakeCurrent, wglDeleteContext};
+        use winapi::um::wingdi::{wglDeleteContext, wglMakeCurrent};
 
         // drop the layout results first
         self.internal.layout_results = Vec::new();
@@ -530,7 +526,9 @@ impl Drop for Window {
         unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
 
         if let Some(context) = self.gl_context.as_mut() {
-            unsafe { wglDeleteContext(*context); }
+            unsafe {
+                wglDeleteContext(*context);
+            }
         }
 
         if let Some(renderer) = self.renderer.take() {
@@ -546,7 +544,6 @@ struct CurrentContextMenu {
 }
 
 impl Window {
-
     fn get_id(&self) -> usize {
         self.hwnd as usize
     }
@@ -557,48 +554,39 @@ impl Window {
         mut options: WindowCreateOptions,
         mut shared_application_data: SharedApplicationData,
     ) -> Result<Self, WindowsWindowCreateError> {
-
-        use crate::{
-            compositor::Compositor,
-            wr_translate::{
-                translate_document_id_wr,
-                translate_id_namespace_wr,
-                wr_translate_debug_flags,
-                wr_translate_document_id,
-            },
-        };
         use azul_core::{
             callbacks::PipelineId,
             gl::GlContextPtr,
             window::{
-                CursorPosition, HwAcceleration,
-                LogicalPosition, ScrollResult,
-                PhysicalSize, RendererType,
-                WindowInternalInit, FullHitTest,
-                WindowFrame,
+                CursorPosition, FullHitTest, HwAcceleration, LogicalPosition, PhysicalSize,
+                RendererType, ScrollResult, WindowFrame, WindowInternalInit,
             },
         };
-        use webrender::api::ColorF as WrColorF;
-        use webrender::ProgramCache as WrProgramCache;
+        use webrender::{ProgramCache as WrProgramCache, api::ColorF as WrColorF};
         use winapi::{
             shared::windef::POINT,
             um::{
                 wingdi::{
-                    wglDeleteContext, wglMakeCurrent,
-                    SwapBuffers, GetDeviceCaps,
-                    LOGPIXELSX, LOGPIXELSY
+                    GetDeviceCaps, LOGPIXELSX, LOGPIXELSY, SwapBuffers, wglDeleteContext,
+                    wglMakeCurrent,
                 },
                 winuser::{
-                    CreateWindowExW, DestroyWindow, GetClientRect, GetCursorPos, GetDC,
-                    GetWindowRect, ReleaseDC, ScreenToClient, SetMenu, CW_USEDEFAULT, WS_CAPTION,
+                    CW_USEDEFAULT, CreateWindowExW, DestroyWindow, GetClientRect, GetCursorPos,
+                    GetDC, GetWindowRect, HWND_TOP, ReleaseDC, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE,
+                    SW_NORMAL, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOZORDER,
+                    ScreenToClient, SetMenu, SetWindowPos, ShowWindow, WS_CAPTION,
                     WS_EX_ACCEPTFILES, WS_EX_APPWINDOW, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
                     WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME,
-                    ShowWindow, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_SHOWNORMAL,
                 },
             },
         };
-        use winapi::um::winuser::{
-            SetWindowPos, HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOZORDER,
+
+        use crate::{
+            compositor::Compositor,
+            wr_translate::{
+                translate_document_id_wr, translate_id_namespace_wr, wr_translate_debug_flags,
+                wr_translate_document_id,
+            },
         };
         let parent_window = match options
             .state
@@ -614,7 +602,8 @@ impl Window {
         let mut class_name = encode_wide(CLASS_NAME);
         let mut window_title = encode_wide(options.state.title.as_str());
 
-        let data_ptr = Box::into_raw(Box::new(shared_application_data.clone())) as *mut SharedApplicationData as *mut c_void;
+        let data_ptr = Box::into_raw(Box::new(shared_application_data.clone()))
+            as *mut SharedApplicationData as *mut c_void;
 
         // Create the window
         let hwnd = unsafe {
@@ -633,8 +622,16 @@ impl Window {
                 // Size and position: set later, after DPI factor has been queried
                 CW_USEDEFAULT, // x
                 CW_USEDEFAULT, // y
-                if options.size_to_content { 0 } else { libm::roundf(options.state.size.dimensions.width) as i32 }, // width
-                if options.size_to_content { 0 } else { libm::roundf(options.state.size.dimensions.height) as i32 }, // height
+                if options.size_to_content {
+                    0
+                } else {
+                    libm::roundf(options.state.size.dimensions.width) as i32
+                }, // width
+                if options.size_to_content {
+                    0
+                } else {
+                    libm::roundf(options.state.size.dimensions.height) as i32
+                }, // height
                 parent_window,
                 ptr::null_mut(), // Menu
                 hinstance,
@@ -719,7 +716,6 @@ impl Window {
             })
             .into();
 
-
         // WindowInternal::new() may dispatch OpenGL calls,
         // need to make context current before invoking
         let hdc = unsafe { GetDC(hwnd) };
@@ -769,7 +765,8 @@ impl Window {
 
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
 
-        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let framebuffer_size =
+            WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
         let pipeline_id = PipelineId::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
@@ -797,7 +794,6 @@ impl Window {
 
         let mut initial_resource_updates = Vec::new();
         let mut internal = {
-
             let appdata_lock = &mut *appdata_lock;
             let fc_cache = &mut appdata_lock.fc_cache;
             let image_cache = &appdata_lock.image_cache;
@@ -836,7 +832,9 @@ impl Window {
         let mut menu_bar = None;
         if let Some(m) = internal.get_menu_bar() {
             let mb = WindowsMenuBar::new(m);
-            unsafe { SetMenu(hwnd, mb._native_ptr); }
+            unsafe {
+                SetMenu(hwnd, mb._native_ptr);
+            }
             menu_bar = Some(mb);
         }
 
@@ -865,13 +863,27 @@ impl Window {
         }
 
         match internal.current_window_state.flags.frame {
-            WindowFrame::Normal => { sw_options |= SW_NORMAL; hidden_sw_options |= SW_NORMAL; },
-            WindowFrame::Minimized => { sw_options |= SW_MINIMIZE; hidden_sw_options |= SW_MINIMIZE; },
-            WindowFrame::Maximized => { sw_options |= SW_MAXIMIZE; hidden_sw_options |= SW_MAXIMIZE; },
-            WindowFrame::Fullscreen => { sw_options |= SW_MAXIMIZE; hidden_sw_options |= SW_MAXIMIZE; },
+            WindowFrame::Normal => {
+                sw_options |= SW_NORMAL;
+                hidden_sw_options |= SW_NORMAL;
+            }
+            WindowFrame::Minimized => {
+                sw_options |= SW_MINIMIZE;
+                hidden_sw_options |= SW_MINIMIZE;
+            }
+            WindowFrame::Maximized => {
+                sw_options |= SW_MAXIMIZE;
+                hidden_sw_options |= SW_MAXIMIZE;
+            }
+            WindowFrame::Fullscreen => {
+                sw_options |= SW_MAXIMIZE;
+                hidden_sw_options |= SW_MAXIMIZE;
+            }
         }
 
-        unsafe { ShowWindow(hwnd, hidden_sw_options); }
+        unsafe {
+            ShowWindow(hwnd, hidden_sw_options);
+        }
 
         // Query the client area from Win32 (not DPI adjusted) and adjust framebuffer
         let mut rect: RECT = unsafe { mem::zeroed() };
@@ -881,7 +893,7 @@ impl Window {
             height: rect.height(),
         };
         // internal.previous_window_state = Some(internal.current_window_state.clone());
-        
+
         internal.current_window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         let mut txn = WrTransaction::new();
@@ -913,13 +925,14 @@ impl Window {
             unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
         }
 
-        unsafe { ReleaseDC(hwnd, hdc); }
+        unsafe {
+            ReleaseDC(hwnd, hdc);
+        }
 
-        txn.set_document_view(
-            WrDeviceIntRect::from_size(
-                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
-            )
-        );
+        txn.set_document_view(WrDeviceIntRect::from_size(WrDeviceIntSize::new(
+            physical_size.width as i32,
+            physical_size.height as i32,
+        )));
         render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
 
         render_api.flush_scene_builder();
@@ -934,27 +947,26 @@ impl Window {
 
         render_api.flush_scene_builder();
 
-        generate_frame(
-            &mut internal,
-            &mut render_api,
-            true,
-        );
+        generate_frame(&mut internal, &mut render_api, true);
 
         render_api.flush_scene_builder();
 
         // Get / store mouse cursor position, now that the window position is final
         let mut cursor_pos: POINT = POINT { x: 0, y: 0 };
-        unsafe { GetCursorPos(&mut cursor_pos); }
+        unsafe {
+            GetCursorPos(&mut cursor_pos);
+        }
         unsafe { ScreenToClient(hwnd, &mut cursor_pos) };
         let cursor_pos_logical = LogicalPosition {
             x: cursor_pos.x as f32 / dpi_factor,
             y: cursor_pos.y as f32 / dpi_factor,
         };
-        internal.current_window_state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
-            CursorPosition::Uninitialized
-        } else {
-            CursorPosition::InWindow(cursor_pos_logical)
-        };
+        internal.current_window_state.mouse_state.cursor_position =
+            if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
+                CursorPosition::Uninitialized
+            } else {
+                CursorPosition::InWindow(cursor_pos_logical)
+            };
 
         // Update the hit-tester to account for the new hit-testing functionality
         let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id));
@@ -965,11 +977,15 @@ impl Window {
 
         if options.hot_reload {
             use winapi::um::winuser::SetTimer;
-            unsafe { SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None); }
+            unsafe {
+                SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None);
+            }
         }
 
         use winapi::um::winuser::PostMessageW;
-        unsafe { PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0 ); }
+        unsafe {
+            PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
+        }
 
         let mut window = Window {
             hwnd,
@@ -989,7 +1005,6 @@ impl Window {
 
         // invoke the create callback, if there is any
         if let Some(create_callback) = options.create_callback.as_mut() {
-
             let hdc = unsafe { GetDC(hwnd) };
             if let Some(hrc) = opengl_context.as_mut() {
                 unsafe { wglMakeCurrent(hdc, *hrc) };
@@ -1019,7 +1034,11 @@ impl Window {
             });
 
             let ntc = NodesToCheck::empty(
-                window.internal.current_window_state.mouse_state.mouse_down(),
+                window
+                    .internal
+                    .current_window_state
+                    .mouse_state
+                    .mouse_down(),
                 window.internal.current_window_state.focused_node,
             );
 
@@ -1042,15 +1061,19 @@ impl Window {
 
             mem::drop(ab);
             mem::drop(appdata_lock);
-            create_windows(hinstance, &mut shared_application_data, new_windows, );
+            create_windows(hinstance, &mut shared_application_data, new_windows);
             let mut appdata_lock = shared_application_data.inner.try_borrow_mut().unwrap();
             let mut ab = &mut *appdata_lock;
             destroy_windows(ab, destroyed_windows);
 
-            unsafe { ReleaseDC(hwnd, hdc); }
+            unsafe {
+                ReleaseDC(hwnd, hdc);
+            }
         }
 
-        unsafe { ShowWindow(hwnd, sw_options); }
+        unsafe {
+            ShowWindow(hwnd, sw_options);
+        }
 
         // NOTE: The window is NOT stored yet
         Ok(window)
@@ -1059,13 +1082,19 @@ impl Window {
     fn start_stop_timers(
         &mut self,
         added: FastHashMap<TimerId, Timer>,
-        removed: FastBTreeSet<TimerId>
+        removed: FastBTreeSet<TimerId>,
     ) {
-
-        use winapi::um::winuser::{SetTimer, KillTimer};
+        use winapi::um::winuser::{KillTimer, SetTimer};
 
         for (id, timer) in added {
-            let res = unsafe { SetTimer(self.hwnd, id.id, timer.tick_millis().min(u32::MAX as u64) as u32, None) };
+            let res = unsafe {
+                SetTimer(
+                    self.hwnd,
+                    id.id,
+                    timer.tick_millis().min(u32::MAX as u64) as u32,
+                    None,
+                )
+            };
             self.internal.timers.insert(id, timer);
             self.timers.insert(id, res);
         }
@@ -1082,10 +1111,9 @@ impl Window {
     fn start_stop_threads(
         &mut self,
         mut added: FastHashMap<ThreadId, Thread>,
-        removed: FastBTreeSet<ThreadId>
+        removed: FastBTreeSet<ThreadId>,
     ) {
-
-        use winapi::um::winuser::{SetTimer, KillTimer};
+        use winapi::um::winuser::{KillTimer, SetTimer};
 
         self.internal.threads.append(&mut added);
         self.internal.threads.retain(|r, _| !removed.contains(r));
@@ -1104,10 +1132,12 @@ impl Window {
     // Stop all timers that have a NodeId attached to them because in the next
     // frame the NodeId would be invalid, leading to crashes / panics
     fn stop_timers_with_node_ids(&mut self) {
-        let timers_to_remove = self.internal.timers
-        .iter()
-        .filter_map(|(id, timer)| timer.node_id.as_ref().map(|_| *id))
-        .collect();
+        let timers_to_remove = self
+            .internal
+            .timers
+            .iter()
+            .filter_map(|(id, timer)| timer.node_id.as_ref().map(|_| *id))
+            .collect();
 
         self.start_stop_timers(FastHashMap::default(), timers_to_remove);
     }
@@ -1126,57 +1156,63 @@ impl Window {
     }
 
     fn set_menu_bar(hwnd: HWND, old: &mut Option<WindowsMenuBar>, menu_bar: Option<&Box<Menu>>) {
-
         use winapi::um::winuser::SetMenu;
 
         let hash = old.as_ref().map(|o| o.hash);
 
         match (hash, menu_bar) {
             (Some(_), None) => {
-                unsafe { SetMenu(hwnd, ptr::null_mut()); }
+                unsafe {
+                    SetMenu(hwnd, ptr::null_mut());
+                }
                 *old = None;
-            },
+            }
             (None, Some(new)) => {
                 let new_menu_bar = WindowsMenuBar::new(new);
-                unsafe { SetMenu(hwnd, new_menu_bar._native_ptr); }
+                unsafe {
+                    SetMenu(hwnd, new_menu_bar._native_ptr);
+                }
                 *old = Some(new_menu_bar);
             }
             (Some(hash), Some(new)) => {
                 if hash != new.get_hash() {
                     let new_menu_bar = WindowsMenuBar::new(new);
-                    unsafe { SetMenu(hwnd, new_menu_bar._native_ptr); }
+                    unsafe {
+                        SetMenu(hwnd, new_menu_bar._native_ptr);
+                    }
                     *old = Some(new_menu_bar);
                 }
-            },
-            (None, None) => { }
+            }
+            (None, None) => {}
         }
-
     }
 }
 
 /// Creates an OpenGL 3.2 context using wglCreateContextAttribsARB
-fn create_gl_context(hwnd: HWND, hinstance: HINSTANCE, extra: &ExtraWglFunctions)
--> Result<HGLRC, WindowsOpenGlError>
-{
+fn create_gl_context(
+    hwnd: HWND,
+    hinstance: HINSTANCE,
+    extra: &ExtraWglFunctions,
+) -> Result<HGLRC, WindowsOpenGlError> {
     use winapi::um::{
         wingdi::{
-            wglCreateContext, wglDeleteContext,
-            wglMakeCurrent, ChoosePixelFormat,
-            DescribePixelFormat, SetPixelFormat,
+            ChoosePixelFormat, DescribePixelFormat, SetPixelFormat, wglCreateContext,
+            wglDeleteContext, wglMakeCurrent,
         },
-        winuser::{GetDC, ReleaseDC}
+        winuser::{GetDC, ReleaseDC},
     };
 
     use self::WindowsOpenGlError::*;
 
-    let wglCreateContextAttribsARB = extra.wglCreateContextAttribsARB
-    .ok_or(OpenGLNotAvailable(get_last_error()))?;
+    let wglCreateContextAttribsARB = extra
+        .wglCreateContextAttribsARB
+        .ok_or(OpenGLNotAvailable(get_last_error()))?;
 
-    let wglChoosePixelFormatARB = extra.wglChoosePixelFormatARB
-    .ok_or(OpenGLNotAvailable(get_last_error()))?;
+    let wglChoosePixelFormatARB = extra
+        .wglChoosePixelFormatARB
+        .ok_or(OpenGLNotAvailable(get_last_error()))?;
 
-    let opengl32_dll = load_dll("opengl32.dll")
-    .ok_or(OpenGL32DllNotFound(get_last_error()))?;
+    let opengl32_dll = load_dll("opengl32.dll").ok_or(OpenGL32DllNotFound(get_last_error()))?;
 
     let hDC = unsafe { GetDC(hwnd) };
     if hDC.is_null() {
@@ -1197,36 +1233,60 @@ fn create_gl_context(hwnd: HWND, hinstance: HINSTANCE, extra: &ExtraWglFunctions
     const WGL_ALPHA_BITS_ARB: i32 = 0x201B;
     const WGL_DEPTH_BITS_ARB: i32 = 0x2022;
     const WGL_STENCIL_BITS_ARB: i32 = 0x2023;
-    const WGL_FULL_ACCELERATION_ARB: i32 =  0x2027;
+    const WGL_FULL_ACCELERATION_ARB: i32 = 0x2027;
     const WGL_ACCELERATION_ARB: i32 = 0x2003;
 
     const GL_TRUE: i32 = 1;
 
     let pixel_format_attribs = [
-        WGL_DRAW_TO_WINDOW_ARB,     GL_TRUE,
-        WGL_SUPPORT_OPENGL_ARB,     GL_TRUE,
-        WGL_DOUBLE_BUFFER_ARB,      GL_TRUE,
-        WGL_ACCELERATION_ARB,       WGL_FULL_ACCELERATION_ARB,
-        WGL_PIXEL_TYPE_ARB,         WGL_TYPE_RGBA_ARB,
-        WGL_COLOR_BITS_ARB,         32,
-        WGL_DEPTH_BITS_ARB,         24,
-        WGL_STENCIL_BITS_ARB,       8,
-        0
+        WGL_DRAW_TO_WINDOW_ARB,
+        GL_TRUE,
+        WGL_SUPPORT_OPENGL_ARB,
+        GL_TRUE,
+        WGL_DOUBLE_BUFFER_ARB,
+        GL_TRUE,
+        WGL_ACCELERATION_ARB,
+        WGL_FULL_ACCELERATION_ARB,
+        WGL_PIXEL_TYPE_ARB,
+        WGL_TYPE_RGBA_ARB,
+        WGL_COLOR_BITS_ARB,
+        32,
+        WGL_DEPTH_BITS_ARB,
+        24,
+        WGL_STENCIL_BITS_ARB,
+        8,
+        0,
     ];
 
     let mut pixel_format = 0;
     let mut num_formats = 0;
-    unsafe { (wglChoosePixelFormatARB)(hDC, pixel_format_attribs.as_ptr(), ptr::null_mut(), 1, &mut pixel_format, &mut num_formats) };
+    unsafe {
+        (wglChoosePixelFormatARB)(
+            hDC,
+            pixel_format_attribs.as_ptr(),
+            ptr::null_mut(),
+            1,
+            &mut pixel_format,
+            &mut num_formats,
+        )
+    };
     if num_formats == 0 {
-        unsafe { ReleaseDC(hwnd, hDC); }
+        unsafe {
+            ReleaseDC(hwnd, hDC);
+        }
         return Err(NoMatchingPixelFormat(get_last_error()));
     }
 
     let mut pfd: PIXELFORMATDESCRIPTOR = get_default_pfd();
 
     unsafe {
-        DescribePixelFormat(hDC, pixel_format, mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32, &mut pfd);
-        if SetPixelFormat(hDC, pixel_format, &mut pfd) != TRUE{
+        DescribePixelFormat(
+            hDC,
+            pixel_format,
+            mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32,
+            &mut pfd,
+        );
+        if SetPixelFormat(hDC, pixel_format, &mut pfd) != TRUE {
             ReleaseDC(hwnd, hDC);
             return Err(NoMatchingPixelFormat(get_last_error()));
         }
@@ -1241,36 +1301,37 @@ fn create_gl_context(hwnd: HWND, hinstance: HINSTANCE, extra: &ExtraWglFunctions
     // Create OpenGL 3.2 core context - #version 150 required by WR!
     // Specify that we want to create an OpenGL 3.3 core profile context
     let gl32_attribs = [
-        WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-        WGL_CONTEXT_MINOR_VERSION_ARB, 2,
-        WGL_CONTEXT_PROFILE_MASK_ARB,  WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+        WGL_CONTEXT_MAJOR_VERSION_ARB,
+        3,
+        WGL_CONTEXT_MINOR_VERSION_ARB,
+        2,
+        WGL_CONTEXT_PROFILE_MASK_ARB,
+        WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
         0,
     ];
 
-    let gl32_context = unsafe { (wglCreateContextAttribsARB)(hDC, ptr::null_mut(), gl32_attribs.as_ptr()) };
+    let gl32_context =
+        unsafe { (wglCreateContextAttribsARB)(hDC, ptr::null_mut(), gl32_attribs.as_ptr()) };
     if gl32_context.is_null() {
-        unsafe { ReleaseDC(hwnd, hDC); }
+        unsafe {
+            ReleaseDC(hwnd, hDC);
+        }
         return Err(OpenGLNotAvailable(get_last_error()));
     }
 
-    unsafe { ReleaseDC(hwnd, hDC); }
+    unsafe {
+        ReleaseDC(hwnd, hDC);
+    }
 
     return Ok(gl32_context);
 }
 
-
 use winapi::um::wingdi::PIXELFORMATDESCRIPTOR;
 
 fn get_default_pfd() -> PIXELFORMATDESCRIPTOR {
-
     use winapi::um::wingdi::{
-        PFD_DRAW_TO_WINDOW,
-        PFD_SUPPORT_OPENGL,
-        PFD_GENERIC_ACCELERATED,
-        PFD_DOUBLEBUFFER,
-        PFD_MAIN_PLANE,
-        PFD_TYPE_RGBA,
-        PFD_SUPPORT_COMPOSITION,
+        PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_GENERIC_ACCELERATED, PFD_MAIN_PLANE,
+        PFD_SUPPORT_COMPOSITION, PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA,
     };
 
     PIXELFORMATDESCRIPTOR {
@@ -1279,7 +1340,7 @@ fn get_default_pfd() -> PIXELFORMATDESCRIPTOR {
         dwFlags: {
             PFD_DRAW_TO_WINDOW |        // support window
             PFD_SUPPORT_OPENGL |        // support OpenGL
-            PFD_DOUBLEBUFFER            // double buffered
+            PFD_DOUBLEBUFFER // double buffered
         },
         iPixelType: PFD_TYPE_RGBA as u8,
         cColorBits: 32,
@@ -1318,7 +1379,6 @@ struct WindowsMenuBar {
 static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1); // 0 = no command
 
 impl WindowsMenuBar {
-
     fn new(new: &Menu) -> Self {
         use winapi::um::winuser::CreateMenu;
 
@@ -1356,9 +1416,12 @@ impl WindowsMenuBar {
             v
         }
 
-        use winapi::shared::basetsd::UINT_PTR;
-        use winapi::um::winuser::{AppendMenuW, CreateMenu};
-        use winapi::um::winuser::{MF_MENUBREAK, MF_POPUP, MF_SEPARATOR, MF_STRING};
+        use winapi::{
+            shared::basetsd::UINT_PTR,
+            um::winuser::{
+                AppendMenuW, CreateMenu, MF_MENUBREAK, MF_POPUP, MF_SEPARATOR, MF_STRING,
+            },
+        };
 
         for item in items.as_ref() {
             match item {
@@ -1416,27 +1479,21 @@ unsafe extern "system" fn WindowProc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-
-    use winapi::um::winuser::{
-        DefWindowProcW, SetWindowLongPtrW,
-        GetWindowLongPtrW, PostQuitMessage, PostMessageW,
-        WM_NCCREATE, WM_TIMER, WM_COMMAND,
-        WM_CREATE, WM_NCMOUSELEAVE, WM_ERASEBKGND,
-        WM_MOUSEMOVE, WM_DESTROY, WM_PAINT, WM_ACTIVATE,
-        WM_MOUSEWHEEL, WM_SIZE, WM_NCHITTEST,
-        WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
-        WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP, WM_MBUTTONDOWN,
-        WM_MOUSELEAVE, WM_DISPLAYCHANGE, WM_SIZING,
-        WM_QUIT, WM_HSCROLL, WM_VSCROLL, WM_WINDOWPOSCHANGED,
-        WM_KEYUP, WM_KEYDOWN, WM_SYSKEYUP, WM_SYSKEYDOWN,
-        WM_CHAR, WM_SYSCHAR, WHEEL_DELTA, WM_SETFOCUS, WM_KILLFOCUS,
-
-        VK_F4,
-        CREATESTRUCTW, GWLP_USERDATA,
+    use winapi::um::{
+        wingdi::wglMakeCurrent,
+        winuser::{
+            CREATESTRUCTW, DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, PostMessageW,
+            PostQuitMessage, SetWindowLongPtrW, VK_F4, WHEEL_DELTA, WM_ACTIVATE, WM_CHAR,
+            WM_COMMAND, WM_CREATE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND,
+            WM_HSCROLL, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP,
+            WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSELEAVE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
+            WM_NCHITTEST, WM_NCMOUSELEAVE, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+            WM_SETFOCUS, WM_SIZE, WM_SIZING, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+            WM_VSCROLL, WM_WINDOWPOSCHANGED,
+        },
     };
-    use winapi::um::wingdi::wglMakeCurrent;
-    use crate::wr_translate::wr_translate_document_id;
 
+    use crate::wr_translate::wr_translate_document_id;
 
     return if msg == WM_NCCREATE {
         let createstruct: *mut CREATESTRUCTW = mem::transmute(lparam);
@@ -1444,8 +1501,8 @@ unsafe extern "system" fn WindowProc(
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, mem::transmute(data_ptr));
         DefWindowProcW(hwnd, msg, wparam, lparam)
     } else {
-
-        let shared_application_data: *mut SharedApplicationData = mem::transmute(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        let shared_application_data: *mut SharedApplicationData =
+            mem::transmute(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         if shared_application_data == ptr::null_mut() {
             // message fired before WM_NCCREATE: ignore
             return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -1454,7 +1511,9 @@ unsafe extern "system" fn WindowProc(
 
         let mut app_borrow = match shared_application_data.inner.try_borrow_mut() {
             Ok(b) => b,
-            Err(e) => { return DefWindowProcW(hwnd, msg, wparam, lparam); },
+            Err(e) => {
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            }
         };
 
         let hwnd_key = hwnd as usize;
@@ -1463,7 +1522,6 @@ unsafe extern "system" fn WindowProc(
 
         let r = match msg {
             AZ_REGENERATE_DOM => {
-
                 use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
                 let mut ret = ProcessEventResult::DoNothing;
@@ -1476,7 +1534,6 @@ unsafe extern "system" fn WindowProc(
                 let image_cache = &mut ab.image_cache;
 
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
-
                     use winapi::um::winuser::{GetDC, ReleaseDC};
 
                     let hDC = GetDC(hwnd);
@@ -1486,15 +1543,18 @@ unsafe extern "system" fn WindowProc(
                             if !hDC.is_null() {
                                 wglMakeCurrent(hDC, c);
                             }
-                        },
-                        None => { },
+                        }
+                        None => {}
                     };
 
                     let mut current_program = [0_i32];
 
                     {
                         let mut gl = &mut current_window.gl_functions.functions;
-                        gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                        gl.get_integer_v(
+                            gl_context_loader::gl::CURRENT_PROGRAM,
+                            (&mut current_program[..]).into(),
+                        );
                     }
 
                     let document_id = current_window.internal.document_id;
@@ -1518,14 +1578,14 @@ unsafe extern "system" fn WindowProc(
                             azul_layout::do_the_relayout,
                             |window_state, scroll_states, layout_results| {
                                 crate::wr_translate::fullhittest_new_webrender(
-                                     &*hit_tester.resolve(),
-                                     document_id,
-                                     window_state.focused_node,
-                                     layout_results,
-                                     &window_state.mouse_state.cursor_position,
-                                     window_state.size.get_hidpi_factor(),
+                                    &*hit_tester.resolve(),
+                                    document_id,
+                                    window_state.focused_node,
+                                    layout_results,
+                                    &window_state.mouse_state.cursor_position,
+                                    window_state.size.get_hidpi_factor(),
                                 )
-                            }
+                            },
                         );
                     });
 
@@ -1546,7 +1606,7 @@ unsafe extern "system" fn WindowProc(
                     Window::set_menu_bar(
                         hwnd,
                         &mut current_window.menu_bar,
-                        current_window.internal.get_menu_bar()
+                        current_window.internal.get_menu_bar(),
                     );
 
                     // rebuild the display list and send it
@@ -1559,9 +1619,10 @@ unsafe extern "system" fn WindowProc(
 
                     current_window.render_api.flush_scene_builder();
 
-                    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                    let wr_document_id =
+                        wr_translate_document_id(current_window.internal.document_id);
                     current_window.hit_tester = AsyncHitTester::Requested(
-                        current_window.render_api.request_hit_tester(wr_document_id)
+                        current_window.render_api.request_hit_tester(wr_document_id),
                     );
 
                     let hit_test = crate::wr_translate::fullhittest_new_webrender(
@@ -1569,8 +1630,16 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.document_id,
                         current_window.internal.current_window_state.focused_node,
                         &current_window.internal.layout_results,
-                        &current_window.internal.current_window_state.mouse_state.cursor_position,
-                        current_window.internal.current_window_state.size.get_hidpi_factor(),
+                        &current_window
+                            .internal
+                            .current_window_state
+                            .mouse_state
+                            .cursor_position,
+                        current_window
+                            .internal
+                            .current_window_state
+                            .size
+                            .get_hidpi_factor(),
                     );
 
                     current_window.internal.previous_window_state = None;
@@ -1579,7 +1648,11 @@ unsafe extern "system" fn WindowProc(
                     let mut nodes_to_check = NodesToCheck::simulated_mouse_move(
                         &current_window.internal.current_window_state.last_hit_test,
                         current_window.internal.current_window_state.focused_node,
-                        current_window.internal.current_window_state.mouse_state.mouse_down()
+                        current_window
+                            .internal
+                            .current_window_state
+                            .mouse_state
+                            .mouse_down(),
                     );
 
                     let mut style_layout_changes = StyleAndLayoutChanges::new(
@@ -1587,7 +1660,11 @@ unsafe extern "system" fn WindowProc(
                         &mut current_window.internal.layout_results,
                         &image_cache,
                         &mut current_window.internal.renderer_resources,
-                        current_window.internal.current_window_state.size.get_layout_size(),
+                        current_window
+                            .internal
+                            .current_window_state
+                            .size
+                            .get_layout_size(),
                         &current_window.internal.document_id,
                         None,
                         None,
@@ -1600,9 +1677,8 @@ unsafe extern "system" fn WindowProc(
 
                 mem::drop(app_borrow);
                 0
-            },
+            }
             AZ_REDO_HIT_TEST => {
-
                 let mut ret = ProcessEventResult::DoNothing;
 
                 let cur_hwnd;
@@ -1619,7 +1695,6 @@ unsafe extern "system" fn WindowProc(
 
                 match windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
-
                         use winapi::um::winuser::{GetDC, ReleaseDC};
 
                         cur_hwnd = current_window.hwnd;
@@ -1631,15 +1706,18 @@ unsafe extern "system" fn WindowProc(
                                 if !hDC.is_null() {
                                     wglMakeCurrent(hDC, c);
                                 }
-                            },
-                            None => { },
+                            }
+                            None => {}
                         };
 
                         let mut current_program = [0_i32];
 
                         {
                             let mut gl = &mut current_window.gl_functions.functions;
-                            gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                            gl.get_integer_v(
+                                gl_context_loader::gl::CURRENT_PROGRAM,
+                                (&mut current_program[..]).into(),
+                            );
                         }
 
                         ret = process_event(
@@ -1662,11 +1740,11 @@ unsafe extern "system" fn WindowProc(
                             ReleaseDC(cur_hwnd, hDC);
                         }
                         0
-                    },
+                    }
                     None => {
                         mem::drop(app_borrow);
                         return DefWindowProcW(hwnd, msg, wparam, lparam);
-                    },
+                    }
                 };
 
                 let hinstance = ab.hinstance;
@@ -1680,44 +1758,44 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(ab);
 
                 match ret {
-                    ProcessEventResult::DoNothing => { },
+                    ProcessEventResult::DoNothing => {}
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                         PostMessageW(cur_hwnd, AZ_REGENERATE_DOM, 0, 0);
-                    },
+                    }
                     ProcessEventResult::ShouldRegenerateDomAllWindows => {
                         for window in app_borrow.windows.values() {
                             PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
                         }
-                    },
+                    }
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
                         PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
-                    },
+                    }
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                         if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
-                            // TODO: submit display list, wait for new hit-tester and update hit-test results
-                            w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
+                            // TODO: submit display list, wait for new hit-tester and update
+                            // hit-test results
+                            w.internal.previous_window_state =
+                                Some(w.internal.current_window_state.clone());
                             PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                             PostMessageW(cur_hwnd, AZ_REDO_HIT_TEST, 0, 0);
                         }
-                    },
+                    }
                     ProcessEventResult::ShouldReRenderCurrentWindow => {
                         PostMessageW(cur_hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
-                    },
+                    }
                 }
 
                 mem::drop(app_borrow);
                 0
-            },
+            }
             AZ_REGENERATE_DISPLAY_LIST => {
-
                 use winapi::um::winuser::InvalidateRect;
 
                 let ab = &mut *app_borrow;
                 let image_cache = &ab.image_cache;
                 let windows = &mut ab.windows;
 
-                if let Some(current_window) =  windows.get_mut(&hwnd_key) {
-
+                if let Some(current_window) = windows.get_mut(&hwnd_key) {
                     rebuild_display_list(
                         &mut current_window.internal,
                         &mut current_window.render_api,
@@ -1725,9 +1803,10 @@ unsafe extern "system" fn WindowProc(
                         Vec::new(), // no resource updates
                     );
 
-                    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                    let wr_document_id =
+                        wr_translate_document_id(current_window.internal.document_id);
                     current_window.hit_tester = AsyncHitTester::Requested(
-                        current_window.render_api.request_hit_tester(wr_document_id)
+                        current_window.render_api.request_hit_tester(wr_document_id),
                     );
 
                     generate_frame(
@@ -1743,9 +1822,8 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     -1
                 }
-            },
+            }
             AZ_GPU_SCROLL_RENDER => {
-
                 match app_borrow.windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
                         generate_frame(
@@ -1755,31 +1833,32 @@ unsafe extern "system" fn WindowProc(
                         );
 
                         PostMessageW(hwnd, WM_PAINT, 0, 0);
-                    },
-                    None => { },
+                    }
+                    None => {}
                 }
 
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_CREATE => {
                 if let Ok(mut o) = app_borrow.active_hwnds.try_borrow_mut() {
                     o.insert(hwnd);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_ACTIVATE => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_ERASEBKGND => {
                 mem::drop(app_borrow);
                 1
-            },
+            }
             WM_SETFOCUS => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                    current_window.internal.previous_window_state =
+                        Some(current_window.internal.current_window_state.clone());
                     current_window.internal.current_window_state.flags.has_focus = true;
                     PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
@@ -1788,10 +1867,11 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_KILLFOCUS => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                    current_window.internal.previous_window_state =
+                        Some(current_window.internal.current_window_state.clone());
                     current_window.internal.current_window_state.flags.has_focus = false;
                     PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
@@ -1800,37 +1880,51 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_MOUSEMOVE => {
-
-                use winapi::{
-                    um::winuser::{
-                        SetClassLongPtrW, TrackMouseEvent,
-                        TME_LEAVE, HOVER_DEFAULT, TRACKMOUSEEVENT,
-                        GCLP_HCURSOR
-                    },
-                    shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM}
-                };
                 use azul_core::window::{
-                    CursorTypeHitTest, LogicalPosition,
-                    CursorPosition, OptionMouseCursorType,
-                    FullHitTest,
+                    CursorPosition, CursorTypeHitTest, FullHitTest, LogicalPosition,
+                    OptionMouseCursorType,
+                };
+                use winapi::{
+                    shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM},
+                    um::winuser::{
+                        GCLP_HCURSOR, HOVER_DEFAULT, SetClassLongPtrW, TME_LEAVE, TRACKMOUSEEVENT,
+                        TrackMouseEvent,
+                    },
                 };
 
                 let x = GET_X_LPARAM(lparam);
                 let y = GET_Y_LPARAM(lparam);
 
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-
                     let pos = CursorPosition::InWindow(LogicalPosition::new(
-                        x as f32 / current_window.internal.current_window_state.size.get_hidpi_factor(),
-                        y as f32 / current_window.internal.current_window_state.size.get_hidpi_factor(),
+                        x as f32
+                            / current_window
+                                .internal
+                                .current_window_state
+                                .size
+                                .get_hidpi_factor(),
+                        y as f32
+                            / current_window
+                                .internal
+                                .current_window_state
+                                .size
+                                .get_hidpi_factor(),
                     ));
 
                     // call SetCapture(hwnd) so that we can capture the WM_MOUSELEAVE event
-                    let cur_cursor_pos = current_window.internal.current_window_state.mouse_state.cursor_position;
-                    let prev_cursor_pos = current_window.internal.previous_window_state
-                        .as_ref().map(|m| m.mouse_state.cursor_position).unwrap_or_default();
+                    let cur_cursor_pos = current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .cursor_position;
+                    let prev_cursor_pos = current_window
+                        .internal
+                        .previous_window_state
+                        .as_ref()
+                        .map(|m| m.mouse_state.cursor_position)
+                        .unwrap_or_default();
 
                     if !prev_cursor_pos.is_inside_window() && cur_cursor_pos.is_inside_window() {
                         // cursor entered
@@ -1844,29 +1938,53 @@ unsafe extern "system" fn WindowProc(
 
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.cursor_position = pos;
-                    
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .cursor_position = pos;
+
                     // mouse moved, so we need a new hit test
                     let hit_test = crate::wr_translate::fullhittest_new_webrender(
                         &*current_window.hit_tester.resolve(),
                         current_window.internal.document_id,
                         current_window.internal.current_window_state.focused_node,
                         &current_window.internal.layout_results,
-                        &current_window.internal.current_window_state.mouse_state.cursor_position,
-                        current_window.internal.current_window_state.size.get_hidpi_factor(),
+                        &current_window
+                            .internal
+                            .current_window_state
+                            .mouse_state
+                            .cursor_position,
+                        current_window
+                            .internal
+                            .current_window_state
+                            .size
+                            .get_hidpi_factor(),
                     );
-                    let cht = CursorTypeHitTest::new(&hit_test, &current_window.internal.layout_results);
+                    let cht =
+                        CursorTypeHitTest::new(&hit_test, &current_window.internal.layout_results);
                     current_window.internal.current_window_state.last_hit_test = hit_test;
 
                     // update the cursor if necessary
-                    if current_window.internal.current_window_state.mouse_state.mouse_cursor_type != OptionMouseCursorType::Some(cht.cursor_icon) {
+                    if current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .mouse_cursor_type
+                        != OptionMouseCursorType::Some(cht.cursor_icon)
+                    {
                         // TODO: unset previous cursor?
-                        current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
+                        current_window
+                            .internal
+                            .current_window_state
+                            .mouse_state
+                            .mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
                         SetClassLongPtrW(
-                                current_window.hwnd,
-                                GCLP_HCURSOR,
-                                (win32_translate_cursor(cht.cursor_icon) as isize)
-                                .try_into().unwrap_or(0)
+                            current_window.hwnd,
+                            GCLP_HCURSOR,
+                            (win32_translate_cursor(cht.cursor_icon) as isize)
+                                .try_into()
+                                .unwrap_or(0),
                         );
                     }
 
@@ -1875,7 +1993,7 @@ unsafe extern "system" fn WindowProc(
 
                 mem::drop(app_borrow);
                 0
-            },
+            }
             WM_KEYDOWN | WM_SYSKEYDOWN => {
                 if msg == WM_SYSKEYDOWN && wparam as i32 == VK_F4 {
                     mem::drop(app_borrow);
@@ -1885,21 +2003,43 @@ unsafe extern "system" fn WindowProc(
                         if let Some((scancode, vk)) = event::process_key_params(wparam, lparam) {
                             use winapi::um::winuser::SendMessageW;
 
-                            current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                            current_window.internal.current_window_state.keyboard_state.current_char = None.into();
-                            current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
+                            current_window.internal.previous_window_state =
+                                Some(current_window.internal.current_window_state.clone());
+                            current_window
+                                .internal
+                                .current_window_state
+                                .keyboard_state
+                                .current_char = None.into();
+                            current_window
+                                .internal
+                                .current_window_state
+                                .keyboard_state
+                                .pressed_scancodes
+                                .insert_hm_item(scancode);
                             if let Some(vk) = vk {
-                                current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
-                                current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+                                current_window
+                                    .internal
+                                    .current_window_state
+                                    .keyboard_state
+                                    .current_virtual_keycode = Some(vk).into();
+                                current_window
+                                    .internal
+                                    .current_window_state
+                                    .keyboard_state
+                                    .pressed_virtual_keycodes
+                                    .insert_hm_item(vk);
                             }
                             mem::drop(app_borrow);
 
-                            // NOTE: due to a Win32 bug, the WM_CHAR message gets sent immediately after
-                            // the WM_KEYDOWN: this would mess with the event handling in the window state
-                            // code (the window state code expects events to arrive in logical order)
+                            // NOTE: due to a Win32 bug, the WM_CHAR message gets sent immediately
+                            // after the WM_KEYDOWN: this would mess
+                            // with the event handling in the window state
+                            // code (the window state code expects events to arrive in logical
+                            // order)
                             //
-                            // So here we use SendMessage instead of PostMessage in order to immediately
-                            // call AZ_REDO_HIT_TEST (instead of posting to the windows message queue).
+                            // So here we use SendMessage instead of PostMessage in order to
+                            // immediately call AZ_REDO_HIT_TEST
+                            // (instead of posting to the windows message queue).
                             SendMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
 
                             0
@@ -1912,11 +2052,9 @@ unsafe extern "system" fn WindowProc(
                         DefWindowProcW(hwnd, msg, wparam, lparam)
                     }
                 }
-            },
+            }
             WM_CHAR | WM_SYSCHAR => {
-
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-
                     use std::char;
 
                     let is_high_surrogate = 0xD800 <= wparam && wparam <= 0xDBFF;
@@ -1941,8 +2079,13 @@ unsafe extern "system" fn WindowProc(
 
                     if let Some(c) = c {
                         if !c.is_control() {
-                            current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                            current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
+                            current_window.internal.previous_window_state =
+                                Some(current_window.internal.current_window_state.clone());
+                            current_window
+                                .internal
+                                .current_window_state
+                                .keyboard_state
+                                .current_char = Some(c as u32).into();
                             PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                             mem::drop(app_borrow);
                             0
@@ -1958,17 +2101,36 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_KEYUP | WM_SYSKEYUP => {
                 use self::event::process_key_params;
                 if let Some((scancode, vk)) = process_key_params(wparam, lparam) {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                        current_window.internal.current_window_state.keyboard_state.current_char = None.into();
-                        current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
+                        current_window.internal.previous_window_state =
+                            Some(current_window.internal.current_window_state.clone());
+                        current_window
+                            .internal
+                            .current_window_state
+                            .keyboard_state
+                            .current_char = None.into();
+                        current_window
+                            .internal
+                            .current_window_state
+                            .keyboard_state
+                            .pressed_scancodes
+                            .remove_hm_item(&scancode);
                         if let Some(vk) = vk {
-                            current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
-                            current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
+                            current_window
+                                .internal
+                                .current_window_state
+                                .keyboard_state
+                                .pressed_virtual_keycodes
+                                .remove_hm_item(&vk);
+                            current_window
+                                .internal
+                                .current_window_state
+                                .keyboard_state
+                                .current_virtual_keycode = None.into();
                         }
                         PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                         mem::drop(app_borrow);
@@ -1981,33 +2143,45 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_MOUSELEAVE => {
-
-                use winapi::um::winuser::{SetClassLongPtrW, GCLP_HCURSOR};
                 use azul_core::window::{
-                    FullHitTest, OptionMouseCursorType,
-                    CursorPosition, LogicalPosition,
+                    CursorPosition, FullHitTest, LogicalPosition, OptionMouseCursorType,
                 };
+                use winapi::um::winuser::{GCLP_HCURSOR, SetClassLongPtrW};
 
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-
                     let current_focus = current_window.internal.current_window_state.focused_node;
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    let last_seen = match current_window.internal.current_window_state.mouse_state.cursor_position {
+                    let last_seen = match current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .cursor_position
+                    {
                         CursorPosition::InWindow(i) => i,
                         _ => LogicalPosition::zero(),
                     };
-                    current_window.internal.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow(last_seen);
-                    current_window.internal.current_window_state.last_hit_test = FullHitTest::empty(current_focus);
-                    current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .cursor_position = CursorPosition::OutOfWindow(last_seen);
+                    current_window.internal.current_window_state.last_hit_test =
+                        FullHitTest::empty(current_focus);
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .mouse_cursor_type = OptionMouseCursorType::None;
 
                     SetClassLongPtrW(
                         hwnd,
                         GCLP_HCURSOR,
                         (win32_translate_cursor(MouseCursorType::Default) as isize)
-                        .try_into().unwrap_or(0)
+                            .try_into()
+                            .unwrap_or(0),
                     );
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
@@ -2016,34 +2190,42 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_RBUTTONDOWN => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.right_down = true;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .right_down = true;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_RBUTTONUP => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
 
                     // open context menu
-                    if let Some((context_menu, hit, node_id)) = current_window.internal.get_context_menu() {
-
+                    if let Some((context_menu, hit, node_id)) =
+                        current_window.internal.get_context_menu()
+                    {
                         use winapi::um::winuser::{
-                            CreatePopupMenu, TrackPopupMenu, SetForegroundWindow,
-                            GetClientRect, ClientToScreen,
-                            TPM_TOPALIGN, TPM_LEFTALIGN,
+                            ClientToScreen, CreatePopupMenu, GetClientRect, SetForegroundWindow,
+                            TPM_LEFTALIGN, TPM_TOPALIGN, TrackPopupMenu,
                         };
 
                         let mut hPopupMenu = CreatePopupMenu();
                         let mut callbacks = BTreeMap::new();
-                        let hidpi_factor = current_window.internal.current_window_state.size.get_hidpi_factor();
+                        let hidpi_factor = current_window
+                            .internal
+                            .current_window_state
+                            .size
+                            .get_hidpi_factor();
 
                         WindowsMenuBar::recursive_construct_menu(
                             &mut hPopupMenu,
@@ -2059,7 +2241,10 @@ unsafe extern "system" fn WindowProc(
                         let mut rect: RECT = unsafe { mem::zeroed() };
                         GetClientRect(hwnd, &mut rect);
 
-                        let mut top_left = POINT { x: rect.left, y: rect.top };
+                        let mut top_left = POINT {
+                            x: rect.left,
+                            y: rect.top,
+                        };
                         ClientToScreen(hwnd, &mut top_left);
 
                         let pos = match context_menu.position {
@@ -2079,63 +2264,83 @@ unsafe extern "system" fn WindowProc(
                             top_left.y + (libm::roundf(pos.y * hidpi_factor) as i32),
                             0,
                             hwnd,
-                            ptr::null_mut()
+                            ptr::null_mut(),
                         );
                     }
 
-                    current_window.internal.current_window_state.mouse_state.right_down = false;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .right_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_MBUTTONDOWN => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.middle_down = true;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .middle_down = true;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_MBUTTONUP => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.middle_down = false;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .middle_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_LBUTTONDOWN => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.left_down = true;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .left_down = true;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_LBUTTONUP => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
 
                     // open context menu
-                    if let Some((context_menu, hit, node_id)) = current_window.internal.get_context_menu() {
-
+                    if let Some((context_menu, hit, node_id)) =
+                        current_window.internal.get_context_menu()
+                    {
                         use winapi::um::winuser::{
-                            CreatePopupMenu, TrackPopupMenu, SetForegroundWindow,
-                            GetClientRect, ClientToScreen,
-                            TPM_TOPALIGN, TPM_LEFTALIGN,
+                            ClientToScreen, CreatePopupMenu, GetClientRect, SetForegroundWindow,
+                            TPM_LEFTALIGN, TPM_TOPALIGN, TrackPopupMenu,
                         };
 
                         let mut hPopupMenu = CreatePopupMenu();
                         let mut callbacks = BTreeMap::new();
-                        let hidpi_factor = current_window.internal.current_window_state.size.get_hidpi_factor();
+                        let hidpi_factor = current_window
+                            .internal
+                            .current_window_state
+                            .size
+                            .get_hidpi_factor();
 
                         WindowsMenuBar::recursive_construct_menu(
                             &mut hPopupMenu,
@@ -2151,7 +2356,10 @@ unsafe extern "system" fn WindowProc(
                         let mut rect: RECT = unsafe { mem::zeroed() };
                         GetClientRect(hwnd, &mut rect);
 
-                        let mut top_left = POINT { x: rect.left, y: rect.top };
+                        let mut top_left = POINT {
+                            x: rect.left,
+                            y: rect.top,
+                        };
                         ClientToScreen(hwnd, &mut top_left);
 
                         let pos = match context_menu.position {
@@ -2171,16 +2379,20 @@ unsafe extern "system" fn WindowProc(
                             top_left.y + (libm::roundf(pos.y * hidpi_factor) as i32),
                             0,
                             hwnd,
-                            ptr::null_mut()
+                            ptr::null_mut(),
                         );
                     }
 
-                    current_window.internal.current_window_state.mouse_state.left_down = false;
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .left_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_MOUSEWHEEL => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let value = (wparam >> 16) as i16;
@@ -2188,7 +2400,11 @@ unsafe extern "system" fn WindowProc(
                     let value = value as f32 / WHEEL_DELTA as f32;
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.scroll_y = Some(value).into();
+                    current_window
+                        .internal
+                        .current_window_state
+                        .mouse_state
+                        .scroll_y = Some(value).into();
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
                     0
@@ -2196,24 +2412,25 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_DPICHANGED => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_SIZE => {
-                use azul_core::window::{WindowFrame, PhysicalSize};
-                use winapi::um::winuser::{
-                    WINDOWPOS, SWP_NOSIZE, SIZE_MAXIMIZED,
-                    SIZE_RESTORED, SIZE_MINIMIZED
+                use azul_core::window::{PhysicalSize, WindowFrame};
+                use winapi::{
+                    shared::minwindef::{HIWORD, LOWORD},
+                    um::winuser::{
+                        SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SWP_NOSIZE, WINDOWPOS,
+                    },
                 };
-                use winapi::shared::minwindef::{LOWORD, HIWORD};
 
                 let new_width = LOWORD(lparam as u32);
                 let new_height = HIWORD(lparam as u32);
                 let new_size = PhysicalSize {
                     width: new_width as u32,
-                    height: new_height as u32
+                    height: new_height as u32,
                 };
 
                 let mut ab = &mut *app_borrow;
@@ -2223,23 +2440,24 @@ unsafe extern "system" fn WindowProc(
 
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
                     fc_cache.apply_closure(|fc_cache| {
-
                         use winapi::um::winuser::{GetDC, ReleaseDC};
 
-                        let mut new_window_state = current_window.internal.current_window_state.clone();
-                        new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.get_hidpi_factor());
+                        let mut new_window_state =
+                            current_window.internal.current_window_state.clone();
+                        new_window_state.size.dimensions =
+                            new_size.to_logical(new_window_state.size.get_hidpi_factor());
 
                         match wparam {
                             SIZE_MAXIMIZED => {
                                 new_window_state.flags.frame = WindowFrame::Maximized;
-                            },
+                            }
                             SIZE_MINIMIZED => {
                                 new_window_state.flags.frame = WindowFrame::Minimized;
-                            },
+                            }
                             SIZE_RESTORED => {
                                 new_window_state.flags.frame = WindowFrame::Normal;
-                            },
-                            _ => { }
+                            }
+                            _ => {}
                         }
 
                         let hDC = GetDC(hwnd);
@@ -2249,15 +2467,18 @@ unsafe extern "system" fn WindowProc(
                                 if !hDC.is_null() {
                                     wglMakeCurrent(hDC, c);
                                 }
-                            },
-                            None => { },
+                            }
+                            None => {}
                         };
 
                         let mut current_program = [0_i32];
 
                         {
                             let mut gl = &mut current_window.gl_functions.functions;
-                            gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                            gl.get_integer_v(
+                                gl_context_loader::gl::CURRENT_PROGRAM,
+                                (&mut current_program[..]).into(),
+                            );
                         }
 
                         let resize_result = current_window.internal.do_quick_resize(
@@ -2274,7 +2495,7 @@ unsafe extern "system" fn WindowProc(
                         wr_synchronize_updated_images(
                             resize_result.updated_images,
                             &current_window.internal.document_id,
-                            &mut txn
+                            &mut txn,
                         );
 
                         let mut gl = &mut current_window.gl_functions.functions;
@@ -2287,15 +2508,18 @@ unsafe extern "system" fn WindowProc(
                             ReleaseDC(hwnd, hDC);
                         }
 
-                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                        current_window.internal.previous_window_state =
+                            Some(current_window.internal.current_window_state.clone());
                         current_window.internal.current_window_state = new_window_state;
 
-                        txn.set_document_view(
-                            WrDeviceIntRect::from_size(
-                                WrDeviceIntSize::new(new_width as i32, new_height as i32),
-                            )
+                        txn.set_document_view(WrDeviceIntRect::from_size(WrDeviceIntSize::new(
+                            new_width as i32,
+                            new_height as i32,
+                        )));
+                        current_window.render_api.send_transaction(
+                            wr_translate_document_id(current_window.internal.document_id),
+                            txn,
                         );
-                        current_window.render_api.send_transaction(wr_translate_document_id(current_window.internal.document_id), txn);
 
                         rebuild_display_list(
                             &mut current_window.internal,
@@ -2304,9 +2528,10 @@ unsafe extern "system" fn WindowProc(
                             Vec::new(),
                         );
 
-                        let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                        let wr_document_id =
+                            wr_translate_document_id(current_window.internal.document_id);
                         current_window.hit_tester = AsyncHitTester::Requested(
-                            current_window.render_api.request_hit_tester(wr_document_id)
+                            current_window.render_api.request_hit_tester(wr_document_id),
                         );
 
                         generate_frame(
@@ -2322,16 +2547,15 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-            },
+            }
             WM_NCHITTEST => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_PAINT => {
-
                 use winapi::um::{
                     wingdi::SwapBuffers,
-                    winuser::{GetDC, ReleaseDC, GetClientRect},
+                    winuser::{GetClientRect, GetDC, ReleaseDC},
                 };
 
                 // Assuming that the display list has been submitted and the
@@ -2350,8 +2574,8 @@ unsafe extern "system" fn WindowProc(
                     None => {
                         // message fired before window was created: ignore
                         mem::drop(app_borrow);
-                        return DefWindowProcW(hwnd, msg, wparam, lparam)
-                    },
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    }
                 };
 
                 let gl_context = match current_window.gl_context {
@@ -2360,7 +2584,7 @@ unsafe extern "system" fn WindowProc(
                         // TODO: software rendering
                         mem::drop(app_borrow);
                         return DefWindowProcW(hwnd, msg, wparam, lparam);
-                    },
+                    }
                 };
 
                 wglMakeCurrent(hDC, gl_context);
@@ -2383,12 +2607,13 @@ unsafe extern "system" fn WindowProc(
                 gl.viewport(0, 0, rect.width() as i32, rect.height() as i32);
 
                 let mut current_program = [0_i32];
-                gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
-
-                let framebuffer_size = WrDeviceIntSize::new(
-                    rect.width() as i32,
-                    rect.height() as i32
+                gl.get_integer_v(
+                    gl_context_loader::gl::CURRENT_PROGRAM,
+                    (&mut current_program[..]).into(),
                 );
+
+                let framebuffer_size =
+                    WrDeviceIntSize::new(rect.width() as i32, rect.height() as i32);
 
                 // Render
                 if let Some(r) = current_window.renderer.as_mut() {
@@ -2406,9 +2631,8 @@ unsafe extern "system" fn WindowProc(
                 ReleaseDC(hwnd, hDC);
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_TIMER => {
-
                 use winapi::um::winuser::{GetDC, ReleaseDC};
 
                 let mut ab = &mut *app_borrow;
@@ -2428,14 +2652,12 @@ unsafe extern "system" fn WindowProc(
                         // re-load the layout() callback
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
                         mem::drop(app_borrow);
-                        return DefWindowProcW(hwnd, msg, wparam, lparam)
-                    },
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    }
                     AZ_THREAD_TICK => {
-
                         // tick every 16ms to process new thread messages
                         match windows.get_mut(&hwnd_key) {
                             Some(current_window) => {
-
                                 let hDC = GetDC(hwnd);
 
                                 let gl_context = match current_window.gl_context {
@@ -2443,15 +2665,18 @@ unsafe extern "system" fn WindowProc(
                                         if !hDC.is_null() {
                                             wglMakeCurrent(hDC, c);
                                         }
-                                    },
-                                    None => { },
+                                    }
+                                    None => {}
                                 };
 
                                 let mut current_program = [0_i32];
 
                                 {
                                     let mut gl = &mut current_window.gl_functions.functions;
-                                    gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                                    gl.get_integer_v(
+                                        gl_context_loader::gl::CURRENT_PROGRAM,
+                                        (&mut current_program[..]).into(),
+                                    );
                                 }
 
                                 ret = process_threads(
@@ -2474,17 +2699,17 @@ unsafe extern "system" fn WindowProc(
                                 if !hDC.is_null() {
                                     ReleaseDC(hwnd, hDC);
                                 }
-                            },
+                            }
                             None => {
                                 mem::drop(app_borrow);
                                 return DefWindowProcW(hwnd, msg, wparam, lparam);
-                            },
+                            }
                         }
-                    },
-                    id => { // run timer with ID "id"
+                    }
+                    id => {
+                        // run timer with ID "id"
                         match windows.get_mut(&hwnd_key) {
                             Some(current_window) => {
-
                                 let hDC = GetDC(hwnd);
 
                                 let gl_context = match current_window.gl_context {
@@ -2492,15 +2717,18 @@ unsafe extern "system" fn WindowProc(
                                         if !hDC.is_null() {
                                             wglMakeCurrent(hDC, c);
                                         }
-                                    },
-                                    None => { },
+                                    }
+                                    None => {}
                                 };
 
                                 let mut current_program = [0_i32];
 
                                 {
                                     let mut gl = &mut current_window.gl_functions.functions;
-                                    gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                                    gl.get_integer_v(
+                                        gl_context_loader::gl::CURRENT_PROGRAM,
+                                        (&mut current_program[..]).into(),
+                                    );
                                 }
 
                                 ret = process_timer(
@@ -2523,11 +2751,11 @@ unsafe extern "system" fn WindowProc(
                                 if !hDC.is_null() {
                                     ReleaseDC(hwnd, hDC);
                                 }
-                            },
+                            }
                             None => {
                                 mem::drop(app_borrow);
                                 return DefWindowProcW(hwnd, msg, wparam, lparam);
-                            },
+                            }
                         }
                     }
                 };
@@ -2543,37 +2771,38 @@ unsafe extern "system" fn WindowProc(
                 destroy_windows(ab, destroyed_windows);
 
                 match ret {
-                    ProcessEventResult::DoNothing => { },
+                    ProcessEventResult::DoNothing => {}
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
-                    },
+                    }
                     ProcessEventResult::ShouldRegenerateDomAllWindows => {
                         for window in ab.windows.values() {
                             PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
                         }
-                    },
+                    }
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
                         PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
-                    },
+                    }
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                         if let Some(w) = ab.windows.get_mut(&hwnd_key) {
-                            w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
-                            // TODO: submit display list, wait for new hit-tester and update hit-test results
+                            w.internal.previous_window_state =
+                                Some(w.internal.current_window_state.clone());
+                            // TODO: submit display list, wait for new hit-tester and update
+                            // hit-test results
                             PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                             PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                         }
-                    },
+                    }
                     ProcessEventResult::ShouldReRenderCurrentWindow => {
                         PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
-                    },
+                    }
                 }
 
                 mem::drop(ab);
                 mem::drop(app_borrow);
                 0
-            },
+            }
             WM_COMMAND => {
-
                 use winapi::shared::minwindef::{HIWORD, LOWORD};
 
                 let hiword = HIWORD(wparam.min(core::u32::MAX as usize) as u32);
@@ -2595,9 +2824,10 @@ unsafe extern "system" fn WindowProc(
 
                 // execute menu callback
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
-
-                    use azul_core::window::{RawWindowHandle, WindowsHandle};
-                    use azul_core::styled_dom::NodeHierarchyItemId;
+                    use azul_core::{
+                        styled_dom::NodeHierarchyItemId,
+                        window::{RawWindowHandle, WindowsHandle},
+                    };
 
                     let mut ret = ProcessEventResult::DoNothing;
                     let mut new_windows = Vec::new();
@@ -2609,18 +2839,23 @@ unsafe extern "system" fn WindowProc(
                     });
 
                     let ntc = NodesToCheck::empty(
-                        current_window.internal.current_window_state.mouse_state.mouse_down(),
+                        current_window
+                            .internal
+                            .current_window_state
+                            .mouse_state
+                            .mouse_down(),
                         current_window.internal.current_window_state.focused_node,
                     );
 
                     let call_callback_result = {
-
                         let mb = &mut current_window.menu_bar;
                         let internal = &mut current_window.internal;
                         let context_menu = current_window.context_menu.as_mut();
                         let gl_context_ptr = &current_window.gl_context_ptr;
 
-                        if let Some(menu_callback) = mb.as_mut().and_then(|m| m.callbacks.get_mut(&loword)) {
+                        if let Some(menu_callback) =
+                            mb.as_mut().and_then(|m| m.callbacks.get_mut(&loword))
+                        {
                             Some(fc_cache.apply_closure(|fc_cache| {
                                 internal.invoke_menu_callback(
                                     menu_callback,
@@ -2679,29 +2914,31 @@ unsafe extern "system" fn WindowProc(
                     destroy_windows(ab, destroyed_windows);
 
                     match ret {
-                        ProcessEventResult::DoNothing => { },
+                        ProcessEventResult::DoNothing => {}
                         ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                             PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
-                        },
+                        }
                         ProcessEventResult::ShouldRegenerateDomAllWindows => {
                             for window in app_borrow.windows.values() {
                                 PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
                             }
-                        },
+                        }
                         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
                             PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
-                        },
+                        }
                         ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                             if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
-                                w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
-                                // TODO: submit display list, wait for new hit-tester and update hit-test results
+                                w.internal.previous_window_state =
+                                    Some(w.internal.current_window_state.clone());
+                                // TODO: submit display list, wait for new hit-tester and update
+                                // hit-test results
                                 PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                                 PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                             }
-                        },
+                        }
                         ProcessEventResult::ShouldReRenderCurrentWindow => {
                             PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
-                        },
+                        }
                     }
 
                     mem::drop(app_borrow);
@@ -2710,14 +2947,13 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     return DefWindowProcW(hwnd, msg, wparam, lparam);
                 }
-            },
+            }
             WM_QUIT => {
                 // TODO: execute quit callback
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             WM_DESTROY => {
-
                 use winapi::um::winuser::{GetDC, ReleaseDC};
 
                 // make OpenGL context current in case there are
@@ -2732,7 +2968,6 @@ unsafe extern "system" fn WindowProc(
                 }
 
                 if let Some(mut current_window) = ab.windows.remove(&(hwnd as usize)) {
-
                     let hDC = GetDC(hwnd);
                     if let Some(c) = current_window.gl_context {
                         if !hDC.is_null() {
@@ -2741,7 +2976,9 @@ unsafe extern "system" fn WindowProc(
                     }
 
                     // destruct the window data
-                    let mut window_data = Box::from_raw(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SharedApplicationData);
+                    let mut window_data = Box::from_raw(
+                        GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SharedApplicationData
+                    );
 
                     // if this window was the last window, the RefAny data
                     // should be dropped here, while the OpenGL context
@@ -2781,7 +3018,7 @@ unsafe extern "system" fn WindowProc(
                 }
 
                 DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
+            }
             _ => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -2794,7 +3031,11 @@ unsafe extern "system" fn WindowProc(
     };
 }
 
-fn create_windows(hinstance: HINSTANCE, app: &mut SharedApplicationData, new: Vec<WindowCreateOptions>) {
+fn create_windows(
+    hinstance: HINSTANCE,
+    app: &mut SharedApplicationData,
+    new: Vec<WindowCreateOptions>,
+) {
     for opts in new {
         if let Ok(w) = Window::create(hinstance, opts, app.clone()) {
             if let Ok(mut a) = app.inner.try_borrow_mut() {
@@ -2808,7 +3049,9 @@ fn destroy_windows(app: &mut ApplicationData, old: Vec<usize>) {
     use winapi::um::winuser::{PostMessageW, WM_QUIT};
     for window in old {
         if let Some(w) = app.windows.get(&window) {
-            unsafe { PostMessageW(w.hwnd, WM_QUIT, 0, 0); }
+            unsafe {
+                PostMessageW(w.hwnd, WM_QUIT, 0, 0);
+            }
         }
     }
 }
@@ -2817,12 +3060,7 @@ pub(crate) fn synchronize_window_state_with_os(window: &Window) {
     // TODO: window.set_title
 }
 
-fn send_resource_updates(
-    render_api: &mut WrRenderApi,
-    resource_updates: Vec<ResourceUpdate>,
-) {
-
-}
+fn send_resource_updates(render_api: &mut WrRenderApi, resource_updates: Vec<ResourceUpdate>) {}
 
 // translates MouseCursorType to a builtin IDC_* value
 // note: taken from https://github.com/rust-windowing/winit/blob/1c4d6e7613c3a3870cecb4cfa0eecc97409d45ff/src/platform_impl/windows/util.rs#L200
@@ -2831,38 +3069,16 @@ const fn win32_translate_cursor(input: MouseCursorType) -> *const wchar_t {
     use winapi::um::winuser;
 
     match input {
-        Arrow
-        | Default => winuser::IDC_ARROW,
+        Arrow | Default => winuser::IDC_ARROW,
         Hand => winuser::IDC_HAND,
         Crosshair => winuser::IDC_CROSS,
-        Text
-        | VerticalText => winuser::IDC_IBEAM,
-        NotAllowed
-        | NoDrop => winuser::IDC_NO,
-        Grab
-        | Grabbing
-        | Move
-        | AllScroll => {
-            winuser::IDC_SIZEALL
-        }
-        EResize
-        | WResize
-        | EwResize
-        | ColResize => winuser::IDC_SIZEWE,
-        NResize
-        | SResize
-        | NsResize
-        | RowResize => winuser::IDC_SIZENS,
-        NeResize
-        | SwResize
-        | NeswResize => {
-            winuser::IDC_SIZENESW
-        }
-        NwResize
-        | SeResize
-        | NwseResize => {
-            winuser::IDC_SIZENWSE
-        }
+        Text | VerticalText => winuser::IDC_IBEAM,
+        NotAllowed | NoDrop => winuser::IDC_NO,
+        Grab | Grabbing | Move | AllScroll => winuser::IDC_SIZEALL,
+        EResize | WResize | EwResize | ColResize => winuser::IDC_SIZEWE,
+        NResize | SResize | NsResize | RowResize => winuser::IDC_SIZENS,
+        NeResize | SwResize | NeswResize => winuser::IDC_SIZENESW,
+        NwResize | SeResize | NwseResize => winuser::IDC_SIZENWSE,
         Wait => winuser::IDC_WAIT,
         Progress => winuser::IDC_APPSTARTING,
         Help => winuser::IDC_HELP,

@@ -1,13 +1,15 @@
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::{Arc, Weak};
-use alloc::vec::Vec;
+use alloc::{
+    boxed::Box,
+    collections::btree_map::BTreeMap,
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use core::{
     ffi::c_void,
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
 };
-
+use std::sync::Mutex;
 #[cfg(feature = "std")]
 use std::sync::mpsc::{Receiver, Sender};
 #[cfg(feature = "std")]
@@ -17,16 +19,18 @@ use std::time::Duration as StdDuration;
 #[cfg(feature = "std")]
 use std::time::Instant as StdInstant;
 
-use std::sync::Mutex;
+use azul_css::{AzString, CssProperty};
+use rust_fontconfig::FcFontCache;
 
-use crate::gl::OptionGlContextPtr;
 use crate::{
+    FastBTreeSet, FastHashMap,
     app_resources::{ImageCache, ImageMask, ImageRef},
     callbacks::{
         CallbackInfo, DomNodeId, FocusTarget, OptionDomNodeId, RefAny, ScrollPosition,
         ThreadCallback, TimerCallback, TimerCallbackInfo, TimerCallbackReturn, TimerCallbackType,
         Update, WriteBackCallback, WriteBackCallbackType,
     },
+    gl::OptionGlContextPtr,
     id_tree::NodeId,
     styled_dom::{DomId, NodeHierarchyItemId},
     ui_solver::LayoutResult,
@@ -34,10 +38,7 @@ use crate::{
         FullWindowState, LogicalPosition, OptionLogicalPosition, RawWindowHandle,
         WindowCreateOptions, WindowState,
     },
-    FastBTreeSet, FastHashMap,
 };
-use azul_css::{AzString, CssProperty};
-use rust_fontconfig::FcFontCache;
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -197,7 +198,10 @@ impl Instant {
                 Instant::Tick(SystemTick { tick_counter: now }),
             ) => {
                 if prev > now {
-                    panic!("illegal: subtraction 'Instant - Instant' would result in a negative duration")
+                    panic!(
+                        "illegal: subtraction 'Instant - Instant' would result in a negative \
+                         duration"
+                    )
                 } else {
                     Duration::Tick(SystemTickDiff {
                         tick_diff: now - prev,
@@ -712,7 +716,8 @@ impl Timer {
         self
     }
 
-    /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `Update::DoNothing`
+    /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns
+    /// `Update::DoNothing`
     pub fn invoke(
         &mut self,
         callback_info: CallbackInfo,

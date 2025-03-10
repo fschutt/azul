@@ -1,13 +1,15 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
-use azul_desktop::css::*;
-use azul_desktop::dom::{
-    Dom, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
-    NodeDataInlineCssProperty::Normal
- };
-use azul_desktop::callbacks::{Update, CallbackInfo, RefAny};
-use azul_desktop::css::AzString;
 use std::vec::Vec;
+
+use azul_desktop::{
+    callbacks::{CallbackInfo, RefAny, Update},
+    css::{AzString, *},
+    dom::{
+        Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
+        NodeDataInlineCssPropertyVec,
+    },
+};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -16,8 +18,14 @@ pub struct ColorInput {
     pub style: NodeDataInlineCssPropertyVec,
 }
 
-pub type ColorInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &ColorInputState) -> Update;
-impl_callback!(ColorInputOnValueChange, OptionColorInputOnValueChange, ColorInputOnValueChangeCallback, ColorInputOnValueChangeCallbackType);
+pub type ColorInputOnValueChangeCallbackType =
+    extern "C" fn(&mut RefAny, &mut CallbackInfo, &ColorInputState) -> Update;
+impl_callback!(
+    ColorInputOnValueChange,
+    OptionColorInputOnValueChange,
+    ColorInputOnValueChangeCallback,
+    ColorInputOnValueChangeCallbackType
+);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -51,7 +59,7 @@ impl Default for ColorInputState {
                 g: 255,
                 b: 255,
                 a: 255,
-            }
+            },
         }
     }
 }
@@ -65,31 +73,39 @@ static DEFAULT_COLOR_INPUT_STYLE: &[NodeDataInlineCssProperty] = &[
 ];
 
 impl ColorInput {
-
     #[inline]
     pub fn new(color: ColorU) -> Self {
         Self {
             state: ColorInputStateWrapper {
                 inner: ColorInputState {
                     color,
-                    .. Default::default()
+                    ..Default::default()
                 },
-                .. Default::default()
+                ..Default::default()
             },
             style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
         }
     }
 
     #[inline]
-    pub fn set_on_value_change(&mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType) {
+    pub fn set_on_value_change(
+        &mut self,
+        data: RefAny,
+        callback: ColorInputOnValueChangeCallbackType,
+    ) {
         self.state.on_value_change = Some(ColorInputOnValueChange {
             callback: ColorInputOnValueChangeCallback { cb: callback },
-            data
-        }).into();
+            data,
+        })
+        .into();
     }
 
     #[inline]
-    pub fn with_on_value_change(mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType) -> Self {
+    pub fn with_on_value_change(
+        mut self,
+        data: RefAny,
+        callback: ColorInputOnValueChangeCallbackType,
+    ) -> Self {
         self.set_on_value_change(data, callback);
         self
     }
@@ -103,33 +119,33 @@ impl ColorInput {
 
     #[inline]
     pub fn dom(mut self) -> Dom {
-
-        use azul_desktop::callbacks::Callback;
-        use azul_desktop::dom::{
-            EventFilter, HoverEventFilter,
-            IdOrClass::Class, CallbackData,
+        use azul_desktop::{
+            callbacks::Callback,
+            dom::{CallbackData, EventFilter, HoverEventFilter, IdOrClass::Class},
         };
 
         let mut style = self.style.into_library_owned_vec();
-        style.push(Normal(CssProperty::const_background_content(vec![
-            StyleBackgroundContent::Color(self.state.inner.color)
-        ].into())));
+        style.push(Normal(CssProperty::const_background_content(
+            vec![StyleBackgroundContent::Color(self.state.inner.color)].into(),
+        )));
 
         Dom::div()
-        .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
-        .with_inline_css_props(style.into())
-        .with_callbacks(vec![
-            CallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                data: RefAny::new(self.state),
-                callback: Callback { cb: on_color_input_clicked }
-            }
-        ].into())
+            .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
+            .with_inline_css_props(style.into())
+            .with_callbacks(
+                vec![CallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    data: RefAny::new(self.state),
+                    callback: Callback {
+                        cb: on_color_input_clicked,
+                    },
+                }]
+                .into(),
+            )
     }
 }
 
 extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     use azul_desktop::dialogs::color_picker_dialog;
 
     let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
@@ -140,7 +156,7 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo)
     // open the color picker dialog
     let new_color = match color_picker_dialog(
         color_input.title.as_str(),
-        Some(color_input.inner.color).into()
+        Some(color_input.inner.color).into(),
     ) {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -148,9 +164,12 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo)
 
     // Update the color in the data and the screen
     color_input.inner.color = new_color;
-    info.set_css_property(info.get_hit_node(), CssProperty::const_background_content(
-        vec![StyleBackgroundContent::Color(new_color)].into(),
-    ));
+    info.set_css_property(
+        info.get_hit_node(),
+        CssProperty::const_background_content(
+            vec![StyleBackgroundContent::Color(new_color)].into(),
+        ),
+    );
 
     let result = {
         let color_input = &mut *color_input;

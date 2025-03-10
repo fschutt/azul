@@ -1,25 +1,34 @@
+use std::{
+    collections::BTreeMap,
+    ffi::{CStr, CString, c_void},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI32, AtomicIsize, Ordering},
+    },
+};
 
-use std::collections::BTreeMap;
-use std::ffi::{CStr, CString, c_void};
-use std::sync::atomic::{AtomicI32, AtomicIsize, Ordering};
-use std::sync::{Arc, Mutex};
-
-use azul_core::callbacks::CallbackInfo;
-use azul_core::window::{Menu, MenuCallback, MenuItem, ProcessEventResult};
-use azul_core::styled_dom::NodeHierarchyItemId;
-use azul_core::window_state::NodesToCheck;
-
-use objc2::rc::Id;
-use objc2::rc::Retained;
-use objc2::MainThreadMarker;
-use objc2_foundation::{NSString};
-use objc2_app_kit::{NSEventModifierFlags, NSMenu, NSMenuItem, NSUserInterfaceItemIdentification, NSWindow};
-use objc2::runtime::{AnyClass, AnyObject, Object, Sel, NO};
+use azul_core::{
+    callbacks::CallbackInfo,
+    styled_dom::NodeHierarchyItemId,
+    window::{Menu, MenuCallback, MenuItem, ProcessEventResult},
+    window_state::NodesToCheck,
+};
+use objc2::{
+    MainThreadMarker,
+    declare::ClassDecl,
+    msg_send,
+    rc::{Id, Retained},
+    runtime::{AnyClass, AnyObject, NO, Object, Sel},
+    sel,
+};
+use objc2_app_kit::{
+    NSEventModifierFlags, NSMenu, NSMenuItem, NSUserInterfaceItemIdentification, NSWindow,
+};
+use objc2_foundation::NSString;
 use once_cell::sync::Lazy;
-use objc2::{declare::ClassDecl, sel, msg_send};
 
 use super::{AppData, MacApp, WindowId};
-use crate::shell::{MacOsMenuCommands, MenuTarget, CommandId, CommandMap};
+use crate::shell::{CommandId, CommandMap, MacOsMenuCommands, MenuTarget};
 
 // If the app_data.active_menus[target] differs from the `menu`, creates a new
 // NSMenu and returns it. Should only be called on the main thread.
@@ -32,11 +41,20 @@ pub fn reinit_nsmenu(
     let menu_hash = menu.get_hash();
     let mut m = NSMenu::new(*mtm);
     let mut map = CommandMap::new();
-    recursive_construct_menu(mtm, &menu.items.as_slice(), &mut m, &mut map, menu_handler_class);
-    Some((m, MacOsMenuCommands {
-        menu_hash,
-        commands: map,        
-    }))
+    recursive_construct_menu(
+        mtm,
+        &menu.items.as_slice(),
+        &mut m,
+        &mut map,
+        menu_handler_class,
+    );
+    Some((
+        m,
+        MacOsMenuCommands {
+            menu_hash,
+            commands: map,
+        },
+    ))
 }
 
 /// Recursively build an `NSMenu` from our `MenuItem` list
@@ -45,14 +63,13 @@ fn recursive_construct_menu(
     items: &[MenuItem],
     menu: &NSMenu,
     command_map: &mut CommandMap,
-    menu_handler_class: *mut Object
+    menu_handler_class: *mut Object,
 ) {
     unsafe {
         for item in items {
             match item {
                 MenuItem::String(mi) => {
                     if mi.children.is_empty() {
-
                         // Leaf menu item
                         let mut menu_item = NSMenuItem::new(*mtm);
                         menu_item.setTitle(&NSString::from_str(&mi.label));
@@ -68,26 +85,35 @@ fn recursive_construct_menu(
 
                         if let Some(vk) = mi.accelerator.as_ref() {
                             use azul_core::window::VirtualKeyCode;
-                            
+
                             let keys = vk.keys.as_slice();
                             if !keys.is_empty() {
                                 let mut flags = NSEventModifierFlags::empty();
 
-                                if keys.contains(&VirtualKeyCode::LShift) || keys.contains(&VirtualKeyCode::RShift) {
+                                if keys.contains(&VirtualKeyCode::LShift)
+                                    || keys.contains(&VirtualKeyCode::RShift)
+                                {
                                     flags.insert(NSEventModifierFlags::Shift);
                                 }
-                                if keys.contains(&VirtualKeyCode::LControl) || keys.contains(&VirtualKeyCode::RControl) {
+                                if keys.contains(&VirtualKeyCode::LControl)
+                                    || keys.contains(&VirtualKeyCode::RControl)
+                                {
                                     flags.insert(NSEventModifierFlags::Control);
                                 }
-                                if keys.contains(&VirtualKeyCode::LAlt) || keys.contains(&VirtualKeyCode::RAlt) {
+                                if keys.contains(&VirtualKeyCode::LAlt)
+                                    || keys.contains(&VirtualKeyCode::RAlt)
+                                {
                                     flags.insert(NSEventModifierFlags::Option);
                                 }
-                                if keys.contains(&VirtualKeyCode::LWin) || keys.contains(&VirtualKeyCode::RWin) {
+                                if keys.contains(&VirtualKeyCode::LWin)
+                                    || keys.contains(&VirtualKeyCode::RWin)
+                                {
                                     flags.insert(NSEventModifierFlags::Command);
                                 }
 
                                 // TODO: function keys!
-                                let keys = keys.iter()
+                                let keys = keys
+                                    .iter()
                                     .filter_map(|s| s.get_lowercase())
                                     .collect::<String>();
 
@@ -98,43 +124,47 @@ fn recursive_construct_menu(
 
                         menu.addItem(&menu_item);
                     } else {
-
                         let mut submenu_item = NSMenuItem::new(*mtm);
                         submenu_item.setTitle(&NSString::from_str(&mi.label));
                         submenu_item.setAction(Some(sel!(menuItemClicked:)));
-                        
+
                         // Create the submenu itself
                         let mut submenu = NSMenu::new(*mtm);
                         submenu.setTitle(&NSString::from_str(&mi.label));
-                        recursive_construct_menu(mtm, mi.children.as_slice(), &submenu, command_map, menu_handler_class);
+                        recursive_construct_menu(
+                            mtm,
+                            mi.children.as_slice(),
+                            &submenu,
+                            command_map,
+                            menu_handler_class,
+                        );
                         menu.setSubmenu_forItem(Some(&*submenu), &submenu_item);
                         menu.addItem(&submenu_item);
                     }
-                },
+                }
                 MenuItem::Separator | MenuItem::BreakLine => {
                     let separator = NSMenuItem::separatorItem(*mtm);
                     menu.addItem(&separator);
                 }
             }
-        }    
+        }
     }
 }
 
 // Returns the class definition for the Menu click handler
 pub fn menu_handler_class() -> ClassDecl {
-    
     let superclass = objc2::class!(NSObject);
 
     let c = CString::new("RustMenuHandler").unwrap();
-    let mut decl = ClassDecl::new(&c, superclass)
-            .expect("MenuHandler class name is already registered?");
+    let mut decl =
+        ClassDecl::new(&c, superclass).expect("MenuHandler class name is already registered?");
 
     unsafe {
         let c = CString::new("app").unwrap();
         decl.add_ivar::<*const c_void>(&c);
         decl.add_method(
             sel!(menuItemClicked:),
-            menu_item_clicked as extern "C" fn(*mut Object, Sel, *mut Object)
+            menu_item_clicked as extern "C" fn(*mut Object, Sel, *mut Object),
         );
     }
 
@@ -153,7 +183,6 @@ fn create_menu_handler_instance(cls: &AnyClass, megaclass: &MacApp) -> *mut Obje
 /// The actual callback method for your NSMenuItem action
 extern "C" fn menu_item_clicked(this: *mut Object, _sel: Sel, sender: *mut Object) {
     unsafe {
-
         // `sender` is an NSMenuItem
         let tag: isize = msg_send![sender, tag];
 
@@ -165,9 +194,11 @@ extern "C" fn menu_item_clicked(this: *mut Object, _sel: Sel, sender: *mut Objec
         let mut app_borrow = ptr.data.lock().unwrap();
         let mut app_borrow = &mut *app_borrow;
 
-        let cb = app_borrow.active_menus.values()
-        .find_map(|s| s.get(&CommandId(tag)));
-    
+        let cb = app_borrow
+            .active_menus
+            .values()
+            .find_map(|s| s.get(&CommandId(tag)));
+
         let callback = match cb {
             Some(s) => s,
             None => return,
@@ -184,13 +215,19 @@ extern "C" fn menu_item_clicked(this: *mut Object, _sel: Sel, sender: *mut Objec
         let fc_cache = &mut ab.fc_cache;
         let config = &ab.config;
 
-        let mut current_window = match app_borrow.windows.get_mut(&WindowId { id: windowid as i64 }) {
+        let mut current_window = match app_borrow.windows.get_mut(&WindowId {
+            id: windowid as i64,
+        }) {
             Some(s) => s,
             None => return,
         };
-        
+
         let ntc = NodesToCheck::empty(
-            current_window.internal.current_window_state.mouse_state.mouse_down(),
+            current_window
+                .internal
+                .current_window_state
+                .mouse_state
+                .mouse_down(),
             current_window.internal.current_window_state.focused_node,
         );
 
@@ -294,5 +331,3 @@ extern "C" fn menu_item_clicked(this: *mut Object, _sel: Sel, sender: *mut Objec
         */
     }
 }
-
-

@@ -66,7 +66,7 @@
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
 #![allow(warnings)]
 
@@ -78,27 +78,29 @@ extern crate alloc;
 
 #[macro_use]
 extern crate azul_css;
+extern crate allsorts;
 extern crate azul_core;
 extern crate unicode_normalization;
-extern crate allsorts;
 #[macro_use]
 extern crate tinyvec;
 
 use alloc::boxed::Box;
 use core::ffi::c_void;
-use crate::text_shaping::ParsedFont;
+
 use azul_css::{FontData, FontRef};
+
+use crate::text_shaping::ParsedFont;
 
 pub mod script;
 pub mod text_layout;
 pub mod text_shaping;
 
 use azul_core::{
-    traits::GetTextLayout,
-    ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
-    app_resources::{Words, ShapedWords, LoadedFontSource},
+    app_resources::{LoadedFontSource, ShapedWords, Words},
     callbacks::DocumentId,
     id_tree::NodeId,
+    traits::GetTextLayout,
+    ui_solver::{InlineTextLayout, ResolvedTextLayoutOptions},
 };
 
 use crate::text_layout::FontMetrics;
@@ -110,27 +112,32 @@ pub struct InlineText<'a> {
 }
 
 impl<'a> GetTextLayout for InlineText<'a> {
-    fn get_text_layout(&mut self, _: &DocumentId, _: NodeId, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout {
-        let layouted_text_block = text_layout::position_words(
-            self.words,
-            self.shaped_words,
-            text_layout_options,
-        );
+    fn get_text_layout(
+        &mut self,
+        _: &DocumentId,
+        _: NodeId,
+        text_layout_options: &ResolvedTextLayoutOptions,
+    ) -> InlineTextLayout {
+        let layouted_text_block =
+            text_layout::position_words(self.words, self.shaped_words, text_layout_options);
         // TODO: Cache the layouted text block on the &mut self
         text_layout::word_positions_to_inline_text_layout(&layouted_text_block)
     }
 }
 
 fn parsed_font_destructor(ptr: *mut c_void) {
-    unsafe { let _ = Box::from_raw(ptr as *mut ParsedFont); }
+    unsafe {
+        let _ = Box::from_raw(ptr as *mut ParsedFont);
+    }
 }
 
 pub fn parse_font_fn(source: LoadedFontSource) -> Option<FontRef> {
     crate::text_layout::parse_font(
         source.data.as_ref(),
         source.index as usize,
-        source.load_outlines
-    ).map(|parsed_font| {
+        source.load_outlines,
+    )
+    .map(|parsed_font| {
         FontRef::new(FontData {
             bytes: source.data,
             font_index: source.index,

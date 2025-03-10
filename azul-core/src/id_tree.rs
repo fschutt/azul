@@ -1,4 +1,3 @@
-use crate::styled_dom::NodeHierarchyItem;
 use alloc::vec::Vec;
 use core::{
     ops::{Index, IndexMut},
@@ -6,6 +5,7 @@ use core::{
 };
 
 pub use self::node_id::NodeId;
+use crate::styled_dom::NodeHierarchyItem;
 pub type NodeDepths = Vec<(usize, NodeId)>;
 
 // Since private fields are module-based, this prevents any module from accessing
@@ -415,7 +415,6 @@ impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
 }
 
 impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
-
     pub fn transform_nodeid<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U>
     where
         F: Fn(NodeId) -> U,
@@ -619,7 +618,7 @@ impl NodeId {
 }
 
 macro_rules! impl_node_iterator {
-    ($name: ident, $next: expr) => {
+    ($name:ident, $next:expr) => {
         impl<'a> Iterator for $name<'a> {
             type Item = NodeId;
 

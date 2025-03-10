@@ -1,79 +1,70 @@
-use crate::{
-    app::{App, LazyFcCache},
-    gl::{c_char, c_ushort, c_uchar, c_int, c_uint, c_long, c_ulong},
-    wr_translate::{
-        rebuild_display_list,
-        generate_frame,
-        synchronize_gpu_values,
-        scroll_all_nodes,
-        wr_synchronize_updated_images,
-        AsyncHitTester,
-    }
-};
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
-    sync::Arc
+    sync::Arc,
 };
+use core::{
+    cell::{BorrowError, BorrowMutError, RefCell},
+    convert::TryInto,
+    ffi::c_void,
+    fmt, mem, ptr,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
+use std::{
+    ffi::{CString, OsStr},
+    os::raw,
+};
+
 use azul_core::{
     FastBTreeSet, FastHashMap,
     app_resources::{
-        ImageMask, ImageRef, Epoch,
-        AppConfig, ImageCache, ResourceUpdate,
-        RendererResources, GlTextureCache,
+        AppConfig, Epoch, GlTextureCache, ImageCache, ImageMask, ImageRef, RendererResources,
+        ResourceUpdate,
     },
-    callbacks::{
-        RefAny, UpdateImageType,
-        DomNodeId, DocumentId
-    },
+    callbacks::{DocumentId, DomNodeId, RefAny, UpdateImageType},
+    display_list::RenderCallbacks,
+    dom::NodeId,
     gl::OptionGlContextPtr,
+    styled_dom::DomId,
     task::{Thread, ThreadId, Timer, TimerId},
     ui_solver::LayoutResult,
-    styled_dom::DomId,
-    dom::NodeId,
-    display_list::RenderCallbacks,
     window::{
-        LogicalSize, Menu, MenuCallback, MenuItem,
-        MonitorVec, WindowCreateOptions, WindowInternal,
-        WindowState, FullWindowState, ScrollResult,
-        MouseCursorType, CallCallbacksResult
+        CallCallbacksResult, FullWindowState, LogicalSize, Menu, MenuCallback, MenuItem,
+        MonitorVec, MouseCursorType, ScrollResult, WindowCreateOptions, WindowInternal,
+        WindowState,
     },
     window_state::NodesToCheck,
 };
-use core::{
-    fmt,
-    convert::TryInto,
-    cell::{BorrowError, BorrowMutError, RefCell},
-    ffi::c_void,
-    mem, ptr,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-};
-use gl_context_loader::GenericGlContext;
+use gl_context_loader::{GenericGlContext, gl};
 use webrender::{
-    api::{
-        units::{
-            DeviceIntPoint as WrDeviceIntPoint,
-            DeviceIntRect as WrDeviceIntRect,
-            DeviceIntSize as WrDeviceIntSize,
-            LayoutSize as WrLayoutSize,
-        },
-        HitTesterRequest as WrHitTesterRequest,
-        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
-        RenderNotifier as WrRenderNotifier,
-    },
-    render_api::RenderApi as WrRenderApi,
     PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
     RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
     Shaders as WrShaders, Transaction as WrTransaction,
+    api::{
+        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
+        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
+        units::{
+            DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
+            DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
+        },
+    },
+    render_api::RenderApi as WrRenderApi,
 };
-use std::ffi::{CString, OsStr};
-use std::os::raw;
-use gl_context_loader::gl;
+
+use crate::{
+    app::{App, LazyFcCache},
+    gl::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_ushort},
+    wr_translate::{
+        AsyncHitTester, generate_frame, rebuild_display_list, scroll_all_nodes,
+        synchronize_gpu_values, wr_synchronize_updated_images,
+    },
+};
 
 // TODO: Cache compiled shaders between renderers
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
 
-extern { // syscalls
+extern "C" {
+    // syscalls
     fn dlopen(filename: *const raw::c_char, flags: raw::c_int) -> *mut raw::c_void;
     fn dlsym(handle: *mut raw::c_void, symbol: *const raw::c_char) -> *mut raw::c_void;
     fn dlclose(handle: *mut raw::c_void) -> raw::c_int;
@@ -135,21 +126,38 @@ type EGLSurface = *mut c_void;
 type eglGetDisplayFuncType = extern "C" fn(EGLNativeDisplayType) -> EGLDisplay;
 type eglInitializeFuncType = extern "C" fn(EGLDisplay, *mut EGLint, *mut EGLint) -> EGLBoolean;
 type eglBindAPIFuncType = extern "C" fn(EGLenum) -> EGLBoolean;
-type eglChooseConfigFuncType = extern "C" fn(EGLDisplay, *const EGLint,*mut EGLConfig, EGLint, *mut EGLint) -> EGLBoolean;
-type eglCreateWindowSurfaceFuncType = extern "C" fn(EGLDisplay, EGLConfig, EGLNativeWindowType, *const EGLint) -> EGLSurface;
+type eglChooseConfigFuncType =
+    extern "C" fn(EGLDisplay, *const EGLint, *mut EGLConfig, EGLint, *mut EGLint) -> EGLBoolean;
+type eglCreateWindowSurfaceFuncType =
+    extern "C" fn(EGLDisplay, EGLConfig, EGLNativeWindowType, *const EGLint) -> EGLSurface;
 type eglSwapIntervalFuncType = extern "C" fn(EGLDisplay, EGLint) -> EGLBoolean;
-type eglCreateContextFuncType = extern "C" fn(EGLDisplay, EGLConfig, EGLContext, *const EGLint) -> EGLContext;
-type eglMakeCurrentFuncType = extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> EGLBoolean;
+type eglCreateContextFuncType =
+    extern "C" fn(EGLDisplay, EGLConfig, EGLContext, *const EGLint) -> EGLContext;
+type eglMakeCurrentFuncType =
+    extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> EGLBoolean;
 type eglSwapBuffersFuncType = extern "C" fn(EGLDisplay, EGLSurface) -> EGLBoolean;
-type eglGetErrorFuncType = extern "C" fn () -> EGLint;
+type eglGetErrorFuncType = extern "C" fn() -> EGLint;
 type eglGetProcAddressFuncType = extern "C" fn(*const c_char) -> *mut raw::c_void;
 
 type XDefaultScreenFuncType = extern "C" fn(*mut Display) -> c_int;
 type XRootWindowFuncType = extern "C" fn(*mut Display, c_int) -> c_ulong;
-type XCreateWindowFuncType = extern "C" fn(*mut Display, c_ulong, c_int, c_int, c_uint, c_uint, c_uint, c_int, c_uint, *mut Visual, c_ulong, *mut XSetWindowAttributes) -> c_ulong;
+type XCreateWindowFuncType = extern "C" fn(
+    *mut Display,
+    c_ulong,
+    c_int,
+    c_int,
+    c_uint,
+    c_uint,
+    c_uint,
+    c_int,
+    c_uint,
+    *mut Visual,
+    c_ulong,
+    *mut XSetWindowAttributes,
+) -> c_ulong;
 type XStoreNameFuncType = extern "C" fn(*mut Display, c_ulong, *const c_char) -> c_int;
 type XInternAtomFuncType = extern "C" fn(*mut Display, *const c_char, c_int) -> c_ulong;
-type XSetWMProtocolsFuncType = extern "C" fn(*mut Display, c_ulong,*mut c_ulong, c_int) -> c_int;
+type XSetWMProtocolsFuncType = extern "C" fn(*mut Display, c_ulong, *mut c_ulong, c_int) -> c_int;
 type XMapWindowFuncType = extern "C" fn(*mut Display, c_ulong) -> c_int;
 type XOpenDisplayFuncType = extern "C" fn(*const c_char) -> *mut Display;
 type XCloseDisplayFuncType = extern "C" fn(*mut Display) -> c_int;
@@ -431,7 +439,6 @@ union XEvent {
     // xscreensaver
     xss_notify: XScreenSaverNotifyEvent,
 }
-
 
 impl XEvent {
     pub fn get_type(&self) -> c_int {
@@ -956,9 +963,10 @@ struct XSetWindowAttributes {
 
 /// Main function that starts when app.run() is invoked
 pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, LinuxStartupError> {
-
-    use self::LinuxStartupError::Create;
-    use self::LinuxWindowCreateError::{X, Egl as EglError};
+    use self::{
+        LinuxStartupError::Create,
+        LinuxWindowCreateError::{Egl as EglError, X},
+    };
 
     let App {
         data,
@@ -985,7 +993,9 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
             xlib.clone(),
             egl.clone(),
             options,
-            SharedApplicationData { inner: app_data_inner.clone() }
+            SharedApplicationData {
+                inner: app_data_inner.clone(),
+            },
         )?;
         window.show();
         active_windows.insert(window.id, window);
@@ -995,19 +1005,19 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
         xlib.clone(),
         egl.clone(),
         &mut root_window,
-        SharedApplicationData { inner: app_data_inner.clone() }
+        SharedApplicationData {
+            inner: app_data_inner.clone(),
+        },
     )?;
     window.show();
     active_windows.insert(window.id, window);
 
-    let mut cur_xevent = XEvent { pad: [0;24] };
+    let mut cur_xevent = XEvent { pad: [0; 24] };
 
     loop {
-
         let mut windows_to_close = Vec::new();
 
         for (window_id, window) in active_windows.iter_mut() {
-
             // blocks until next event
             unsafe { (xlib.XNextEvent)(window.dpy.get(), &mut cur_xevent) };
 
@@ -1023,23 +1033,33 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
                     window.make_current();
                     window.render_api.flush_scene_builder();
 
-                    window.gl_functions.functions.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
-                    window.gl_functions.functions.disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
-                    window.gl_functions.functions.disable(gl_context_loader::gl::MULTISAMPLE);
+                    window
+                        .gl_functions
+                        .functions
+                        .bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    window
+                        .gl_functions
+                        .functions
+                        .disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
+                    window
+                        .gl_functions
+                        .functions
+                        .disable(gl_context_loader::gl::MULTISAMPLE);
 
                     window.gl_functions.functions.viewport(0, 0, width, height);
-                    window.gl_functions.functions.clear_color(0.0, 0.0, 0.0, 1.0);
+                    window
+                        .gl_functions
+                        .functions
+                        .clear_color(0.0, 0.0, 0.0, 1.0);
                     window.gl_functions.functions.clear(
-                        gl::COLOR_BUFFER_BIT |
-                        gl::DEPTH_BUFFER_BIT |
-                        gl::STENCIL_BUFFER_BIT
+                        gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT,
                     );
 
                     let mut current_program = [0_i32];
                     unsafe {
                         window.gl_functions.functions.get_integer_v(
                             gl_context_loader::gl::CURRENT_PROGRAM,
-                            (&mut current_program[..]).into()
+                            (&mut current_program[..]).into(),
                         );
                     }
 
@@ -1049,18 +1069,30 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
                         let _ = r.render(framebuffer_size, 0);
                     }
 
-                    let swap_result = (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
+                    let swap_result =
+                        (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
                     if swap_result != EGL_TRUE {
-                        return Err(Create(EglError(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
+                        return Err(Create(EglError(format!(
+                            "EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}",
+                            swap_result
+                        ))));
                     }
 
-                    window.gl_functions.functions.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
-                    window.gl_functions.functions.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
-                    window.gl_functions.functions.use_program(current_program[0] as u32);
-                },
+                    window
+                        .gl_functions
+                        .functions
+                        .bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    window
+                        .gl_functions
+                        .functions
+                        .bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                    window
+                        .gl_functions
+                        .functions
+                        .use_program(current_program[0] as u32);
+                }
                 // window resized
                 X11_RESIZE_REQUEST => {
-
                     let resize_request_data = unsafe { cur_xevent.resize_request };
                     let width = resize_request_data.width;
                     let height = resize_request_data.height;
@@ -1068,23 +1100,33 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
                     window.make_current();
                     window.render_api.flush_scene_builder();
 
-                    window.gl_functions.functions.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
-                    window.gl_functions.functions.disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
-                    window.gl_functions.functions.disable(gl_context_loader::gl::MULTISAMPLE);
+                    window
+                        .gl_functions
+                        .functions
+                        .bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    window
+                        .gl_functions
+                        .functions
+                        .disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
+                    window
+                        .gl_functions
+                        .functions
+                        .disable(gl_context_loader::gl::MULTISAMPLE);
 
                     window.gl_functions.functions.viewport(0, 0, width, height);
-                    window.gl_functions.functions.clear_color(0.0, 0.0, 0.0, 1.0);
+                    window
+                        .gl_functions
+                        .functions
+                        .clear_color(0.0, 0.0, 0.0, 1.0);
                     window.gl_functions.functions.clear(
-                        gl::COLOR_BUFFER_BIT |
-                        gl::DEPTH_BUFFER_BIT |
-                        gl::STENCIL_BUFFER_BIT
+                        gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT,
                     );
 
                     let mut current_program = [0_i32];
                     unsafe {
                         window.gl_functions.functions.get_integer_v(
                             gl_context_loader::gl::CURRENT_PROGRAM,
-                            (&mut current_program[..]).into()
+                            (&mut current_program[..]).into(),
                         );
                     }
 
@@ -1094,21 +1136,26 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
                         let _ = r.render(framebuffer_size, 0);
                     }
 
-                    let swap_result = (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
+                    let swap_result =
+                        (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
                     if swap_result != EGL_TRUE {
-                        return Err(Create(EglError(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
+                        return Err(Create(EglError(format!(
+                            "EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}",
+                            swap_result
+                        ))));
                     }
-                },
+                }
                 // window closed
                 X11_CLIENT_MESSAGE => {
                     let xclient_data = unsafe { cur_xevent.client_message };
-                    if (xclient_data.data.as_longs().get(0).copied() == Some(window.wm_delete_window_atom)) {
+                    if (xclient_data.data.as_longs().get(0).copied()
+                        == Some(window.wm_delete_window_atom))
+                    {
                         windows_to_close.push(*window_id);
                     }
-                },
-                _ => { },
+                }
+                _ => {}
             }
-
         }
 
         for w in windows_to_close {
@@ -1138,7 +1185,6 @@ struct ApplicationData {
 }
 
 fn display_egl_status(e: EGLint) -> &'static str {
-
     const BAD_ACCESS: EGLint = 0x3002;
     const BAD_ALLOC: EGLint = 0x3003;
     const BAD_ATTRIBUTE: EGLint = 0x3004;
@@ -1233,61 +1279,145 @@ struct Xlib {
 }
 
 impl Xlib {
-
     fn new() -> Result<Self, LinuxStartupError> {
+        use self::{
+            LinuxStartupError::Create,
+            LinuxWindowCreateError::{Egl, X},
+        };
 
-        use self::LinuxStartupError::Create;
-        use self::LinuxWindowCreateError::{X, Egl};
+        let x11 =
+            Library::load("libX11.so").map_err(|e| X(format!("Could not load libX11: {}", e)))?;
 
-        let x11 = Library::load("libX11.so")
-            .map_err(|e| X(format!("Could not load libX11: {}", e)))?;
-
-        let XDefaultScreen: XDefaultScreenFuncType = x11.get("XDefaultScreen")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XDefaultScreen: XDefaultScreenFuncType = x11
+            .get("XDefaultScreen")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XDefaultScreen"))))?;
 
-        let XRootWindow: XRootWindowFuncType = x11.get("XRootWindow")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XRootWindow: XRootWindowFuncType = x11
+            .get("XRootWindow")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XRootWindow"))))?;
 
-        let XCreateWindow: XCreateWindowFuncType = x11.get("XCreateWindow")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XCreateWindow: XCreateWindowFuncType = x11
+            .get("XCreateWindow")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XCreateWindow"))))?;
 
-        let XStoreName: XStoreNameFuncType = x11.get("XStoreName")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XStoreName: XStoreNameFuncType = x11
+            .get("XStoreName")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XStoreName"))))?;
 
-        let XInternAtom: XInternAtomFuncType = x11.get("XInternAtom")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XInternAtom: XInternAtomFuncType = x11
+            .get("XInternAtom")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XInternAtom"))))?;
 
-        let XSetWMProtocols: XSetWMProtocolsFuncType = x11.get("XSetWMProtocols")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XSetWMProtocols: XSetWMProtocolsFuncType = x11
+            .get("XSetWMProtocols")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XSetWMProtocols"))))?;
 
-        let XMapWindow: XMapWindowFuncType = x11.get("XMapWindow")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XMapWindow: XMapWindowFuncType = x11
+            .get("XMapWindow")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XMapWindow"))))?;
 
-        let XOpenDisplay: XOpenDisplayFuncType = x11.get("XOpenDisplay")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XOpenDisplay: XOpenDisplayFuncType = x11
+            .get("XOpenDisplay")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XOpenDisplay"))))?;
 
-        let XCloseDisplay: XCloseDisplayFuncType = x11.get("XCloseDisplay")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XCloseDisplay: XCloseDisplayFuncType = x11
+            .get("XCloseDisplay")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XCloseDisplay"))))?;
 
-        let XPending: XPendingFuncType = x11.get("XPending")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XPending: XPendingFuncType = x11
+            .get("XPending")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XPending"))))?;
 
-        let XNextEvent: XNextEventFuncType = x11.get("XNextEvent")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XNextEvent: XNextEventFuncType = x11
+            .get("XNextEvent")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XNextEvent"))))?;
 
-        let XSelectInput: XSelectInputFuncType = x11.get("XSelectInput")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+        let XSelectInput: XSelectInputFuncType = x11
+            .get("XSelectInput")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("X11: no function XSelectInput"))))?;
 
         Ok(Xlib {
@@ -1325,45 +1455,125 @@ struct Egl {
 
 impl Egl {
     fn new() -> Result<Self, LinuxStartupError> {
+        use self::{
+            LinuxStartupError::Create,
+            LinuxWindowCreateError::{Egl, X},
+        };
 
-        use self::LinuxStartupError::Create;
-        use self::LinuxWindowCreateError::{X, Egl};
+        let egl =
+            Library::load("libEGL.so").map_err(|e| X(format!("Could not load libEGL: {}", e)))?;
 
-        let egl = Library::load("libEGL.so")
-            .map_err(|e| X(format!("Could not load libEGL: {}", e)))?;
-
-        let eglMakeCurrent: eglMakeCurrentFuncType = egl.get("eglMakeCurrent")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglMakeCurrent: eglMakeCurrentFuncType = egl
+            .get("eglMakeCurrent")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglMakeCurrent"))))?;
-        let eglSwapBuffers: eglSwapBuffersFuncType = egl.get("eglSwapBuffers")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglSwapBuffers: eglSwapBuffersFuncType = egl
+            .get("eglSwapBuffers")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglSwapBuffers"))))?;
-        let eglGetDisplay: eglGetDisplayFuncType = egl.get("eglGetDisplay")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglGetDisplay: eglGetDisplayFuncType = egl
+            .get("eglGetDisplay")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglGetDisplay"))))?;
-        let eglInitialize: eglInitializeFuncType = egl.get("eglInitialize")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglInitialize: eglInitializeFuncType = egl
+            .get("eglInitialize")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglInitialize"))))?;
-        let eglBindAPI: eglBindAPIFuncType = egl.get("eglBindAPI")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglBindAPI: eglBindAPIFuncType = egl
+            .get("eglBindAPI")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglBindAPI"))))?;
-        let eglChooseConfig: eglChooseConfigFuncType = egl.get("eglChooseConfig")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglChooseConfig: eglChooseConfigFuncType = egl
+            .get("eglChooseConfig")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglChooseConfig"))))?;
-        let eglCreateWindowSurface: eglCreateWindowSurfaceFuncType = egl.get("eglCreateWindowSurface")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-            .ok_or(Create(Egl(format!("EGL: no function eglCreateWindowSurface"))))?;
-        let eglSwapInterval: eglSwapIntervalFuncType = egl.get("eglSwapInterval")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglCreateWindowSurface: eglCreateWindowSurfaceFuncType = egl
+            .get("eglCreateWindowSurface")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
+            .ok_or(Create(Egl(format!(
+                "EGL: no function eglCreateWindowSurface"
+            ))))?;
+        let eglSwapInterval: eglSwapIntervalFuncType = egl
+            .get("eglSwapInterval")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglSwapInterval"))))?;
-        let eglCreateContext: eglCreateContextFuncType = egl.get("eglCreateContext")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglCreateContext: eglCreateContextFuncType = egl
+            .get("eglCreateContext")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglCreateContext"))))?;
-        let eglGetError: eglGetErrorFuncType = egl.get("eglGetError")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglGetError: eglGetErrorFuncType = egl
+            .get("eglGetError")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglGetError"))))?;
-        let eglGetProcAddress: eglGetProcAddressFuncType = egl.get("eglGetProcAddress")
-            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        let eglGetProcAddress: eglGetProcAddressFuncType = egl
+            .get("eglGetProcAddress")
+            .and_then(|ptr| {
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(ptr) })
+                }
+            })
             .ok_or(Create(Egl(format!("EGL: no function eglGetProcAddress"))))?;
 
         Ok(Self {
@@ -1388,40 +1598,41 @@ impl X11Window {
         xlib: Rc<Xlib>,
         egl: Rc<Egl>,
         options: &mut WindowCreateOptions,
-        shared_application_data: SharedApplicationData
+        shared_application_data: SharedApplicationData,
     ) -> Result<Self, LinuxStartupError> {
+        use azul_core::{
+            callbacks::PipelineId,
+            gl::GlContextPtr,
+            window::{HwAcceleration, RendererType},
+        };
+        use webrender::{ProgramCache as WrProgramCache, api::ColorF as WrColorF};
 
-        use self::LinuxStartupError::Create;
-        use self::LinuxWindowCreateError::{X, Egl as EglError};
-        use azul_core::window::{RendererType, HwAcceleration};
-        use azul_core::gl::GlContextPtr;
-        use webrender::api::ColorF as WrColorF;
-        use webrender::ProgramCache as WrProgramCache;
+        use self::{
+            LinuxStartupError::Create,
+            LinuxWindowCreateError::{Egl as EglError, X},
+        };
         use crate::{
             compositor::Compositor,
             wr_translate::{
-                translate_document_id_wr,
-                translate_id_namespace_wr,
-                wr_translate_debug_flags,
+                translate_document_id_wr, translate_id_namespace_wr, wr_translate_debug_flags,
                 wr_translate_document_id,
             },
         };
-        use azul_core::callbacks::PipelineId;
 
-        let mut dpy = X11Display::open(xlib.clone())
-            .ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
+        let mut dpy =
+            X11Display::open(xlib.clone()).ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
 
         // DefaultRootWindow shim
         let scrnum = unsafe { (xlib.XDefaultScreen)(dpy.get()) };
         let root = unsafe { (xlib.XRootWindow)(dpy.get(), scrnum) };
 
-        let mask = X11_EXPOSURE_MASK |
-            X11_KEY_PRESS_MASK |
-            X11_KEY_RELEASE_MASK |
-            X11_POINTER_MOTION_MASK |
-            X11_BUTTON_PRESS_MASK |
-            X11_BUTTON_RELEASE_MASK |
-            X11_STRUCTURE_NOTIFY_MASK;
+        let mask = X11_EXPOSURE_MASK
+            | X11_KEY_PRESS_MASK
+            | X11_KEY_RELEASE_MASK
+            | X11_POINTER_MOTION_MASK
+            | X11_BUTTON_PRESS_MASK
+            | X11_BUTTON_RELEASE_MASK
+            | X11_STRUCTURE_NOTIFY_MASK;
 
         let mut xattr: XSetWindowAttributes = unsafe { mem::zeroed() };
         xattr.event_mask = mask;
@@ -1434,51 +1645,58 @@ impl X11Window {
         let logical_size = options.state.size.dimensions;
         let physical_size = logical_size.to_physical(dpi_scale_factor);
 
-        let window = unsafe { (xlib.XCreateWindow)(
-            dpy.get(), root,
-            0, 0,
-            logical_size.width.round().max(0.0) as u32,
-            logical_size.height.round().max(0.0) as u32,
-            0,
-            X11_COPY_FROM_PARENT,
-            X11_INPUT_OUTPUT as u32,
-            ptr::null_mut(), // = CopyFromParent
-            X11_CW_EVENT_MASK,
-            &mut xattr,
-        ) };
+        let window = unsafe {
+            (xlib.XCreateWindow)(
+                dpy.get(),
+                root,
+                0,
+                0,
+                logical_size.width.round().max(0.0) as u32,
+                logical_size.height.round().max(0.0) as u32,
+                0,
+                X11_COPY_FROM_PARENT,
+                X11_INPUT_OUTPUT as u32,
+                ptr::null_mut(), // = CopyFromParent
+                X11_CW_EVENT_MASK,
+                &mut xattr,
+            )
+        };
 
         if window == 0 {
             return Err(Create(X(format!("X11: XCreateWindow failed"))));
         }
 
-        unsafe { (xlib.XSelectInput)(dpy.get(), window, mask); }
+        unsafe {
+            (xlib.XSelectInput)(dpy.get(), window, mask);
+        }
 
         let window_title = encode_ascii(&options.state.title);
         unsafe { (xlib.XStoreName)(dpy.get(), window, window_title.as_ptr() as *const i8) };
 
         // subscribe to window close notification
-        let wm_protocols_atom = unsafe { (xlib.XInternAtom)(
-            dpy.get(),
-            encode_ascii("WM_PROTOCOLS").as_ptr() as *const i8,
-            X11_FALSE
-        ) };
+        let wm_protocols_atom = unsafe {
+            (xlib.XInternAtom)(
+                dpy.get(),
+                encode_ascii("WM_PROTOCOLS").as_ptr() as *const i8,
+                X11_FALSE,
+            )
+        };
 
-        let mut wm_delete_window_atom = unsafe { (xlib.XInternAtom)(
-            dpy.get(),
-            encode_ascii("WM_DELETE_WINDOW").as_ptr() as *const i8,
-            X11_FALSE
-        ) };
+        let mut wm_delete_window_atom = unsafe {
+            (xlib.XInternAtom)(
+                dpy.get(),
+                encode_ascii("WM_DELETE_WINDOW").as_ptr() as *const i8,
+                X11_FALSE,
+            )
+        };
 
-        unsafe { (xlib.XSetWMProtocols)(
-            dpy.get(),
-            window,
-            &mut wm_delete_window_atom,
-            1
-        ) };
+        unsafe { (xlib.XSetWMProtocols)(dpy.get(), window, &mut wm_delete_window_atom, 1) };
 
         let egl_display = (egl.eglGetDisplay)(dpy.display as *mut c_void);
         if egl_display == EGL_NO_DISPLAY {
-            return Err(Create(EglError(format!("EGL: eglGetDisplay(): no display"))));
+            return Err(Create(EglError(format!(
+                "EGL: eglGetDisplay(): no display"
+            ))));
         }
 
         let mut major = 0;
@@ -1486,45 +1704,66 @@ impl X11Window {
 
         let init_result = (egl.eglInitialize)(egl_display, &mut major, &mut minor);
         if init_result != EGL_TRUE {
-            return Err(Create(EglError(format!("EGL: eglInitialize(): cannot initialize display: {}", init_result))));
+            return Err(Create(EglError(format!(
+                "EGL: eglInitialize(): cannot initialize display: {}",
+                init_result
+            ))));
         }
 
         // choose OpenGL API for EGL, by default it uses OpenGL ES
         let egl_bound = (egl.eglBindAPI)(EGL_OPENGL_API);
         if egl_bound != EGL_TRUE {
-            return Err(Create(EglError(format!("EGL: eglBindAPI(): Failed to select OpenGL API for EGL: {}", egl_bound))));
+            return Err(Create(EglError(format!(
+                "EGL: eglBindAPI(): Failed to select OpenGL API for EGL: {}",
+                egl_bound
+            ))));
         }
 
         let egl_attr = [
-
-            EGL_SURFACE_TYPE,      EGL_WINDOW_BIT,
-            EGL_CONFORMANT,        EGL_OPENGL_BIT,
-            EGL_RENDERABLE_TYPE,   EGL_OPENGL_BIT,
-            EGL_COLOR_BUFFER_TYPE, EGL_RGB_BUFFER,
-
-            EGL_RED_SIZE,      8,
-            EGL_GREEN_SIZE,    8,
-            EGL_BLUE_SIZE,     8,
-            EGL_DEPTH_SIZE,   24,
-            EGL_STENCIL_SIZE,  8,
-
+            EGL_SURFACE_TYPE,
+            EGL_WINDOW_BIT,
+            EGL_CONFORMANT,
+            EGL_OPENGL_BIT,
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_BIT,
+            EGL_COLOR_BUFFER_TYPE,
+            EGL_RGB_BUFFER,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_DEPTH_SIZE,
+            24,
+            EGL_STENCIL_SIZE,
+            8,
             EGL_NONE,
         ];
 
         let mut config: EGLConfig = unsafe { mem::zeroed() };
         let mut count = 0;
-        let egl_config_chosen = (egl.eglChooseConfig)(egl_display, egl_attr.as_ptr(), &mut config, 1, &mut count);
+        let egl_config_chosen =
+            (egl.eglChooseConfig)(egl_display, egl_attr.as_ptr(), &mut config, 1, &mut count);
         if egl_config_chosen != EGL_TRUE {
-            return Err(Create(EglError(format!("EGL: eglChooseConfig(): Cannot choose EGL config: {}", egl_config_chosen))));
+            return Err(Create(EglError(format!(
+                "EGL: eglChooseConfig(): Cannot choose EGL config: {}",
+                egl_config_chosen
+            ))));
         }
 
         if count != 1 {
-            return Err(Create(EglError(format!("EGL: eglChooseConfig(): Expected 1 EglConfig, got {}", count))));
+            return Err(Create(EglError(format!(
+                "EGL: eglChooseConfig(): Expected 1 EglConfig, got {}",
+                count
+            ))));
         }
 
         let egl_surface_attr = [
-            EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_LINEAR,
-            EGL_RENDER_BUFFER, EGL_BACK_BUFFER,
+            EGL_GL_COLORSPACE,
+            EGL_GL_COLORSPACE_LINEAR,
+            EGL_RENDER_BUFFER,
+            EGL_BACK_BUFFER,
             EGL_NONE,
         ];
 
@@ -1532,29 +1771,47 @@ impl X11Window {
             egl_display,
             config,
             unsafe { mem::transmute(window as usize) },
-            egl_surface_attr.as_ptr()
+            egl_surface_attr.as_ptr(),
         );
 
         if egl_surface == EGL_NO_SURFACE {
-            return Err(Create(EglError(format!("EGL: eglCreateWindowSurface(): no surface found"))));
+            return Err(Create(EglError(format!(
+                "EGL: eglCreateWindowSurface(): no surface found"
+            ))));
         }
 
         let egl_context_attr = [
-            EGL_CONTEXT_MAJOR_VERSION, 3,
-            EGL_CONTEXT_MINOR_VERSION, 2,
-            EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+            EGL_CONTEXT_MAJOR_VERSION,
+            3,
+            EGL_CONTEXT_MINOR_VERSION,
+            2,
+            EGL_CONTEXT_OPENGL_PROFILE_MASK,
+            EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
             EGL_NONE,
         ];
 
-        let egl_context = (egl.eglCreateContext)(egl_display, config, EGL_NO_CONTEXT, egl_context_attr.as_ptr());
+        let egl_context = (egl.eglCreateContext)(
+            egl_display,
+            config,
+            EGL_NO_CONTEXT,
+            egl_context_attr.as_ptr(),
+        );
         if egl_context == EGL_NO_CONTEXT {
             let err = (egl.eglGetError)();
-            return Err(Create(EglError(format!("EGL: eglCreateContext() failed with status {} = {}", err, display_egl_status(err)))));
+            return Err(Create(EglError(format!(
+                "EGL: eglCreateContext() failed with status {} = {}",
+                err,
+                display_egl_status(err)
+            ))));
         }
 
-        let egl_is_current = (egl.eglMakeCurrent)(egl_display, egl_surface, egl_surface, egl_context);
+        let egl_is_current =
+            (egl.eglMakeCurrent)(egl_display, egl_surface, egl_surface, egl_context);
         if egl_is_current != EGL_TRUE {
-            return Err(Create(EglError(format!("EGL: eglMakeCurrent(): failed to make context current: {}", egl_is_current))));
+            return Err(Create(EglError(format!(
+                "EGL: eglMakeCurrent(): failed to make context current: {}",
+                egl_is_current
+            ))));
         }
 
         let mut gl_functions = GlFunctions::initialize(egl.clone());
@@ -1580,10 +1837,7 @@ impl X11Window {
         }
 
         // compiles SVG and FXAA shader programs...
-        let gl_context_ptr = Some(GlContextPtr::new(
-            rt,
-            gl_functions.functions.clone()
-        )).into();
+        let gl_context_ptr = Some(GlContextPtr::new(rt, gl_functions.functions.clone())).into();
 
         // Invoke callback to initialize UI for the first time
         let (mut renderer, sender) = WrRenderer::new(
@@ -1609,13 +1863,15 @@ impl X11Window {
                 ..WrRendererOptions::default()
             },
             WR_SHADER_CACHE,
-        ).map_err(|e| Create(EglError(format!("Could not init WebRender: {:?}", e))))?;
+        )
+        .map_err(|e| Create(EglError(format!("Could not init WebRender: {:?}", e))))?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         let mut render_api = sender.create_api();
 
-        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let framebuffer_size =
+            WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
         let pipeline_id = PipelineId::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
@@ -1687,12 +1943,10 @@ impl X11Window {
 
         wr_synchronize_updated_images(resize_result.updated_images, &document_id, &mut txn);
 
-
-        txn.set_document_view(
-            WrDeviceIntRect::from_size(
-                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
-            )
-        );
+        txn.set_document_view(WrDeviceIntRect::from_size(WrDeviceIntSize::new(
+            physical_size.width as i32,
+            physical_size.height as i32,
+        )));
 
         render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
 
@@ -1708,11 +1962,7 @@ impl X11Window {
 
         render_api.flush_scene_builder();
 
-        generate_frame(
-            &mut internal,
-            &mut render_api,
-            true,
-        );
+        generate_frame(&mut internal, &mut render_api, true);
 
         render_api.flush_scene_builder();
 
@@ -1742,7 +1992,7 @@ impl X11Window {
             self.egl_display,
             self.egl_surface,
             self.egl_surface,
-            self.egl_context
+            self.egl_context,
         );
     }
 
@@ -1757,45 +2007,38 @@ struct X11Display {
 }
 
 impl X11Display {
-
     fn get<'a>(&'a mut self) -> &'a mut Display {
         unsafe { &mut *self.display }
     }
 
     fn open(xlib: Rc<Xlib>) -> Option<Self> {
-
         let dpy = unsafe { (xlib.XOpenDisplay)(&0) };
 
         if dpy.is_null() {
             return None;
         }
 
-        Some(Self {
-            display: dpy,
-            xlib,
-        })
+        Some(Self { display: dpy, xlib })
     }
 
     /// Return the DPI on X11 systems
     ///
     /// Note: slow - cache output!
     pub fn get_dpi_scale_factor(&self) -> f32 {
-
-        use std::env;
-        use std::process::Command;
+        use std::{env, process::Command};
 
         // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor"
         // and parse the output
-        let gsettings_dpi_factor =
-            Command::new("gsettings")
-                .arg("get")
-                .arg("org.gnome.desktop.interface")
-                .arg("text-scaling-factor")
-                .output().ok()
-                .map(|output| output.stdout)
-                .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
-                .map(|stdout_string| stdout_string.lines().collect::<String>())
-                .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
+        let gsettings_dpi_factor = Command::new("gsettings")
+            .arg("get")
+            .arg("org.gnome.desktop.interface")
+            .arg("text-scaling-factor")
+            .output()
+            .ok()
+            .map(|output| output.stdout)
+            .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
+            .map(|stdout_string| stdout_string.lines().collect::<String>())
+            .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
 
         if let Some(s) = gsettings_dpi_factor {
             return s;
@@ -1826,8 +2069,6 @@ impl X11Display {
             }
             XRRFreeScreenResources(xrrr);
         */
-
-
     }
 }
 
@@ -1841,19 +2082,17 @@ impl Drop for X11Display {
 /// A platform-specific equivalent of the cross-platform `Library`.
 pub struct Library {
     name: &'static str,
-    ptr: *mut raw::c_void
+    ptr: *mut raw::c_void,
 }
 
 unsafe impl Send for Library {}
 unsafe impl Sync for Library {}
 
 impl Library {
-
     /// Dynamically load an arbitrary library by its name (dlopen)
     pub fn load(name: &'static str) -> Result<Self, String> {
-
         use alloc::borrow::Cow;
-        use std::ffi::{CString, CStr};
+        use std::ffi::{CStr, CString};
 
         const RTLD_NOW: raw::c_int = 2;
 
@@ -1862,14 +2101,17 @@ impl Library {
 
         if ptr.is_null() {
             let dlerr = unsafe { CStr::from_ptr(dlerror()) };
-            Err(dlerr.to_str().ok().map(|s| s.to_string()).unwrap_or_default())
+            Err(dlerr
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default())
         } else {
             Ok(Self { name, ptr })
         }
     }
 
     pub fn get(&self, symbol: &str) -> Option<*mut raw::c_void> {
-
         use std::ffi::CString;
 
         let symbol_name_new = CString::new(symbol.as_bytes()).ok()?;
@@ -1911,25 +2153,26 @@ struct GlFunctions {
 
 impl fmt::Debug for GlFunctions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self._opengl32_dll_handle.as_ref().map(|f| f.ptr as usize).fmt(f)?;
+        self._opengl32_dll_handle
+            .as_ref()
+            .map(|f| f.ptr as usize)
+            .fmt(f)?;
         Ok(())
     }
 }
 
 fn encode_ascii(input: &str) -> Vec<u8> {
     input
-    .chars()
-    .filter(|c| c.is_ascii())
-    .map(|c| c as u8)
-    .chain(Some(0).into_iter())
-    .collect::<Vec<_>>()
+        .chars()
+        .filter(|c| c.is_ascii())
+        .map(|c| c as u8)
+        .chain(Some(0).into_iter())
+        .collect::<Vec<_>>()
 }
 
 impl GlFunctions {
-
     // Initializes the DLL, but does not load the functions yet
     fn initialize(egl: Rc<Egl>) -> Self {
-
         // zero-initialize all function pointers
         let context: GenericGlContext = unsafe { mem::zeroed() };
         let opengl32_dll = Library::load("GL").ok();
@@ -1943,9 +2186,11 @@ impl GlFunctions {
 
     // Assuming the OpenGL context is current, loads the OpenGL function pointers
     fn load(&mut self) {
-
-        fn get_func(egl: &Egl, s: &'static str, opengl32_dll: &Option<Library>) -> *mut gl_context_loader::c_void {
-
+        fn get_func(
+            egl: &Egl,
+            s: &'static str,
+            opengl32_dll: &Option<Library>,
+        ) -> *mut gl_context_loader::c_void {
             use std::ffi::CString;
 
             let symbol_name_new = match CString::new(s.as_bytes()).ok() {
@@ -1954,10 +2199,10 @@ impl GlFunctions {
             };
 
             opengl32_dll
-            .as_ref()
-            .and_then(|l| l.get(s))
-            .unwrap_or((egl.eglGetProcAddress)(symbol_name_new.as_ptr()))
-            as *mut gl_context_loader::c_void
+                .as_ref()
+                .and_then(|l| l.get(s))
+                .unwrap_or((egl.eglGetProcAddress)(symbol_name_new.as_ptr()))
+                as *mut gl_context_loader::c_void
         }
 
         let egl = &*self.egl;
@@ -1965,25 +2210,40 @@ impl GlFunctions {
             glAccum: get_func(&egl, "glAccum", &self._opengl32_dll_handle),
             glActiveTexture: get_func(&egl, "glActiveTexture", &self._opengl32_dll_handle),
             glAlphaFunc: get_func(&egl, "glAlphaFunc", &self._opengl32_dll_handle),
-            glAreTexturesResident: get_func(&egl, "glAreTexturesResident", &self._opengl32_dll_handle),
+            glAreTexturesResident: get_func(
+                &egl,
+                "glAreTexturesResident",
+                &self._opengl32_dll_handle,
+            ),
             glArrayElement: get_func(&egl, "glArrayElement", &self._opengl32_dll_handle),
             glAttachShader: get_func(&egl, "glAttachShader", &self._opengl32_dll_handle),
             glBegin: get_func(&egl, "glBegin", &self._opengl32_dll_handle),
-            glBeginConditionalRender: get_func(&egl,
+            glBeginConditionalRender: get_func(
+                &egl,
                 "glBeginConditionalRender",
                 &self._opengl32_dll_handle,
             ),
             glBeginQuery: get_func(&egl, "glBeginQuery", &self._opengl32_dll_handle),
-            glBeginTransformFeedback: get_func(&egl,
+            glBeginTransformFeedback: get_func(
+                &egl,
                 "glBeginTransformFeedback",
                 &self._opengl32_dll_handle,
             ),
-            glBindAttribLocation: get_func(&egl, "glBindAttribLocation", &self._opengl32_dll_handle),
+            glBindAttribLocation: get_func(
+                &egl,
+                "glBindAttribLocation",
+                &self._opengl32_dll_handle,
+            ),
             glBindBuffer: get_func(&egl, "glBindBuffer", &self._opengl32_dll_handle),
             glBindBufferBase: get_func(&egl, "glBindBufferBase", &self._opengl32_dll_handle),
             glBindBufferRange: get_func(&egl, "glBindBufferRange", &self._opengl32_dll_handle),
-            glBindFragDataLocation: get_func(&egl, "glBindFragDataLocation", &self._opengl32_dll_handle),
-            glBindFragDataLocationIndexed: get_func(&egl,
+            glBindFragDataLocation: get_func(
+                &egl,
+                "glBindFragDataLocation",
+                &self._opengl32_dll_handle,
+            ),
+            glBindFragDataLocationIndexed: get_func(
+                &egl,
                 "glBindFragDataLocationIndexed",
                 &self._opengl32_dll_handle,
             ),
@@ -1992,12 +2252,20 @@ impl GlFunctions {
             glBindSampler: get_func(&egl, "glBindSampler", &self._opengl32_dll_handle),
             glBindTexture: get_func(&egl, "glBindTexture", &self._opengl32_dll_handle),
             glBindVertexArray: get_func(&egl, "glBindVertexArray", &self._opengl32_dll_handle),
-            glBindVertexArrayAPPLE: get_func(&egl, "glBindVertexArrayAPPLE", &self._opengl32_dll_handle),
+            glBindVertexArrayAPPLE: get_func(
+                &egl,
+                "glBindVertexArrayAPPLE",
+                &self._opengl32_dll_handle,
+            ),
             glBitmap: get_func(&egl, "glBitmap", &self._opengl32_dll_handle),
             glBlendBarrierKHR: get_func(&egl, "glBlendBarrierKHR", &self._opengl32_dll_handle),
             glBlendColor: get_func(&egl, "glBlendColor", &self._opengl32_dll_handle),
             glBlendEquation: get_func(&egl, "glBlendEquation", &self._opengl32_dll_handle),
-            glBlendEquationSeparate: get_func(&egl, "glBlendEquationSeparate", &self._opengl32_dll_handle),
+            glBlendEquationSeparate: get_func(
+                &egl,
+                "glBlendEquationSeparate",
+                &self._opengl32_dll_handle,
+            ),
             glBlendFunc: get_func(&egl, "glBlendFunc", &self._opengl32_dll_handle),
             glBlendFuncSeparate: get_func(&egl, "glBlendFuncSeparate", &self._opengl32_dll_handle),
             glBlitFramebuffer: get_func(&egl, "glBlitFramebuffer", &self._opengl32_dll_handle),
@@ -2006,7 +2274,8 @@ impl GlFunctions {
             glBufferSubData: get_func(&egl, "glBufferSubData", &self._opengl32_dll_handle),
             glCallList: get_func(&egl, "glCallList", &self._opengl32_dll_handle),
             glCallLists: get_func(&egl, "glCallLists", &self._opengl32_dll_handle),
-            glCheckFramebufferStatus: get_func(&egl,
+            glCheckFramebufferStatus: get_func(
+                &egl,
                 "glCheckFramebufferStatus",
                 &self._opengl32_dll_handle,
             ),
@@ -2021,7 +2290,11 @@ impl GlFunctions {
             glClearDepth: get_func(&egl, "glClearDepth", &self._opengl32_dll_handle),
             glClearIndex: get_func(&egl, "glClearIndex", &self._opengl32_dll_handle),
             glClearStencil: get_func(&egl, "glClearStencil", &self._opengl32_dll_handle),
-            glClientActiveTexture: get_func(&egl, "glClientActiveTexture", &self._opengl32_dll_handle),
+            glClientActiveTexture: get_func(
+                &egl,
+                "glClientActiveTexture",
+                &self._opengl32_dll_handle,
+            ),
             glClientWaitSync: get_func(&egl, "glClientWaitSync", &self._opengl32_dll_handle),
             glClipPlane: get_func(&egl, "glClipPlane", &self._opengl32_dll_handle),
             glColor3b: get_func(&egl, "glColor3b", &self._opengl32_dll_handle),
@@ -2065,18 +2338,33 @@ impl GlFunctions {
             glColorP4uiv: get_func(&egl, "glColorP4uiv", &self._opengl32_dll_handle),
             glColorPointer: get_func(&egl, "glColorPointer", &self._opengl32_dll_handle),
             glCompileShader: get_func(&egl, "glCompileShader", &self._opengl32_dll_handle),
-            glCompressedTexImage1D: get_func(&egl, "glCompressedTexImage1D", &self._opengl32_dll_handle),
-            glCompressedTexImage2D: get_func(&egl, "glCompressedTexImage2D", &self._opengl32_dll_handle),
-            glCompressedTexImage3D: get_func(&egl, "glCompressedTexImage3D", &self._opengl32_dll_handle),
-            glCompressedTexSubImage1D: get_func(&egl,
+            glCompressedTexImage1D: get_func(
+                &egl,
+                "glCompressedTexImage1D",
+                &self._opengl32_dll_handle,
+            ),
+            glCompressedTexImage2D: get_func(
+                &egl,
+                "glCompressedTexImage2D",
+                &self._opengl32_dll_handle,
+            ),
+            glCompressedTexImage3D: get_func(
+                &egl,
+                "glCompressedTexImage3D",
+                &self._opengl32_dll_handle,
+            ),
+            glCompressedTexSubImage1D: get_func(
+                &egl,
                 "glCompressedTexSubImage1D",
                 &self._opengl32_dll_handle,
             ),
-            glCompressedTexSubImage2D: get_func(&egl,
+            glCompressedTexSubImage2D: get_func(
+                &egl,
                 "glCompressedTexSubImage2D",
                 &self._opengl32_dll_handle,
             ),
-            glCompressedTexSubImage3D: get_func(&egl,
+            glCompressedTexSubImage3D: get_func(
+                &egl,
                 "glCompressedTexSubImage3D",
                 &self._opengl32_dll_handle,
             ),
@@ -2091,31 +2379,62 @@ impl GlFunctions {
             glCreateProgram: get_func(&egl, "glCreateProgram", &self._opengl32_dll_handle),
             glCreateShader: get_func(&egl, "glCreateShader", &self._opengl32_dll_handle),
             glCullFace: get_func(&egl, "glCullFace", &self._opengl32_dll_handle),
-            glDebugMessageCallback: get_func(&egl, "glDebugMessageCallback", &self._opengl32_dll_handle),
-            glDebugMessageCallbackKHR: get_func(&egl,
+            glDebugMessageCallback: get_func(
+                &egl,
+                "glDebugMessageCallback",
+                &self._opengl32_dll_handle,
+            ),
+            glDebugMessageCallbackKHR: get_func(
+                &egl,
                 "glDebugMessageCallbackKHR",
                 &self._opengl32_dll_handle,
             ),
-            glDebugMessageControl: get_func(&egl, "glDebugMessageControl", &self._opengl32_dll_handle),
-            glDebugMessageControlKHR: get_func(&egl,
+            glDebugMessageControl: get_func(
+                &egl,
+                "glDebugMessageControl",
+                &self._opengl32_dll_handle,
+            ),
+            glDebugMessageControlKHR: get_func(
+                &egl,
                 "glDebugMessageControlKHR",
                 &self._opengl32_dll_handle,
             ),
-            glDebugMessageInsert: get_func(&egl, "glDebugMessageInsert", &self._opengl32_dll_handle),
-            glDebugMessageInsertKHR: get_func(&egl, "glDebugMessageInsertKHR", &self._opengl32_dll_handle),
+            glDebugMessageInsert: get_func(
+                &egl,
+                "glDebugMessageInsert",
+                &self._opengl32_dll_handle,
+            ),
+            glDebugMessageInsertKHR: get_func(
+                &egl,
+                "glDebugMessageInsertKHR",
+                &self._opengl32_dll_handle,
+            ),
             glDeleteBuffers: get_func(&egl, "glDeleteBuffers", &self._opengl32_dll_handle),
             glDeleteFencesAPPLE: get_func(&egl, "glDeleteFencesAPPLE", &self._opengl32_dll_handle),
-            glDeleteFramebuffers: get_func(&egl, "glDeleteFramebuffers", &self._opengl32_dll_handle),
+            glDeleteFramebuffers: get_func(
+                &egl,
+                "glDeleteFramebuffers",
+                &self._opengl32_dll_handle,
+            ),
             glDeleteLists: get_func(&egl, "glDeleteLists", &self._opengl32_dll_handle),
             glDeleteProgram: get_func(&egl, "glDeleteProgram", &self._opengl32_dll_handle),
             glDeleteQueries: get_func(&egl, "glDeleteQueries", &self._opengl32_dll_handle),
-            glDeleteRenderbuffers: get_func(&egl, "glDeleteRenderbuffers", &self._opengl32_dll_handle),
+            glDeleteRenderbuffers: get_func(
+                &egl,
+                "glDeleteRenderbuffers",
+                &self._opengl32_dll_handle,
+            ),
             glDeleteSamplers: get_func(&egl, "glDeleteSamplers", &self._opengl32_dll_handle),
             glDeleteShader: get_func(&egl, "glDeleteShader", &self._opengl32_dll_handle),
             glDeleteSync: get_func(&egl, "glDeleteSync", &self._opengl32_dll_handle),
             glDeleteTextures: get_func(&egl, "glDeleteTextures", &self._opengl32_dll_handle),
-            glDeleteVertexArrays: get_func(&egl, "glDeleteVertexArrays", &self._opengl32_dll_handle),
-            glDeleteVertexArraysAPPLE: get_func(&egl,
+            glDeleteVertexArrays: get_func(
+                &egl,
+                "glDeleteVertexArrays",
+                &self._opengl32_dll_handle,
+            ),
+            glDeleteVertexArraysAPPLE: get_func(
+                &egl,
                 "glDeleteVertexArraysAPPLE",
                 &self._opengl32_dll_handle,
             ),
@@ -2124,29 +2443,45 @@ impl GlFunctions {
             glDepthRange: get_func(&egl, "glDepthRange", &self._opengl32_dll_handle),
             glDetachShader: get_func(&egl, "glDetachShader", &self._opengl32_dll_handle),
             glDisable: get_func(&egl, "glDisable", &self._opengl32_dll_handle),
-            glDisableClientState: get_func(&egl, "glDisableClientState", &self._opengl32_dll_handle),
-            glDisableVertexAttribArray: get_func(&egl,
+            glDisableClientState: get_func(
+                &egl,
+                "glDisableClientState",
+                &self._opengl32_dll_handle,
+            ),
+            glDisableVertexAttribArray: get_func(
+                &egl,
                 "glDisableVertexAttribArray",
                 &self._opengl32_dll_handle,
             ),
             glDisablei: get_func(&egl, "glDisablei", &self._opengl32_dll_handle),
             glDrawArrays: get_func(&egl, "glDrawArrays", &self._opengl32_dll_handle),
-            glDrawArraysInstanced: get_func(&egl, "glDrawArraysInstanced", &self._opengl32_dll_handle),
+            glDrawArraysInstanced: get_func(
+                &egl,
+                "glDrawArraysInstanced",
+                &self._opengl32_dll_handle,
+            ),
             glDrawBuffer: get_func(&egl, "glDrawBuffer", &self._opengl32_dll_handle),
             glDrawBuffers: get_func(&egl, "glDrawBuffers", &self._opengl32_dll_handle),
             glDrawElements: get_func(&egl, "glDrawElements", &self._opengl32_dll_handle),
-            glDrawElementsBaseVertex: get_func(&egl,
+            glDrawElementsBaseVertex: get_func(
+                &egl,
                 "glDrawElementsBaseVertex",
                 &self._opengl32_dll_handle,
             ),
-            glDrawElementsInstanced: get_func(&egl, "glDrawElementsInstanced", &self._opengl32_dll_handle),
-            glDrawElementsInstancedBaseVertex: get_func(&egl,
+            glDrawElementsInstanced: get_func(
+                &egl,
+                "glDrawElementsInstanced",
+                &self._opengl32_dll_handle,
+            ),
+            glDrawElementsInstancedBaseVertex: get_func(
+                &egl,
                 "glDrawElementsInstancedBaseVertex",
                 &self._opengl32_dll_handle,
             ),
             glDrawPixels: get_func(&egl, "glDrawPixels", &self._opengl32_dll_handle),
             glDrawRangeElements: get_func(&egl, "glDrawRangeElements", &self._opengl32_dll_handle),
-            glDrawRangeElementsBaseVertex: get_func(&egl,
+            glDrawRangeElementsBaseVertex: get_func(
+                &egl,
                 "glDrawRangeElementsBaseVertex",
                 &self._opengl32_dll_handle,
             ),
@@ -2155,16 +2490,25 @@ impl GlFunctions {
             glEdgeFlagv: get_func(&egl, "glEdgeFlagv", &self._opengl32_dll_handle),
             glEnable: get_func(&egl, "glEnable", &self._opengl32_dll_handle),
             glEnableClientState: get_func(&egl, "glEnableClientState", &self._opengl32_dll_handle),
-            glEnableVertexAttribArray: get_func(&egl,
+            glEnableVertexAttribArray: get_func(
+                &egl,
                 "glEnableVertexAttribArray",
                 &self._opengl32_dll_handle,
             ),
             glEnablei: get_func(&egl, "glEnablei", &self._opengl32_dll_handle),
             glEnd: get_func(&egl, "glEnd", &self._opengl32_dll_handle),
-            glEndConditionalRender: get_func(&egl, "glEndConditionalRender", &self._opengl32_dll_handle),
+            glEndConditionalRender: get_func(
+                &egl,
+                "glEndConditionalRender",
+                &self._opengl32_dll_handle,
+            ),
             glEndList: get_func(&egl, "glEndList", &self._opengl32_dll_handle),
             glEndQuery: get_func(&egl, "glEndQuery", &self._opengl32_dll_handle),
-            glEndTransformFeedback: get_func(&egl, "glEndTransformFeedback", &self._opengl32_dll_handle),
+            glEndTransformFeedback: get_func(
+                &egl,
+                "glEndTransformFeedback",
+                &self._opengl32_dll_handle,
+            ),
             glEvalCoord1d: get_func(&egl, "glEvalCoord1d", &self._opengl32_dll_handle),
             glEvalCoord1dv: get_func(&egl, "glEvalCoord1dv", &self._opengl32_dll_handle),
             glEvalCoord1f: get_func(&egl, "glEvalCoord1f", &self._opengl32_dll_handle),
@@ -2183,7 +2527,8 @@ impl GlFunctions {
             glFinishFenceAPPLE: get_func(&egl, "glFinishFenceAPPLE", &self._opengl32_dll_handle),
             glFinishObjectAPPLE: get_func(&egl, "glFinishObjectAPPLE", &self._opengl32_dll_handle),
             glFlush: get_func(&egl, "glFlush", &self._opengl32_dll_handle),
-            glFlushMappedBufferRange: get_func(&egl,
+            glFlushMappedBufferRange: get_func(
+                &egl,
                 "glFlushMappedBufferRange",
                 &self._opengl32_dll_handle,
             ),
@@ -2196,15 +2541,33 @@ impl GlFunctions {
             glFogfv: get_func(&egl, "glFogfv", &self._opengl32_dll_handle),
             glFogi: get_func(&egl, "glFogi", &self._opengl32_dll_handle),
             glFogiv: get_func(&egl, "glFogiv", &self._opengl32_dll_handle),
-            glFramebufferRenderbuffer: get_func(&egl,
+            glFramebufferRenderbuffer: get_func(
+                &egl,
                 "glFramebufferRenderbuffer",
                 &self._opengl32_dll_handle,
             ),
-            glFramebufferTexture: get_func(&egl, "glFramebufferTexture", &self._opengl32_dll_handle),
-            glFramebufferTexture1D: get_func(&egl, "glFramebufferTexture1D", &self._opengl32_dll_handle),
-            glFramebufferTexture2D: get_func(&egl, "glFramebufferTexture2D", &self._opengl32_dll_handle),
-            glFramebufferTexture3D: get_func(&egl, "glFramebufferTexture3D", &self._opengl32_dll_handle),
-            glFramebufferTextureLayer: get_func(&egl,
+            glFramebufferTexture: get_func(
+                &egl,
+                "glFramebufferTexture",
+                &self._opengl32_dll_handle,
+            ),
+            glFramebufferTexture1D: get_func(
+                &egl,
+                "glFramebufferTexture1D",
+                &self._opengl32_dll_handle,
+            ),
+            glFramebufferTexture2D: get_func(
+                &egl,
+                "glFramebufferTexture2D",
+                &self._opengl32_dll_handle,
+            ),
+            glFramebufferTexture3D: get_func(
+                &egl,
+                "glFramebufferTexture3D",
+                &self._opengl32_dll_handle,
+            ),
+            glFramebufferTextureLayer: get_func(
+                &egl,
                 "glFramebufferTextureLayer",
                 &self._opengl32_dll_handle,
             ),
@@ -2219,41 +2582,81 @@ impl GlFunctions {
             glGenSamplers: get_func(&egl, "glGenSamplers", &self._opengl32_dll_handle),
             glGenTextures: get_func(&egl, "glGenTextures", &self._opengl32_dll_handle),
             glGenVertexArrays: get_func(&egl, "glGenVertexArrays", &self._opengl32_dll_handle),
-            glGenVertexArraysAPPLE: get_func(&egl, "glGenVertexArraysAPPLE", &self._opengl32_dll_handle),
+            glGenVertexArraysAPPLE: get_func(
+                &egl,
+                "glGenVertexArraysAPPLE",
+                &self._opengl32_dll_handle,
+            ),
             glGenerateMipmap: get_func(&egl, "glGenerateMipmap", &self._opengl32_dll_handle),
             glGetActiveAttrib: get_func(&egl, "glGetActiveAttrib", &self._opengl32_dll_handle),
             glGetActiveUniform: get_func(&egl, "glGetActiveUniform", &self._opengl32_dll_handle),
-            glGetActiveUniformBlockName: get_func(&egl,
+            glGetActiveUniformBlockName: get_func(
+                &egl,
                 "glGetActiveUniformBlockName",
                 &self._opengl32_dll_handle,
             ),
-            glGetActiveUniformBlockiv: get_func(&egl,
+            glGetActiveUniformBlockiv: get_func(
+                &egl,
                 "glGetActiveUniformBlockiv",
                 &self._opengl32_dll_handle,
             ),
-            glGetActiveUniformName: get_func(&egl, "glGetActiveUniformName", &self._opengl32_dll_handle),
-            glGetActiveUniformsiv: get_func(&egl, "glGetActiveUniformsiv", &self._opengl32_dll_handle),
-            glGetAttachedShaders: get_func(&egl, "glGetAttachedShaders", &self._opengl32_dll_handle),
+            glGetActiveUniformName: get_func(
+                &egl,
+                "glGetActiveUniformName",
+                &self._opengl32_dll_handle,
+            ),
+            glGetActiveUniformsiv: get_func(
+                &egl,
+                "glGetActiveUniformsiv",
+                &self._opengl32_dll_handle,
+            ),
+            glGetAttachedShaders: get_func(
+                &egl,
+                "glGetAttachedShaders",
+                &self._opengl32_dll_handle,
+            ),
             glGetAttribLocation: get_func(&egl, "glGetAttribLocation", &self._opengl32_dll_handle),
             glGetBooleani_v: get_func(&egl, "glGetBooleani_v", &self._opengl32_dll_handle),
             glGetBooleanv: get_func(&egl, "glGetBooleanv", &self._opengl32_dll_handle),
-            glGetBufferParameteri64v: get_func(&egl,
+            glGetBufferParameteri64v: get_func(
+                &egl,
                 "glGetBufferParameteri64v",
                 &self._opengl32_dll_handle,
             ),
-            glGetBufferParameteriv: get_func(&egl, "glGetBufferParameteriv", &self._opengl32_dll_handle),
+            glGetBufferParameteriv: get_func(
+                &egl,
+                "glGetBufferParameteriv",
+                &self._opengl32_dll_handle,
+            ),
             glGetBufferPointerv: get_func(&egl, "glGetBufferPointerv", &self._opengl32_dll_handle),
             glGetBufferSubData: get_func(&egl, "glGetBufferSubData", &self._opengl32_dll_handle),
             glGetClipPlane: get_func(&egl, "glGetClipPlane", &self._opengl32_dll_handle),
-            glGetCompressedTexImage: get_func(&egl, "glGetCompressedTexImage", &self._opengl32_dll_handle),
-            glGetDebugMessageLog: get_func(&egl, "glGetDebugMessageLog", &self._opengl32_dll_handle),
-            glGetDebugMessageLogKHR: get_func(&egl, "glGetDebugMessageLogKHR", &self._opengl32_dll_handle),
+            glGetCompressedTexImage: get_func(
+                &egl,
+                "glGetCompressedTexImage",
+                &self._opengl32_dll_handle,
+            ),
+            glGetDebugMessageLog: get_func(
+                &egl,
+                "glGetDebugMessageLog",
+                &self._opengl32_dll_handle,
+            ),
+            glGetDebugMessageLogKHR: get_func(
+                &egl,
+                "glGetDebugMessageLogKHR",
+                &self._opengl32_dll_handle,
+            ),
             glGetDoublev: get_func(&egl, "glGetDoublev", &self._opengl32_dll_handle),
             glGetError: get_func(&egl, "glGetError", &self._opengl32_dll_handle),
             glGetFloatv: get_func(&egl, "glGetFloatv", &self._opengl32_dll_handle),
             glGetFragDataIndex: get_func(&egl, "glGetFragDataIndex", &self._opengl32_dll_handle),
-            glGetFragDataLocation: get_func(&egl, "glGetFragDataLocation", &self._opengl32_dll_handle),
-            glGetFramebufferAttachmentParameteriv: get_func(&egl,
+            glGetFragDataLocation: get_func(
+                &egl,
+                "glGetFragDataLocation",
+                &self._opengl32_dll_handle,
+            ),
+            glGetFramebufferAttachmentParameteriv: get_func(
+                &egl,
                 "glGetFramebufferAttachmentParameteriv",
                 &self._opengl32_dll_handle,
             ),
@@ -2272,7 +2675,11 @@ impl GlFunctions {
             glGetObjectLabel: get_func(&egl, "glGetObjectLabel", &self._opengl32_dll_handle),
             glGetObjectLabelKHR: get_func(&egl, "glGetObjectLabelKHR", &self._opengl32_dll_handle),
             glGetObjectPtrLabel: get_func(&egl, "glGetObjectPtrLabel", &self._opengl32_dll_handle),
-            glGetObjectPtrLabelKHR: get_func(&egl, "glGetObjectPtrLabelKHR", &self._opengl32_dll_handle),
+            glGetObjectPtrLabelKHR: get_func(
+                &egl,
+                "glGetObjectPtrLabelKHR",
+                &self._opengl32_dll_handle,
+            ),
             glGetPixelMapfv: get_func(&egl, "glGetPixelMapfv", &self._opengl32_dll_handle),
             glGetPixelMapuiv: get_func(&egl, "glGetPixelMapuiv", &self._opengl32_dll_handle),
             glGetPixelMapusv: get_func(&egl, "glGetPixelMapusv", &self._opengl32_dll_handle),
@@ -2282,25 +2689,44 @@ impl GlFunctions {
             glGetProgramBinary: get_func(&egl, "glGetProgramBinary", &self._opengl32_dll_handle),
             glGetProgramInfoLog: get_func(&egl, "glGetProgramInfoLog", &self._opengl32_dll_handle),
             glGetProgramiv: get_func(&egl, "glGetProgramiv", &self._opengl32_dll_handle),
-            glGetQueryObjecti64v: get_func(&egl, "glGetQueryObjecti64v", &self._opengl32_dll_handle),
+            glGetQueryObjecti64v: get_func(
+                &egl,
+                "glGetQueryObjecti64v",
+                &self._opengl32_dll_handle,
+            ),
             glGetQueryObjectiv: get_func(&egl, "glGetQueryObjectiv", &self._opengl32_dll_handle),
-            glGetQueryObjectui64v: get_func(&egl, "glGetQueryObjectui64v", &self._opengl32_dll_handle),
+            glGetQueryObjectui64v: get_func(
+                &egl,
+                "glGetQueryObjectui64v",
+                &self._opengl32_dll_handle,
+            ),
             glGetQueryObjectuiv: get_func(&egl, "glGetQueryObjectuiv", &self._opengl32_dll_handle),
             glGetQueryiv: get_func(&egl, "glGetQueryiv", &self._opengl32_dll_handle),
-            glGetRenderbufferParameteriv: get_func(&egl,
+            glGetRenderbufferParameteriv: get_func(
+                &egl,
                 "glGetRenderbufferParameteriv",
                 &self._opengl32_dll_handle,
             ),
-            glGetSamplerParameterIiv: get_func(&egl,
+            glGetSamplerParameterIiv: get_func(
+                &egl,
                 "glGetSamplerParameterIiv",
                 &self._opengl32_dll_handle,
             ),
-            glGetSamplerParameterIuiv: get_func(&egl,
+            glGetSamplerParameterIuiv: get_func(
+                &egl,
                 "glGetSamplerParameterIuiv",
                 &self._opengl32_dll_handle,
             ),
-            glGetSamplerParameterfv: get_func(&egl, "glGetSamplerParameterfv", &self._opengl32_dll_handle),
-            glGetSamplerParameteriv: get_func(&egl, "glGetSamplerParameteriv", &self._opengl32_dll_handle),
+            glGetSamplerParameterfv: get_func(
+                &egl,
+                "glGetSamplerParameterfv",
+                &self._opengl32_dll_handle,
+            ),
+            glGetSamplerParameteriv: get_func(
+                &egl,
+                "glGetSamplerParameteriv",
+                &self._opengl32_dll_handle,
+            ),
             glGetShaderInfoLog: get_func(&egl, "glGetShaderInfoLog", &self._opengl32_dll_handle),
             glGetShaderSource: get_func(&egl, "glGetShaderSource", &self._opengl32_dll_handle),
             glGetShaderiv: get_func(&egl, "glGetShaderiv", &self._opengl32_dll_handle),
@@ -2313,35 +2739,64 @@ impl GlFunctions {
             glGetTexGenfv: get_func(&egl, "glGetTexGenfv", &self._opengl32_dll_handle),
             glGetTexGeniv: get_func(&egl, "glGetTexGeniv", &self._opengl32_dll_handle),
             glGetTexImage: get_func(&egl, "glGetTexImage", &self._opengl32_dll_handle),
-            glGetTexLevelParameterfv: get_func(&egl,
+            glGetTexLevelParameterfv: get_func(
+                &egl,
                 "glGetTexLevelParameterfv",
                 &self._opengl32_dll_handle,
             ),
-            glGetTexLevelParameteriv: get_func(&egl,
+            glGetTexLevelParameteriv: get_func(
+                &egl,
                 "glGetTexLevelParameteriv",
                 &self._opengl32_dll_handle,
             ),
-            glGetTexParameterIiv: get_func(&egl, "glGetTexParameterIiv", &self._opengl32_dll_handle),
-            glGetTexParameterIuiv: get_func(&egl, "glGetTexParameterIuiv", &self._opengl32_dll_handle),
-            glGetTexParameterPointervAPPLE: get_func(&egl,
+            glGetTexParameterIiv: get_func(
+                &egl,
+                "glGetTexParameterIiv",
+                &self._opengl32_dll_handle,
+            ),
+            glGetTexParameterIuiv: get_func(
+                &egl,
+                "glGetTexParameterIuiv",
+                &self._opengl32_dll_handle,
+            ),
+            glGetTexParameterPointervAPPLE: get_func(
+                &egl,
                 "glGetTexParameterPointervAPPLE",
                 &self._opengl32_dll_handle,
             ),
             glGetTexParameterfv: get_func(&egl, "glGetTexParameterfv", &self._opengl32_dll_handle),
             glGetTexParameteriv: get_func(&egl, "glGetTexParameteriv", &self._opengl32_dll_handle),
-            glGetTransformFeedbackVarying: get_func(&egl,
+            glGetTransformFeedbackVarying: get_func(
+                &egl,
                 "glGetTransformFeedbackVarying",
                 &self._opengl32_dll_handle,
             ),
-            glGetUniformBlockIndex: get_func(&egl, "glGetUniformBlockIndex", &self._opengl32_dll_handle),
+            glGetUniformBlockIndex: get_func(
+                &egl,
+                "glGetUniformBlockIndex",
+                &self._opengl32_dll_handle,
+            ),
             glGetUniformIndices: get_func(&egl, "glGetUniformIndices", &self._opengl32_dll_handle),
-            glGetUniformLocation: get_func(&egl, "glGetUniformLocation", &self._opengl32_dll_handle),
+            glGetUniformLocation: get_func(
+                &egl,
+                "glGetUniformLocation",
+                &self._opengl32_dll_handle,
+            ),
             glGetUniformfv: get_func(&egl, "glGetUniformfv", &self._opengl32_dll_handle),
             glGetUniformiv: get_func(&egl, "glGetUniformiv", &self._opengl32_dll_handle),
             glGetUniformuiv: get_func(&egl, "glGetUniformuiv", &self._opengl32_dll_handle),
-            glGetVertexAttribIiv: get_func(&egl, "glGetVertexAttribIiv", &self._opengl32_dll_handle),
-            glGetVertexAttribIuiv: get_func(&egl, "glGetVertexAttribIuiv", &self._opengl32_dll_handle),
-            glGetVertexAttribPointerv: get_func(&egl,
+            glGetVertexAttribIiv: get_func(
+                &egl,
+                "glGetVertexAttribIiv",
+                &self._opengl32_dll_handle,
+            ),
+            glGetVertexAttribIuiv: get_func(
+                &egl,
+                "glGetVertexAttribIuiv",
+                &self._opengl32_dll_handle,
+            ),
+            glGetVertexAttribPointerv: get_func(
+                &egl,
                 "glGetVertexAttribPointerv",
                 &self._opengl32_dll_handle,
             ),
@@ -2362,20 +2817,42 @@ impl GlFunctions {
             glIndexub: get_func(&egl, "glIndexub", &self._opengl32_dll_handle),
             glIndexubv: get_func(&egl, "glIndexubv", &self._opengl32_dll_handle),
             glInitNames: get_func(&egl, "glInitNames", &self._opengl32_dll_handle),
-            glInsertEventMarkerEXT: get_func(&egl, "glInsertEventMarkerEXT", &self._opengl32_dll_handle),
+            glInsertEventMarkerEXT: get_func(
+                &egl,
+                "glInsertEventMarkerEXT",
+                &self._opengl32_dll_handle,
+            ),
             glInterleavedArrays: get_func(&egl, "glInterleavedArrays", &self._opengl32_dll_handle),
-            glInvalidateBufferData: get_func(&egl, "glInvalidateBufferData", &self._opengl32_dll_handle),
-            glInvalidateBufferSubData: get_func(&egl,
+            glInvalidateBufferData: get_func(
+                &egl,
+                "glInvalidateBufferData",
+                &self._opengl32_dll_handle,
+            ),
+            glInvalidateBufferSubData: get_func(
+                &egl,
                 "glInvalidateBufferSubData",
                 &self._opengl32_dll_handle,
             ),
-            glInvalidateFramebuffer: get_func(&egl, "glInvalidateFramebuffer", &self._opengl32_dll_handle),
-            glInvalidateSubFramebuffer: get_func(&egl,
+            glInvalidateFramebuffer: get_func(
+                &egl,
+                "glInvalidateFramebuffer",
+                &self._opengl32_dll_handle,
+            ),
+            glInvalidateSubFramebuffer: get_func(
+                &egl,
                 "glInvalidateSubFramebuffer",
                 &self._opengl32_dll_handle,
             ),
-            glInvalidateTexImage: get_func(&egl, "glInvalidateTexImage", &self._opengl32_dll_handle),
-            glInvalidateTexSubImage: get_func(&egl, "glInvalidateTexSubImage", &self._opengl32_dll_handle),
+            glInvalidateTexImage: get_func(
+                &egl,
+                "glInvalidateTexImage",
+                &self._opengl32_dll_handle,
+            ),
+            glInvalidateTexSubImage: get_func(
+                &egl,
+                "glInvalidateTexSubImage",
+                &self._opengl32_dll_handle,
+            ),
             glIsBuffer: get_func(&egl, "glIsBuffer", &self._opengl32_dll_handle),
             glIsEnabled: get_func(&egl, "glIsEnabled", &self._opengl32_dll_handle),
             glIsEnabledi: get_func(&egl, "glIsEnabledi", &self._opengl32_dll_handle),
@@ -2390,7 +2867,11 @@ impl GlFunctions {
             glIsSync: get_func(&egl, "glIsSync", &self._opengl32_dll_handle),
             glIsTexture: get_func(&egl, "glIsTexture", &self._opengl32_dll_handle),
             glIsVertexArray: get_func(&egl, "glIsVertexArray", &self._opengl32_dll_handle),
-            glIsVertexArrayAPPLE: get_func(&egl, "glIsVertexArrayAPPLE", &self._opengl32_dll_handle),
+            glIsVertexArrayAPPLE: get_func(
+                &egl,
+                "glIsVertexArrayAPPLE",
+                &self._opengl32_dll_handle,
+            ),
             glLightModelf: get_func(&egl, "glLightModelf", &self._opengl32_dll_handle),
             glLightModelfv: get_func(&egl, "glLightModelfv", &self._opengl32_dll_handle),
             glLightModeli: get_func(&egl, "glLightModeli", &self._opengl32_dll_handle),
@@ -2407,8 +2888,16 @@ impl GlFunctions {
             glLoadMatrixd: get_func(&egl, "glLoadMatrixd", &self._opengl32_dll_handle),
             glLoadMatrixf: get_func(&egl, "glLoadMatrixf", &self._opengl32_dll_handle),
             glLoadName: get_func(&egl, "glLoadName", &self._opengl32_dll_handle),
-            glLoadTransposeMatrixd: get_func(&egl, "glLoadTransposeMatrixd", &self._opengl32_dll_handle),
-            glLoadTransposeMatrixf: get_func(&egl, "glLoadTransposeMatrixf", &self._opengl32_dll_handle),
+            glLoadTransposeMatrixd: get_func(
+                &egl,
+                "glLoadTransposeMatrixd",
+                &self._opengl32_dll_handle,
+            ),
+            glLoadTransposeMatrixf: get_func(
+                &egl,
+                "glLoadTransposeMatrixf",
+                &self._opengl32_dll_handle,
+            ),
             glLogicOp: get_func(&egl, "glLogicOp", &self._opengl32_dll_handle),
             glMap1d: get_func(&egl, "glMap1d", &self._opengl32_dll_handle),
             glMap1f: get_func(&egl, "glMap1f", &self._opengl32_dll_handle),
@@ -2427,11 +2916,20 @@ impl GlFunctions {
             glMatrixMode: get_func(&egl, "glMatrixMode", &self._opengl32_dll_handle),
             glMultMatrixd: get_func(&egl, "glMultMatrixd", &self._opengl32_dll_handle),
             glMultMatrixf: get_func(&egl, "glMultMatrixf", &self._opengl32_dll_handle),
-            glMultTransposeMatrixd: get_func(&egl, "glMultTransposeMatrixd", &self._opengl32_dll_handle),
-            glMultTransposeMatrixf: get_func(&egl, "glMultTransposeMatrixf", &self._opengl32_dll_handle),
+            glMultTransposeMatrixd: get_func(
+                &egl,
+                "glMultTransposeMatrixd",
+                &self._opengl32_dll_handle,
+            ),
+            glMultTransposeMatrixf: get_func(
+                &egl,
+                "glMultTransposeMatrixf",
+                &self._opengl32_dll_handle,
+            ),
             glMultiDrawArrays: get_func(&egl, "glMultiDrawArrays", &self._opengl32_dll_handle),
             glMultiDrawElements: get_func(&egl, "glMultiDrawElements", &self._opengl32_dll_handle),
-            glMultiDrawElementsBaseVertex: get_func(&egl,
+            glMultiDrawElementsBaseVertex: get_func(
+                &egl,
                 "glMultiDrawElementsBaseVertex",
                 &self._opengl32_dll_handle,
             ),
@@ -2468,13 +2966,29 @@ impl GlFunctions {
             glMultiTexCoord4s: get_func(&egl, "glMultiTexCoord4s", &self._opengl32_dll_handle),
             glMultiTexCoord4sv: get_func(&egl, "glMultiTexCoord4sv", &self._opengl32_dll_handle),
             glMultiTexCoordP1ui: get_func(&egl, "glMultiTexCoordP1ui", &self._opengl32_dll_handle),
-            glMultiTexCoordP1uiv: get_func(&egl, "glMultiTexCoordP1uiv", &self._opengl32_dll_handle),
+            glMultiTexCoordP1uiv: get_func(
+                &egl,
+                "glMultiTexCoordP1uiv",
+                &self._opengl32_dll_handle,
+            ),
             glMultiTexCoordP2ui: get_func(&egl, "glMultiTexCoordP2ui", &self._opengl32_dll_handle),
-            glMultiTexCoordP2uiv: get_func(&egl, "glMultiTexCoordP2uiv", &self._opengl32_dll_handle),
+            glMultiTexCoordP2uiv: get_func(
+                &egl,
+                "glMultiTexCoordP2uiv",
+                &self._opengl32_dll_handle,
+            ),
             glMultiTexCoordP3ui: get_func(&egl, "glMultiTexCoordP3ui", &self._opengl32_dll_handle),
-            glMultiTexCoordP3uiv: get_func(&egl, "glMultiTexCoordP3uiv", &self._opengl32_dll_handle),
+            glMultiTexCoordP3uiv: get_func(
+                &egl,
+                "glMultiTexCoordP3uiv",
+                &self._opengl32_dll_handle,
+            ),
             glMultiTexCoordP4ui: get_func(&egl, "glMultiTexCoordP4ui", &self._opengl32_dll_handle),
-            glMultiTexCoordP4uiv: get_func(&egl, "glMultiTexCoordP4uiv", &self._opengl32_dll_handle),
+            glMultiTexCoordP4uiv: get_func(
+                &egl,
+                "glMultiTexCoordP4uiv",
+                &self._opengl32_dll_handle,
+            ),
             glNewList: get_func(&egl, "glNewList", &self._opengl32_dll_handle),
             glNormal3b: get_func(&egl, "glNormal3b", &self._opengl32_dll_handle),
             glNormal3bv: get_func(&egl, "glNormal3bv", &self._opengl32_dll_handle),
@@ -2518,8 +3032,16 @@ impl GlFunctions {
             glPopGroupMarkerEXT: get_func(&egl, "glPopGroupMarkerEXT", &self._opengl32_dll_handle),
             glPopMatrix: get_func(&egl, "glPopMatrix", &self._opengl32_dll_handle),
             glPopName: get_func(&egl, "glPopName", &self._opengl32_dll_handle),
-            glPrimitiveRestartIndex: get_func(&egl, "glPrimitiveRestartIndex", &self._opengl32_dll_handle),
-            glPrioritizeTextures: get_func(&egl, "glPrioritizeTextures", &self._opengl32_dll_handle),
+            glPrimitiveRestartIndex: get_func(
+                &egl,
+                "glPrimitiveRestartIndex",
+                &self._opengl32_dll_handle,
+            ),
+            glPrioritizeTextures: get_func(
+                &egl,
+                "glPrioritizeTextures",
+                &self._opengl32_dll_handle,
+            ),
             glProgramBinary: get_func(&egl, "glProgramBinary", &self._opengl32_dll_handle),
             glProgramParameteri: get_func(&egl, "glProgramParameteri", &self._opengl32_dll_handle),
             glProvokingVertex: get_func(&egl, "glProvokingVertex", &self._opengl32_dll_handle),
@@ -2527,7 +3049,11 @@ impl GlFunctions {
             glPushClientAttrib: get_func(&egl, "glPushClientAttrib", &self._opengl32_dll_handle),
             glPushDebugGroup: get_func(&egl, "glPushDebugGroup", &self._opengl32_dll_handle),
             glPushDebugGroupKHR: get_func(&egl, "glPushDebugGroupKHR", &self._opengl32_dll_handle),
-            glPushGroupMarkerEXT: get_func(&egl, "glPushGroupMarkerEXT", &self._opengl32_dll_handle),
+            glPushGroupMarkerEXT: get_func(
+                &egl,
+                "glPushGroupMarkerEXT",
+                &self._opengl32_dll_handle,
+            ),
             glPushMatrix: get_func(&egl, "glPushMatrix", &self._opengl32_dll_handle),
             glPushName: get_func(&egl, "glPushName", &self._opengl32_dll_handle),
             glQueryCounter: get_func(&egl, "glQueryCounter", &self._opengl32_dll_handle),
@@ -2566,8 +3092,13 @@ impl GlFunctions {
             glRects: get_func(&egl, "glRects", &self._opengl32_dll_handle),
             glRectsv: get_func(&egl, "glRectsv", &self._opengl32_dll_handle),
             glRenderMode: get_func(&egl, "glRenderMode", &self._opengl32_dll_handle),
-            glRenderbufferStorage: get_func(&egl, "glRenderbufferStorage", &self._opengl32_dll_handle),
-            glRenderbufferStorageMultisample: get_func(&egl,
+            glRenderbufferStorage: get_func(
+                &egl,
+                "glRenderbufferStorage",
+                &self._opengl32_dll_handle,
+            ),
+            glRenderbufferStorageMultisample: get_func(
+                &egl,
                 "glRenderbufferStorageMultisample",
                 &self._opengl32_dll_handle,
             ),
@@ -2575,12 +3106,28 @@ impl GlFunctions {
             glRotatef: get_func(&egl, "glRotatef", &self._opengl32_dll_handle),
             glSampleCoverage: get_func(&egl, "glSampleCoverage", &self._opengl32_dll_handle),
             glSampleMaski: get_func(&egl, "glSampleMaski", &self._opengl32_dll_handle),
-            glSamplerParameterIiv: get_func(&egl, "glSamplerParameterIiv", &self._opengl32_dll_handle),
-            glSamplerParameterIuiv: get_func(&egl, "glSamplerParameterIuiv", &self._opengl32_dll_handle),
+            glSamplerParameterIiv: get_func(
+                &egl,
+                "glSamplerParameterIiv",
+                &self._opengl32_dll_handle,
+            ),
+            glSamplerParameterIuiv: get_func(
+                &egl,
+                "glSamplerParameterIuiv",
+                &self._opengl32_dll_handle,
+            ),
             glSamplerParameterf: get_func(&egl, "glSamplerParameterf", &self._opengl32_dll_handle),
-            glSamplerParameterfv: get_func(&egl, "glSamplerParameterfv", &self._opengl32_dll_handle),
+            glSamplerParameterfv: get_func(
+                &egl,
+                "glSamplerParameterfv",
+                &self._opengl32_dll_handle,
+            ),
             glSamplerParameteri: get_func(&egl, "glSamplerParameteri", &self._opengl32_dll_handle),
-            glSamplerParameteriv: get_func(&egl, "glSamplerParameteriv", &self._opengl32_dll_handle),
+            glSamplerParameteriv: get_func(
+                &egl,
+                "glSamplerParameteriv",
+                &self._opengl32_dll_handle,
+            ),
             glScaled: get_func(&egl, "glScaled", &self._opengl32_dll_handle),
             glScalef: get_func(&egl, "glScalef", &self._opengl32_dll_handle),
             glScissor: get_func(&egl, "glScissor", &self._opengl32_dll_handle),
@@ -2595,26 +3142,59 @@ impl GlFunctions {
             glSecondaryColor3s: get_func(&egl, "glSecondaryColor3s", &self._opengl32_dll_handle),
             glSecondaryColor3sv: get_func(&egl, "glSecondaryColor3sv", &self._opengl32_dll_handle),
             glSecondaryColor3ub: get_func(&egl, "glSecondaryColor3ub", &self._opengl32_dll_handle),
-            glSecondaryColor3ubv: get_func(&egl, "glSecondaryColor3ubv", &self._opengl32_dll_handle),
+            glSecondaryColor3ubv: get_func(
+                &egl,
+                "glSecondaryColor3ubv",
+                &self._opengl32_dll_handle,
+            ),
             glSecondaryColor3ui: get_func(&egl, "glSecondaryColor3ui", &self._opengl32_dll_handle),
-            glSecondaryColor3uiv: get_func(&egl, "glSecondaryColor3uiv", &self._opengl32_dll_handle),
+            glSecondaryColor3uiv: get_func(
+                &egl,
+                "glSecondaryColor3uiv",
+                &self._opengl32_dll_handle,
+            ),
             glSecondaryColor3us: get_func(&egl, "glSecondaryColor3us", &self._opengl32_dll_handle),
-            glSecondaryColor3usv: get_func(&egl, "glSecondaryColor3usv", &self._opengl32_dll_handle),
-            glSecondaryColorP3ui: get_func(&egl, "glSecondaryColorP3ui", &self._opengl32_dll_handle),
-            glSecondaryColorP3uiv: get_func(&egl, "glSecondaryColorP3uiv", &self._opengl32_dll_handle),
-            glSecondaryColorPointer: get_func(&egl, "glSecondaryColorPointer", &self._opengl32_dll_handle),
+            glSecondaryColor3usv: get_func(
+                &egl,
+                "glSecondaryColor3usv",
+                &self._opengl32_dll_handle,
+            ),
+            glSecondaryColorP3ui: get_func(
+                &egl,
+                "glSecondaryColorP3ui",
+                &self._opengl32_dll_handle,
+            ),
+            glSecondaryColorP3uiv: get_func(
+                &egl,
+                "glSecondaryColorP3uiv",
+                &self._opengl32_dll_handle,
+            ),
+            glSecondaryColorPointer: get_func(
+                &egl,
+                "glSecondaryColorPointer",
+                &self._opengl32_dll_handle,
+            ),
             glSelectBuffer: get_func(&egl, "glSelectBuffer", &self._opengl32_dll_handle),
             glSetFenceAPPLE: get_func(&egl, "glSetFenceAPPLE", &self._opengl32_dll_handle),
             glShadeModel: get_func(&egl, "glShadeModel", &self._opengl32_dll_handle),
             glShaderSource: get_func(&egl, "glShaderSource", &self._opengl32_dll_handle),
-            glShaderStorageBlockBinding: get_func(&egl,
+            glShaderStorageBlockBinding: get_func(
+                &egl,
                 "glShaderStorageBlockBinding",
                 &self._opengl32_dll_handle,
             ),
             glStencilFunc: get_func(&egl, "glStencilFunc", &self._opengl32_dll_handle),
-            glStencilFuncSeparate: get_func(&egl, "glStencilFuncSeparate", &self._opengl32_dll_handle),
+            glStencilFuncSeparate: get_func(
+                &egl,
+                "glStencilFuncSeparate",
+                &self._opengl32_dll_handle,
+            ),
             glStencilMask: get_func(&egl, "glStencilMask", &self._opengl32_dll_handle),
-            glStencilMaskSeparate: get_func(&egl, "glStencilMaskSeparate", &self._opengl32_dll_handle),
+            glStencilMaskSeparate: get_func(
+                &egl,
+                "glStencilMaskSeparate",
+                &self._opengl32_dll_handle,
+            ),
             glStencilOp: get_func(&egl, "glStencilOp", &self._opengl32_dll_handle),
             glStencilOpSeparate: get_func(&egl, "glStencilOpSeparate", &self._opengl32_dll_handle),
             glTestFenceAPPLE: get_func(&egl, "glTestFenceAPPLE", &self._opengl32_dll_handle),
@@ -2673,9 +3253,17 @@ impl GlFunctions {
             glTexGeniv: get_func(&egl, "glTexGeniv", &self._opengl32_dll_handle),
             glTexImage1D: get_func(&egl, "glTexImage1D", &self._opengl32_dll_handle),
             glTexImage2D: get_func(&egl, "glTexImage2D", &self._opengl32_dll_handle),
-            glTexImage2DMultisample: get_func(&egl, "glTexImage2DMultisample", &self._opengl32_dll_handle),
+            glTexImage2DMultisample: get_func(
+                &egl,
+                "glTexImage2DMultisample",
+                &self._opengl32_dll_handle,
+            ),
             glTexImage3D: get_func(&egl, "glTexImage3D", &self._opengl32_dll_handle),
-            glTexImage3DMultisample: get_func(&egl, "glTexImage3DMultisample", &self._opengl32_dll_handle),
+            glTexImage3DMultisample: get_func(
+                &egl,
+                "glTexImage3DMultisample",
+                &self._opengl32_dll_handle,
+            ),
             glTexParameterIiv: get_func(&egl, "glTexParameterIiv", &self._opengl32_dll_handle),
             glTexParameterIuiv: get_func(&egl, "glTexParameterIuiv", &self._opengl32_dll_handle),
             glTexParameterf: get_func(&egl, "glTexParameterf", &self._opengl32_dll_handle),
@@ -2689,7 +3277,8 @@ impl GlFunctions {
             glTexSubImage2D: get_func(&egl, "glTexSubImage2D", &self._opengl32_dll_handle),
             glTexSubImage3D: get_func(&egl, "glTexSubImage3D", &self._opengl32_dll_handle),
             glTextureRangeAPPLE: get_func(&egl, "glTextureRangeAPPLE", &self._opengl32_dll_handle),
-            glTransformFeedbackVaryings: get_func(&egl,
+            glTransformFeedbackVaryings: get_func(
+                &egl,
                 "glTransformFeedbackVaryings",
                 &self._opengl32_dll_handle,
             ),
@@ -2719,16 +3308,44 @@ impl GlFunctions {
             glUniform4iv: get_func(&egl, "glUniform4iv", &self._opengl32_dll_handle),
             glUniform4ui: get_func(&egl, "glUniform4ui", &self._opengl32_dll_handle),
             glUniform4uiv: get_func(&egl, "glUniform4uiv", &self._opengl32_dll_handle),
-            glUniformBlockBinding: get_func(&egl, "glUniformBlockBinding", &self._opengl32_dll_handle),
+            glUniformBlockBinding: get_func(
+                &egl,
+                "glUniformBlockBinding",
+                &self._opengl32_dll_handle,
+            ),
             glUniformMatrix2fv: get_func(&egl, "glUniformMatrix2fv", &self._opengl32_dll_handle),
-            glUniformMatrix2x3fv: get_func(&egl, "glUniformMatrix2x3fv", &self._opengl32_dll_handle),
-            glUniformMatrix2x4fv: get_func(&egl, "glUniformMatrix2x4fv", &self._opengl32_dll_handle),
+            glUniformMatrix2x3fv: get_func(
+                &egl,
+                "glUniformMatrix2x3fv",
+                &self._opengl32_dll_handle,
+            ),
+            glUniformMatrix2x4fv: get_func(
+                &egl,
+                "glUniformMatrix2x4fv",
+                &self._opengl32_dll_handle,
+            ),
             glUniformMatrix3fv: get_func(&egl, "glUniformMatrix3fv", &self._opengl32_dll_handle),
-            glUniformMatrix3x2fv: get_func(&egl, "glUniformMatrix3x2fv", &self._opengl32_dll_handle),
-            glUniformMatrix3x4fv: get_func(&egl, "glUniformMatrix3x4fv", &self._opengl32_dll_handle),
+            glUniformMatrix3x2fv: get_func(
+                &egl,
+                "glUniformMatrix3x2fv",
+                &self._opengl32_dll_handle,
+            ),
+            glUniformMatrix3x4fv: get_func(
+                &egl,
+                "glUniformMatrix3x4fv",
+                &self._opengl32_dll_handle,
+            ),
             glUniformMatrix4fv: get_func(&egl, "glUniformMatrix4fv", &self._opengl32_dll_handle),
-            glUniformMatrix4x2fv: get_func(&egl, "glUniformMatrix4x2fv", &self._opengl32_dll_handle),
-            glUniformMatrix4x3fv: get_func(&egl, "glUniformMatrix4x3fv", &self._opengl32_dll_handle),
+            glUniformMatrix4x2fv: get_func(
+                &egl,
+                "glUniformMatrix4x2fv",
+                &self._opengl32_dll_handle,
+            ),
+            glUniformMatrix4x3fv: get_func(
+                &egl,
+                "glUniformMatrix4x3fv",
+                &self._opengl32_dll_handle,
+            ),
             glUnmapBuffer: get_func(&egl, "glUnmapBuffer", &self._opengl32_dll_handle),
             glUseProgram: get_func(&egl, "glUseProgram", &self._opengl32_dll_handle),
             glValidateProgram: get_func(&egl, "glValidateProgram", &self._opengl32_dll_handle),
@@ -2792,7 +3409,11 @@ impl GlFunctions {
             glVertexAttrib4ubv: get_func(&egl, "glVertexAttrib4ubv", &self._opengl32_dll_handle),
             glVertexAttrib4uiv: get_func(&egl, "glVertexAttrib4uiv", &self._opengl32_dll_handle),
             glVertexAttrib4usv: get_func(&egl, "glVertexAttrib4usv", &self._opengl32_dll_handle),
-            glVertexAttribDivisor: get_func(&egl, "glVertexAttribDivisor", &self._opengl32_dll_handle),
+            glVertexAttribDivisor: get_func(
+                &egl,
+                "glVertexAttribDivisor",
+                &self._opengl32_dll_handle,
+            ),
             glVertexAttribI1i: get_func(&egl, "glVertexAttribI1i", &self._opengl32_dll_handle),
             glVertexAttribI1iv: get_func(&egl, "glVertexAttribI1iv", &self._opengl32_dll_handle),
             glVertexAttribI1ui: get_func(&egl, "glVertexAttribI1ui", &self._opengl32_dll_handle),
@@ -2813,7 +3434,11 @@ impl GlFunctions {
             glVertexAttribI4ui: get_func(&egl, "glVertexAttribI4ui", &self._opengl32_dll_handle),
             glVertexAttribI4uiv: get_func(&egl, "glVertexAttribI4uiv", &self._opengl32_dll_handle),
             glVertexAttribI4usv: get_func(&egl, "glVertexAttribI4usv", &self._opengl32_dll_handle),
-            glVertexAttribIPointer: get_func(&egl, "glVertexAttribIPointer", &self._opengl32_dll_handle),
+            glVertexAttribIPointer: get_func(
+                &egl,
+                "glVertexAttribIPointer",
+                &self._opengl32_dll_handle,
+            ),
             glVertexAttribP1ui: get_func(&egl, "glVertexAttribP1ui", &self._opengl32_dll_handle),
             glVertexAttribP1uiv: get_func(&egl, "glVertexAttribP1uiv", &self._opengl32_dll_handle),
             glVertexAttribP2ui: get_func(&egl, "glVertexAttribP2ui", &self._opengl32_dll_handle),
@@ -2822,7 +3447,11 @@ impl GlFunctions {
             glVertexAttribP3uiv: get_func(&egl, "glVertexAttribP3uiv", &self._opengl32_dll_handle),
             glVertexAttribP4ui: get_func(&egl, "glVertexAttribP4ui", &self._opengl32_dll_handle),
             glVertexAttribP4uiv: get_func(&egl, "glVertexAttribP4uiv", &self._opengl32_dll_handle),
-            glVertexAttribPointer: get_func(&egl, "glVertexAttribPointer", &self._opengl32_dll_handle),
+            glVertexAttribPointer: get_func(
+                &egl,
+                "glVertexAttribPointer",
+                &self._opengl32_dll_handle,
+            ),
             glVertexP2ui: get_func(&egl, "glVertexP2ui", &self._opengl32_dll_handle),
             glVertexP2uiv: get_func(&egl, "glVertexP2uiv", &self._opengl32_dll_handle),
             glVertexP3ui: get_func(&egl, "glVertexP3ui", &self._opengl32_dll_handle),

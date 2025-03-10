@@ -1,14 +1,32 @@
 #![allow(dead_code)]
 
-use crate::gl::OptionGlContextPtr;
+use alloc::{alloc::Layout, boxed::Box, collections::BTreeMap, vec::Vec};
+use core::{
+    ffi::c_void,
+    fmt,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
+#[cfg(feature = "std")]
+use std::hash::Hash;
+
+use azul_css::{
+    AnimationInterpolationFunction, AzString, CssPath, CssProperty, CssPropertyType, FontRef,
+    InterpolateResolver, LayoutRect, LayoutSize,
+};
+use rust_fontconfig::FcFontCache;
+
 use crate::{
+    FastBTreeSet, FastHashMap,
     app_resources::{
         FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef, LayoutedGlyphs,
         RendererResources, ShapedWords, WordPositions, Words,
     },
+    gl::OptionGlContextPtr,
     id_tree::{NodeDataContainer, NodeId},
-    styled_dom::{CssPropertyCache, StyledDom, StyledNode},
-    styled_dom::{DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledNodeVec},
+    styled_dom::{
+        CssPropertyCache, DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledDom, StyledNode,
+        StyledNodeVec,
+    },
     task::{
         CreateThreadCallback, Duration as AzDuration, ExternalSystemCallbacks,
         GetSystemTimeCallback, Instant as AzInstant, Instant, TerminateTimer, Thread, ThreadId,
@@ -18,30 +36,20 @@ use crate::{
         LayoutResult, OverflowingScrollNode, PositionInfo, PositionedRectangle,
         ResolvedTextLayoutOptions, TextLayoutOptions,
     },
-    window::{AzStringPair, OptionLogicalPosition},
     window::{
-        FullWindowState, KeyboardState, LogicalPosition, LogicalRect, LogicalSize, MouseState,
-        OptionChar, PhysicalSize, RawWindowHandle, UpdateFocusWarning, WindowCreateOptions,
-        WindowFlags, WindowSize, WindowState, WindowTheme,
+        AzStringPair, FullWindowState, KeyboardState, LogicalPosition, LogicalRect, LogicalSize,
+        MouseState, OptionChar, OptionLogicalPosition, PhysicalSize, RawWindowHandle,
+        UpdateFocusWarning, WindowCreateOptions, WindowFlags, WindowSize, WindowState, WindowTheme,
     },
-    FastBTreeSet, FastHashMap,
 };
-use alloc::alloc::Layout;
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use azul_css::{
-    AnimationInterpolationFunction, AzString, CssPath, CssProperty, CssPropertyType, FontRef,
-    InterpolateResolver, LayoutRect, LayoutSize,
-};
-use core::{
-    ffi::c_void,
-    fmt,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-};
-use rust_fontconfig::FcFontCache;
-#[cfg(feature = "std")]
-use std::hash::Hash;
+
+// NOTE: must be repr(C), otherwise UB
+// due to zero-sized allocation in RefAny::new_c
+// TODO: fix later!
+#[repr(C)]
+pub struct Dummy {
+    pub _dummy: u8,
+}
 
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
@@ -49,7 +57,8 @@ use std::hash::Hash;
 pub enum Update {
     /// The screen does not need to redraw after the callback has been called
     DoNothing,
-    /// After the callback is called, the screen needs to redraw (layout() function being called again)
+    /// After the callback is called, the screen needs to redraw (layout() function being called
+    /// again)
     RefreshDom,
     /// The layout has to be re-calculated for all windows
     RefreshDomAllWindows,
@@ -402,7 +411,8 @@ impl RefAny {
         })
     }
 
-    /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
+    /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't
+    /// match
     #[inline]
     pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
         let is_same_type = self.get_type_id() == Self::get_type_id_static::<U>();
@@ -430,8 +440,7 @@ impl RefAny {
     // `core::any::TypeId` is not C-ABI compatible)
     #[inline]
     fn get_type_id_static<T: 'static>() -> u64 {
-        use core::any::TypeId;
-        use core::mem;
+        use core::{any::TypeId, mem};
 
         // fast method to serialize the type id into a u64
         let t_id = TypeId::of::<T>();
@@ -597,7 +606,8 @@ impl PipelineId {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct HitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
-    /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
+    /// The viewport is the scroll node formed by the root reference frame of the display item's
+    /// pipeline.
     pub point_in_viewport: LogicalPosition,
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
@@ -611,7 +621,8 @@ pub struct HitTestItem {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollHitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
-    /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
+    /// The viewport is the scroll node formed by the root reference frame of the display item's
+    /// pipeline.
     pub point_in_viewport: LogicalPosition,
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
@@ -624,7 +635,7 @@ pub struct ScrollHitTestItem {
 /// for a Callback with a `.0` field:
 ///
 /// ```
-/// struct MyCallback(fn (&T));
+/// struct MyCallback(fn(&T));
 ///
 /// // impl Display, Debug, etc. for MyCallback
 /// impl_callback!(MyCallback);
@@ -752,9 +763,8 @@ extern "C" fn default_layout_callback(_: &mut RefAny, _: &mut LayoutCallbackInfo
 /// callback has to be able to carry some extra data
 /// (the first argument), which usually contains the function object
 /// i.e. in the Python VM a PyCallable / PyAny
-///
 pub type MarshaledLayoutCallbackType = extern "C" fn(
-    /* marshal_data*/ &mut RefAny,
+    /* marshal_data */ &mut RefAny,
     /* app_data */ &mut RefAny,
     &mut LayoutCallbackInfo,
 ) -> StyledDom;
@@ -1145,14 +1155,16 @@ pub struct CallbackInfo {
     threads_removed: *mut FastBTreeSet<ThreadId>,
     /// Handle of the current window
     current_window_handle: *const RawWindowHandle,
-    /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows.
+    /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to
+    /// spawn child windows.
     new_windows: *mut Vec<WindowCreateOptions>,
     /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
     system_callbacks: *const ExternalSystemCallbacks,
     /// Sets whether the event should be propagated to the parent hit node or not
     stop_propagation: *mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
-    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
+    /// next frames' layout() function is invoked, but the current frames callbacks are not
+    /// affected.
     focus_target: *mut Option<FocusTarget>,
     /// Mutable reference to a list of words / text items that were changed in the callback
     words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
@@ -1161,18 +1173,21 @@ pub struct CallbackInfo {
         *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
     /// Mutable reference to a list of image clip masks that were changed in the callback
     image_masks_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-    /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
+    /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS
+    /// properties
     css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
     current_scroll_states: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
-    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
+    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next
+    /// frame)
     nodes_scrolled_in_callback:
         *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
     hit_dom_node: DomNodeId,
-    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
+    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was
+    /// hit**.
     cursor_relative_to_item: OptionLogicalPosition,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     cursor_in_viewport: OptionLogicalPosition,
@@ -1255,9 +1270,9 @@ impl CallbackInfo {
                 as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback
                 as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-            hit_dom_node: hit_dom_node,
-            cursor_relative_to_item: cursor_relative_to_item,
-            cursor_in_viewport: cursor_in_viewport,
+            hit_dom_node,
+            cursor_relative_to_item,
+            cursor_in_viewport,
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         }
@@ -2095,7 +2110,8 @@ pub struct RenderImageCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
-// same as the implementations on CallbackInfo, just slightly adjusted for the RenderImageCallbackInfo
+// same as the implementations on CallbackInfo, just slightly adjusted for the
+// RenderImageCallbackInfo
 impl Clone for RenderImageCallbackInfo {
     fn clone(&self) -> Self {
         Self {
@@ -2459,7 +2475,7 @@ impl Clone for TimerCallbackInfo {
 
 pub type WriteBackCallbackType = extern "C" fn(
     /* original data */ &mut RefAny,
-    /*data to write back*/ &mut RefAny,
+    /* data to write back */ &mut RefAny,
     &mut CallbackInfo,
 ) -> Update;
 
@@ -2528,8 +2544,8 @@ impl LayoutCallbackInfo {
         fc_cache: &'a FcFontCache,
     ) -> Self {
         Self {
-            window_size: window_size,
-            theme: theme,
+            window_size,
+            theme,
             image_cache: image_cache as *const ImageCache,
             gl_context: gl_context as *const OptionGlContextPtr,
             system_fonts: fc_cache as *const FcFontCache,
@@ -2633,15 +2649,19 @@ impl FocusTarget {
         layout_results: &[LayoutResult],
         current_focus: Option<DomNodeId>,
     ) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
-        use crate::callbacks::FocusTarget::*;
-        use crate::style::matches_html_element;
+        use crate::{callbacks::FocusTarget::*, style::matches_html_element};
 
         if layout_results.is_empty() {
             return Ok(None);
         }
 
         macro_rules! search_for_focusable_node_id {
-            ($layout_results:expr, $start_dom_id:expr, $start_node_id:expr, $get_next_node_fn:ident) => {{
+            (
+                $layout_results:expr,
+                $start_dom_id:expr,
+                $start_node_id:expr,
+                $get_next_node_fn:ident
+            ) => {{
                 let mut start_dom_id = $start_dom_id;
                 let mut start_node_id = $start_node_id;
 
@@ -2835,7 +2855,8 @@ impl FocusTarget {
             }
             Next => {
                 // select the previous focusable element or `None`
-                // if this was the first focusable element in the DOM, select the first focusable element
+                // if this was the first focusable element in the DOM, select the first focusable
+                // element
                 let (current_focus_dom, current_focus_node_id) = match current_focus {
                     Some(s) => match s.node.into_crate_internal() {
                         Some(n) => (s.dom, n),

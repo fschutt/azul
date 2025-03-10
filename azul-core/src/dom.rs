@@ -1,19 +1,4 @@
-use crate::{
-    app_resources::{ImageCallback, ImageMask, RendererResources},
-    app_resources::{ImageRef, ImageRefHash},
-    callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny},
-    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
-    styled_dom::{
-        CssPropertyCache, CssPropertyCachePtr, StyleFontFamilyHash, StyledNode, StyledNodeState,
-    },
-    styled_dom::{NodeHierarchyItemId, StyledDom},
-    window::{Menu, OptionVirtualKeyCodeCombo},
-};
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::string::String;
-use alloc::vec::Vec;
-use azul_css::{AzString, Css, CssProperty, FontRef, NodeTypeTag, OptionAzString};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{
     fmt,
     hash::{Hash, Hasher},
@@ -22,7 +7,19 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use azul_css::{AzString, Css, CssProperty, FontRef, NodeTypeTag, OptionAzString};
+
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
+use crate::{
+    app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
+    callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny},
+    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
+    styled_dom::{
+        CssPropertyCache, CssPropertyCachePtr, NodeHierarchyItemId, StyleFontFamilyHash, StyledDom,
+        StyledNode, StyledNodeState,
+    },
+    window::{Menu, OptionVirtualKeyCodeCombo},
+};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -193,8 +190,9 @@ pub enum On {
     /// not the actual char. If you want to get the character, use `TextInput` instead.
     /// A virtual key does not have to map to a printable character.
     ///
-    /// You can get all currently pressed virtual keycodes in the `keyboard_state.current_virtual_keycodes`
-    /// and / or just the last keycode in the `keyboard_state.latest_virtual_keycode`.
+    /// You can get all currently pressed virtual keycodes in the
+    /// `keyboard_state.current_virtual_keycodes` and / or just the last keycode in the
+    /// `keyboard_state.latest_virtual_keycode`.
     VirtualKeyDown,
     /// A **virtual keycode** was release. See `VirtualKeyDown` for more info.
     VirtualKeyUp,
@@ -220,7 +218,6 @@ pub enum On {
 /// for elements that are currently not part of the hit-test.
 /// `EventFilter` implements `From<On>` as a shorthand (so that you can opt-in
 /// to a more specific event) and use
-///
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum EventFilter {
@@ -270,10 +267,10 @@ impl EventFilter {
 ///
 /// ```rust
 /// enum A {
-///    Abc(AbcType),
+///     Abc(AbcType),
 /// }
 ///
-/// struct AbcType { }
+/// struct AbcType {}
 ///
 /// impl A {
 ///     // fn as_abc_type(&self) -> Option<AbcType>
@@ -281,7 +278,7 @@ impl EventFilter {
 /// }
 /// ```
 macro_rules! get_single_enum_type {
-    ($fn_name:ident, $enum_name:ident::$variant:ident($return_type:ty)) => {
+    ($fn_name:ident, $enum_name:ident:: $variant:ident($return_type:ty)) => {
         pub fn $fn_name(&self) -> Option<$return_type> {
             use self::$enum_name::*;
             match self {
@@ -672,22 +669,26 @@ macro_rules! parse_from_str {
 }
 
 impl NodeDataInlineCssPropertyVec {
-    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Normal(FlexDirection::Row)]
+    // given "flex-directin: row", returns
+    // vec![NodeDataInlineCssProperty::Normal(FlexDirection::Row)]
     pub fn parse_normal(s: &str) -> Self {
         return parse_from_str!(s, Normal);
     }
 
-    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Hover(FlexDirection::Row)]
+    // given "flex-directin: row", returns
+    // vec![NodeDataInlineCssProperty::Hover(FlexDirection::Row)]
     pub fn parse_hover(s: &str) -> Self {
         return parse_from_str!(s, Hover);
     }
 
-    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Active(FlexDirection::Row)]
+    // given "flex-directin: row", returns
+    // vec![NodeDataInlineCssProperty::Active(FlexDirection::Row)]
     pub fn parse_active(s: &str) -> Self {
         return parse_from_str!(s, Active);
     }
 
-    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Focus(FlexDirection::Row)]
+    // given "flex-directin: row", returns
+    // vec![NodeDataInlineCssProperty::Focus(FlexDirection::Row)]
     pub fn parse_focus(s: &str) -> Self {
         return parse_from_str!(s, Focus);
     }
@@ -746,7 +747,8 @@ pub struct NodeData {
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
     /// Tab index (commonly used property)
     pub(crate) tab_index: OptionTabIndex,
-    /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index, etc.
+    /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
+    /// etc.
     ///
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI
@@ -948,8 +950,10 @@ impl Clone for NodeData {
                 OptionRefAny::None => OptionRefAny::None,
                 OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
             },
-            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
-            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
+            ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
+                                                            * they are &'static */
+            inline_css_props: self.inline_css_props.clone(), /* do not clone the inline CSS props
+                                                              * if they are &'static */
             callbacks: self.callbacks.clone(),
             tab_index: self.tab_index,
             extra: self.extra.clone(),
@@ -1407,8 +1411,10 @@ impl NodeData {
                 OptionRefAny::None => OptionRefAny::None,
                 OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
             },
-            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
-            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
+            ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
+                                                            * they are &'static */
+            inline_css_props: self.inline_css_props.clone(), /* do not clone the inline CSS props
+                                                              * if they are &'static */
             callbacks: self.callbacks.clone(),
             tab_index: self.tab_index,
             extra: self.extra.clone(),
@@ -1452,7 +1458,14 @@ impl NodeData {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
         let style = css_cache.get_computed_css_style_string(&self, node_id, node_state);
-        format!("<{} data-az-node-id=\"{}\" {} style=\"overflow:visible; box-sizing:border-box; margin: 0px; padding: 0px; display: flex; flex-direction: column;{}\">", html_type, node_id.index(), attributes_string, style)
+        format!(
+            "<{} data-az-node-id=\"{}\" {} style=\"overflow:visible; box-sizing:border-box; \
+             margin: 0px; padding: 0px; display: flex; flex-direction: column;{}\">",
+            html_type,
+            node_id.index(),
+            attributes_string,
+            style
+        )
     }
 
     pub fn debug_print_end(&self) -> String {
@@ -1461,7 +1474,8 @@ impl NodeData {
     }
 }
 
-/// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
+/// The document model, similar to HTML. This is a create-only structure, you don't actually read
+/// anything back
 #[repr(C)]
 #[derive(PartialEq, Clone, Eq, Hash, PartialOrd, Ord)]
 pub struct Dom {
@@ -1711,7 +1725,7 @@ impl From<Dom> for CompactDom {
     }
 }
 
-fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
+pub(crate) fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // note: somehow convert this into a non-recursive form later on!
     fn convert_dom_into_compact_dom_internal(
         dom: &mut Dom,
@@ -1811,226 +1825,4 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         },
         root: root_node_id,
     }
-}
-
-#[test]
-fn test_compact_dom_conversion() {
-    let dom: Dom = Dom::body()
-        .with_child(Dom::div().with_class("class1"))
-        .with_child(
-            Dom::div()
-                .with_class("class1")
-                .with_child(Dom::div().with_id("child_2")),
-        )
-        .with_child(Dom::div().with_class("class1"));
-
-    let c0: Vec<AzString> = vec!["class1".to_string().into()];
-    let c0: StringVec = c0.into();
-    let c1: Vec<AzString> = vec!["class1".to_string().into()];
-    let c1: StringVec = c1.into();
-    let c2: Vec<AzString> = vec!["child_2".to_string().into()];
-    let c2: StringVec = c2.into();
-    let c3: Vec<AzString> = vec!["class1".to_string().into()];
-    let c3: StringVec = c3.into();
-
-    let expected_dom: CompactDom = CompactDom {
-        root: NodeId::ZERO,
-        node_hierarchy: NodeHierarchy {
-            internal: vec![
-                Node /* 0 */ {
-                parent: None,
-                previous_sibling: None,
-                next_sibling: None,
-                first_child: Some(NodeId::new(1)),
-                last_child: Some(NodeId::new(4)),
-            },
-                Node /* 1 */ {
-                parent: Some(NodeId::new(0)),
-                previous_sibling: None,
-                next_sibling: Some(NodeId::new(2)),
-                first_child: None,
-                last_child: None,
-            },
-                Node /* 2 */ {
-                parent: Some(NodeId::new(0)),
-                previous_sibling: Some(NodeId::new(1)),
-                next_sibling: Some(NodeId::new(4)),
-                first_child: Some(NodeId::new(3)),
-                last_child: Some(NodeId::new(3)),
-            },
-                Node /* 3 */ {
-                parent: Some(NodeId::new(2)),
-                previous_sibling: None,
-                next_sibling: None,
-                first_child: None,
-                last_child: None,
-            },
-                Node /* 4 */ {
-                parent: Some(NodeId::new(0)),
-                previous_sibling: Some(NodeId::new(2)),
-                next_sibling: None,
-                first_child: None,
-                last_child: None,
-            },
-            ],
-        },
-        node_data: NodeDataContainer {
-            internal: vec![
-                /* 0 */ NodeData::body(),
-                /* 1 */ NodeData::div().with_classes(c0),
-                /* 2 */ NodeData::div().with_classes(c1),
-                /* 3 */ NodeData::div().with_ids(c2),
-                /* 4 */ NodeData::div().with_classes(c3),
-            ],
-        },
-    };
-
-    let got_dom = convert_dom_into_compact_dom(dom);
-    if got_dom != expected_dom {
-        panic!(
-            "{}",
-            format!(
-                "expected compact dom: ----\r\n{:#?}\r\n\r\ngot compact dom: ----\r\n{:#?}\r\n",
-                expected_dom, got_dom
-            )
-        );
-    }
-}
-
-#[test]
-fn test_dom_sibling_1() {
-    let dom: Dom = Dom::div()
-        .with_child(
-            Dom::div()
-                .with_id("sibling-1")
-                .with_child(Dom::div().with_id("sibling-1-child-1")),
-        )
-        .with_child(
-            Dom::div()
-                .with_id("sibling-2")
-                .with_child(Dom::div().with_id("sibling-2-child-1")),
-        );
-
-    let dom = convert_dom_into_compact_dom(dom);
-
-    let arena = &dom.arena;
-
-    assert_eq!(NodeId::new(0), dom.root);
-
-    let v: Vec<AzString> = vec!["sibling-1".to_string().into()];
-    let v: StringVec = v.into();
-    assert_eq!(
-        v,
-        arena.node_data[arena.node_hierarchy[dom.root]
-            .first_child
-            .expect("root has no first child")]
-        .ids
-    );
-
-    let v: Vec<AzString> = vec!["sibling-2".to_string().into()];
-    let v: StringVec = v.into();
-    assert_eq!(
-        v,
-        arena.node_data[arena.node_hierarchy[arena.node_hierarchy[dom.root]
-            .first_child
-            .expect("root has no first child")]
-        .next_sibling
-        .expect("root has no second sibling")]
-        .ids
-    );
-
-    let v: Vec<AzString> = vec!["sibling-1-child-1".to_string().into()];
-    let v: StringVec = v.into();
-    assert_eq!(
-        v,
-        arena.node_data[arena.node_hierarchy[arena.node_hierarchy[dom.root]
-            .first_child
-            .expect("root has no first child")]
-        .first_child
-        .expect("first child has no first child")]
-        .ids
-    );
-
-    let v: Vec<AzString> = vec!["sibling-2-child-1".to_string().into()];
-    let v: StringVec = v.into();
-    assert_eq!(
-        v,
-        arena.node_data[arena.node_hierarchy[arena.node_hierarchy[arena.node_hierarchy[dom.root]
-            .first_child
-            .expect("root has no first child")]
-        .next_sibling
-        .expect("first child has no second sibling")]
-        .first_child
-        .expect("second sibling has no first child")]
-        .ids
-    );
-}
-
-#[test]
-fn test_dom_from_iter_1() {
-    use crate::id_tree::Node;
-
-    let dom: Dom = (0..5)
-        .map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1).into())))
-        .collect();
-    let dom = convert_dom_into_compact_dom(dom);
-
-    let arena = &dom.arena;
-
-    // We need to have 6 nodes:
-    //
-    // root                 NodeId(0)
-    //   |-> 1              NodeId(1)
-    //   |-> 2              NodeId(2)
-    //   |-> 3              NodeId(3)
-    //   |-> 4              NodeId(4)
-    //   '-> 5              NodeId(5)
-
-    assert_eq!(arena.len(), 6);
-
-    // Check root node
-    assert_eq!(
-        arena.node_hierarchy.get(NodeId::new(0)),
-        Some(&Node {
-            parent: None,
-            previous_sibling: None,
-            next_sibling: None,
-            first_child: Some(NodeId::new(1)),
-            last_child: Some(NodeId::new(5)),
-        })
-    );
-    assert_eq!(
-        arena.node_data.get(NodeId::new(0)),
-        Some(&NodeData::new(NodeType::Div))
-    );
-
-    assert_eq!(
-        arena
-            .node_hierarchy
-            .get(NodeId::new(arena.node_hierarchy.len() - 1)),
-        Some(&Node {
-            parent: Some(NodeId::new(0)),
-            previous_sibling: Some(NodeId::new(4)),
-            next_sibling: None,
-            first_child: None,
-            last_child: None,
-        })
-    );
-
-    assert_eq!(
-        arena.node_data.get(NodeId::new(arena.node_data.len() - 1)),
-        Some(&NodeData {
-            node_type: NodeType::Label("5".to_string().into()),
-            ..Default::default()
-        })
-    );
-}
-
-/// Test that there shouldn't be a DOM that has 0 nodes
-#[test]
-fn test_zero_size_dom() {
-    let null_dom: Dom = (0..0).map(|_| NodeData::default()).collect();
-    let null_dom = convert_dom_into_compact_dom(null_dom);
-
-    assert!(null_dom.arena.len() == 1);
 }

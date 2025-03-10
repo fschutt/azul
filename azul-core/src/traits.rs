@@ -5,7 +5,8 @@ use crate::{
 };
 
 pub trait GetTextLayout {
-    // self is mutable so that the calculated text can be cached if it hasn't changed since the last frame
+    // self is mutable so that the calculated text can be cached if it hasn't changed since the last
+    // frame
     fn get_text_layout(
         &mut self,
         document_id: &DocumentId,

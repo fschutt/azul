@@ -1,14 +1,14 @@
-use azul::prelude::*;
-use azul::str::String as AzString;
-use azul::widgets::{Button, Label};
+use azul::{
+    prelude::*,
+    str::String as AzString,
+    widgets::{Button, Label},
+};
 
 struct DataModel {
     counter: usize,
 }
 
-extern "C"
-fn myLayoutFunc(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
-
+extern "C" fn myLayoutFunc(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     get_dom()
 
     /*Dom::body().with_child(
@@ -18,7 +18,6 @@ fn myLayoutFunc(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
 }
 
 fn get_dom() -> StyledDom {
-
     Dom::body()
     .with_inline_style("display:flex; flex-grow:1; flex-direction:column;")
     .with_children(vec![

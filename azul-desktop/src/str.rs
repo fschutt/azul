@@ -1,7 +1,8 @@
 // extra string functions intended for C development
 
-use azul_css::{AzString, StringVec};
 use std::fmt;
+
+use azul_css::{AzString, StringVec};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
@@ -53,7 +54,7 @@ impl fmt::Display for FmtValue {
 #[repr(C)]
 pub struct FmtArg {
     pub key: AzString,
-    pub value: FmtValue
+    pub value: FmtValue,
 }
 
 impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor);
@@ -64,7 +65,10 @@ impl_vec_partialord!(FmtArg, FmtArgVec);
 
 pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;
-    let format_map = args.iter().map(|a| (a.key.clone().into_library_owned_string(), a.value.clone())).collect();
+    let format_map = args
+        .iter()
+        .map(|a| (a.key.clone().into_library_owned_string(), a.value.clone()))
+        .collect();
     match format.as_str().format(&format_map) {
         Ok(o) => o,
         Err(e) => format!("{}", e),

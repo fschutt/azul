@@ -1,21 +1,23 @@
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, rc::Rc, vec::Vec};
+
+use allsorts::{
+    binary::read::ReadScope,
+    font_data::FontData,
+    gsub::RawGlyphFlags,
+    layout::{GDEFTable, GPOS, GSUB, LayoutCache},
+    tables::{
+        FontTableProvider, HeadTable, HheaTable, MaxpTable,
+        cmap::{CmapSubtable, owned::CmapSubtable as OwnedCmapSubtable},
+        glyf::{BoundingBox, GlyfRecord, GlyfTable, Glyph},
+        loca::{LocaOffsets, LocaTable},
+    },
+};
 use azul_core::app_resources::{
-    FontMetrics, VariationSelector, Anchor,
-    GlyphOrigin, RawGlyph, Placement,
-    GlyphInfo, Advance,
+    Advance, Anchor, FontMetrics, GlyphInfo, GlyphOrigin, Placement, RawGlyph, VariationSelector,
 };
 use tinyvec::tiny_vec;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::rc::Rc;
-use alloc::vec::Vec;
-use alloc::boxed::Box;
-use allsorts::{
-    binary::read::ReadScope, font_data::FontData, gsub::RawGlyphFlags, layout::{GDEFTable, LayoutCache, GPOS, GSUB}, tables::{
-        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{BoundingBox, GlyfRecord, GlyfTable, Glyph}, loca::{LocaOffsets, LocaTable}, FontTableProvider, HeadTable, HheaTable, MaxpTable
-    }
-};
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
-
     #[derive(Default)]
     struct Os2Info {
         x_avg_char_width: i16,
@@ -80,57 +82,54 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     };
 
     let os2_table = match font.os2_table().ok() {
-        Some(Some(s)) => {
-            Os2Info {
-                x_avg_char_width: s.x_avg_char_width,
-                us_weight_class: s.us_weight_class,
-                us_width_class: s.us_width_class,
-                fs_type: s.fs_type,
-                y_subscript_x_size: s.y_subscript_x_size,
-                y_subscript_y_size: s.y_subscript_y_size,
-                y_subscript_x_offset: s.y_subscript_x_offset,
-                y_subscript_y_offset: s.y_subscript_y_offset,
-                y_superscript_x_size: s.y_superscript_x_size,
-                y_superscript_y_size: s.y_superscript_y_size,
-                y_superscript_x_offset: s.y_superscript_x_offset,
-                y_superscript_y_offset: s.y_superscript_y_offset,
-                y_strikeout_size: s.y_strikeout_size,
-                y_strikeout_position: s.y_strikeout_position,
-                s_family_class: s.s_family_class,
-                panose: s.panose,
-                ul_unicode_range1: s.ul_unicode_range1,
-                ul_unicode_range2: s.ul_unicode_range2,
-                ul_unicode_range3: s.ul_unicode_range3,
-                ul_unicode_range4: s.ul_unicode_range4,
-                ach_vend_id: s.ach_vend_id,
-                fs_selection: s.fs_selection.bits(),
-                us_first_char_index: s.us_first_char_index,
-                us_last_char_index: s.us_last_char_index,
+        Some(Some(s)) => Os2Info {
+            x_avg_char_width: s.x_avg_char_width,
+            us_weight_class: s.us_weight_class,
+            us_width_class: s.us_width_class,
+            fs_type: s.fs_type,
+            y_subscript_x_size: s.y_subscript_x_size,
+            y_subscript_y_size: s.y_subscript_y_size,
+            y_subscript_x_offset: s.y_subscript_x_offset,
+            y_subscript_y_offset: s.y_subscript_y_offset,
+            y_superscript_x_size: s.y_superscript_x_size,
+            y_superscript_y_size: s.y_superscript_y_size,
+            y_superscript_x_offset: s.y_superscript_x_offset,
+            y_superscript_y_offset: s.y_superscript_y_offset,
+            y_strikeout_size: s.y_strikeout_size,
+            y_strikeout_position: s.y_strikeout_position,
+            s_family_class: s.s_family_class,
+            panose: s.panose,
+            ul_unicode_range1: s.ul_unicode_range1,
+            ul_unicode_range2: s.ul_unicode_range2,
+            ul_unicode_range3: s.ul_unicode_range3,
+            ul_unicode_range4: s.ul_unicode_range4,
+            ach_vend_id: s.ach_vend_id,
+            fs_selection: s.fs_selection.bits(),
+            us_first_char_index: s.us_first_char_index,
+            us_last_char_index: s.us_last_char_index,
 
-                s_typo_ascender: s.version0.as_ref().map(|q| q.s_typo_ascender),
-                s_typo_descender: s.version0.as_ref().map(|q| q.s_typo_descender),
-                s_typo_line_gap: s.version0.as_ref().map(|q| q.s_typo_line_gap),
-                us_win_ascent: s.version0.as_ref().map(|q| q.us_win_ascent),
-                us_win_descent: s.version0.as_ref().map(|q| q.us_win_descent),
+            s_typo_ascender: s.version0.as_ref().map(|q| q.s_typo_ascender),
+            s_typo_descender: s.version0.as_ref().map(|q| q.s_typo_descender),
+            s_typo_line_gap: s.version0.as_ref().map(|q| q.s_typo_line_gap),
+            us_win_ascent: s.version0.as_ref().map(|q| q.us_win_ascent),
+            us_win_descent: s.version0.as_ref().map(|q| q.us_win_descent),
 
-                ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
-                ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
+            ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
+            ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
 
-                sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
-                s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
-                us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
-                us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
-                us_max_context: s.version2to4.as_ref().map(|q| q.us_max_context),
+            sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
+            s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
+            us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
+            us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
+            us_max_context: s.version2to4.as_ref().map(|q| q.us_max_context),
 
-                us_lower_optical_point_size: s.version5.as_ref().map(|q| q.us_lower_optical_point_size),
-                us_upper_optical_point_size: s.version5.as_ref().map(|q| q.us_upper_optical_point_size),
-            }
+            us_lower_optical_point_size: s.version5.as_ref().map(|q| q.us_lower_optical_point_size),
+            us_upper_optical_point_size: s.version5.as_ref().map(|q| q.us_upper_optical_point_size),
         },
         _ => Os2Info::default(),
     };
 
     FontMetrics {
-
         // head table
         units_per_em: if head_table.units_per_em == 0 {
             1000_u16
@@ -157,7 +156,6 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
         num_h_metrics: hhea_table.num_h_metrics,
 
         // os/2 table
-
         x_avg_char_width: os2_table.x_avg_char_width,
         us_weight_class: os2_table.us_weight_class,
         us_width_class: os2_table.us_width_class,
@@ -266,25 +264,61 @@ pub struct GlyphOutline {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 struct GlyphOutlineBuilder {
-    operations: Vec<GlyphOutlineOperation>
+    operations: Vec<GlyphOutlineOperation>,
 }
 
 impl Default for GlyphOutlineBuilder {
     fn default() -> Self {
-        GlyphOutlineBuilder { operations: Vec::new() }
+        GlyphOutlineBuilder {
+            operations: Vec::new(),
+        }
     }
 }
 
 impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
-    fn move_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y })); }
-    fn line_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::LineTo(OutlineLineTo { x, y })); }
-    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo { ctrl_1_x: x1, ctrl_1_y: y1, end_x: x, end_y: y })); }
-    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo { ctrl_1_x: x1, ctrl_1_y: y1, ctrl_2_x: x2, ctrl_2_y: y2, end_x: x, end_y: y })); }
-    fn close(&mut self) { self.operations.push(GlyphOutlineOperation::ClosePath); }
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.operations
+            .push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y }));
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.operations
+            .push(GlyphOutlineOperation::LineTo(OutlineLineTo { x, y }));
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.operations
+            .push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
+                ctrl_1_x: x1,
+                ctrl_1_y: y1,
+                end_x: x,
+                end_y: y,
+            }));
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.operations
+            .push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
+                ctrl_1_x: x1,
+                ctrl_1_y: y1,
+                ctrl_2_x: x2,
+                ctrl_2_y: y2,
+                end_x: x,
+                end_y: y,
+            }));
+    }
+    fn close(&mut self) {
+        self.operations.push(GlyphOutlineOperation::ClosePath);
+    }
 }
 
-impl_vec!(GlyphOutlineOperation, GlyphOutlineOperationVec, GlyphOutlineOperationVecDestructor);
-impl_vec_clone!(GlyphOutlineOperation, GlyphOutlineOperationVec, GlyphOutlineOperationVecDestructor);
+impl_vec!(
+    GlyphOutlineOperation,
+    GlyphOutlineOperationVec,
+    GlyphOutlineOperationVecDestructor
+);
+impl_vec_clone!(
+    GlyphOutlineOperation,
+    GlyphOutlineOperationVec,
+    GlyphOutlineOperationVecDestructor
+);
 impl_vec_debug!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 impl_vec_partialord!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 impl_vec_partialeq!(GlyphOutlineOperation, GlyphOutlineOperationVec);
@@ -322,9 +356,11 @@ impl OwnedGlyph {
 }
 
 impl ParsedFont {
-
-    pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_glyph_outlines: bool) -> Option<Self> {
-
+    pub fn from_bytes(
+        font_bytes: &[u8],
+        font_index: usize,
+        parse_glyph_outlines: bool,
+    ) -> Option<Self> {
         use allsorts::tag;
 
         let scope = ReadScope::new(font_bytes);
@@ -332,52 +368,63 @@ impl ParsedFont {
         let provider = font_file.table_provider(font_index).ok()?;
 
         let head_table = provider
-        .table_data(tag::HEAD).ok()
-        .and_then(|head_data| {
-            ReadScope::new(&head_data?)
-            .read::<HeadTable>().ok()
-        });
+            .table_data(tag::HEAD)
+            .ok()
+            .and_then(|head_data| ReadScope::new(&head_data?).read::<HeadTable>().ok());
 
         let maxp_table = provider
-        .table_data(tag::MAXP).ok()
-        .and_then(|maxp_data| {
-            ReadScope::new(&maxp_data?)
-            .read::<MaxpTable>().ok()
-        }).unwrap_or(MaxpTable { num_glyphs: 0, version1_sub_table: None });
+            .table_data(tag::MAXP)
+            .ok()
+            .and_then(|maxp_data| ReadScope::new(&maxp_data?).read::<MaxpTable>().ok())
+            .unwrap_or(MaxpTable {
+                num_glyphs: 0,
+                version1_sub_table: None,
+            });
 
-        let index_to_loc = head_table.map(|s| s.index_to_loc_format)
-        .unwrap_or(allsorts::tables::IndexToLocFormat::Long);
+        let index_to_loc = head_table
+            .map(|s| s.index_to_loc_format)
+            .unwrap_or(allsorts::tables::IndexToLocFormat::Long);
         let num_glyphs = maxp_table.num_glyphs as usize;
 
         let loca_table = provider.table_data(tag::LOCA).ok();
-        let loca_table = loca_table.as_ref()
-        .and_then(|loca_data| {
-            ReadScope::new(&loca_data.as_ref()?)
-            .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc)).ok()
-        }).unwrap_or(LocaTable {
-            offsets: LocaOffsets::Long(allsorts::binary::read::ReadArray::empty())
-        });
+        let loca_table = loca_table
+            .as_ref()
+            .and_then(|loca_data| {
+                ReadScope::new(&loca_data.as_ref()?)
+                    .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc))
+                    .ok()
+            })
+            .unwrap_or(LocaTable {
+                offsets: LocaOffsets::Long(allsorts::binary::read::ReadArray::empty()),
+            });
 
         let glyf_table = provider.table_data(tag::GLYF).ok();
-        let mut glyf_table = glyf_table.as_ref()
-        .and_then(|glyf_data| {
-            ReadScope::new(&glyf_data.as_ref()?).read_dep::<GlyfTable<'_>>(&loca_table).ok()
-        }).unwrap_or(GlyfTable::new(Vec::new()).unwrap());
+        let mut glyf_table = glyf_table
+            .as_ref()
+            .and_then(|glyf_data| {
+                ReadScope::new(&glyf_data.as_ref()?)
+                    .read_dep::<GlyfTable<'_>>(&loca_table)
+                    .ok()
+            })
+            .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
         let hmtx_data = provider
-        .table_data(tag::HMTX).ok()
-        .and_then(|s| Some(s?.to_vec()))
-        .unwrap_or_default();
+            .table_data(tag::HMTX)
+            .ok()
+            .and_then(|s| Some(s?.to_vec()))
+            .unwrap_or_default();
 
-        let hhea_table = provider.table_data(tag::HHEA).ok()
-        .and_then(|hhea_data| {
-            ReadScope::new(&hhea_data?).read::<HheaTable>().ok()
-        }).unwrap_or(unsafe { std::mem::zeroed() });
+        let hhea_table = provider
+            .table_data(tag::HHEA)
+            .ok()
+            .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())
+            .unwrap_or(unsafe { std::mem::zeroed() });
 
         let font_metrics = get_font_metrics(font_bytes, font_index);
 
         // not parsing glyph outlines can save lots of memory
-        let glyph_records_decoded = glyf_table.records_mut()
+        let glyph_records_decoded = glyf_table
+            .records_mut()
             .into_iter()
             .enumerate()
             .filter_map(|(glyph_index, glyph_record)| {
@@ -390,14 +437,17 @@ impl ParsedFont {
                     &maxp_table,
                     &hhea_table,
                     &hmtx_data,
-                    glyph_index
-                ).unwrap_or_default();
+                    glyph_index,
+                )
+                .unwrap_or_default();
 
                 match glyph_record {
                     GlyfRecord::Present { .. } => None,
-                    GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g.clone(), horz_advance).map(|g| (glyph_index, g)),
+                    GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g.clone(), horz_advance)
+                        .map(|g| (glyph_index, g)),
                 }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
 
@@ -410,7 +460,10 @@ impl ParsedFont {
         let num_glyphs = font_data_impl.num_glyphs();
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
-        let cmap_subtable = cmap_subtable.read::<CmapSubtable<'_>>().ok().and_then(|s| s.to_owned());
+        let cmap_subtable = cmap_subtable
+            .read::<CmapSubtable<'_>>()
+            .ok()
+            .and_then(|s| s.to_owned());
 
         let mut font = ParsedFont {
             font_metrics,
@@ -434,7 +487,14 @@ impl ParsedFont {
 
     fn get_space_width_internal(&mut self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
+        allsorts::glyph_info::advance(
+            &self.maxp_table,
+            &self.hhea_table,
+            &self.hmtx_data,
+            glyph_index,
+        )
+        .ok()
+        .map(|s| s as usize)
     }
 
     /// Returns the width of the space " " character
@@ -444,7 +504,10 @@ impl ParsedFont {
     }
 
     pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
-        self.glyph_records_decoded.get(&glyph_index).map(|gi| gi.horz_advance).unwrap_or_default()
+        self.glyph_records_decoded
+            .get(&glyph_index)
+            .map(|gi| gi.horz_advance)
+            .unwrap_or_default()
     }
 
     // get the x and y size of a glyph in unscaled units
@@ -460,7 +523,11 @@ impl ParsedFont {
     }
 
     pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
-        match self.cmap_subtable.as_ref().and_then(|s| s.map_glyph(c).ok()) {
+        match self
+            .cmap_subtable
+            .as_ref()
+            .and_then(|s| s.map_glyph(c).ok())
+        {
             Some(Some(c)) => Some(c),
             _ => None,
         }
@@ -475,7 +542,10 @@ pub struct ShapedTextBufferUnsized {
 impl ShapedTextBufferUnsized {
     /// Get the word width in unscaled units (respects kerning)
     pub fn get_word_visual_width_unscaled(&self) -> usize {
-        self.infos.iter().map(|s| s.size.get_x_advance_total_unscaled() as usize).sum()
+        self.infos
+            .iter()
+            .map(|s| s.size.get_x_advance_total_unscaled() as usize)
+            .sum()
     }
 }
 
@@ -502,7 +572,6 @@ const fn tag(chars: [u8; 4]) -> u32 {
 /// Estimate the language and the script from the text (uses trigrams)
 #[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
-
     use crate::script::Script; // whatlang::Script
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
@@ -688,30 +757,30 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
     // let lang = tag_mod::from_string(&lang.code().to_string().to_uppercase()).unwrap();
 
     let script = match crate::script::detect_script(text).unwrap_or(Script::Latin) {
-        Script::Arabic          => TAG_ARAB,
-        Script::Bengali         => TAG_BENG,
-        Script::Cyrillic        => TAG_CYRL,
-        Script::Devanagari      => TAG_DEVA,
-        Script::Ethiopic        => TAG_ETHI,
-        Script::Georgian        => TAG_GEOR,
-        Script::Greek           => TAG_GREK,
-        Script::Gujarati        => TAG_GUJR,
-        Script::Gurmukhi        => TAG_GUR2,
-        Script::Hangul          => TAG_HANG,
-        Script::Hebrew          => TAG_HEBR,
-        Script::Hiragana        => TAG_HIRG, // NOTE: tag = 'kana', probably error
-        Script::Kannada         => TAG_KND2,
-        Script::Katakana        => TAG_KANA,
-        Script::Khmer           => TAG_KHMR,
-        Script::Latin           => TAG_LATN,
-        Script::Malayalam       => TAG_MLYM,
-        Script::Mandarin        => TAG_MAND,
-        Script::Myanmar         => TAG_MYM2,
-        Script::Oriya           => TAG_ORYA,
-        Script::Sinhala         => TAG_SINH,
-        Script::Tamil           => TAG_TAML,
-        Script::Telugu          => TAG_TELU,
-        Script::Thai            => TAG_THAI,
+        Script::Arabic => TAG_ARAB,
+        Script::Bengali => TAG_BENG,
+        Script::Cyrillic => TAG_CYRL,
+        Script::Devanagari => TAG_DEVA,
+        Script::Ethiopic => TAG_ETHI,
+        Script::Georgian => TAG_GEOR,
+        Script::Greek => TAG_GREK,
+        Script::Gujarati => TAG_GUJR,
+        Script::Gurmukhi => TAG_GUR2,
+        Script::Hangul => TAG_HANG,
+        Script::Hebrew => TAG_HEBR,
+        Script::Hiragana => TAG_HIRG, // NOTE: tag = 'kana', probably error
+        Script::Kannada => TAG_KND2,
+        Script::Katakana => TAG_KANA,
+        Script::Khmer => TAG_KHMR,
+        Script::Latin => TAG_LATN,
+        Script::Malayalam => TAG_MLYM,
+        Script::Mandarin => TAG_MAND,
+        Script::Myanmar => TAG_MYM2,
+        Script::Oriya => TAG_ORYA,
+        Script::Sinhala => TAG_SINH,
+        Script::Tamil => TAG_TAML,
+        Script::Telugu => TAG_TELU,
+        Script::Thai => TAG_THAI,
     };
 
     (script, lang)
@@ -721,12 +790,18 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 // get_word_visual_width(word: &TextBuffer) ->
 // get_glyph_instances(infos: &GlyphInfos, positions: &GlyphPositions) -> PositionedGlyphBuffer
 
-fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) -> Option<ShapedTextBufferUnsized> {
-
+fn shape<'a>(
+    font: &ParsedFont,
+    text: &[u32],
+    script: u32,
+    lang: Option<u32>,
+) -> Option<ShapedTextBufferUnsized> {
     use core::convert::TryFrom;
-    use allsorts::gpos::apply as gpos_apply;
-    use allsorts::gsub::apply as gsub_apply;
-    use allsorts::gsub::{Features, FeatureMask};
+
+    use allsorts::{
+        gpos::apply as gpos_apply,
+        gsub::{FeatureMask, Features, apply as gsub_apply},
+    };
 
     // Map glyphs
     //
@@ -736,13 +811,17 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     let mut chars_iter = text.iter().peekable();
     let mut glyphs = Vec::with_capacity(text.len());
 
-    while let Some((ch, ch_as_char)) = chars_iter.next().and_then(|c| Some((c, core::char::from_u32(*c)?))) {
+    while let Some((ch, ch_as_char)) = chars_iter
+        .next()
+        .and_then(|c| Some((c, core::char::from_u32(*c)?)))
+    {
         match allsorts::unicode::VariationSelector::try_from(ch_as_char) {
             Ok(_) => {} // filter out variation selectors
             Err(()) => {
-                let vs = chars_iter
-                    .peek()
-                    .and_then(|&next| allsorts::unicode::VariationSelector::try_from(core::char::from_u32(*next)?).ok());
+                let vs = chars_iter.peek().and_then(|&next| {
+                    allsorts::unicode::VariationSelector::try_from(core::char::from_u32(*next)?)
+                        .ok()
+                });
 
                 let glyph_index = font.lookup_glyph_index(*ch).unwrap_or(0);
                 glyphs.push(make_raw_glyph(ch_as_char, glyph_index, vs));
@@ -765,7 +844,8 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
             None, // TODO: variable fonts?
             font.num_glyphs,
             &mut glyphs,
-        ).ok()?;
+        )
+        .ok()?;
     }
 
     // Apply glyph positioning if table is present
@@ -773,7 +853,7 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     let kerning = true;
     let mut infos = allsorts::gpos::Info::init_from_glyphs(
         font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
-        glyphs
+        glyphs,
     );
 
     if let Some(gpos) = &font.gpos_cache {
@@ -786,18 +866,27 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
             script,
             lang,
             &mut infos,
-        ).ok()?;
+        )
+        .ok()?;
     }
 
     // calculate the horizontal advance for each char
-    let infos = infos.iter().filter_map(|info| {
-        let glyph_index = info.glyph.glyph_index;
-        let adv_x = font.get_horizontal_advance(glyph_index);
-        let (size_x, size_y) = font.get_glyph_size(glyph_index)?;
-        let advance = Advance { advance_x: adv_x, size_x, size_y, kerning: info.kerning };
-        let info = translate_info(&info, advance);
-        Some(info)
-    }).collect();
+    let infos = infos
+        .iter()
+        .filter_map(|info| {
+            let glyph_index = info.glyph.glyph_index;
+            let adv_x = font.get_horizontal_advance(glyph_index);
+            let (size_x, size_y) = font.get_glyph_size(glyph_index)?;
+            let advance = Advance {
+                advance_x: adv_x,
+                size_x,
+                size_y,
+                kerning: info.kerning,
+            };
+            let info = translate_info(&info, advance);
+            Some(info)
+        })
+        .collect();
 
     Some(ShapedTextBufferUnsized { infos })
 }
@@ -812,10 +901,14 @@ fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> GlyphInfo {
     }
 }
 
-fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicode::VariationSelector>) -> allsorts::gsub::RawGlyph<()> {
+fn make_raw_glyph(
+    ch: char,
+    glyph_index: u16,
+    variation: Option<allsorts::unicode::VariationSelector>,
+) -> allsorts::gsub::RawGlyph<()> {
     allsorts::gsub::RawGlyph {
         unicodes: tiny_vec![[char; 1] => ch],
-        glyph_index: glyph_index,
+        glyph_index,
         liga_component_pos: 0,
         glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
         flags: RawGlyphFlags::empty(),
@@ -836,7 +929,11 @@ fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
         is_vert_alt: rg.is_vert_alt(),
         fake_bold: rg.fake_bold(),
         fake_italic: rg.fake_italic(),
-        variation: rg.variation.as_ref().map(translate_variation_selector).into(),
+        variation: rg
+            .variation
+            .as_ref()
+            .map(translate_variation_selector)
+            .into(),
     }
 }
 
@@ -853,9 +950,7 @@ const fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin 
 const fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
     use allsorts::gpos::Placement::*;
     use azul_core::app_resources::{
-        MarkAnchorPlacement,
-        CursiveAnchorPlacement,
-        PlacementDistance,
+        CursiveAnchorPlacement, MarkAnchorPlacement, PlacementDistance,
     };
 
     match p {
@@ -876,7 +971,9 @@ const fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
     }
 }
 
-const fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) -> VariationSelector {
+const fn translate_variation_selector(
+    v: &allsorts::unicode::VariationSelector,
+) -> VariationSelector {
     use allsorts::unicode::VariationSelector::*;
     match v {
         VS01 => VariationSelector::VS01,
@@ -888,4 +985,9 @@ const fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) 
 }
 
 #[inline]
-const fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor { Anchor { x: anchor.x, y: anchor.y } }
+const fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor {
+    Anchor {
+        x: anchor.x,
+        y: anchor.y,
+    }
+}

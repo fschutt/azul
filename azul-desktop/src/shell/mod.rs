@@ -1,31 +1,31 @@
-use azul_core::window::MenuCallback;
-use azul_core::window::WindowCreateOptions;
-use webrender::RendererOptions as WrRendererOptions;
-use webrender::ProgramCache as WrProgramCache;
-use webrender::ShaderPrecacheFlags as WrShaderPrecacheFlags;
-use webrender::api::RenderNotifier as WrRenderNotifier;
-use webrender::api::DocumentId as WrDocumentId;
-use webrender::Shaders as WrShaders;
-use std::collections::BTreeMap;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::sync::atomic::AtomicIsize;
-use std::sync::atomic::Ordering;
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    rc::Rc,
+    sync::atomic::{AtomicIsize, Ordering},
+};
+
+use azul_core::window::{MenuCallback, WindowCreateOptions};
+use webrender::{
+    ProgramCache as WrProgramCache, RendererOptions as WrRendererOptions,
+    ShaderPrecacheFlags as WrShaderPrecacheFlags, Shaders as WrShaders,
+    api::{DocumentId as WrDocumentId, RenderNotifier as WrRenderNotifier},
+};
 
 // ID sent by WM_TIMER to re-generate the DOM
 const AZ_TICK_REGENERATE_DOM: usize = 1;
 // ID sent by WM_TIMER to check the thread results
 const AZ_THREAD_TICK: usize = 2;
 
-pub(crate) mod process;
 pub(crate) mod event;
+pub(crate) mod process;
 
+#[cfg(target_os = "macos")]
+pub mod appkit;
 #[cfg(target_os = "windows")]
 pub mod win32;
 #[cfg(target_os = "linux")]
 pub mod x11;
-#[cfg(target_os = "macos")]
-pub mod appkit;
 
 // TODO: Cache compiled shaders between renderers
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
@@ -96,4 +96,3 @@ impl CommandId {
         Self(NEXT_MENU_TAG.fetch_add(1, Ordering::SeqCst))
     }
 }
-

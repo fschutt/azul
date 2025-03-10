@@ -1,9 +1,12 @@
-use std::fs;
-use core::fmt;
-use azul_css::{U8Vec, AzString};
-use std::io::{Read, Write};
 use alloc::sync::Arc;
-use std::sync::Mutex;
+use core::fmt;
+use std::{
+    fs,
+    io::{Read, Write},
+    sync::Mutex,
+};
+
+use azul_css::{AzString, U8Vec};
 
 #[repr(C)]
 pub struct File {
@@ -46,7 +49,7 @@ impl PartialEq for File {
     }
 }
 
-impl Eq for File { }
+impl Eq for File {}
 
 impl PartialOrd for File {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
@@ -65,10 +68,16 @@ impl File {
         }
     }
     pub fn open(path: &str) -> Option<Self> {
-        Some(Self::new(fs::File::open(path).ok()?, path.to_string().into()))
+        Some(Self::new(
+            fs::File::open(path).ok()?,
+            path.to_string().into(),
+        ))
     }
     pub fn create(path: &str) -> Option<Self> {
-        Some(Self::new(fs::File::create(path).ok()?, path.to_string().into()))
+        Some(Self::new(
+            fs::File::create(path).ok()?,
+            path.to_string().into(),
+        ))
     }
     pub fn read_to_string(&mut self) -> Option<AzString> {
         let file_string = std::fs::read_to_string(self.path.as_str()).ok()?;
@@ -87,5 +96,5 @@ impl File {
         lock.sync_all().ok()?;
         Some(())
     }
-    pub fn close(self) { }
+    pub fn close(self) {}
 }

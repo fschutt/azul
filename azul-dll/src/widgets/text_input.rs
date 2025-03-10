@@ -1,52 +1,80 @@
 //! Text input (demonstrates two-way data binding)
 
+use alloc::{string::String, vec::Vec};
 use core::ops::Range;
-use azul_desktop::{
-    css::*,
-    css::AzString,
-    styled_dom::StyledDom,
-    dom::{
-        Dom, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
-        NodeDataInlineCssProperty::{Normal, Hover, Focus}
-    },
-    task::OptionTimerId,
-    callbacks::{RefAny, Callback, CallbackInfo, Update},
-};
+
 use azul_core::{
-    callbacks::{Animation, AnimationRepeatCount, InlineText, DomNodeId},
+    callbacks::{Animation, AnimationRepeatCount, DomNodeId, InlineText},
     task::SystemTimeDiff,
     window::{KeyboardState, LogicalPosition, VirtualKeyCode},
 };
-use alloc::vec::Vec;
-use alloc::string::String;
+use azul_desktop::{
+    callbacks::{Callback, CallbackInfo, RefAny, Update},
+    css::{AzString, *},
+    dom::{
+        Dom, NodeDataInlineCssProperty,
+        NodeDataInlineCssProperty::{Focus, Hover, Normal},
+        NodeDataInlineCssPropertyVec,
+    },
+    styled_dom::StyledDom,
+    task::OptionTimerId,
+};
 use azul_impl::text_layout::text_layout;
 
-const BACKGROUND_COLOR: ColorU = ColorU { r: 255,  g: 255,  b: 255,  a: 255 }; // white
-const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
-const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: BLACK  }; // black
-const COLOR_9B9B9B: ColorU = ColorU { r: 155, g: 155, b: 155, a: 255 }; // #9b9b9b
-const COLOR_4286F4: ColorU = ColorU { r: 66, g: 134, b: 244, a: 255 }; // #4286f4
-const COLOR_4C4C4C: ColorU = ColorU { r: 76, g: 76, b: 76, a: 255 }; // #4C4C4C
+const BACKGROUND_COLOR: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+}; // white
+const BLACK: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+};
+const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: BLACK }; // black
+const COLOR_9B9B9B: ColorU = ColorU {
+    r: 155,
+    g: 155,
+    b: 155,
+    a: 255,
+}; // #9b9b9b
+const COLOR_4286F4: ColorU = ColorU {
+    r: 66,
+    g: 134,
+    b: 244,
+    a: 255,
+}; // #4286f4
+const COLOR_4C4C4C: ColorU = ColorU {
+    r: 76,
+    g: 76,
+    b: 76,
+    a: 255,
+}; // #4C4C4C
 
 const CURSOR_COLOR_BLACK: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BLACK)];
-const CURSOR_COLOR: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(CURSOR_COLOR_BLACK);
+const CURSOR_COLOR: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(CURSOR_COLOR_BLACK);
 
-const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
-const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
+const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
+const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
 
 const SANS_SERIF_STR: &str = "sans-serif";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
 const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
-const SANS_SERIF_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
+const SANS_SERIF_FAMILY: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
 
 // -- cursor style
 
-const TEXT_CURSOR_TRANSFORM: &[StyleTransform] = &[
-    StyleTransform::Translate(StyleTransformTranslate2D {
+const TEXT_CURSOR_TRANSFORM: &[StyleTransform] =
+    &[StyleTransform::Translate(StyleTransformTranslate2D {
         x: PixelValue::const_px(0),
         y: PixelValue::const_px(2),
-    })
-];
+    })];
 
 static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_position(LayoutPosition::Absolute)),
@@ -54,168 +82,346 @@ static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_height(LayoutHeight::const_px(11))),
     Normal(CssProperty::const_background_content(CURSOR_COLOR)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
-    Normal(CssProperty::const_transform(StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM))),
+    Normal(CssProperty::const_transform(
+        StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM),
+    )),
 ];
 
 // -- container style
 
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
-
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_cursor(StyleCursor::Text)),
     Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
-
-    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
-    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(1))),
-    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
-
+    Normal(CssProperty::const_background_content(
+        BACKGROUND_COLOR_LIGHT,
+    )),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
+    Normal(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(2),
+    )),
+    Normal(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        1,
+    ))),
+    Normal(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(1),
+    )),
     // border: 1px solid #484c52;
-
-    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
-
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
-
+    Normal(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Inset,
+    })),
+    Normal(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Inset,
+    })),
+    Normal(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_9B9B9B,
+    })),
+    Normal(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_9B9B9B,
+    })),
+    Normal(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
     Normal(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     Normal(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-
+    Normal(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
     // Hover(border-color: #4c4c4c;)
-
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_4C4C4C })),
-    Hover(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_4C4C4C })),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_4C4C4C })),
-    Hover(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_4C4C4C })),
-
+    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_4C4C4C,
+    })),
+    Hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_4C4C4C,
+        },
+    )),
+    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_4C4C4C,
+    })),
+    Hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_4C4C4C,
+        },
+    )),
     // Focus(border-color: #4286f4;)
-
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_4286F4,
+    })),
+    Focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_4286F4,
+        },
+    )),
+    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_4286F4,
+    })),
+    Focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_4286F4,
+        },
+    )),
 ];
 
 #[cfg(target_os = "linux")]
 static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
-
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_cursor(StyleCursor::Text)),
     Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
-
-    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
-    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(1))),
-    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
-
+    Normal(CssProperty::const_background_content(
+        BACKGROUND_COLOR_LIGHT,
+    )),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
+    Normal(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(2),
+    )),
+    Normal(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        1,
+    ))),
+    Normal(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(1),
+    )),
     // border: 1px solid #484c52;
-
-    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
-
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
-
+    Normal(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Inset,
+    })),
+    Normal(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Inset,
+    })),
+    Normal(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_9B9B9B,
+    })),
+    Normal(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_9B9B9B,
+    })),
+    Normal(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
     Normal(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     Normal(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     Normal(CssProperty::const_text_align(StyleTextAlign::Left)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-
+    Normal(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-
     // Hover(border-color: #4286f4;)
-
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
-
+    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_4286F4,
+    })),
+    Hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_4286F4,
+        },
+    )),
+    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_4286F4,
+    })),
+    Hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     // Focus(border-color: #4286f4;)
-
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_4286F4,
+    })),
+    Focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_4286F4,
+        },
+    )),
+    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_4286F4,
+    })),
+    Focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_4286F4,
+        },
+    )),
 ];
 
 #[cfg(target_os = "macos")]
 static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
-
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_cursor(StyleCursor::Text)),
     Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
-
-    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
-    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(1))),
-    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
-
+    Normal(CssProperty::const_background_content(
+        BACKGROUND_COLOR_LIGHT,
+    )),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
+    Normal(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(2),
+    )),
+    Normal(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        1,
+    ))),
+    Normal(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(1),
+    )),
     // border: 1px solid #484c52;
-
-    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
-
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
-
+    Normal(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Inset,
+    })),
+    Normal(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Inset,
+    })),
+    Normal(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Inset,
+        },
+    )),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_9B9B9B,
+    })),
+    Normal(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_9B9B9B,
+    })),
+    Normal(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_9B9B9B,
+        },
+    )),
     Normal(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     Normal(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     Normal(CssProperty::const_text_align(StyleTextAlign::Left)),
-    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-
+    Normal(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
     // Hover(border-color: #4286f4;)
-
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
-
+    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_4286F4,
+    })),
+    Hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_4286F4,
+        },
+    )),
+    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_4286F4,
+    })),
+    Hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     // Focus(border-color: #4286f4;)
-
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
-    Focus(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: COLOR_4286F4,
+    })),
+    Focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: COLOR_4286F4,
+        },
+    )),
+    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: COLOR_4286F4,
+    })),
+    Focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: COLOR_4286F4,
+        },
+    )),
 ];
 
 // -- label style
@@ -226,7 +432,9 @@ static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
@@ -236,7 +444,9 @@ static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
@@ -246,7 +456,9 @@ static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
@@ -260,7 +472,9 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_top(LayoutTop::const_px(2))),
     Normal(CssProperty::const_left(LayoutLeft::const_px(2))),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
@@ -273,7 +487,9 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_top(LayoutTop::const_px(2))),
     Normal(CssProperty::const_left(LayoutLeft::const_px(2))),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
@@ -286,7 +502,9 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_top(LayoutTop::const_px(2))),
     Normal(CssProperty::const_left(LayoutLeft::const_px(2))),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_4C4C4C,
+    })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
@@ -338,15 +556,32 @@ pub enum TextInputValid {
 
 // The text input field has a special return which specifies
 // whether the text input should handle the character
-pub type TextInputOnTextInputCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
-impl_callback!(TextInputOnTextInput, OptionTextInputOnTextInput, TextInputOnTextInputCallback, TextInputOnTextInputCallbackType);
+pub type TextInputOnTextInputCallbackType =
+    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
+impl_callback!(
+    TextInputOnTextInput,
+    OptionTextInputOnTextInput,
+    TextInputOnTextInputCallback,
+    TextInputOnTextInputCallbackType
+);
 
-pub type TextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
-impl_callback!(TextInputOnVirtualKeyDown, OptionTextInputOnVirtualKeyDown, TextInputOnVirtualKeyDownCallback, TextInputOnVirtualKeyDownCallbackType);
+pub type TextInputOnVirtualKeyDownCallbackType =
+    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
+impl_callback!(
+    TextInputOnVirtualKeyDown,
+    OptionTextInputOnVirtualKeyDown,
+    TextInputOnVirtualKeyDownCallback,
+    TextInputOnVirtualKeyDownCallbackType
+);
 
-pub type TextInputOnFocusLostCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> Update;
-impl_callback!(TextInputOnFocusLost, OptionTextInputOnFocusLost, TextInputOnFocusLostCallback, TextInputOnFocusLostCallbackType);
-
+pub type TextInputOnFocusLostCallbackType =
+    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> Update;
+impl_callback!(
+    TextInputOnFocusLost,
+    OptionTextInputOnFocusLost,
+    TextInputOnFocusLostCallback,
+    TextInputOnFocusLostCallbackType
+);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -355,7 +590,12 @@ pub enum TextInputSelection {
     FromTo(TextInputSelectionRange),
 }
 
-impl_option!(TextInputSelection, OptionTextInputSelection, copy = false, [Debug, Clone, Hash, PartialEq, Eq]);
+impl_option!(
+    TextInputSelection,
+    OptionTextInputSelection,
+    copy = false,
+    [Debug, Clone, Hash, PartialEq, Eq]
+);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
@@ -368,8 +608,12 @@ impl Default for TextInput {
     fn default() -> Self {
         TextInput {
             state: TextInputStateWrapper::default(),
-            placeholder_style: NodeDataInlineCssPropertyVec::from_const_slice(TEXT_INPUT_PLACEHOLDER_PROPS),
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(TEXT_INPUT_CONTAINER_PROPS),
+            placeholder_style: NodeDataInlineCssPropertyVec::from_const_slice(
+                TEXT_INPUT_PLACEHOLDER_PROPS,
+            ),
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(
+                TEXT_INPUT_CONTAINER_PROPS,
+            ),
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
         }
     }
@@ -387,14 +631,12 @@ impl Default for TextInputState {
     }
 }
 
-
-
 impl TextInputState {
     pub fn get_text(&self) -> String {
         self.text
-        .iter()
-        .filter_map(|c| core::char::from_u32(*c))
-        .collect()
+            .iter()
+            .filter_map(|c| core::char::from_u32(*c))
+            .collect()
     }
 }
 
@@ -413,7 +655,6 @@ impl Default for TextInputStateWrapper {
 }
 
 impl TextInput {
-
     pub fn new() -> Self {
         Self::default()
     }
@@ -443,28 +684,39 @@ impl TextInput {
         s
     }
 
-    pub fn set_on_text_input(&mut self,  data: RefAny, callback: TextInputOnTextInputCallbackType) {
+    pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType) {
         self.state.on_text_input = Some(TextInputOnTextInput {
             callback: TextInputOnTextInputCallback { cb: callback },
-            data
-        }).into();
+            data,
+        })
+        .into();
     }
 
-    pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType) {
+    pub fn set_on_virtual_key_down(
+        &mut self,
+        data: RefAny,
+        callback: TextInputOnVirtualKeyDownCallbackType,
+    ) {
         self.state.on_virtual_key_down = Some(TextInputOnVirtualKeyDown {
             callback: TextInputOnVirtualKeyDownCallback { cb: callback },
-            data
-        }).into();
+            data,
+        })
+        .into();
     }
 
     pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
         self.state.on_focus_lost = Some(TextInputOnFocusLost {
             callback: TextInputOnFocusLostCallback { cb: callback },
-            data
-        }).into();
+            data,
+        })
+        .into();
     }
 
-    pub fn with_on_focus_lost(mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) -> Self {
+    pub fn with_on_focus_lost(
+        mut self,
+        data: RefAny,
+        callback: TextInputOnFocusLostCallbackType,
+    ) -> Self {
         self.set_on_focus_lost(data, callback);
         self
     }
@@ -488,20 +740,25 @@ impl TextInput {
     }
 
     pub fn dom(mut self) -> Dom {
-
         use azul_desktop::dom::{
-            CallbackData, EventFilter,
-            HoverEventFilter, FocusEventFilter,
-            IdOrClass::Class, TabIndex,
+            CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class,
+            TabIndex,
         };
 
         self.state.inner.cursor_pos = self.state.inner.text.len();
 
-        let label_text: String = self.state.inner.text.iter().filter_map(|s| {
-            core::char::from_u32(*s)
-        }).collect();
+        let label_text: String = self
+            .state
+            .inner
+            .text
+            .iter()
+            .filter_map(|s| core::char::from_u32(*s))
+            .collect();
 
-        let placeholder = self.state.inner.placeholder
+        let placeholder = self
+            .state
+            .inner
+            .placeholder
             .as_ref()
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
@@ -509,59 +766,87 @@ impl TextInput {
         let state_ref = RefAny::new(self.state);
 
         Dom::div()
-        .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
-        .with_inline_css_props(self.container_style)
-        .with_tab_index(TabIndex::Auto)
-        .with_dataset(Some(state_ref.clone()).into())
-        .with_callbacks(vec![
-            CallbackData {
-                event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                data: state_ref.clone(),
-                callback: Callback { cb: default_on_focus_received }
-            },
-            CallbackData {
-                event: EventFilter::Focus(FocusEventFilter::FocusLost),
-                data: state_ref.clone(),
-                callback: Callback { cb: default_on_focus_lost }
-            },
-            CallbackData {
-                event: EventFilter::Focus(FocusEventFilter::TextInput),
-                data: state_ref.clone(),
-                callback: Callback { cb: default_on_text_input }
-            },
-            CallbackData {
-                event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                data: state_ref.clone(),
-                callback: Callback { cb: default_on_virtual_key_down }
-            },
-            CallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                data: state_ref.clone(),
-                callback: Callback { cb: default_on_mouse_hover }
-            },
-        ].into())
-        .with_children(vec![
-            Dom::text(placeholder)
-            .with_ids_and_classes(vec![Class("__azul-native-text-input-placeholder".into())].into())
-            .with_inline_css_props(self.placeholder_style),
-            Dom::text(label_text)
-            .with_ids_and_classes(vec![Class("__azul-native-text-input-label".into())].into())
-            .with_inline_css_props(self.label_style)
-            .with_children(vec![
-                Dom::div()
-                .with_ids_and_classes(vec![Class("__azul-native-text-input-cursor".into())].into())
-                .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(TEXT_CURSOR_PROPS))
-            ].into())
-        ].into())
+            .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
+            .with_inline_css_props(self.container_style)
+            .with_tab_index(TabIndex::Auto)
+            .with_dataset(Some(state_ref.clone()).into())
+            .with_callbacks(
+                vec![
+                    CallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::FocusReceived),
+                        data: state_ref.clone(),
+                        callback: Callback {
+                            cb: default_on_focus_received,
+                        },
+                    },
+                    CallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::FocusLost),
+                        data: state_ref.clone(),
+                        callback: Callback {
+                            cb: default_on_focus_lost,
+                        },
+                    },
+                    CallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::TextInput),
+                        data: state_ref.clone(),
+                        callback: Callback {
+                            cb: default_on_text_input,
+                        },
+                    },
+                    CallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                        data: state_ref.clone(),
+                        callback: Callback {
+                            cb: default_on_virtual_key_down,
+                        },
+                    },
+                    CallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseOver),
+                        data: state_ref.clone(),
+                        callback: Callback {
+                            cb: default_on_mouse_hover,
+                        },
+                    },
+                ]
+                .into(),
+            )
+            .with_children(
+                vec![
+                    Dom::text(placeholder)
+                        .with_ids_and_classes(
+                            vec![Class("__azul-native-text-input-placeholder".into())].into(),
+                        )
+                        .with_inline_css_props(self.placeholder_style),
+                    Dom::text(label_text)
+                        .with_ids_and_classes(
+                            vec![Class("__azul-native-text-input-label".into())].into(),
+                        )
+                        .with_inline_css_props(self.label_style)
+                        .with_children(
+                            vec![
+                                Dom::div()
+                                    .with_ids_and_classes(
+                                        vec![Class("__azul-native-text-input-cursor".into())]
+                                            .into(),
+                                    )
+                                    .with_inline_css_props(
+                                        NodeDataInlineCssPropertyVec::from_const_slice(
+                                            TEXT_CURSOR_PROPS,
+                                        ),
+                                    ),
+                            ]
+                            .into(),
+                        ),
+                ]
+                .into(),
+            )
     }
 }
 
-extern "C"
-fn default_on_focus_received(
+extern "C" fn default_on_focus_received(
     text_input: &mut RefAny,
-    info: &mut CallbackInfo
+    info: &mut CallbackInfo,
 ) -> Update {
-
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -578,7 +863,7 @@ fn default_on_focus_received(
     if text_input.inner.text.is_empty() {
         info.set_css_property(
             placeholder_text_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(0))
+            CssProperty::const_opacity(StyleOpacity::const_new(0)),
         );
     }
 
@@ -587,12 +872,7 @@ fn default_on_focus_received(
     Update::DoNothing
 }
 
-extern "C"
-fn default_on_focus_lost(
-    text_input: &mut RefAny,
-    info: &mut CallbackInfo
-) -> Update {
-
+extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -609,7 +889,7 @@ fn default_on_focus_lost(
     if text_input.inner.text.is_empty() {
         info.set_css_property(
             placeholder_text_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(100))
+            CssProperty::const_opacity(StyleOpacity::const_new(100)),
         );
     }
 
@@ -628,20 +908,11 @@ fn default_on_focus_lost(
     result
 }
 
-extern "C"
-fn default_on_text_input(
-    text_input: &mut RefAny,
-    info: &mut CallbackInfo
-) -> Update {
-    default_on_text_input_inner(text_input, info)
-    .unwrap_or(Update::DoNothing)
+extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    default_on_text_input_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
-fn default_on_text_input_inner(
-    text_input: &mut RefAny,
-    info: &mut CallbackInfo
-) -> Option<Update> {
-
+fn default_on_text_input_inner(text_input: &mut RefAny, info: &mut CallbackInfo) -> Option<Update> {
     let mut text_input = text_input.downcast_mut::<TextInputStateWrapper>()?;
     let keyboard_state = info.get_current_keyboard_state();
 
@@ -649,7 +920,6 @@ fn default_on_text_input_inner(
     let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
     let cursor_node_id = info.get_first_child(label_node_id)?;
-
 
     let result = {
         // rustc doesn't understand the borrowing lifetime here
@@ -666,7 +936,9 @@ fn default_on_text_input_inner(
         };
 
         match ontextinput.as_mut() {
-            Some(TextInputOnTextInput { callback, data }) => (callback.cb)(data, info, &inner_clone),
+            Some(TextInputOnTextInput { callback, data }) => {
+                (callback.cb)(data, info, &inner_clone)
+            }
             None => OnTextInputReturn {
                 update: Update::DoNothing,
                 valid: TextInputValid::Yes,
@@ -678,7 +950,7 @@ fn default_on_text_input_inner(
         // hide the placeholder text
         info.set_css_property(
             placeholder_node_id,
-            CssProperty::const_opacity(StyleOpacity::const_new(0))
+            CssProperty::const_opacity(StyleOpacity::const_new(0)),
         );
 
         // append to the text
@@ -695,20 +967,17 @@ fn default_on_text_input_inner(
     Some(result.update)
 }
 
-extern "C"
-fn default_on_virtual_key_down(
+extern "C" fn default_on_virtual_key_down(
     text_input: &mut RefAny,
-    info: &mut CallbackInfo
+    info: &mut CallbackInfo,
 ) -> Update {
-    default_on_virtual_key_down_inner(text_input, info)
-    .unwrap_or(Update::DoNothing)
+    default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
 fn default_on_virtual_key_down_inner(
     text_input: &mut RefAny,
-    info: &mut CallbackInfo
+    info: &mut CallbackInfo,
 ) -> Option<Update> {
-
     let mut text_input = text_input.downcast_mut::<TextInputStateWrapper>()?;
     let keyboard_state = info.get_current_keyboard_state();
 
@@ -733,12 +1002,7 @@ fn default_on_virtual_key_down_inner(
     None
 }
 
-extern "C"
-fn default_on_mouse_hover(
-  text_input: &mut RefAny,
-  info: &mut CallbackInfo
-) -> Update {
-
+extern "C" fn default_on_mouse_hover(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,

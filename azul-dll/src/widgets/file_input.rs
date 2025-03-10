@@ -1,18 +1,22 @@
 //! File input button, same as `Button`, but selects and
 //! opens a file dialog instead
 
-use azul_desktop::{
-    css::*,
-    css::AzString,
-    dom::{
-        TabIndex, Dom, IdOrClass, IdOrClass::Class, NodeDataInlineCssPropertyVec, IdOrClassVec,
-        NodeDataInlineCssProperty, NodeDataInlineCssProperty::{Normal, Active, Hover, Focus},
-    },
-    dialogs::OptionFileTypeList,
-    resources::{ImageRef, OptionImageRef},
-    callbacks::{RefAny, Update, CallbackInfo},
-};
 use std::vec::Vec;
+
+use azul_desktop::{
+    callbacks::{CallbackInfo, RefAny, Update},
+    css::{AzString, *},
+    dialogs::OptionFileTypeList,
+    dom::{
+        Dom, IdOrClass,
+        IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
+        NodeDataInlineCssPropertyVec, TabIndex,
+    },
+    resources::{ImageRef, OptionImageRef},
+};
+
 use crate::widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,28 +86,30 @@ pub struct FileInputState {
 
 impl Default for FileInputState {
     fn default() -> Self {
-        Self {
-            path: None.into()
-        }
+        Self { path: None.into() }
     }
 }
 
-pub type FileInputOnPathChangeCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &FileInputState) -> Update;
-impl_callback!(FileInputOnPathChange, OptionFileInputOnPathChange, FileInputOnPathChangeCallback, FileInputOnPathChangeCallbackType);
-
+pub type FileInputOnPathChangeCallbackType =
+    extern "C" fn(&mut RefAny, &mut CallbackInfo, &FileInputState) -> Update;
+impl_callback!(
+    FileInputOnPathChange,
+    OptionFileInputOnPathChange,
+    FileInputOnPathChangeCallback,
+    FileInputOnPathChangeCallbackType
+);
 
 impl FileInput {
-
     pub fn new(path: OptionAzString) -> Self {
         Self {
             state: FileInputStateWrapper {
                 inner: FileInputState {
                     path,
-                    .. Default::default()
+                    ..Default::default()
                 },
-                .. Default::default()
+                ..Default::default()
             },
-            .. Default::default()
+            ..Default::default()
         }
     }
 
@@ -126,32 +132,38 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn set_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType) {
+    pub fn set_on_path_change(
+        &mut self,
+        data: RefAny,
+        callback: FileInputOnPathChangeCallbackType,
+    ) {
         self.state.on_path_change = Some(FileInputOnPathChange {
             data,
             callback: FileInputOnPathChangeCallback { cb: callback },
-        }).into();
+        })
+        .into();
     }
 
     #[inline]
-    pub fn with_on_path_change(mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType) -> Self {
+    pub fn with_on_path_change(
+        mut self,
+        data: RefAny,
+        callback: FileInputOnPathChangeCallbackType,
+    ) -> Self {
         self.set_on_path_change(data, callback);
         self
     }
 
     #[inline]
     pub fn dom(mut self) -> Dom {
-
         // either show the default text or the file name
         // including the extension as the button label
         let button_label = match self.state.inner.path.as_ref() {
-            Some(path) => {
-                std::path::Path::new(path.as_str())
+            Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or(self.default_text.as_str().to_string())
-                .into()
-            },
+                .into(),
             None => self.default_text.clone(),
         };
 
@@ -163,14 +175,17 @@ impl FileInput {
             image_style: self.image_style,
             on_click: Some(ButtonOnClick {
                 data: RefAny::new(self.state),
-                callback: ButtonOnClickCallback { cb: fileinput_on_click },
-            }).into()
-        }.dom()
+                callback: ButtonOnClickCallback {
+                    cb: fileinput_on_click,
+                },
+            })
+            .into(),
+        }
+        .dom()
     }
 }
 
 extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     use azul_desktop::dialogs::open_file_dialog;
 
     let mut fileinputstatewrapper = match data.downcast_mut::<FileInputStateWrapper>() {
@@ -182,8 +197,11 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
     // Open file select dialog
     let user_new_file_selected = match open_file_dialog(
         fileinputstatewrapper.file_dialog_title.as_str(),
-        fileinputstatewrapper.default_dir.as_ref().map(|s| s.as_str()),
-        fileinputstatewrapper.file_types.clone().into_option()
+        fileinputstatewrapper
+            .default_dir
+            .as_ref()
+            .map(|s| s.as_str()),
+        fileinputstatewrapper.file_types.clone().into_option(),
     ) {
         Some(s) => OptionAzString::Some(s),
         None => return Update::DoNothing,
@@ -192,7 +210,9 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
     fileinputstatewrapper.inner.path = user_new_file_selected;
 
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
-        Some(FileInputOnPathChange { data, callback }) => (callback.cb)(data, info, &fileinputstatewrapper.inner),
+        Some(FileInputOnPathChange { data, callback }) => {
+            (callback.cb)(data, info, &fileinputstatewrapper.inner)
+        }
         None => return Update::DoNothing,
     };
 

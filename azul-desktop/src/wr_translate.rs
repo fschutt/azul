@@ -4,133 +4,84 @@
 //! (since webrender is a huge dependency) just to use the types. Only if you depend on
 //! azul (not azul-core), you have to depend on webrender.
 
-use azul_core::app_resources::DpiScaleFactor;
-use webrender::render_api::{
-    RenderApi as WrRenderApi,
-    ResourceUpdate as WrResourceUpdate,
-    AddFont as WrAddFont,
-    AddImage as WrAddImage,
-    UpdateImage as WrUpdateImage,
-    AddFontInstance as WrAddFontInstance,
-    Transaction as WrTransaction,
-};
-use webrender::api::{
-    units::{
-        LayoutSize as WrLayoutSize,
-        LayoutPoint as WrLayoutPoint,
-        LayoutRect as WrLayoutRect,
-        LayoutSideOffsets as WrLayoutSideOffsets,
-        ImageDirtyRect as WrImageDirtyRect,
-        LayoutVector2D as WrLayoutVector2D,
-        LayoutTransform as WrLayoutTransform,
-        DeviceIntPoint as WrDeviceIntPoint,
-        DeviceIntSize as WrDeviceIntSize,
-        DeviceIntRect as WrDeviceIntRect,
-    },
-    MixBlendMode as WrMixBlendMode,
-    ApiHitTester as WrApiHitTester,
-    DebugFlags as WrDebugFlags,
-    TransformStyle as WrTransformStyle,
-    PropertyBinding as WrPropertyBinding,
-    ReferenceFrameKind as WrReferenceFrameKind,
-    ImageBufferKind as WrImageBufferKind,
-    CommonItemProperties as WrCommonItemProperties,
-    FontKey as WrFontKey,
-    FontInstanceKey as WrFontInstanceKey,
-    ImageKey as WrImageKey,
-    ClipId as WrClipId,
-    SpatialId as WrSpatialId,
-    IdNamespace as WrIdNamespace,
-    PipelineId as WrPipelineId,
-    DocumentId as WrDocumentId,
-    ColorU as WrColorU,
-    ColorF as WrColorF,
-    PrimitiveFlags as WrPrimitiveFlags,
-    BorderRadius as WrBorderRadius,
-    BorderSide as WrBorderSide,
-    BoxShadowClipMode as WrBoxShadowClipMode,
-    ExtendMode as WrExtendMode,
-    BorderStyle as WrBorderStyle,
-    ImageFormat as WrImageFormat,
-    ImageDescriptor as WrImageDescriptor,
-    ImageDescriptorFlags as WrImageDescriptorFlags,
-    GlyphInstance as WrGlyphInstance,
-    BuiltDisplayList as WrBuiltDisplayList,
-    DisplayListBuilder as WrDisplayListBuilder,
-    GlyphOptions as WrGlyphOptions,
-    AlphaType as WrAlphaType,
-    FontInstanceFlags as WrFontInstanceFlags,
-    FontRenderMode as WrFontRenderMode,
-    ImageRendering as WrImageRendering,
-    ExternalScrollId as WrExternalScrollId,
-    SpaceAndClipInfo as WrSpaceAndClipInfo,
-    ImageData as WrImageData,
-    ExternalImageData as WrExternalImageData,
-    ExternalImageId as WrExternalImageId,
-    ExternalImageType as WrExternalImageType,
-    Epoch as WrEpoch,
-    FontVariation as WrFontVariation,
-    FontInstanceOptions as WrFontInstanceOptions,
-    FontInstancePlatformOptions as WrFontInstancePlatformOptions,
-    SyntheticItalics as WrSyntheticItalics,
-    ImageMask as WrImageMask,
-    HitTesterRequest as WrHitTesterRequest,
-};
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-use webrender::api::{
-    FontLCDFilter as WrFontLCDFilter,
-    FontHinting as WrFontHinting,
-};
+use alloc::sync::Arc;
+use core::mem;
 
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use azul_core::app_resources::{FontHinting, FontLCDFilter};
 use azul_core::{
-    callbacks::{PipelineId, DocumentId, DomNodeId},
     app_resources::{
-        FontKey, Au, FontInstanceKey, ImageKey, ImageCache,
-        IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor, ImageDescriptorFlags,
-        FontInstanceFlags, FontRenderMode, GlyphOptions, ResourceUpdate,
-        AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
-        ExternalImageType, ImageBufferKind, UpdateImage, ImageDirtyRect,
-        Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
-        FontInstancePlatformOptions, SyntheticItalics, PrimitiveFlags,
-        TransformKey, UpdateImageResult,
+        AddFont, AddFontInstance, AddImage, Au, DpiScaleFactor, Epoch, ExternalImageData,
+        ExternalImageId, ExternalImageType, FontInstanceFlags, FontInstanceKey,
+        FontInstanceOptions, FontInstancePlatformOptions, FontKey, FontRenderMode, FontVariation,
+        GlyphOptions, IdNamespace, ImageBufferKind, ImageCache, ImageData, ImageDescriptor,
+        ImageDescriptorFlags, ImageDirtyRect, ImageKey, PrimitiveFlags,
+        RawImageFormat as ImageFormat, ResourceUpdate, SyntheticItalics, TransformKey, UpdateImage,
+        UpdateImageResult,
     },
+    callbacks::{DocumentId, DomNodeId, PipelineId},
     display_list::{
-        CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
-        DisplayListFrame, LayoutRectContent, DisplayListMsg,
-        AlphaType, ImageRendering, StyleBorderRadius, BoxShadow,
+        AlphaType, BoxShadow, CachedDisplayList, DisplayListFrame, DisplayListImageMask,
+        DisplayListMsg, DisplayListScrollFrame, GlyphInstance, ImageRendering, LayoutRectContent,
+        StyleBorderRadius,
     },
     dom::TagId,
-    display_list::DisplayListImageMask,
     ui_solver::{
-        LayoutResult, ExternalScrollId,
-        PositionInfo, ComputedTransform3D,
-        QuickResizeResult,
+        ComputedTransform3D, ExternalScrollId, LayoutResult, PositionInfo, QuickResizeResult,
     },
     window::{
-        LogicalSize, CursorPosition, LogicalPosition,
-        FullHitTest, LogicalRect, DebugState,
+        CursorPosition, DebugState, FullHitTest, LogicalPosition, LogicalRect, LogicalSize,
         ScrollStates, WindowInternal,
     },
 };
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-use azul_core::app_resources::{FontLCDFilter, FontHinting};
 use azul_css::{
-    ColorU as CssColorU,
-    ColorF as CssColorF,
-    BorderSide as CssBorderSide,
-    LayoutPoint as CssLayoutPoint,
-    LayoutRect as CssLayoutRect,
-    LayoutSize as CssLayoutSize,
-    BoxShadowClipMode as CssBoxShadowClipMode,
-    ExtendMode as CssExtendMode,
-    BorderStyle as CssBorderStyle,
-    LayoutSideOffsets as CssLayoutSideOffsets,
-    StyleMixBlendMode as CssMixBlendMode,
-    U8Vec,
+    BorderSide as CssBorderSide, BorderStyle as CssBorderStyle,
+    BoxShadowClipMode as CssBoxShadowClipMode, ColorF as CssColorF, ColorU as CssColorU,
+    ExtendMode as CssExtendMode, LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
+    LayoutSideOffsets as CssLayoutSideOffsets, LayoutSize as CssLayoutSize,
+    StyleMixBlendMode as CssMixBlendMode, U8Vec,
 };
-use webrender::Renderer;
-use alloc::sync::Arc;
-use core::mem;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use webrender::api::{FontHinting as WrFontHinting, FontLCDFilter as WrFontLCDFilter};
+use webrender::{
+    Renderer,
+    api::{
+        AlphaType as WrAlphaType, ApiHitTester as WrApiHitTester, BorderRadius as WrBorderRadius,
+        BorderSide as WrBorderSide, BorderStyle as WrBorderStyle,
+        BoxShadowClipMode as WrBoxShadowClipMode, BuiltDisplayList as WrBuiltDisplayList,
+        ClipId as WrClipId, ColorF as WrColorF, ColorU as WrColorU,
+        CommonItemProperties as WrCommonItemProperties, DebugFlags as WrDebugFlags,
+        DisplayListBuilder as WrDisplayListBuilder, DocumentId as WrDocumentId, Epoch as WrEpoch,
+        ExtendMode as WrExtendMode, ExternalImageData as WrExternalImageData,
+        ExternalImageId as WrExternalImageId, ExternalImageType as WrExternalImageType,
+        ExternalScrollId as WrExternalScrollId, FontInstanceFlags as WrFontInstanceFlags,
+        FontInstanceKey as WrFontInstanceKey, FontInstanceOptions as WrFontInstanceOptions,
+        FontInstancePlatformOptions as WrFontInstancePlatformOptions, FontKey as WrFontKey,
+        FontRenderMode as WrFontRenderMode, FontVariation as WrFontVariation,
+        GlyphInstance as WrGlyphInstance, GlyphOptions as WrGlyphOptions,
+        HitTesterRequest as WrHitTesterRequest, IdNamespace as WrIdNamespace,
+        ImageBufferKind as WrImageBufferKind, ImageData as WrImageData,
+        ImageDescriptor as WrImageDescriptor, ImageDescriptorFlags as WrImageDescriptorFlags,
+        ImageFormat as WrImageFormat, ImageKey as WrImageKey, ImageMask as WrImageMask,
+        ImageRendering as WrImageRendering, MixBlendMode as WrMixBlendMode,
+        PipelineId as WrPipelineId, PrimitiveFlags as WrPrimitiveFlags,
+        PropertyBinding as WrPropertyBinding, ReferenceFrameKind as WrReferenceFrameKind,
+        SpaceAndClipInfo as WrSpaceAndClipInfo, SpatialId as WrSpatialId,
+        SyntheticItalics as WrSyntheticItalics, TransformStyle as WrTransformStyle,
+        units::{
+            DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
+            DeviceIntSize as WrDeviceIntSize, ImageDirtyRect as WrImageDirtyRect,
+            LayoutPoint as WrLayoutPoint, LayoutRect as WrLayoutRect,
+            LayoutSideOffsets as WrLayoutSideOffsets, LayoutSize as WrLayoutSize,
+            LayoutTransform as WrLayoutTransform, LayoutVector2D as WrLayoutVector2D,
+        },
+    },
+    render_api::{
+        AddFont as WrAddFont, AddFontInstance as WrAddFontInstance, AddImage as WrAddImage,
+        RenderApi as WrRenderApi, ResourceUpdate as WrResourceUpdate, Transaction as WrTransaction,
+        UpdateImage as WrUpdateImage,
+    },
+};
 
 pub enum AsyncHitTester {
     Requested(WrHitTesterRequest),
@@ -156,22 +107,26 @@ impl AsyncHitTester {
 /// Same interface as azul-core: FullHitTest::new
 /// but uses webrender to compare the results of the two hit-testing implementations
 pub(crate) fn fullhittest_new_webrender(
-     wr_hittester: &dyn WrApiHitTester,
-     document_id: DocumentId,
-     old_focus_node: Option<DomNodeId>,
+    wr_hittester: &dyn WrApiHitTester,
+    document_id: DocumentId,
+    old_focus_node: Option<DomNodeId>,
 
-     layout_results: &[LayoutResult],
-     cursor_position: &CursorPosition,
-     hidpi_factor: f32,
+    layout_results: &[LayoutResult],
+    cursor_position: &CursorPosition,
+    hidpi_factor: f32,
 ) -> FullHitTest {
-
     use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        callbacks::{HitTestItem, ScrollHitTestItem},
+        styled_dom::{DomId, NodeHierarchyItemId},
+    };
     use webrender::api::units::WorldPoint as WrWorldPoint;
-    use azul_core::callbacks::{HitTestItem, ScrollHitTestItem};
-    use azul_core::styled_dom::{DomId, NodeHierarchyItemId};
 
     let mut cursor_location = match cursor_position {
-        CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
+        CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => {
+            return FullHitTest::empty(old_focus_node);
+        }
         CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
     };
 
@@ -185,12 +140,13 @@ pub(crate) fn fullhittest_new_webrender(
     let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
 
     loop {
-
         let mut new_dom_ids = Vec::new();
 
         for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
-
-            let pipeline_id = PipelineId(dom_id.inner.min(core::u32::MAX as usize) as u32, document_id.id);
+            let pipeline_id = PipelineId(
+                dom_id.inner.min(core::u32::MAX as usize) as u32,
+                document_id.id,
+            );
 
             let layout_result = match layout_results.get(dom_id.inner) {
                 Some(s) => s,
@@ -200,37 +156,52 @@ pub(crate) fn fullhittest_new_webrender(
             let wr_result = wr_hittester.hit_test(
                 Some(wr_translate_pipeline_id(pipeline_id)),
                 WrWorldPoint::new(
-                    cursor_relative_to_dom.x * hidpi_factor, 
+                    cursor_relative_to_dom.x * hidpi_factor,
                     cursor_relative_to_dom.y * hidpi_factor,
                 ),
             );
 
-            let hit_items = wr_result.items.iter()
-            .filter_map(|i| {
+            let hit_items = wr_result
+                .items
+                .iter()
+                .filter_map(|i| {
+                    let node_id = layout_result
+                        .styled_dom
+                        .tag_ids_to_node_ids
+                        .iter()
+                        .find(|q| q.tag_id.inner == i.tag.0)?
+                        .node_id
+                        .into_crate_internal()?;
 
-                let node_id = layout_result.styled_dom.tag_ids_to_node_ids
-                .iter().find(|q| q.tag_id.inner == i.tag.0)?
-                .node_id.into_crate_internal()?;
-
-                let relative_to_item = LogicalPosition::new(
-                    i.point_relative_to_item.x / hidpi_factor, 
-                    i.point_relative_to_item.y / hidpi_factor,
-                );
-                Some((node_id, HitTestItem {
-                    point_in_viewport: LogicalPosition::new(
-                        i.point_in_viewport.x / hidpi_factor, 
-                        i.point_in_viewport.y / hidpi_factor,
-                    ),
-                    point_relative_to_item: relative_to_item,
-                    is_iframe_hit: layout_result.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
-                        (*iframe_dom_id, relative_to_item)
-                    }),
-                    is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().is_some(),
-                }))
-            }).collect::<Vec<_>>();
+                    let relative_to_item = LogicalPosition::new(
+                        i.point_relative_to_item.x / hidpi_factor,
+                        i.point_relative_to_item.y / hidpi_factor,
+                    );
+                    Some((
+                        node_id,
+                        HitTestItem {
+                            point_in_viewport: LogicalPosition::new(
+                                i.point_in_viewport.x / hidpi_factor,
+                                i.point_in_viewport.y / hidpi_factor,
+                            ),
+                            point_relative_to_item: relative_to_item,
+                            is_iframe_hit: layout_result
+                                .iframe_mapping
+                                .get(&node_id)
+                                .map(|iframe_dom_id| (*iframe_dom_id, relative_to_item)),
+                            is_focusable: layout_result
+                                .styled_dom
+                                .node_data
+                                .as_container()
+                                .get(node_id)?
+                                .get_tab_index()
+                                .is_some(),
+                        },
+                    ))
+                })
+                .collect::<Vec<_>>();
 
             for (node_id, item) in hit_items.into_iter() {
-
                 use azul_core::ui_solver::HitTest;
 
                 if let Some(i) = item.is_iframe_hit.as_ref() {
@@ -249,21 +220,28 @@ pub(crate) fn fullhittest_new_webrender(
                 // It may ADDITIONALLY inserted into the scroll_hit_test_nodes,
                 // but not as a replacement!
                 ret.hovered_nodes
-                .entry(*dom_id)
-                .or_insert_with(|| HitTest::empty())
-                .regular_hit_test_nodes
-                .insert(node_id, item);
-
-                if let Some(scroll_node) = layout_result.scrollable_nodes.overflowing_nodes.get(&az_node_id) {
-                    ret.hovered_nodes
                     .entry(*dom_id)
                     .or_insert_with(|| HitTest::empty())
-                    .scroll_hit_test_nodes
-                    .insert(node_id, ScrollHitTestItem {
-                        point_in_viewport: item.point_in_viewport,
-                        point_relative_to_item: item.point_relative_to_item,
-                        scroll_node: scroll_node.clone(),
-                    });
+                    .regular_hit_test_nodes
+                    .insert(node_id, item);
+
+                if let Some(scroll_node) = layout_result
+                    .scrollable_nodes
+                    .overflowing_nodes
+                    .get(&az_node_id)
+                {
+                    ret.hovered_nodes
+                        .entry(*dom_id)
+                        .or_insert_with(|| HitTest::empty())
+                        .scroll_hit_test_nodes
+                        .insert(
+                            node_id,
+                            ScrollHitTestItem {
+                                point_in_viewport: item.point_in_viewport,
+                                point_relative_to_item: item.point_relative_to_item,
+                                scroll_node: scroll_node.clone(),
+                            },
+                        );
                 }
             }
         }
@@ -285,50 +263,72 @@ pub(crate) fn fullhittest_new_webrender(
 /// indicate whether it was used during the current frame or not.
 pub(crate) fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
+
     use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
     for (key, value) in scroll_states.0.iter() {
         txn.scroll_node_with_id(
             wr_translate_logical_position(value.get()),
             wr_translate_external_scroll_id(*key),
-            ScrollClamping::ToContentBounds
+            ScrollClamping::ToContentBounds,
         );
     }
 }
 
 /// Synchronize transform / opacity keys
-pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], dpi: &DpiScaleFactor, txn: &mut WrTransaction) {
-
+pub(crate) fn synchronize_gpu_values(
+    layout_results: &[LayoutResult],
+    dpi: &DpiScaleFactor,
+    txn: &mut WrTransaction,
+) {
     use webrender::api::{
-        PropertyBindingKey as WrPropertyBindingKey,
+        DynamicProperties as WrDynamicProperties, PropertyBindingKey as WrPropertyBindingKey,
         PropertyValue as WrPropertyValue,
-        DynamicProperties as WrDynamicProperties,
     };
+
     use crate::wr_translate::wr_translate_layout_transform;
 
-    let transforms = layout_results.iter().flat_map(|lr| {
-        lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
-            let mut value = lr.gpu_value_cache.current_transform_values.get(nid).cloned()?;
-            value.scale_for_dpi(dpi.inner.get());
-            Some((key, value))
-        }).collect::<Vec<_>>().into_iter()
-    })
-    .map(|(k, v)| WrPropertyValue {
-        key: WrPropertyBindingKey::new(k.id as u64),
-        value: wr_translate_layout_transform(&v),
-    })
-    .collect::<Vec<_>>();
+    let transforms = layout_results
+        .iter()
+        .flat_map(|lr| {
+            lr.gpu_value_cache
+                .transform_keys
+                .iter()
+                .filter_map(|(nid, key)| {
+                    let mut value = lr
+                        .gpu_value_cache
+                        .current_transform_values
+                        .get(nid)
+                        .cloned()?;
+                    value.scale_for_dpi(dpi.inner.get());
+                    Some((key, value))
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        })
+        .map(|(k, v)| WrPropertyValue {
+            key: WrPropertyBindingKey::new(k.id as u64),
+            value: wr_translate_layout_transform(&v),
+        })
+        .collect::<Vec<_>>();
 
-    let floats = layout_results.iter().flat_map(|lr| {
-        lr.gpu_value_cache.opacity_keys.iter().filter_map(|(nid, key)| {
-            let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
-            Some((key, *value))
-        }).collect::<Vec<_>>().into_iter()
-    })
-    .map(|(k, v)| WrPropertyValue {
-        key: WrPropertyBindingKey::new(k.id as u64),
-        value: v,
-    })
-    .collect::<Vec<_>>();
+    let floats = layout_results
+        .iter()
+        .flat_map(|lr| {
+            lr.gpu_value_cache
+                .opacity_keys
+                .iter()
+                .filter_map(|(nid, key)| {
+                    let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
+                    Some((key, *value))
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        })
+        .map(|(k, v)| WrPropertyValue {
+            key: WrPropertyBindingKey::new(k.id as u64),
+            value: v,
+        })
+        .collect::<Vec<_>>();
 
     txn.update_dynamic_properties(WrDynamicProperties {
         transforms,
@@ -339,9 +339,8 @@ pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], dpi: &DpiS
 
 pub(crate) fn wr_synchronize_updated_images(
     updated_images: Vec<UpdateImageResult>,
-    txn: &mut WrTransaction
+    txn: &mut WrTransaction,
 ) {
-
     if updated_images.is_empty() {
         return;
     }
@@ -366,13 +365,12 @@ pub(crate) fn rebuild_display_list(
     image_cache: &ImageCache,
     resources: Vec<ResourceUpdate>,
 ) {
+    use azul_core::{callbacks::PipelineId, styled_dom::DomId, ui_solver::LayoutResult};
+
     use crate::wr_translate::{
         wr_translate_display_list, wr_translate_document_id, wr_translate_epoch,
         wr_translate_pipeline_id, wr_translate_resource_update,
     };
-    use azul_core::callbacks::PipelineId;
-    use azul_core::styled_dom::DomId;
-    use azul_core::ui_solver::LayoutResult;
 
     let mut txn = WrTransaction::new();
 
@@ -426,18 +424,17 @@ pub(crate) fn rebuild_display_list(
 pub(crate) fn generate_frame(
     internal: &mut WindowInternal,
     render_api: &mut WrRenderApi,
-    display_list_was_rebuilt: bool
+    display_list_was_rebuilt: bool,
 ) {
-    use crate::wr_translate::{
-        wr_translate_pipeline_id,
-        wr_translate_document_id,
-    };
     use azul_core::callbacks::PipelineId;
+
+    use crate::wr_translate::{wr_translate_document_id, wr_translate_pipeline_id};
 
     let mut txn = WrTransaction::new();
 
     let physical_size = internal.current_window_state.size.get_physical_size();
-    let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+    let framebuffer_size =
+        WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
     // Especially during minimization / maximization of a window, it can happen that the window
     // width or height is zero. In that case, no rendering is necessary (doing so would crash
@@ -446,13 +443,19 @@ pub(crate) fn generate_frame(
         return;
     }
 
-    txn.set_root_pipeline(wr_translate_pipeline_id(PipelineId(0, internal.document_id.id)));
-    txn.set_document_view(WrDeviceIntRect::from_origin_and_size(WrDeviceIntPoint::new(0, 0), framebuffer_size));
+    txn.set_root_pipeline(wr_translate_pipeline_id(PipelineId(
+        0,
+        internal.document_id.id,
+    )));
+    txn.set_document_view(WrDeviceIntRect::from_origin_and_size(
+        WrDeviceIntPoint::new(0, 0),
+        framebuffer_size,
+    ));
     scroll_all_nodes(&mut internal.scroll_states, &mut txn);
     synchronize_gpu_values(
-        &internal.layout_results, 
-        &internal.get_dpi_scale_factor(), 
-        &mut txn
+        &internal.layout_results,
+        &internal.get_dpi_scale_factor(),
+        &mut txn,
     );
 
     if !display_list_was_rebuilt {
@@ -463,7 +466,6 @@ pub(crate) fn generate_frame(
 
     render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
 }
-
 
 #[inline]
 fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
@@ -476,10 +478,13 @@ fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
 
 #[inline]
 fn wr_translate_layouted_glyphs(input: &[GlyphInstance]) -> Vec<WrGlyphInstance> {
-    input.iter().map(|glyph| WrGlyphInstance {
-        index: glyph.index,
-        point: WrLayoutPoint::new(glyph.point.x, glyph.point.y),
-    }).collect()
+    input
+        .iter()
+        .map(|glyph| WrGlyphInstance {
+            index: glyph.index,
+            point: WrLayoutPoint::new(glyph.point.x, glyph.point.y),
+        })
+        .collect()
 }
 
 #[inline(always)]
@@ -523,22 +528,36 @@ pub(crate) const fn translate_pipeline_id_wr(pipeline_id: WrPipelineId) -> Pipel
 
 #[inline(always)]
 pub(crate) const fn translate_document_id_wr(document_id: WrDocumentId) -> DocumentId {
-    DocumentId { namespace_id: translate_id_namespace_wr(document_id.namespace_id), id: document_id.id }
+    DocumentId {
+        namespace_id: translate_id_namespace_wr(document_id.namespace_id),
+        id: document_id.id,
+    }
 }
 
 #[inline(always)]
 pub(crate) const fn translate_font_key_wr(font_key: WrFontKey) -> FontKey {
-    FontKey { key: font_key.1, namespace: translate_id_namespace_wr(font_key.0) }
+    FontKey {
+        key: font_key.1,
+        namespace: translate_id_namespace_wr(font_key.0),
+    }
 }
 
 #[inline(always)]
-pub(crate) const fn translate_font_instance_key_wr(font_instance_key: WrFontInstanceKey) -> FontInstanceKey {
-    FontInstanceKey { key: font_instance_key.1, namespace: translate_id_namespace_wr(font_instance_key.0) }
+pub(crate) const fn translate_font_instance_key_wr(
+    font_instance_key: WrFontInstanceKey,
+) -> FontInstanceKey {
+    FontInstanceKey {
+        key: font_instance_key.1,
+        namespace: translate_id_namespace_wr(font_instance_key.0),
+    }
 }
 
 #[inline(always)]
 pub(crate) const fn translate_image_key_wr(image_key: WrImageKey) -> ImageKey {
-    ImageKey { key: image_key.1, namespace: translate_id_namespace_wr(image_key.0) }
+    ImageKey {
+        key: image_key.1,
+        namespace: translate_id_namespace_wr(image_key.0),
+    }
 }
 
 #[inline(always)]
@@ -595,13 +614,21 @@ pub(crate) const fn wr_translate_font_key(font_key: FontKey) -> WrFontKey {
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_font_instance_key(font_instance_key: FontInstanceKey) -> WrFontInstanceKey {
-    WrFontInstanceKey(wr_translate_id_namespace(font_instance_key.namespace), font_instance_key.key)
+pub(crate) const fn wr_translate_font_instance_key(
+    font_instance_key: FontInstanceKey,
+) -> WrFontInstanceKey {
+    WrFontInstanceKey(
+        wr_translate_id_namespace(font_instance_key.namespace),
+        font_instance_key.key,
+    )
 }
 
 #[inline(always)]
 pub(crate) const fn wr_translate_image_key(image_key: ImageKey) -> WrImageKey {
-    WrImageKey(wr_translate_id_namespace(image_key.namespace), image_key.key)
+    WrImageKey(
+        wr_translate_id_namespace(image_key.namespace),
+        image_key.key,
+    )
 }
 
 #[inline(always)]
@@ -611,7 +638,10 @@ pub(crate) const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipel
 
 #[inline(always)]
 pub(crate) const fn wr_translate_document_id(document_id: DocumentId) -> WrDocumentId {
-    WrDocumentId { namespace_id: wr_translate_id_namespace(document_id.namespace_id), id: document_id.id }
+    WrDocumentId {
+        namespace_id: wr_translate_id_namespace(document_id.namespace_id),
+        id: document_id.id,
+    }
 }
 
 #[inline(always)]
@@ -620,7 +650,9 @@ pub(crate) fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSi
 }
 
 #[inline]
-pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> Option<WrImageDescriptor> {
+pub(crate) fn wr_translate_image_descriptor(
+    descriptor: ImageDescriptor,
+) -> Option<WrImageDescriptor> {
     use webrender::api::units::DeviceIntSize;
     Some(WrImageDescriptor {
         format: wr_translate_image_format(descriptor.format)?,
@@ -632,7 +664,9 @@ pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> Opti
 }
 
 #[inline]
-pub(crate) fn wr_translate_image_descriptor_flags(flags: ImageDescriptorFlags) -> WrImageDescriptorFlags {
+pub(crate) fn wr_translate_image_descriptor_flags(
+    flags: ImageDescriptorFlags,
+) -> WrImageDescriptorFlags {
     let mut f = WrImageDescriptorFlags::empty();
     f.set(WrImageDescriptorFlags::IS_OPAQUE, flags.is_opaque);
     f.set(WrImageDescriptorFlags::ALLOW_MIPMAPS, flags.allow_mipmaps);
@@ -640,14 +674,25 @@ pub(crate) fn wr_translate_image_descriptor_flags(flags: ImageDescriptorFlags) -
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_add_font_instance(add_font_instance: AddFontInstance) -> WrAddFontInstance {
+pub(crate) fn wr_translate_add_font_instance(
+    add_font_instance: AddFontInstance,
+) -> WrAddFontInstance {
     WrAddFontInstance {
         key: wr_translate_font_instance_key(add_font_instance.key),
         font_key: wr_translate_font_key(add_font_instance.font_key),
-        glyph_size: add_font_instance.glyph_size.0.into_px() * add_font_instance.glyph_size.1.inner.get(), // note: Au is now in pixels (f32)
-        options: add_font_instance.options.map(wr_translate_font_instance_options),
-        platform_options: add_font_instance.platform_options.map(wr_translate_font_instance_platform_options),
-        variations: add_font_instance.variations.into_iter().map(wr_translate_font_variation).collect(),
+        glyph_size: add_font_instance.glyph_size.0.into_px()
+            * add_font_instance.glyph_size.1.inner.get(), // note: Au is now in pixels (f32)
+        options: add_font_instance
+            .options
+            .map(wr_translate_font_instance_options),
+        platform_options: add_font_instance
+            .platform_options
+            .map(wr_translate_font_instance_platform_options),
+        variations: add_font_instance
+            .variations
+            .into_iter()
+            .map(wr_translate_font_variation)
+            .collect(),
     }
 }
 
@@ -667,7 +712,9 @@ const fn wr_translate_synthetic_italics(si: SyntheticItalics) -> WrSyntheticItal
 
 #[cfg(target_os = "windows")]
 #[inline(always)]
-const fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
+const fn wr_translate_font_instance_platform_options(
+    fio: FontInstancePlatformOptions,
+) -> WrFontInstancePlatformOptions {
     WrFontInstancePlatformOptions {
         gamma: fio.gamma,
         contrast: fio.contrast,
@@ -700,7 +747,9 @@ fn wr_translate_font_lcd_filter(lcd: FontLCDFilter) -> WrFontLCDFilter {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[inline]
-fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
+fn wr_translate_font_instance_platform_options(
+    fio: FontInstancePlatformOptions,
+) -> WrFontInstancePlatformOptions {
     WrFontInstancePlatformOptions {
         lcd_filter: wr_translate_font_lcd_filter(fio.lcd_filter),
         hinting: wr_translate_font_hinting(fio.hinting),
@@ -709,17 +758,19 @@ fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions)
 
 #[cfg(target_os = "macos")]
 #[inline(always)]
-const fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
-    WrFontInstancePlatformOptions {
-        unused: fio.unused,
-    }
+const fn wr_translate_font_instance_platform_options(
+    fio: FontInstancePlatformOptions,
+) -> WrFontInstancePlatformOptions {
+    WrFontInstancePlatformOptions { unused: fio.unused }
 }
 
 #[inline(always)]
 const fn wr_translate_font_variation(variation: FontVariation) -> WrFontVariation {
-    WrFontVariation { tag: variation.tag, value: variation.value }
+    WrFontVariation {
+        tag: variation.tag,
+        value: variation.value,
+    }
 }
-
 
 #[inline(always)]
 pub fn wr_translate_box_shadow_clip_mode(input: CssBoxShadowClipMode) -> WrBoxShadowClipMode {
@@ -779,35 +830,85 @@ pub fn wr_translate_layout_side_offsets(input: CssLayoutSideOffsets) -> WrLayout
 
 #[inline(always)]
 pub const fn wr_translate_color_u(input: CssColorU) -> WrColorU {
-    WrColorU { r: input.r, g: input.g, b: input.b, a: input.a }
+    WrColorU {
+        r: input.r,
+        g: input.g,
+        b: input.b,
+        a: input.a,
+    }
 }
 
 #[inline(always)]
 pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
-    WrColorF { r: input.r, g: input.g, b: input.b, a: input.a }
+    WrColorF {
+        r: input.r,
+        g: input.g,
+        b: input.b,
+        a: input.a,
+    }
 }
 
 #[inline]
-pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: LogicalSize) -> WrBorderRadius {
-
-    let StyleBorderRadius { top_left, top_right, bottom_left, bottom_right } = border_radius;
+pub fn wr_translate_border_radius(
+    border_radius: StyleBorderRadius,
+    rect_size: LogicalSize,
+) -> WrBorderRadius {
+    let StyleBorderRadius {
+        top_left,
+        top_right,
+        bottom_left,
+        bottom_right,
+    } = border_radius;
 
     let w = rect_size.width;
     let h = rect_size.height;
 
-    // The "w / h" is necessary to convert percentage-based values into pixels, for example "border-radius: 50%;"
+    // The "w / h" is necessary to convert percentage-based values into pixels, for example
+    // "border-radius: 50%;"
 
-    let top_left_px_h = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
-    let top_left_px_v = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
+    let top_left_px_h = top_left
+        .and_then(|tl| tl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let top_left_px_v = top_left
+        .and_then(|tl| tl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
 
-    let top_right_px_h = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
-    let top_right_px_v = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
+    let top_right_px_h = top_right
+        .and_then(|tr| tr.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let top_right_px_v = top_right
+        .and_then(|tr| tr.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
 
-    let bottom_left_px_h = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
-    let bottom_left_px_v = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
+    let bottom_left_px_h = bottom_left
+        .and_then(|bl| bl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let bottom_left_px_v = bottom_left
+        .and_then(|bl| bl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
 
-    let bottom_right_px_h = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
-    let bottom_right_px_v = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
+    let bottom_right_px_h = bottom_right
+        .and_then(|br| br.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let bottom_right_px_v = bottom_right
+        .and_then(|br| br.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
 
     WrBorderRadius {
         top_left: WrLayoutSize::new(top_left_px_h as f32, top_left_px_v as f32),
@@ -828,10 +929,16 @@ pub fn wr_translate_border_side(input: CssBorderSide) -> WrBorderSide {
 // NOTE: Reverse direction: Translate from webrender::LayoutRect to css::LayoutRect
 #[inline(always)]
 pub fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect {
-    let size =  input.size();
+    let size = input.size();
     CssLayoutRect {
-        origin: CssLayoutPoint { x: input.min.x.round() as isize, y: input.min.y.round() as isize },
-        size: CssLayoutSize { width: size.width.round() as isize, height: size.height.round() as isize },
+        origin: CssLayoutPoint {
+            x: input.min.x.round() as isize,
+            y: input.min.y.round() as isize,
+        },
+        size: CssLayoutSize {
+            width: size.width.round() as isize,
+            height: size.height.round() as isize,
+        },
     }
 }
 
@@ -854,7 +961,7 @@ pub(crate) fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutP
 fn wr_translate_logical_rect(input: LogicalRect) -> WrLayoutRect {
     WrLayoutRect::from_origin_and_size(
         wr_translate_logical_position(input.origin),
-        wr_translate_logical_size(input.size)
+        wr_translate_logical_size(input.size),
     )
 }
 
@@ -862,7 +969,7 @@ fn wr_translate_logical_rect(input: LogicalRect) -> WrLayoutRect {
 fn wr_translate_layout_rect(input: CssLayoutRect) -> WrLayoutRect {
     WrLayoutRect::from_origin_and_size(
         wr_translate_layout_point(input.origin),
-        wr_translate_layout_size(input.size)
+        wr_translate_layout_size(input.size),
     )
 }
 
@@ -880,7 +987,7 @@ fn translate_layout_point_wr(input: WrLayoutPoint) -> CssLayoutPoint {
 fn translate_layout_rect_wr(input: WrLayoutRect) -> CssLayoutRect {
     CssLayoutRect::new(
         translate_layout_point_wr(input.min),
-        translate_layout_size_wr(input.size())
+        translate_layout_size_wr(input.size()),
     )
 }
 
@@ -901,11 +1008,26 @@ fn wr_translate_font_render_mode(font_render_mode: FontRenderMode) -> WrFontRend
 #[inline]
 fn wr_translate_primitive_flags(flags: PrimitiveFlags) -> WrPrimitiveFlags {
     let mut f = WrPrimitiveFlags::empty();
-    f.set(WrPrimitiveFlags::IS_BACKFACE_VISIBLE, flags.is_backface_visible);
-    f.set(WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER, flags.is_scrollbar_container);
-    f.set(WrPrimitiveFlags::IS_SCROLLBAR_THUMB, flags.is_scrollbar_thumb);
-    f.set(WrPrimitiveFlags::PREFER_COMPOSITOR_SURFACE, flags.prefer_compositor_surface);
-    f.set(WrPrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE, flags.supports_external_compositor_surface);
+    f.set(
+        WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+        flags.is_backface_visible,
+    );
+    f.set(
+        WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER,
+        flags.is_scrollbar_container,
+    );
+    f.set(
+        WrPrimitiveFlags::IS_SCROLLBAR_THUMB,
+        flags.is_scrollbar_thumb,
+    );
+    f.set(
+        WrPrimitiveFlags::PREFER_COMPOSITOR_SURFACE,
+        flags.prefer_compositor_surface,
+    );
+    f.set(
+        WrPrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE,
+        flags.supports_external_compositor_surface,
+    );
     f
 }
 
@@ -916,7 +1038,8 @@ fn translate_primitive_flags_wr(flags: WrPrimitiveFlags) -> PrimitiveFlags {
         is_scrollbar_container: flags.contains(WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER),
         is_scrollbar_thumb: flags.contains(WrPrimitiveFlags::IS_SCROLLBAR_THUMB),
         prefer_compositor_surface: flags.contains(WrPrimitiveFlags::PREFER_COMPOSITOR_SURFACE),
-        supports_external_compositor_surface: flags.contains(WrPrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE),
+        supports_external_compositor_surface: flags
+            .contains(WrPrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE),
     }
 }
 
@@ -952,43 +1075,90 @@ pub(crate) fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
     debug_flags.set(WrDebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
     debug_flags.set(WrDebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
     debug_flags.set(WrDebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
-    debug_flags.set(WrDebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    debug_flags.set(
+        WrDebugFlags::GPU_SAMPLE_QUERIES,
+        new_flags.gpu_sample_queries,
+    );
     debug_flags.set(WrDebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
     debug_flags.set(WrDebugFlags::EPOCHS, new_flags.epochs);
-    debug_flags.set(WrDebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    debug_flags.set(
+        WrDebugFlags::ECHO_DRIVER_MESSAGES,
+        new_flags.echo_driver_messages,
+    );
     debug_flags.set(WrDebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
     debug_flags.set(WrDebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
-    debug_flags.set(WrDebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED, new_flags.texture_cache_dbg_clear_evicted);
-    debug_flags.set(WrDebugFlags::PICTURE_CACHING_DBG, new_flags.picture_caching_dbg);
+    debug_flags.set(
+        WrDebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED,
+        new_flags.texture_cache_dbg_clear_evicted,
+    );
+    debug_flags.set(
+        WrDebugFlags::PICTURE_CACHING_DBG,
+        new_flags.picture_caching_dbg,
+    );
     debug_flags.set(WrDebugFlags::PRIMITIVE_DBG, new_flags.primitive_dbg);
     debug_flags.set(WrDebugFlags::ZOOM_DBG, new_flags.zoom_dbg);
     debug_flags.set(WrDebugFlags::SMALL_SCREEN, new_flags.small_screen);
-    debug_flags.set(WrDebugFlags::DISABLE_OPAQUE_PASS, new_flags.disable_opaque_pass);
-    debug_flags.set(WrDebugFlags::DISABLE_ALPHA_PASS, new_flags.disable_alpha_pass);
-    debug_flags.set(WrDebugFlags::DISABLE_CLIP_MASKS, new_flags.disable_clip_masks);
-    debug_flags.set(WrDebugFlags::DISABLE_TEXT_PRIMS, new_flags.disable_text_prims);
-    debug_flags.set(WrDebugFlags::DISABLE_GRADIENT_PRIMS, new_flags.disable_gradient_prims);
+    debug_flags.set(
+        WrDebugFlags::DISABLE_OPAQUE_PASS,
+        new_flags.disable_opaque_pass,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_ALPHA_PASS,
+        new_flags.disable_alpha_pass,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_CLIP_MASKS,
+        new_flags.disable_clip_masks,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_TEXT_PRIMS,
+        new_flags.disable_text_prims,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_GRADIENT_PRIMS,
+        new_flags.disable_gradient_prims,
+    );
     debug_flags.set(WrDebugFlags::OBSCURE_IMAGES, new_flags.obscure_images);
     debug_flags.set(WrDebugFlags::GLYPH_FLASHING, new_flags.glyph_flashing);
     debug_flags.set(WrDebugFlags::SMART_PROFILER, new_flags.smart_profiler);
     debug_flags.set(WrDebugFlags::INVALIDATION_DBG, new_flags.invalidation_dbg);
-    debug_flags.set(WrDebugFlags::TILE_CACHE_LOGGING_DBG, new_flags.tile_cache_logging_dbg);
+    debug_flags.set(
+        WrDebugFlags::TILE_CACHE_LOGGING_DBG,
+        new_flags.tile_cache_logging_dbg,
+    );
     debug_flags.set(WrDebugFlags::PROFILER_CAPTURE, new_flags.profiler_capture);
-    debug_flags.set(WrDebugFlags::FORCE_PICTURE_INVALIDATION, new_flags.force_picture_invalidation);
+    debug_flags.set(
+        WrDebugFlags::FORCE_PICTURE_INVALIDATION,
+        new_flags.force_picture_invalidation,
+    );
 
     debug_flags
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_resource_update(resource_update: ResourceUpdate) -> Option<WrResourceUpdate> {
+pub(crate) fn wr_translate_resource_update(
+    resource_update: ResourceUpdate,
+) -> Option<WrResourceUpdate> {
     match resource_update {
         ResourceUpdate::AddFont(af) => Some(WrResourceUpdate::AddFont(wr_translate_add_font(af))),
-        ResourceUpdate::DeleteFont(fk) => Some(WrResourceUpdate::DeleteFont(wr_translate_font_key(fk))),
-        ResourceUpdate::AddFontInstance(fi) => Some(WrResourceUpdate::AddFontInstance(wr_translate_add_font_instance(fi))),
-        ResourceUpdate::DeleteFontInstance(fi) => Some(WrResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(fi))),
-        ResourceUpdate::AddImage(ai) => Some(WrResourceUpdate::AddImage(wr_translate_add_image(ai)?)),
-        ResourceUpdate::UpdateImage(ui) => Some(WrResourceUpdate::UpdateImage(wr_translate_update_image(ui)?)),
-        ResourceUpdate::DeleteImage(k) => Some(WrResourceUpdate::DeleteImage(wr_translate_image_key(k))),
+        ResourceUpdate::DeleteFont(fk) => {
+            Some(WrResourceUpdate::DeleteFont(wr_translate_font_key(fk)))
+        }
+        ResourceUpdate::AddFontInstance(fi) => Some(WrResourceUpdate::AddFontInstance(
+            wr_translate_add_font_instance(fi),
+        )),
+        ResourceUpdate::DeleteFontInstance(fi) => Some(WrResourceUpdate::DeleteFontInstance(
+            wr_translate_font_instance_key(fi),
+        )),
+        ResourceUpdate::AddImage(ai) => {
+            Some(WrResourceUpdate::AddImage(wr_translate_add_image(ai)?))
+        }
+        ResourceUpdate::UpdateImage(ui) => Some(WrResourceUpdate::UpdateImage(
+            wr_translate_update_image(ui)?,
+        )),
+        ResourceUpdate::DeleteImage(k) => {
+            Some(WrResourceUpdate::DeleteImage(wr_translate_image_key(k)))
+        }
     }
 }
 
@@ -997,7 +1167,7 @@ fn wr_translate_add_font(add_font: AddFont) -> WrAddFont {
     WrAddFont::Raw(
         wr_translate_font_key(add_font.key),
         u8vec_into_wr_type(add_font.font_bytes),
-        add_font.font_index
+        add_font.font_index,
     )
 }
 
@@ -1015,7 +1185,9 @@ fn wr_translate_add_image(add_image: AddImage) -> Option<WrAddImage> {
 pub(crate) fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
     match image_data {
         ImageData::Raw(data) => WrImageData::Raw(u8vec_into_wr_type(data)),
-        ImageData::External(external) => WrImageData::External(wr_translate_external_image_data(external)),
+        ImageData::External(external) => {
+            WrImageData::External(wr_translate_external_image_data(external))
+        }
     }
 }
 
@@ -1046,7 +1218,9 @@ pub(crate) const fn translate_external_image_id_wr(external: WrExternalImageId) 
 #[inline(always)]
 fn wr_translate_external_image_type(external: ExternalImageType) -> WrExternalImageType {
     match external {
-        ExternalImageType::TextureHandle(tt) => WrExternalImageType::TextureHandle(wr_translate_image_buffer_kind(tt)),
+        ExternalImageType::TextureHandle(tt) => {
+            WrExternalImageType::TextureHandle(wr_translate_image_buffer_kind(tt))
+        }
         ExternalImageType::Buffer => WrExternalImageType::Buffer,
     }
 }
@@ -1073,34 +1247,30 @@ fn wr_translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage>
 #[inline(always)]
 fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect {
     use webrender::api::{
+        DirtyRect as WrDirtyRect,
         units::{
-            DeviceIntRect as WrDeviceIntRect,
-            DeviceIntPoint as WrDeviceIntPoint,
+            DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
             DeviceIntSize as WrDeviceIntSize,
         },
-        DirtyRect as WrDirtyRect,
     };
     match dirty_rect {
         ImageDirtyRect::All => WrDirtyRect::All,
-        ImageDirtyRect::Partial(rect) => WrDirtyRect::Partial(
-            WrDeviceIntRect::from_origin_and_size(
+        ImageDirtyRect::Partial(rect) => {
+            WrDirtyRect::Partial(WrDeviceIntRect::from_origin_and_size(
                 WrDeviceIntPoint::new(rect.origin.x as i32, rect.origin.y as i32),
                 WrDeviceIntSize::new(rect.size.width as i32, rect.size.height as i32),
-            )
-        ),
+            ))
+        }
     }
 }
 
 #[inline]
 pub(crate) const fn wr_translate_layout_transform(t: &ComputedTransform3D) -> WrLayoutTransform {
     WrLayoutTransform::new(
-        t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
-        t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
-        t.m[2][0], t.m[2][1], t.m[2][2], t.m[2][3],
-        t.m[3][0], t.m[3][1], t.m[3][2], t.m[3][3],
+        t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3], t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
+        t.m[2][0], t.m[2][1], t.m[2][2], t.m[2][3], t.m[3][0], t.m[3][1], t.m[3][2], t.m[3][3],
     )
 }
-
 
 #[inline(always)]
 pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
@@ -1114,10 +1284,20 @@ pub(crate) fn wr_translate_display_list(
     pipeline_id: PipelineId,
     current_hidpi_factor: f32,
 ) -> WrBuiltDisplayList {
-    let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
+    let root_space_and_clip =
+        WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
-    push_display_list_msg(document_id, render_api, &mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items, current_hidpi_factor);
+    push_display_list_msg(
+        document_id,
+        render_api,
+        &mut builder,
+        input.root,
+        root_space_and_clip.spatial_id,
+        root_space_and_clip.clip_id,
+        &mut positioned_items,
+        current_hidpi_factor,
+    );
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
@@ -1133,10 +1313,8 @@ fn push_display_list_msg(
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
     current_hidpi_factor: f32,
 ) {
-    use azul_core::display_list::DisplayListMsg::*;
-    use azul_core::ui_solver::PositionInfo::*;
-    use webrender::api::PropertyBindingKey as WrPropertyBindingKey;
-    use webrender::api::FillRule as WrFillRule;
+    use azul_core::{display_list::DisplayListMsg::*, ui_solver::PositionInfo::*};
+    use webrender::api::{FillRule as WrFillRule, PropertyBindingKey as WrPropertyBindingKey};
 
     let msg_position = msg.get_position();
 
@@ -1148,19 +1326,25 @@ fn push_display_list_msg(
             relative_x = p.x_offset;
             relative_y = p.y_offset;
             (parent_spatial_id, parent_clip_id)
-        },
+        }
         Absolute(p) => {
-            let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items.last().copied()
-            .unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
+            let (last_positioned_spatial_id, last_positioned_clip_id) =
+                positioned_items.last().copied().unwrap_or((
+                    WrSpatialId::root_scroll_node(builder.pipeline_id),
+                    WrClipId::root(builder.pipeline_id),
+                ));
             relative_x = p.x_offset;
             relative_y = p.y_offset;
             (last_positioned_spatial_id, last_positioned_clip_id)
-        },
+        }
         Fixed(p) => {
             relative_x = p.x_offset;
             relative_y = p.y_offset;
-            (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
-        },
+            (
+                WrSpatialId::root_scroll_node(builder.pipeline_id),
+                WrClipId::root(builder.pipeline_id),
+            )
+        }
     };
 
     // All rectangles are transformed in relation to the parent node,
@@ -1170,11 +1354,15 @@ fn push_display_list_msg(
     let opacity = msg.get_opacity_key();
     let mix_blend_mode = msg.get_mix_blend_mode();
     let has_mix_blend_mode_children = msg.has_mix_blend_mode_children();
-    let should_push_stacking_context = transform.is_some() || opacity.is_some() || mix_blend_mode.is_some() || has_mix_blend_mode_children;
+    let should_push_stacking_context = transform.is_some()
+        || opacity.is_some()
+        || mix_blend_mode.is_some()
+        || has_mix_blend_mode_children;
 
     let property_binding = match transform {
         Some(s) => WrPropertyBinding::Binding(
-            WrPropertyBindingKey::new(s.0.id as u64), wr_translate_layout_transform(&s.1)
+            WrPropertyBindingKey::new(s.0.id as u64),
+            wr_translate_layout_transform(&s.1),
         ),
         None => WrPropertyBinding::Value(WrLayoutTransform::identity()),
     };
@@ -1191,16 +1379,16 @@ fn push_display_list_msg(
     );
 
     if should_push_stacking_context {
-
-        use webrender::api::FilterOp as WrFilterOp;
-        use webrender::api::RasterSpace as WrRasterSpace;
-        use webrender::api::StackingContextFlags as WrStackingContextFlags;
+        use webrender::api::{
+            FilterOp as WrFilterOp, RasterSpace as WrRasterSpace,
+            StackingContextFlags as WrStackingContextFlags,
+        };
 
         let opacity_filters = match opacity {
             None => Vec::new(),
             Some(s) => vec![WrFilterOp::Opacity(
                 WrPropertyBinding::Binding(WrPropertyBindingKey::new(s.0.id as u64), s.1),
-                s.1
+                s.1,
             )],
         };
 
@@ -1240,7 +1428,7 @@ fn push_display_list_msg(
             },
             wr_translate_image_mask(im),
             &Vec::new(),
-            WrFillRule::Nonzero
+            WrFillRule::Nonzero,
         )
     });
 
@@ -1251,7 +1439,6 @@ fn push_display_list_msg(
 
     match msg {
         IFrame(iframe_pipeline_id, iframe_clip_size, epoch, cached_display_list) => {
-
             let iframe_root_size = cached_display_list.root_size;
 
             let built_display_list = wr_translate_display_list(
@@ -1266,7 +1453,7 @@ fn push_display_list_msg(
             let mut transaction = WrTransaction::new();
             transaction.set_display_list(
                 wr_translate_epoch(epoch),
-                None, // background
+                None,                                        // background
                 wr_translate_logical_size(iframe_clip_size), // viewport size
                 (wr_pipeline_id, built_display_list),
                 true, // preserve frame scroll state
@@ -1283,9 +1470,27 @@ fn push_display_list_msg(
                 wr_translate_pipeline_id(iframe_pipeline_id),
                 false, // the iframe is already submitted into the render API
             );
-        },
-        Frame(f) => push_frame(document_id, render_api, builder, f, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
-        ScrollFrame(sf) => push_scroll_frame(document_id, render_api, builder, sf, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
+        }
+        Frame(f) => push_frame(
+            document_id,
+            render_api,
+            builder,
+            f,
+            rect_spatial_id,
+            parent_clip_id,
+            positioned_items,
+            current_hidpi_factor,
+        ),
+        ScrollFrame(sf) => push_scroll_frame(
+            document_id,
+            render_api,
+            builder,
+            sf,
+            rect_spatial_id,
+            parent_clip_id,
+            positioned_items,
+            current_hidpi_factor,
+        ),
     }
 
     if msg_position.is_positioned() {
@@ -1332,14 +1537,18 @@ fn push_frame(
 
     // push the hit-testing tag if any
     if let Some(hit_tag) = frame.tag {
-        builder.push_hit_test(&WrCommonItemProperties {
-            clip_rect: WrLayoutRect::from_size(
-                WrLayoutSize::new(frame.size.width, frame.size.height),
-            ),
-            spatial_id: rect_spatial_id,
-            clip_id: parent_clip_id,
-            flags: WrPrimitiveFlags::empty(),
-        }, (hit_tag.0, 0));
+        builder.push_hit_test(
+            &WrCommonItemProperties {
+                clip_rect: WrLayoutRect::from_size(WrLayoutSize::new(
+                    frame.size.width,
+                    frame.size.height,
+                )),
+                spatial_id: rect_spatial_id,
+                clip_id: parent_clip_id,
+                flags: WrPrimitiveFlags::empty(),
+            },
+            (hit_tag.0, 0),
+        );
     }
 
     // if let Some(image_mask) -> define_image_mask_clip()
@@ -1370,9 +1579,8 @@ fn push_scroll_frame(
 ) {
     use azul_css::ColorU;
     use webrender::api::{
-        ClipMode as WrClipMode,
+        ClipMode as WrClipMode, ComplexClipRegion as WrComplexClipRegion,
         ScrollSensitivity as WrScrollSensitivity,
-        ComplexClipRegion as WrComplexClipRegion,
     };
 
     // if let Some(image_mask) = scroll_frame.frame.image_mask { push_image_mask_clip() }
@@ -1394,46 +1602,52 @@ fn push_scroll_frame(
 
     // scroll frame has the hit-testing clip as a parent
     let scroll_frame_clip_info = builder.define_scroll_frame(
-        /* parent_space_and_clip */ &WrSpaceAndClipInfo {
+        /* parent_space_and_clip */
+        &WrSpaceAndClipInfo {
             clip_id: content_clip_id,
             spatial_id: rect_spatial_id,
         },
         /* external_id */ wr_translate_external_scroll_id(scroll_frame.scroll_id),
-        /* content_rect */ WrLayoutRect::from_size(wr_translate_logical_size(scroll_frame.content_rect.size)),
-        /* clip_rect */ WrLayoutRect::from_size(wr_translate_logical_size(scroll_frame.parent_rect.size)),
+        /* content_rect */
+        WrLayoutRect::from_size(wr_translate_logical_size(scroll_frame.content_rect.size)),
+        /* clip_rect */
+        WrLayoutRect::from_size(wr_translate_logical_size(scroll_frame.parent_rect.size)),
         /* sensitivity */ WrScrollSensitivity::Script,
-        /* external_scroll_offset */ WrLayoutVector2D::new(
+        /* external_scroll_offset */
+        WrLayoutVector2D::new(
             scroll_frame.content_rect.origin.x - scroll_frame.parent_rect.origin.x,
             scroll_frame.content_rect.origin.y - scroll_frame.parent_rect.origin.y,
         ),
     );
 
     // push the scroll hit-testing tag if any
-    builder.push_hit_test(&WrCommonItemProperties {
-        clip_rect: WrLayoutRect::from_size(
-            WrLayoutSize::new(
+    builder.push_hit_test(
+        &WrCommonItemProperties {
+            clip_rect: WrLayoutRect::from_size(WrLayoutSize::new(
                 scroll_frame.content_rect.size.width,
-                scroll_frame.content_rect.size.height
-            ),
-        ),
-        spatial_id: scroll_frame_clip_info.spatial_id,
-        clip_id: scroll_frame_clip_info.clip_id,
-        flags: WrPrimitiveFlags::empty(),
-    }, (scroll_frame.scroll_tag.0.0, 0));
-
-    // additionally push the hit tag of the frame if there is any
-    if let Some(hit_tag) = scroll_frame.frame.tag {
-        builder.push_hit_test(&WrCommonItemProperties {
-            clip_rect: WrLayoutRect::from_size(
-                WrLayoutSize::new(
-                    scroll_frame.frame.size.width,
-                    scroll_frame.frame.size.height
-                ),
-            ),
+                scroll_frame.content_rect.size.height,
+            )),
             spatial_id: scroll_frame_clip_info.spatial_id,
             clip_id: scroll_frame_clip_info.clip_id,
             flags: WrPrimitiveFlags::empty(),
-        }, (hit_tag.0, 0));
+        },
+        (scroll_frame.scroll_tag.0.0, 0),
+    );
+
+    // additionally push the hit tag of the frame if there is any
+    if let Some(hit_tag) = scroll_frame.frame.tag {
+        builder.push_hit_test(
+            &WrCommonItemProperties {
+                clip_rect: WrLayoutRect::from_size(WrLayoutSize::new(
+                    scroll_frame.frame.size.width,
+                    scroll_frame.frame.size.height,
+                )),
+                spatial_id: scroll_frame_clip_info.spatial_id,
+                clip_id: scroll_frame_clip_info.clip_id,
+                flags: WrPrimitiveFlags::empty(),
+            },
+            (hit_tag.0, 0),
+        );
     }
 
     for child in scroll_frame.frame.children {
@@ -1458,24 +1672,28 @@ fn define_border_radius_clip(
     rect_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
 ) -> WrClipId {
-
-    use webrender::api::{
-        ClipMode as WrClipMode,
-        ComplexClipRegion as WrComplexClipRegion,
-    };
+    use webrender::api::{ClipMode as WrClipMode, ComplexClipRegion as WrComplexClipRegion};
 
     // NOTE: only translate the size, position is always (0.0, 0.0)
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
     let wr_layout_rect = WrLayoutRect::from_size(wr_layout_size);
 
     let clip = if wr_border_radius.is_zero() {
-        builder.define_clip_rect( // TODO: optimize - if border radius = 0,
-            &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
+        builder.define_clip_rect(
+            // TODO: optimize - if border radius = 0,
+            &WrSpaceAndClipInfo {
+                spatial_id: rect_spatial_id,
+                clip_id: parent_clip_id,
+            },
             wr_layout_rect,
         )
     } else {
-        builder.define_clip_rounded_rect( // TODO: optimize - if border radius = 0,
-            &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
+        builder.define_clip_rounded_rect(
+            // TODO: optimize - if border radius = 0,
+            &WrSpaceAndClipInfo {
+                spatial_id: rect_spatial_id,
+                clip_id: parent_clip_id,
+            },
             WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
         )
     };
@@ -1515,7 +1733,15 @@ fn push_display_list_content(
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Outset {
             // If the content is a shadow, it needs to be clipped by the root
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, box_shadow, border_radius, normal_info.spatial_id, parent_clip_id);
+            box_shadow::push_box_shadow(
+                builder,
+                clip_rect,
+                CssBoxShadowClipMode::Outset,
+                box_shadow,
+                border_radius,
+                normal_info.spatial_id,
+                parent_clip_id,
+            );
         }
     }
 
@@ -1526,24 +1752,43 @@ fn push_display_list_content(
         // are outside of the rect contents
         // All other content types get the regular clip
         match content {
-            Text { glyphs, font_instance_key, color, glyph_options, overflow, text_shadow } => {
+            Text {
+                glyphs,
+                font_instance_key,
+                color,
+                glyph_options,
+                overflow,
+                text_shadow,
+            } => {
                 let mut text_info = normal_info.clone();
                 if overflow.0 || overflow.1 {
-                    text_info.clip_id = content_clip.get_or_insert_with(|| {
-                        define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
-                    }).clone();
+                    text_info.clip_id = content_clip
+                        .get_or_insert_with(|| {
+                            define_border_radius_clip(
+                                builder,
+                                clip_rect,
+                                wr_border_radius,
+                                normal_info.spatial_id,
+                                parent_clip_id,
+                            )
+                        })
+                        .clone();
                 }
 
                 // push text shadow: push glyphs + blur filter
                 use azul_css::StyleBoxShadow;
 
-                if let Some(StyleBoxShadow { offset, color, blur_radius, spread_radius, clip_mode }) = text_shadow.as_ref() {
-
+                if let Some(StyleBoxShadow {
+                    offset,
+                    color,
+                    blur_radius,
+                    spread_radius,
+                    clip_mode,
+                }) = text_shadow.as_ref()
+                {
                     use webrender::api::{
-                        FilterOp as WrFilterOp,
-                        RasterSpace as WrRasterSpace,
+                        FilterOp as WrFilterOp, RasterSpace as WrRasterSpace, Shadow as WrShadow,
                         StackingContextFlags as WrStackingContextFlags,
-                        Shadow as WrShadow,
                     };
 
                     builder.push_stacking_context(
@@ -1554,7 +1799,10 @@ fn push_display_list_content(
                         WrTransformStyle::Flat,
                         WrMixBlendMode::Normal,
                         &[WrFilterOp::DropShadow(WrShadow {
-                            offset: WrLayoutVector2D::new(offset[0].to_pixels(), offset[1].to_pixels()),
+                            offset: WrLayoutVector2D::new(
+                                offset[0].to_pixels(),
+                                offset[1].to_pixels(),
+                            ),
                             color: wr_translate_color_f(color.clone().into()),
                             blur_radius: blur_radius.to_pixels(),
                         })],
@@ -1565,72 +1813,158 @@ fn push_display_list_content(
                     );
                 }
 
-                text::push_text(builder, &text_info, glyphs, *font_instance_key, *color, *glyph_options);
+                text::push_text(
+                    builder,
+                    &text_info,
+                    glyphs,
+                    *font_instance_key,
+                    *color,
+                    *glyph_options,
+                );
 
                 if text_shadow.is_some() {
                     builder.pop_stacking_context();
                 }
-            },
-            Background { content, size, offset, repeat  } => {
+            }
+            Background {
+                content,
+                size,
+                offset,
+                repeat,
+            } => {
                 let mut background_info = normal_info.clone();
-                background_info.clip_id = content_clip.get_or_insert_with(|| {
-                    define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
-                }).clone();
-                background::push_background(builder, &background_info, content, *size, *offset, *repeat);
-            },
-            Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
+                background_info.clip_id = content_clip
+                    .get_or_insert_with(|| {
+                        define_border_radius_clip(
+                            builder,
+                            clip_rect,
+                            wr_border_radius,
+                            normal_info.spatial_id,
+                            parent_clip_id,
+                        )
+                    })
+                    .clone();
+                background::push_background(
+                    builder,
+                    &background_info,
+                    content,
+                    *size,
+                    *offset,
+                    *repeat,
+                );
+            }
+            Image {
+                size,
+                offset,
+                image_rendering,
+                alpha_type,
+                image_key,
+                background_color,
+            } => {
                 let mut image_info = normal_info.clone();
-                image_info.clip_id = content_clip.get_or_insert_with(|| {
-                    define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
-                }).clone();
-                image::push_image(builder, &image_info, *size, *offset, *image_key, *alpha_type, *image_rendering, *background_color);
-            },
-            Border { widths, colors, styles } => {
+                image_info.clip_id = content_clip
+                    .get_or_insert_with(|| {
+                        define_border_radius_clip(
+                            builder,
+                            clip_rect,
+                            wr_border_radius,
+                            normal_info.spatial_id,
+                            parent_clip_id,
+                        )
+                    })
+                    .clone();
+                image::push_image(
+                    builder,
+                    &image_info,
+                    *size,
+                    *offset,
+                    *image_key,
+                    *alpha_type,
+                    *image_rendering,
+                    *background_color,
+                );
+            }
+            Border {
+                widths,
+                colors,
+                styles,
+            } => {
                 // no clip necessary because item will always be in parent bounds
-                border::push_border(builder, &normal_info, border_radius, *widths, *colors, *styles, current_hidpi_factor);
-            },
+                border::push_border(
+                    builder,
+                    &normal_info,
+                    border_radius,
+                    *widths,
+                    *colors,
+                    *styles,
+                    current_hidpi_factor,
+                );
+            }
         }
     }
 
     if let Some(box_shadow) = box_shadow.as_ref() {
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Inset {
-            let inset_clip_id = content_clip.get_or_insert_with(|| {
-                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
-            }).clone();
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, box_shadow, border_radius, normal_info.spatial_id, inset_clip_id);
+            let inset_clip_id = content_clip
+                .get_or_insert_with(|| {
+                    define_border_radius_clip(
+                        builder,
+                        clip_rect,
+                        wr_border_radius,
+                        normal_info.spatial_id,
+                        parent_clip_id,
+                    )
+                })
+                .clone();
+            box_shadow::push_box_shadow(
+                builder,
+                clip_rect,
+                CssBoxShadowClipMode::Inset,
+                box_shadow,
+                border_radius,
+                normal_info.spatial_id,
+                inset_clip_id,
+            );
         }
     }
 
-    return content_clip.get_or_insert_with(|| {
-        define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
-    }).clone();
+    return content_clip
+        .get_or_insert_with(|| {
+            define_border_radius_clip(
+                builder,
+                clip_rect,
+                wr_border_radius,
+                normal_info.spatial_id,
+                parent_clip_id,
+            )
+        })
+        .clone();
 }
 
 mod text {
 
-    use webrender::api::{
-        DisplayListBuilder as WrDisplayListBuilder,
-        CommonItemProperties as WrCommonItemProperties,
-    };
     use azul_core::{
         app_resources::{FontInstanceKey, GlyphOptions},
         display_list::GlyphInstance,
         window::LogicalSize,
     };
     use azul_css::ColorU;
+    use webrender::api::{
+        CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
+    };
 
-    pub(in super) fn push_text(
-         builder: &mut WrDisplayListBuilder,
-         info: &WrCommonItemProperties,
-         glyphs: &[GlyphInstance],
-         font_instance_key: FontInstanceKey,
-         color: ColorU,
-         glyph_options: Option<GlyphOptions>,
+    pub(super) fn push_text(
+        builder: &mut WrDisplayListBuilder,
+        info: &WrCommonItemProperties,
+        glyphs: &[GlyphInstance],
+        font_instance_key: FontInstanceKey,
+        color: ColorU,
+        glyph_options: Option<GlyphOptions>,
     ) {
         use super::{
-            wr_translate_layouted_glyphs, wr_translate_font_instance_key,
-            wr_translate_color_u, wr_translate_glyph_options,
+            wr_translate_color_u, wr_translate_font_instance_key, wr_translate_glyph_options,
+            wr_translate_layouted_glyphs,
         };
 
         builder.push_text(
@@ -1646,25 +1980,23 @@ mod text {
 
 mod background {
 
-    use webrender::api::{
-        units::{
-            LayoutSize as WrLayoutSize,
-            LayoutRect as WrLayoutRect,
-            LayoutPoint as WrLayoutPoint,
-        },
-        DisplayListBuilder as WrDisplayListBuilder,
-        CommonItemProperties as WrCommonItemProperties,
-        GradientStop as WrGradientStop,
+    use azul_core::{
+        app_resources::ImageKey,
+        display_list::RectBackground,
+        window::{LogicalPosition, LogicalSize},
     };
     use azul_css::{
-        StyleBackgroundSize, StyleBackgroundPosition, StyleBackgroundRepeat,
-        RadialGradient, LinearGradient, ConicGradient, ColorU, LayoutSize, LayoutPoint,
+        ColorU, ConicGradient, LayoutPoint, LayoutSize, LinearGradient, RadialGradient,
+        StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize,
     };
-    use azul_core::{
-        display_list::RectBackground,
-        window::{LogicalSize, LogicalPosition},
-        app_resources::ImageKey,
+    use webrender::api::{
+        CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
+        GradientStop as WrGradientStop,
+        units::{
+            LayoutPoint as WrLayoutPoint, LayoutRect as WrLayoutRect, LayoutSize as WrLayoutSize,
+        },
     };
+
     use super::image;
 
     struct Ratio {
@@ -1673,7 +2005,7 @@ mod background {
     }
 
     #[inline]
-    pub(in super) fn push_background(
+    pub(super) fn push_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrCommonItemProperties,
         background: &RectBackground,
@@ -1686,11 +2018,48 @@ mod background {
         let content_size = background.get_content_size();
 
         match background {
-            LinearGradient(g)    => push_linear_gradient_background(builder, &info, g.clone(), background_position, background_size, content_size),
-            RadialGradient(rg)   => push_radial_gradient_background(builder, &info, rg.clone(), background_position, background_size, content_size),
-            ConicGradient(cg)    => push_conic_gradient_background(builder, &info, cg.clone(), background_position, background_size, content_size),
-            Image((key, _))      => push_image_background(builder, &info, *key, background_position, background_size, background_repeat, content_size),
-            Color(col)           => push_color_background(builder, &info, *col, background_position, background_size, background_repeat, content_size),
+            LinearGradient(g) => push_linear_gradient_background(
+                builder,
+                &info,
+                g.clone(),
+                background_position,
+                background_size,
+                content_size,
+            ),
+            RadialGradient(rg) => push_radial_gradient_background(
+                builder,
+                &info,
+                rg.clone(),
+                background_position,
+                background_size,
+                content_size,
+            ),
+            ConicGradient(cg) => push_conic_gradient_background(
+                builder,
+                &info,
+                cg.clone(),
+                background_position,
+                background_size,
+                content_size,
+            ),
+            Image((key, _)) => push_image_background(
+                builder,
+                &info,
+                *key,
+                background_position,
+                background_size,
+                background_repeat,
+                content_size,
+            ),
+            Color(col) => push_color_background(
+                builder,
+                &info,
+                *col,
+                background_position,
+                background_size,
+                background_repeat,
+                content_size,
+            ),
         }
     }
 
@@ -1703,36 +2072,43 @@ mod background {
         content_size: Option<(f32, f32)>,
     ) {
         use webrender::api::units::LayoutPoint as WrLayoutPoint;
-        use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
+
+        use super::{wr_translate_color_u, wr_translate_extend_mode, wr_translate_logical_size};
 
         let clip_rect_size = info.clip_rect.size();
         let width = clip_rect_size.width.round();
         let height = clip_rect_size.height.round();
         let background_position = background_position.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(width, height, background_position, background_size);
+        let offset =
+            calculate_background_position(width, height, background_position, background_size);
 
         let mut offset_info = *info;
         offset_info.clip_rect.min.x += offset.x;
         offset_info.clip_rect.min.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = conic_gradient.stops.iter().map(|gradient_pre|
-            WrGradientStop {
+        let stops: Vec<WrGradientStop> = conic_gradient
+            .stops
+            .iter()
+            .map(|gradient_pre| WrGradientStop {
                 offset: gradient_pre.angle.to_degrees() / 360.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
-            }
-        ).collect();
+            })
+            .collect();
 
-        if stops.len() < 2 { return; }
+        if stops.len() < 2 {
+            return;
+        }
 
-        let center = calculate_background_position(width, height, conic_gradient.center, background_size);
+        let center =
+            calculate_background_position(width, height, conic_gradient.center, background_size);
         let center = WrLayoutPoint::new(center.x, center.y);
 
         let gradient = builder.create_conic_gradient(
             center,
             conic_gradient.angle.to_degrees() / 360.0,
             stops,
-            wr_translate_extend_mode(conic_gradient.extend_mode)
+            wr_translate_extend_mode(conic_gradient.extend_mode),
         );
 
         builder.push_conic_gradient(
@@ -1740,7 +2116,7 @@ mod background {
             offset_info.clip_rect,
             gradient,
             wr_translate_logical_size(background_size),
-            WrLayoutSize::zero()
+            WrLayoutSize::zero(),
         );
     }
 
@@ -1753,31 +2129,38 @@ mod background {
         content_size: Option<(f32, f32)>,
     ) {
         use azul_css::Shape;
-        use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
         use webrender::api::units::LayoutPoint as WrLayoutPoint;
+
+        use super::{wr_translate_color_u, wr_translate_extend_mode, wr_translate_logical_size};
 
         let clip_rect_size = info.clip_rect.size();
         let width = clip_rect_size.width.round();
         let height = clip_rect_size.height.round();
         let background_position = background_position.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(width, height, background_position, background_size);
+        let offset =
+            calculate_background_position(width, height, background_position, background_size);
 
         let mut offset_info = *info;
         offset_info.clip_rect.min.x += offset.x;
         offset_info.clip_rect.min.y += offset.y;
 
-        let center = calculate_background_position(width, height, radial_gradient.position, background_size);
+        let center =
+            calculate_background_position(width, height, radial_gradient.position, background_size);
         let center = WrLayoutPoint::new(center.x, center.y);
 
-        let stops: Vec<WrGradientStop> = radial_gradient.stops.iter().map(|gradient_pre|
-            WrGradientStop {
+        let stops: Vec<WrGradientStop> = radial_gradient
+            .stops
+            .iter()
+            .map(|gradient_pre| WrGradientStop {
                 offset: gradient_pre.offset.normalized(),
                 color: wr_translate_color_u(gradient_pre.color).into(),
-            }
-        ).collect();
+            })
+            .collect();
 
-        if stops.len() < 2 { return; }
+        if stops.len() < 2 {
+            return;
+        }
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
@@ -1785,14 +2168,14 @@ mod background {
             Shape::Circle => {
                 let largest_bound_size = background_size.width.max(background_size.height);
                 WrLayoutSize::new(largest_bound_size, largest_bound_size)
-            },
+            }
         };
 
         let gradient = builder.create_radial_gradient(
             center,
             radius,
             stops,
-            wr_translate_extend_mode(radial_gradient.extend_mode)
+            wr_translate_extend_mode(radial_gradient.extend_mode),
         );
 
         builder.push_radial_gradient(
@@ -1800,7 +2183,7 @@ mod background {
             offset_info.clip_rect,
             gradient,
             wr_translate_logical_size(background_size),
-            WrLayoutSize::zero()
+            WrLayoutSize::zero(),
         );
     }
 
@@ -1813,30 +2196,40 @@ mod background {
         content_size: Option<(f32, f32)>,
     ) {
         use super::{
-            wr_translate_color_u, wr_translate_extend_mode,
-            wr_translate_logical_size, wr_translate_css_layout_rect,
-            wr_translate_layout_point,
+            wr_translate_color_u, wr_translate_css_layout_rect, wr_translate_extend_mode,
+            wr_translate_layout_point, wr_translate_logical_size,
         };
 
         let background_position = background_position.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
         let clip_rect_size = info.clip_rect.size();
-        let offset = calculate_background_position(clip_rect_size.width.round(), clip_rect_size.height.round(), background_position, background_size);
+        let offset = calculate_background_position(
+            clip_rect_size.width.round(),
+            clip_rect_size.height.round(),
+            background_position,
+            background_size,
+        );
 
         let mut offset_info = *info;
         offset_info.clip_rect.min.x += offset.x;
         offset_info.clip_rect.min.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = linear_gradient.stops.iter().map(|gradient_pre|
-            WrGradientStop {
+        let stops: Vec<WrGradientStop> = linear_gradient
+            .stops
+            .iter()
+            .map(|gradient_pre| WrGradientStop {
                 offset: gradient_pre.offset.get() / 100.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
-            }
-        ).collect();
+            })
+            .collect();
 
-        if stops.len() < 2 { return; }
+        if stops.len() < 2 {
+            return;
+        }
 
-        let (begin_pt, end_pt) = linear_gradient.direction.to_points(&wr_translate_css_layout_rect(offset_info.clip_rect));
+        let (begin_pt, end_pt) = linear_gradient
+            .direction
+            .to_points(&wr_translate_css_layout_rect(offset_info.clip_rect));
         let gradient = builder.create_gradient(
             wr_translate_layout_point(begin_pt),
             wr_translate_layout_point(end_pt),
@@ -1849,7 +2242,7 @@ mod background {
             offset_info.clip_rect,
             gradient,
             wr_translate_logical_size(background_size),
-            WrLayoutSize::zero()
+            WrLayoutSize::zero(),
         );
     }
 
@@ -1872,16 +2265,31 @@ mod background {
             clip_rect_size.width.round(),
             clip_rect_size.height.round(),
             background_position,
-            background_size
+            background_size,
         );
-        let background_repeat_info = get_background_repeat_info(info, background_repeat, background_size);
+        let background_repeat_info =
+            get_background_repeat_info(info, background_repeat, background_size);
 
         // TODO: customize this for image backgrounds?
         let alpha_type = AlphaType::PremultipliedAlpha;
         let image_rendering = ImageRendering::Auto;
-        let background_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
+        let background_color = ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
 
-        image::push_image(builder, &background_repeat_info, background_size, background_position, image_key, alpha_type, image_rendering, background_color);
+        image::push_image(
+            builder,
+            &background_repeat_info,
+            background_size,
+            background_position,
+            image_key,
+            alpha_type,
+            image_rendering,
+            background_color,
+        );
     }
 
     fn push_color_background(
@@ -1903,7 +2311,7 @@ mod background {
             clip_rect_size.width.round(),
             clip_rect_size.height.round(),
             background_position,
-            background_size
+            background_size,
         );
 
         let mut offset_info = *info;
@@ -1915,7 +2323,7 @@ mod background {
         builder.push_rect(
             &offset_info,
             offset_info.clip_rect,
-            wr_translate_color_u(color).into()
+            wr_translate_color_u(color).into(),
         );
     }
 
@@ -1924,7 +2332,6 @@ mod background {
         background_repeat: StyleBackgroundRepeat,
         background_size: LogicalSize,
     ) -> WrCommonItemProperties {
-
         use azul_css::StyleBackgroundRepeat::*;
 
         match background_repeat {
@@ -1933,7 +2340,7 @@ mod background {
                     WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
                     WrLayoutSize::new(background_size.width, background_size.height),
                 ),
-                .. *info
+                ..*info
             },
             Repeat => *info,
             RepeatX => WrCommonItemProperties {
@@ -1941,14 +2348,14 @@ mod background {
                     WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
                     WrLayoutSize::new(info.clip_rect.size().width, background_size.height),
                 ),
-                .. *info
+                ..*info
             },
             RepeatY => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::from_origin_and_size(
                     WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
                     WrLayoutSize::new(background_size.width, info.clip_rect.size().height),
                 ),
-                .. *info
+                ..*info
             },
         }
     }
@@ -1959,11 +2366,9 @@ mod background {
         bg_size: Option<StyleBackgroundSize>,
         content_size: Option<(f32, f32)>,
     ) -> LogicalSize {
-
         let default_content_size = info.clip_rect.size();
-        let content_size = content_size.unwrap_or(
-            (default_content_size.width, default_content_size.height)
-        );
+        let content_size =
+            content_size.unwrap_or((default_content_size.width, default_content_size.height));
 
         let bg_size = match bg_size {
             None => return LogicalSize::new(content_size.0, content_size.1),
@@ -1981,9 +2386,13 @@ mod background {
                 let w = w.to_pixels(clip_rect_size.width);
                 let h = h.to_pixels(clip_rect_size.height);
                 w.min(h)
-            },
-            StyleBackgroundSize::Contain => content_aspect_ratio.width.min(content_aspect_ratio.height),
-            StyleBackgroundSize::Cover => content_aspect_ratio.width.max(content_aspect_ratio.height),
+            }
+            StyleBackgroundSize::Contain => {
+                content_aspect_ratio.width.min(content_aspect_ratio.height)
+            }
+            StyleBackgroundSize::Cover => {
+                content_aspect_ratio.width.max(content_aspect_ratio.height)
+            }
         };
 
         LogicalSize::new(content_size.0 * ratio, content_size.1 * ratio)
@@ -1996,9 +2405,7 @@ mod background {
         background_position: StyleBackgroundPosition,
         background_size: LogicalSize,
     ) -> LogicalPosition {
-
-        use azul_css::BackgroundPositionVertical;
-        use azul_css::BackgroundPositionHorizontal;
+        use azul_css::{BackgroundPositionHorizontal, BackgroundPositionVertical};
 
         let horizontal_offset = match background_position.horizontal {
             BackgroundPositionHorizontal::Right => 0.0,
@@ -2014,25 +2421,27 @@ mod background {
             BackgroundPositionVertical::Exact(e) => e.to_pixels(height),
         };
 
-        LogicalPosition { x: horizontal_offset, y: vertical_offset }
+        LogicalPosition {
+            x: horizontal_offset,
+            y: vertical_offset,
+        }
     }
 }
 
 mod image {
 
-    use webrender::api::{
-        DisplayListBuilder as WrDisplayListBuilder,
-        CommonItemProperties as WrCommonItemProperties,
-    };
-    use azul_css::{LayoutPoint, LayoutSize, ColorU};
     use azul_core::{
         app_resources::ImageKey,
-        window::{LogicalSize, LogicalPosition},
         display_list::{AlphaType, ImageRendering},
+        window::{LogicalPosition, LogicalSize},
+    };
+    use azul_css::{ColorU, LayoutPoint, LayoutSize};
+    use webrender::api::{
+        CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
     };
 
     #[inline]
-    pub(in super) fn push_image(
+    pub(super) fn push_image(
         builder: &mut WrDisplayListBuilder,
         info: &WrCommonItemProperties,
         size: LogicalSize,
@@ -2042,11 +2451,12 @@ mod image {
         image_rendering: ImageRendering,
         background_color: ColorU,
     ) {
-        use super::{
-            wr_translate_image_rendering, wr_translate_alpha_type,
-            wr_translate_color_u, wr_translate_image_key, wr_translate_logical_size,
-        };
         use webrender::api::units::LayoutSize as WrLayoutSize;
+
+        use super::{
+            wr_translate_alpha_type, wr_translate_color_u, wr_translate_image_key,
+            wr_translate_image_rendering, wr_translate_logical_size,
+        };
 
         let mut offset_info = *info;
         offset_info.clip_rect.min.x += offset.x;
@@ -2069,17 +2479,14 @@ mod image {
 
 mod box_shadow {
 
-    use azul_css::{BoxShadowClipMode, LayoutRect, ColorF, StyleBoxShadow};
     use azul_core::{
         display_list::{BoxShadow, StyleBorderRadius},
-        window::LogicalRect,
-        window::LogicalSize,
+        window::{LogicalRect, LogicalSize},
     };
+    use azul_css::{BoxShadowClipMode, ColorF, LayoutRect, StyleBoxShadow};
     use webrender::api::{
-        ClipId as WrClipId,
-        SpatialId as WrSpatialId,
-        CommonItemProperties as WrCommonItemProperties,
-        DisplayListBuilder as WrDisplayListBuilder,
+        ClipId as WrClipId, CommonItemProperties as WrCommonItemProperties,
+        DisplayListBuilder as WrDisplayListBuilder, SpatialId as WrSpatialId,
     };
 
     enum ShouldPushShadow {
@@ -2094,7 +2501,7 @@ mod box_shadow {
     /// To prevent a shadow from being pushed twice, you have to annotate the clip
     /// mode for this - outset or inset.
     #[inline]
-    pub(in super) fn push_box_shadow(
+    pub(super) fn push_box_shadow(
         builder: &mut WrDisplayListBuilder,
         bounds: LogicalRect,
         shadow_type: BoxShadowClipMode,
@@ -2103,12 +2510,21 @@ mod box_shadow {
         parent_spatial_id: WrSpatialId,
         parent_clip_id: WrClipId,
     ) {
-        use self::ShouldPushShadow::*;
         use azul_css::CssPropertyValue;
 
-        let BoxShadow { clip_mode, top, left, bottom, right } = box_shadow;
+        use self::ShouldPushShadow::*;
 
-        fn translate_shadow_side(input: &Option<CssPropertyValue<StyleBoxShadow>>) -> Option<StyleBoxShadow> {
+        let BoxShadow {
+            clip_mode,
+            top,
+            left,
+            bottom,
+            right,
+        } = box_shadow;
+
+        fn translate_shadow_side(
+            input: &Option<CssPropertyValue<StyleBoxShadow>>,
+        ) -> Option<StyleBoxShadow> {
             input.and_then(|prop| prop.get_property().cloned())
         }
 
@@ -2119,7 +2535,11 @@ mod box_shadow {
             translate_shadow_side(right),
         );
 
-        let what_shadow_to_push = match [top, left, bottom, right].iter().filter(|x| x.is_some()).count() {
+        let what_shadow_to_push = match [top, left, bottom, right]
+            .iter()
+            .filter(|x| x.is_some())
+            .count()
+        {
             1 => OneShadow,
             2 => TwoShadows,
             4 => AllShadows,
@@ -2129,19 +2549,27 @@ mod box_shadow {
         match what_shadow_to_push {
             OneShadow => {
                 let current_shadow = match (top, left, bottom, right) {
-                     | (Some(shadow), None, None, None)
-                     | (None, Some(shadow), None, None)
-                     | (None, None, Some(shadow), None)
-                     | (None, None, None, Some(shadow))
-                     => shadow,
-                     _ => return, // reachable, but invalid box-shadow
+                    (Some(shadow), None, None, None)
+                    | (None, Some(shadow), None, None)
+                    | (None, None, Some(shadow), None)
+                    | (None, None, None, Some(shadow)) => shadow,
+                    _ => return, // reachable, but invalid box-shadow
                 };
 
                 push_single_box_shadow_edge(
-                    builder, &current_shadow, bounds, border_radius, shadow_type,
-                    &top, &bottom, &left, &right, parent_spatial_id, parent_clip_id,
+                    builder,
+                    &current_shadow,
+                    bounds,
+                    border_radius,
+                    shadow_type,
+                    &top,
+                    &bottom,
+                    &left,
+                    &right,
+                    parent_spatial_id,
+                    parent_clip_id,
                 );
-            },
+            }
             // Two shadows in opposite directions:
             //
             // box-shadow-top: 0px 0px 5px red;
@@ -2151,30 +2579,65 @@ mod box_shadow {
                     // top + bottom box-shadow pair
                     (Some(t), None, Some(b), None) => {
                         push_single_box_shadow_edge(
-                            builder, &t, bounds, border_radius, shadow_type,
-                            &top, &None, &None, &None, parent_spatial_id, parent_clip_id,
+                            builder,
+                            &t,
+                            bounds,
+                            border_radius,
+                            shadow_type,
+                            &top,
+                            &None,
+                            &None,
+                            &None,
+                            parent_spatial_id,
+                            parent_clip_id,
                         );
                         push_single_box_shadow_edge(
-                            builder, &b, bounds, border_radius, shadow_type,
-                            &None, &bottom, &None, &None, parent_spatial_id, parent_clip_id,
+                            builder,
+                            &b,
+                            bounds,
+                            border_radius,
+                            shadow_type,
+                            &None,
+                            &bottom,
+                            &None,
+                            &None,
+                            parent_spatial_id,
+                            parent_clip_id,
                         );
-                    },
+                    }
                     // left + right box-shadow pair
                     (None, Some(l), None, Some(r)) => {
                         push_single_box_shadow_edge(
-                            builder, &l, bounds, border_radius, shadow_type,
-                            &None, &None, &left, &None, parent_spatial_id, parent_clip_id,
+                            builder,
+                            &l,
+                            bounds,
+                            border_radius,
+                            shadow_type,
+                            &None,
+                            &None,
+                            &left,
+                            &None,
+                            parent_spatial_id,
+                            parent_clip_id,
                         );
                         push_single_box_shadow_edge(
-                            builder, &r, bounds, border_radius, shadow_type,
-                            &None, &None, &None, &right, parent_spatial_id, parent_clip_id,
+                            builder,
+                            &r,
+                            bounds,
+                            border_radius,
+                            shadow_type,
+                            &None,
+                            &None,
+                            &None,
+                            &right,
+                            parent_spatial_id,
+                            parent_clip_id,
                         );
                     }
                     _ => return, // reachable, but invalid
                 }
-            },
+            }
             AllShadows => {
-
                 // Assumes that all box shadows are the same, so just use the top shadow
                 let top_shadow = top.unwrap();
                 let clip_rect = get_clip_rect(&top_shadow, bounds);
@@ -2209,7 +2672,9 @@ mod box_shadow {
         parent_clip_id: WrClipId,
     ) {
         let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
-        let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
+        let origin_displace = (current_shadow.spread_radius.to_pixels()
+            + current_shadow.blur_radius.to_pixels())
+            * 2.0;
 
         let mut shadow_bounds = bounds;
         let mut clip_rect = bounds;
@@ -2284,9 +2749,10 @@ mod box_shadow {
         parent_clip_id: WrClipId,
     ) {
         use webrender::api::{PrimitiveFlags as WrPrimitiveFlags, units::LayoutVector2D};
+
         use super::{
-            wr_translate_color_f, wr_translate_border_radius,
-            wr_translate_box_shadow_clip_mode, wr_translate_logical_rect,
+            wr_translate_border_radius, wr_translate_box_shadow_clip_mode, wr_translate_color_f,
+            wr_translate_logical_rect,
         };
 
         // The pre_shadow is missing the StyleBorderRadius & LayoutRect
@@ -2304,12 +2770,15 @@ mod box_shadow {
         builder.push_box_shadow(
             &info,
             wr_translate_logical_rect(bounds),
-            LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
+            LayoutVector2D::new(
+                pre_shadow.offset[0].to_pixels(),
+                pre_shadow.offset[1].to_pixels(),
+            ),
             wr_translate_color_f(apply_gamma(pre_shadow.color.into())),
             pre_shadow.blur_radius.to_pixels(),
             pre_shadow.spread_radius.to_pixels(),
             wr_translate_border_radius(border_radius, bounds.size),
-            wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode)
+            wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode),
         );
     }
 
@@ -2318,7 +2787,6 @@ mod box_shadow {
     // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
     #[inline(always)]
     fn apply_gamma(color: ColorF) -> ColorF {
-
         const GAMMA: f32 = 2.2;
         const GAMMA_F: f32 = 1.0 / GAMMA;
 
@@ -2340,44 +2808,43 @@ mod box_shadow {
             // calculate the maximum extent of the outset shadow
             let mut clip_rect = bounds;
 
-            let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
-            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
-            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
+            let origin_displace =
+                (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
+            clip_rect.origin.x =
+                clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
+            clip_rect.origin.y =
+                clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
 
             clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
             clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
             clip_rect
         }
     }
-
 }
 
 mod border {
 
-    use webrender::api::{
-        units::LayoutSideOffsets as WrLayoutSideOffsets,
-        DisplayListBuilder as WrDisplayListBuilder,
-        BorderDetails as WrBorderDetails,
-        CommonItemProperties as WrCommonItemProperties,
-        BorderStyle as WrBorderStyle,
-        BorderSide as WrBorderSide,
-    };
-    use azul_css::{
-        LayoutSize, BorderStyle, BorderStyleNoNone, CssPropertyValue, PixelValue
-    };
     use azul_core::{
-        display_list::{StyleBorderRadius, StyleBorderWidths, StyleBorderColors, StyleBorderStyles},
+        display_list::{
+            StyleBorderColors, StyleBorderRadius, StyleBorderStyles, StyleBorderWidths,
+        },
         window::LogicalSize,
     };
+    use azul_css::{BorderStyle, BorderStyleNoNone, CssPropertyValue, LayoutSize, PixelValue};
+    use webrender::api::{
+        BorderDetails as WrBorderDetails, BorderSide as WrBorderSide, BorderStyle as WrBorderStyle,
+        CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
+        units::LayoutSideOffsets as WrLayoutSideOffsets,
+    };
 
-    pub(in super) fn is_zero_border_radius(border_radius: &StyleBorderRadius) -> bool {
-        border_radius.top_left.is_none() &&
-        border_radius.top_right.is_none() &&
-        border_radius.bottom_left.is_none() &&
-        border_radius.bottom_right.is_none()
+    pub(super) fn is_zero_border_radius(border_radius: &StyleBorderRadius) -> bool {
+        border_radius.top_left.is_none()
+            && border_radius.top_right.is_none()
+            && border_radius.bottom_left.is_none()
+            && border_radius.bottom_right.is_none()
     }
 
-    pub(in super) fn push_border(
+    pub(super) fn push_border(
         builder: &mut WrDisplayListBuilder,
         info: &WrCommonItemProperties,
         radii: StyleBorderRadius,
@@ -2389,7 +2856,14 @@ mod border {
         let clip_rect_size = info.clip_rect.size();
         let rect_size = LogicalSize::new(clip_rect_size.width, clip_rect_size.height);
 
-        if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles, current_hidpi_factor) {
+        if let Some((border_widths, border_details)) = get_webrender_border(
+            rect_size,
+            radii,
+            widths,
+            colors,
+            styles,
+            current_hidpi_factor,
+        ) {
             builder.push_border(&info, info.clip_rect, border_widths, border_details);
         }
     }
@@ -2405,18 +2879,27 @@ mod border {
         styles: StyleBorderStyles,
         hidpi: f32,
     ) -> Option<(WrLayoutSideOffsets, WrBorderDetails)> {
+        use webrender::api::{BorderRadius as WrBorderRadius, NormalBorder as WrNormalBorder};
 
-        use super::{wr_translate_color_u, wr_translate_border_radius};
-        use webrender::api::{
-            NormalBorder as WrNormalBorder,
-            BorderRadius as WrBorderRadius,
-        };
+        use super::{wr_translate_border_radius, wr_translate_color_u};
 
         let (width_top, width_right, width_bottom, width_left) = (
-            widths.top.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
-            widths.right.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
-            widths.bottom.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
-            widths.left.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
+            widths
+                .top
+                .map(|w| w.map_property(|w| w.inner))
+                .and_then(CssPropertyValue::get_property_or_default),
+            widths
+                .right
+                .map(|w| w.map_property(|w| w.inner))
+                .and_then(CssPropertyValue::get_property_or_default),
+            widths
+                .bottom
+                .map(|w| w.map_property(|w| w.inner))
+                .and_then(CssPropertyValue::get_property_or_default),
+            widths
+                .left
+                .map(|w| w.map_property(|w| w.inner))
+                .and_then(CssPropertyValue::get_property_or_default),
         );
 
         let (style_top, style_right, style_bottom, style_left) = (
@@ -2426,51 +2909,85 @@ mod border {
             get_border_style_normalized(styles.left.map(|s| s.map_property(|s| s.inner))),
         );
 
-        let no_border_style =
-            style_top.is_none() &&
-            style_right.is_none() &&
-            style_bottom.is_none() &&
-            style_left.is_none();
+        let no_border_style = style_top.is_none()
+            && style_right.is_none()
+            && style_bottom.is_none()
+            && style_left.is_none();
 
-        let no_border_width =
-            width_top.is_none() &&
-            width_right.is_none() &&
-            width_bottom.is_none() &&
-            width_left.is_none();
+        let no_border_width = width_top.is_none()
+            && width_right.is_none()
+            && width_bottom.is_none()
+            && width_left.is_none();
 
         // border has all borders set to border: none; or all border-widths set to none
         if no_border_style || no_border_width {
             return None;
         }
 
-        let has_no_border_radius = radii.top_left.is_none() &&
-                                   radii.top_right.is_none() &&
-                                   radii.bottom_left.is_none() &&
-                                   radii.bottom_right.is_none();
+        let has_no_border_radius = radii.top_left.is_none()
+            && radii.top_right.is_none()
+            && radii.bottom_left.is_none()
+            && radii.bottom_right.is_none();
 
         let (color_top, color_right, color_bottom, color_left) = (
-           colors.top.and_then(|ct| ct.get_property_or_default()).unwrap_or_default(),
-           colors.right.and_then(|cr| cr.get_property_or_default()).unwrap_or_default(),
-           colors.bottom.and_then(|cb| cb.get_property_or_default()).unwrap_or_default(),
-           colors.left.and_then(|cl| cl.get_property_or_default()).unwrap_or_default(),
+            colors
+                .top
+                .and_then(|ct| ct.get_property_or_default())
+                .unwrap_or_default(),
+            colors
+                .right
+                .and_then(|cr| cr.get_property_or_default())
+                .unwrap_or_default(),
+            colors
+                .bottom
+                .and_then(|cb| cb.get_property_or_default())
+                .unwrap_or_default(),
+            colors
+                .left
+                .and_then(|cl| cl.get_property_or_default())
+                .unwrap_or_default(),
         );
 
         // NOTE: if the HiDPI factor is not set to an even number, this will result
         // in uneven border widths. In order to reduce this bug, we multiply the border width
         // with the HiDPI factor, then round the result (to get an even number), then divide again
         let border_widths = WrLayoutSideOffsets::new(
-            width_top.map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi).unwrap_or(0.0),
-            width_right.map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi).unwrap_or(0.0),
-            width_bottom.map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi).unwrap_or(0.0),
-            width_left.map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi).unwrap_or(0.0),
+            width_top
+                .map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi)
+                .unwrap_or(0.0),
+            width_right
+                .map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi)
+                .unwrap_or(0.0),
+            width_bottom
+                .map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi)
+                .unwrap_or(0.0),
+            width_left
+                .map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi)
+                .unwrap_or(0.0),
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
-            top:    WrBorderSide { color: wr_translate_color_u(color_top.inner).into(), style: translate_wr_border(style_top, width_top) },
-            left:   WrBorderSide { color: wr_translate_color_u(color_left.inner).into(), style: translate_wr_border(style_left, width_left) },
-            right:  WrBorderSide { color: wr_translate_color_u(color_right.inner).into(), style: translate_wr_border(style_right, width_right) },
-            bottom: WrBorderSide { color: wr_translate_color_u(color_bottom.inner).into(), style: translate_wr_border(style_bottom, width_bottom) },
-            radius: if has_no_border_radius { WrBorderRadius::zero() } else { wr_translate_border_radius(radii, rect_size) },
+            top: WrBorderSide {
+                color: wr_translate_color_u(color_top.inner).into(),
+                style: translate_wr_border(style_top, width_top),
+            },
+            left: WrBorderSide {
+                color: wr_translate_color_u(color_left.inner).into(),
+                style: translate_wr_border(style_left, width_left),
+            },
+            right: WrBorderSide {
+                color: wr_translate_color_u(color_right.inner).into(),
+                style: translate_wr_border(style_right, width_right),
+            },
+            bottom: WrBorderSide {
+                color: wr_translate_color_u(color_bottom.inner).into(),
+                style: translate_wr_border(style_bottom, width_bottom),
+            },
+            radius: if has_no_border_radius {
+                WrBorderRadius::zero()
+            } else {
+                wr_translate_border_radius(radii, rect_size)
+            },
             do_aa: true, // it isn't known when it's possible to set this to false
         });
 
@@ -2478,15 +2995,22 @@ mod border {
     }
 
     #[inline]
-    fn get_border_style_normalized(style: Option<CssPropertyValue<BorderStyle>>) -> Option<BorderStyleNoNone> {
+    fn get_border_style_normalized(
+        style: Option<CssPropertyValue<BorderStyle>>,
+    ) -> Option<BorderStyleNoNone> {
         match style {
             None => None,
-            Some(s) => s.get_property_or_default().and_then(|prop| prop.normalize_border()),
+            Some(s) => s
+                .get_property_or_default()
+                .and_then(|prop| prop.normalize_border()),
         }
     }
 
     #[inline]
-    fn translate_wr_border(style: Option<BorderStyleNoNone>, border_width: Option<PixelValue>) -> WrBorderStyle {
+    fn translate_wr_border(
+        style: Option<BorderStyleNoNone>,
+        border_width: Option<PixelValue>,
+    ) -> WrBorderStyle {
         if border_width.is_none() {
             WrBorderStyle::None
         } else {

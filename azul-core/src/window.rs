@@ -1,16 +1,36 @@
-use crate::gl::OptionGlContextPtr;
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    vec::Vec,
+};
+use core::{
+    cmp::Ordering,
+    ffi::c_void,
+    hash::{Hash, Hasher},
+    ops,
+    sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering},
+};
+
+use azul_css::{
+    AzString, ColorU, CssPath, CssProperty, FloatValue, LayoutPoint, LayoutRect, LayoutSize,
+    OptionAzString, OptionF32, OptionI32, U8Vec,
+};
+use rust_fontconfig::FcFontCache;
+
 use crate::{
+    FastBTreeSet, FastHashMap,
     app_resources::{
-        Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, RendererResources,
-        ResourceUpdate, DpiScaleFactor,
+        DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef,
+        RendererResources, ResourceUpdate,
     },
-    callbacks::{Callback, HitTestItem, UpdateImageType},
     callbacks::{
-        CallbackType, DocumentId, DomNodeId, LayoutCallback, LayoutCallbackType, OptionCallback,
-        PipelineId, RefAny, ScrollPosition, Update,
+        Callback, CallbackType, DocumentId, DomNodeId, HitTestItem, LayoutCallback,
+        LayoutCallbackType, OptionCallback, PipelineId, RefAny, ScrollPosition, Update,
+        UpdateImageType,
     },
     display_list::RenderCallbacks,
     dom::NodeHierarchy,
+    gl::OptionGlContextPtr,
     id_tree::NodeId,
     styled_dom::{DomId, NodeHierarchyItemId},
     task::{ExternalSystemCallbacks, Instant, Thread, ThreadId, Timer, TimerId},
@@ -18,25 +38,7 @@ use crate::{
         ExternalScrollId, HitTest, LayoutResult, OverflowingScrollNode, QuickResizeResult,
     },
     window_state::RelayoutFn,
-    FastBTreeSet, FastHashMap,
 };
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::collections::btree_set::BTreeSet;
-use alloc::vec::Vec;
-use azul_css::{
-    AzString, ColorU, CssPath, CssProperty, LayoutPoint, LayoutRect, LayoutSize, OptionAzString,
-    OptionF32, OptionI32, U8Vec, FloatValue,
-};
-use core::sync::atomic::AtomicI64;
-use core::{
-    cmp::Ordering,
-    ffi::c_void,
-    hash::{Hash, Hasher},
-    ops,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-};
-use rust_fontconfig::FcFontCache;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 
@@ -52,7 +54,9 @@ pub struct WindowId {
 
 impl WindowId {
     pub fn new() -> Self {
-        WindowId { id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst) }
+        WindowId {
+            id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst),
+        }
     }
 }
 
@@ -174,12 +178,12 @@ impl ProcessEventResult {
     pub fn order(&self) -> usize {
         use self::ProcessEventResult::*;
         match self {
-           DoNothing => 0,
-           ShouldReRenderCurrentWindow => 1,
-           ShouldUpdateDisplayListCurrentWindow => 2,
-           UpdateHitTesterAndProcessAgain => 3,
-           ShouldRegenerateDomCurrentWindow => 4,
-           ShouldRegenerateDomAllWindows => 5,
+            DoNothing => 0,
+            ShouldReRenderCurrentWindow => 1,
+            ShouldUpdateDisplayListCurrentWindow => 2,
+            UpdateHitTesterAndProcessAgain => 3,
+            ShouldRegenerateDomCurrentWindow => 4,
+            ShouldRegenerateDomAllWindows => 5,
         }
     }
 }
@@ -349,16 +353,19 @@ pub struct KeyboardState {
     pub current_virtual_keycode: OptionVirtualKeyCode,
     /// Currently pressed virtual keycodes (READONLY) - it can happen that more t
     ///
-    /// This is essentially an "extension" of `current_scancodes` - `current_keys` stores the characters, but what if the
-    /// pressed key is not a character (such as `ArrowRight` or `PgUp`)?
+    /// This is essentially an "extension" of `current_scancodes` - `current_keys` stores the
+    /// characters, but what if the pressed key is not a character (such as `ArrowRight` or
+    /// `PgUp`)?
     ///
     /// Note that this can have an overlap, so pressing "a" on the keyboard will insert
-    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and an `"a"` as a char into `current_keys`.
+    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and an `"a"` as a char into
+    /// `current_keys`.
     pub pressed_virtual_keycodes: VirtualKeyCodeVec,
     /// Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed,
-    /// independent of the keyboard layout. The scancode does not change if the user adjusts the host's keyboard map.
-    /// Use when the physical location of the key is more important than the key's host GUI semantics,
-    /// such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)
+    /// independent of the keyboard layout. The scancode does not change if the user adjusts the
+    /// host's keyboard map. Use when the physical location of the key is more important than
+    /// the key's host GUI semantics, such as for movement controls in a first-person game
+    /// (German keyboard: Z key, UK keyboard: Y key, etc.)
     pub pressed_scancodes: ScanCodeVec,
 }
 
@@ -435,9 +442,11 @@ impl_vec_as_hashmap!(ScanCode, ScanCodeVec);
 pub struct MouseState {
     /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
     pub mouse_cursor_type: OptionMouseCursorType,
-    /// Where is the mouse cursor currently? Set to `None` if the window is not focused. (READWRITE)
+    /// Where is the mouse cursor currently? Set to `None` if the window is not focused.
+    /// (READWRITE)
     pub cursor_position: CursorPosition,
-    /// Is the mouse cursor locked to the current window (important for applications like games)? (READWRITE)
+    /// Is the mouse cursor locked to the current window (important for applications like games)?
+    /// (READWRITE)
     pub is_cursor_locked: bool,
     /// Is the left mouse button down? (READONLY)
     pub left_down: bool,
@@ -445,9 +454,11 @@ pub struct MouseState {
     pub right_down: bool,
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
-    /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame (READONLY)
+    /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame
+    /// (READONLY)
     pub scroll_x: OptionF32,
-    /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame (READONLY)
+    /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame
+    /// (READONLY)
     pub scroll_y: OptionF32,
 }
 
@@ -721,9 +732,11 @@ pub struct WindowInternal {
     pub renderer_type: Option<RendererType>,
     /// Windows state of the window of (current frame - 1): initialized to None on startup
     pub previous_window_state: Option<FullWindowState>,
-    /// Window state of this current window (current frame): initialized to the state of WindowCreateOptions
+    /// Window state of this current window (current frame): initialized to the state of
+    /// WindowCreateOptions
     pub current_window_state: FullWindowState,
-    /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
+    /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole
+    /// window).
     pub document_id: DocumentId,
     /// ID namespace under which every font / image for this window is registered
     pub id_namespace: IdNamespace,
@@ -744,7 +757,9 @@ pub struct WindowInternal {
 
 impl WindowInternal {
     pub fn get_dpi_scale_factor(&self) -> DpiScaleFactor {
-        DpiScaleFactor { inner: FloatValue::new(self.current_window_state.size.get_hidpi_factor()) }
+        DpiScaleFactor {
+            inner: FloatValue::new(self.current_window_state.size.get_hidpi_factor()),
+        }
     }
 }
 
@@ -769,7 +784,8 @@ pub struct CursorTypeHitTest {
     /// The node is guaranteed to have a non-default cursor: property,
     /// so that the cursor icon can be set accordingly
     pub cursor_node: Option<(DomId, NodeId)>,
-    /// Mouse cursor type to set (if cursor_node is None, this is set to `MouseCursorType::Default`)
+    /// Mouse cursor type to set (if cursor_node is None, this is set to
+    /// `MouseCursorType::Default`)
     pub cursor_icon: MouseCursorType,
 }
 
@@ -840,7 +856,8 @@ pub struct WindowInternalInit {
 }
 
 impl WindowInternal {
-    /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
+    /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to
+    /// initializes the layout
     #[cfg(feature = "std")]
     pub fn new<F>(
         mut init: WindowInternalInit,
@@ -856,9 +873,11 @@ impl WindowInternal {
     where
         F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest,
     {
-        use crate::callbacks::LayoutCallbackInfo;
-        use crate::display_list::SolvedLayout;
-        use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
+        use crate::{
+            callbacks::LayoutCallbackInfo,
+            display_list::SolvedLayout,
+            window_state::{NodesToCheck, StyleAndLayoutChanges},
+        };
 
         let mut inital_renderer_resources = RendererResources::default();
 
@@ -884,11 +903,11 @@ impl WindowInternal {
         };
 
         let mut current_window_state = FullWindowState::from_window_state(
-            /*window_state: */ &init.window_create_options.state,
-            /*dropped_file: */ None,
-            /*hovered_file: */ None,
-            /*focused_node: */ None,
-            /*last_hit_test: */ FullHitTest::empty(/*current_focus*/ None),
+            /* window_state: */ &init.window_create_options.state,
+            /* dropped_file: */ None,
+            /* hovered_file: */ None,
+            /* focused_node: */ None,
+            /* last_hit_test: */ FullHitTest::empty(/* current_focus */ None),
         );
 
         let SolvedLayout { mut layout_results } = SolvedLayout::new(
@@ -902,7 +921,9 @@ impl WindowInternal {
             &fc_cache_real,
             &callbacks,
             &mut inital_renderer_resources,
-            DpiScaleFactor { inner: FloatValue::new(init.window_create_options.state.size.get_hidpi_factor()) },
+            DpiScaleFactor {
+                inner: FloatValue::new(init.window_create_options.state.size.get_hidpi_factor()),
+            },
         );
 
         let scroll_states = ScrollStates::default();
@@ -976,11 +997,13 @@ impl WindowInternal {
     ) where
         F: FnMut(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest,
     {
-        use crate::callbacks::LayoutCallbackInfo;
-        use crate::display_list::SolvedLayout;
-        use crate::gl::gl_textures_remove_epochs_from_pipeline;
-        use crate::styled_dom::DefaultCallbacksCfg;
-        use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
+        use crate::{
+            callbacks::LayoutCallbackInfo,
+            display_list::SolvedLayout,
+            gl::gl_textures_remove_epochs_from_pipeline,
+            styled_dom::DefaultCallbacksCfg,
+            window_state::{NodesToCheck, StyleAndLayoutChanges},
+        };
 
         let id_namespace = self.id_namespace;
 
@@ -1230,8 +1253,7 @@ impl WindowInternal {
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
-        use crate::callbacks::CallbackInfo;
-        use crate::task::TerminateTimer;
+        use crate::{callbacks::CallbackInfo, task::TerminateTimer};
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -1378,10 +1400,12 @@ impl WindowInternal {
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
-        use crate::callbacks::CallbackInfo;
-        use crate::task::{
-            OptionThreadReceiveMsg, OptionThreadSendMsg, ThreadReceiveMsg, ThreadReceiver,
-            ThreadSendMsg, ThreadWriteBackMsg,
+        use crate::{
+            callbacks::CallbackInfo,
+            task::{
+                OptionThreadReceiveMsg, OptionThreadSendMsg, ThreadReceiveMsg, ThreadReceiver,
+                ThreadSendMsg, ThreadWriteBackMsg,
+            },
         };
 
         let mut ret = CallCallbacksResult {
@@ -1904,12 +1928,12 @@ pub struct WindowState {
     /// The `layout()` function for this window, stored as a callback function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
-    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the
-    ///   UI solving and styling into reusable crates
+    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the UI
+    ///   solving and styling into reusable crates
     /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
     /// - It's potentially more efficient to compile (less type-checking required)
-    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
-    ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
+    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings). In
+    ///   the C ABI "traits" are simply structs with function pointers (and void* instead of T)
     pub layout_callback: LayoutCallback,
     /// Optional callback to run when the window closes
     pub close_callback: OptionCallback,
@@ -1986,12 +2010,12 @@ pub struct FullWindowState {
     /// The `layout()` function for this window, stored as a callback function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
-    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the
-    ///   UI solving and styling into reusable crates
+    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the UI
+    ///   solving and styling into reusable crates
     /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
     /// - It's potentially more efficient to compile (less type-checking required)
-    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
-    ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
+    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings). In
+    ///   the C ABI "traits" are simply structs with function pointers (and void* instead of T)
     pub layout_callback: LayoutCallback,
     /// Callback to run before the window closes. If this callback returns `DoNothing`,
     /// the window won't close, otherwise it'll close regardless
@@ -2137,20 +2161,22 @@ impl From<FullWindowState> for WindowState {
 
 #[derive(Debug)]
 pub struct CallCallbacksResult {
-    /// Whether the UI should be rendered anyways due to a (programmatic or user input) scroll event
+    /// Whether the UI should be rendered anyways due to a (programmatic or user input) scroll
+    /// event
     pub should_scroll_render: bool,
     /// Whether the callbacks say to rebuild the UI or not
     pub callbacks_update_screen: Update,
     /// WindowState that was (potentially) modified in the callbacks
     pub modified_window_state: Option<WindowState>,
-    /// If a word changed (often times the case with text input), we don't need to relayout / rerender
-    /// the whole screen. The result is passed to the `relayout()` function, which will only change the
-    /// single node that was modified
+    /// If a word changed (often times the case with text input), we don't need to relayout /
+    /// rerender the whole screen. The result is passed to the `relayout()` function, which
+    /// will only change the single node that was modified
     pub words_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
-    /// A callback can "exchange" and image for a new one without requiring a new display list to be
-    /// rebuilt. This is important for animated images, especially video.
+    /// A callback can "exchange" and image for a new one without requiring a new display list to
+    /// be rebuilt. This is important for animated images, especially video.
     pub images_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>>,
-    /// Same as images, clip masks can be changed in callbacks, often the case with vector animations
+    /// Same as images, clip masks can be changed in callbacks, often the case with vector
+    /// animations
     pub image_masks_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>>,
     /// If the focus target changes in the callbacks, the function will automatically
     /// restyle the DOM and set the new focus target
@@ -2294,11 +2320,12 @@ impl_option!(
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum XWindowType {
-    /// A desktop feature. This can include a single window containing desktop icons with the same dimensions as the
-    /// screen, allowing the desktop environment to have full control of the desktop, without the need for proxying
-    /// root window clicks.
+    /// A desktop feature. This can include a single window containing desktop icons with the same
+    /// dimensions as the screen, allowing the desktop environment to have full control of the
+    /// desktop, without the need for proxying root window clicks.
     Desktop,
-    /// A dock or panel feature. Typically a Window Manager would keep such windows on top of all other windows.
+    /// A dock or panel feature. Typically a Window Manager would keep such windows on top of all
+    /// other windows.
     Dock,
     /// Toolbar windows. "Torn off" from the main application.
     Toolbar,
@@ -2316,8 +2343,8 @@ pub enum XWindowType {
     /// A popup menu that usually appears when the user right clicks on an object.
     /// This property is typically used on override-redirect windows.
     PopupMenu,
-    /// A tooltip window. Usually used to show additional information when hovering over an object with the cursor.
-    /// This property is typically used on override-redirect windows.
+    /// A tooltip window. Usually used to show additional information when hovering over an object
+    /// with the cursor. This property is typically used on override-redirect windows.
     Tooltip,
     /// The window is a notification.
     /// This property is typically used on override-redirect windows.
@@ -2359,8 +2386,8 @@ pub struct LinuxWindowOptions {
     pub x11_visual: OptionX11Visual,
     /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
     pub x11_screen: OptionI32,
-    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
+    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on
+    /// X11. Can only be set at window creation, can't be changed in callbacks.
     pub x11_wm_classes: StringPairVec,
     /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
@@ -2368,8 +2395,8 @@ pub struct LinuxWindowOptions {
     /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_window_types: XWindowTypeVec,
-    /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
+    /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only
+    /// relevant on X11. Can only be set at window creation, can't be changed in callbacks.
     pub x11_gtk_theme_variant: OptionAzString,
     /// Build window with resize increment hint. Only implemented on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
@@ -2377,8 +2404,8 @@ pub struct LinuxWindowOptions {
     /// Build window with base size hint. Only implemented on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_base_size: OptionLogicalSize,
-    /// Build window with a given application ID. It should match the `.desktop` file distributed with
-    /// your program. Only relevant on Wayland.
+    /// Build window with a given application ID. It should match the `.desktop` file distributed
+    /// with your program. Only relevant on Wayland.
     /// Can only be set at window creation, can't be changed in callbacks.
     ///
     /// For details about application ID conventions, see the
@@ -2520,12 +2547,14 @@ pub enum FullScreenMode {
     /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode
     /// - other: Does the same as `FastFullScreen`.
     SlowFullScreen,
-    /// Window should immediately go into fullscreen mode (on macOS this is not the default behaviour).
+    /// Window should immediately go into fullscreen mode (on macOS this is not the default
+    /// behaviour).
     FastFullScreen,
     /// - macOS: If the window is in fullscreen mode, transitions slowly back to windowed state.
     /// - other: Does the same as `FastWindowed`.
     SlowWindowed,
-    /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS this is not the default behaviour).
+    /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS
+    /// this is not the default behaviour).
     FastWindowed,
 }
 
@@ -2649,8 +2678,8 @@ pub struct WindowCreateOptions {
     pub theme: OptionWindowTheme,
     /// Optional callback to run when the window has been created (runs only once on startup)
     pub create_callback: OptionCallback,
-    /// If set to true, will hot-reload the UI every 200ms, useful in combination with `StyledDom::from_file()`
-    /// to hot-reload the UI from a file while developing.
+    /// If set to true, will hot-reload the UI every 200ms, useful in combination with
+    /// `StyledDom::from_file()` to hot-reload the UI from a file while developing.
     pub hot_reload: bool,
 }
 
@@ -2846,8 +2875,7 @@ impl_vec_ord!(LogicalRect, LogicalRectVec);
 impl_vec_hash!(LogicalRect, LogicalRectVec);
 impl_vec_eq!(LogicalRect, LogicalRectVec);
 
-use core::ops::AddAssign;
-use core::ops::SubAssign;
+use core::ops::{AddAssign, SubAssign};
 
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

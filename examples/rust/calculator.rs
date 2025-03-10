@@ -1,9 +1,17 @@
 #![windows_subsystem = "windows"]
 
-use crate::logic::OperandStack;
 use azul::prelude::FontRef;
 
-macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/assets/fonts/KoHo-Light.ttf")};}
+use crate::logic::OperandStack;
+
+macro_rules! FONT_PATH {
+    () => {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/assets/fonts/KoHo-Light.ttf"
+        )
+    };
+}
 static FONT: &[u8] = include_bytes!(FONT_PATH!());
 
 pub struct Calculator {
@@ -53,7 +61,8 @@ pub enum Event {
 pub mod ui {
 
     use azul::prelude::*;
-    use crate::{Event, Calculator};
+
+    use crate::{Calculator, Event};
 
     struct ButtonLocalDataset {
         backref: RefAny, // Ref<Calculator>,
@@ -61,7 +70,6 @@ pub mod ui {
     }
 
     pub extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
-
         let (result, expression, font) = match data.downcast_ref::<Calculator>() {
             Some(s) => {
                 let r = match s.division_by_zero {
@@ -69,443 +77,809 @@ pub mod ui {
                     false => s.current_operand_stack.get_display(),
                 };
                 (r, "", s.font.clone())
-            },
+            }
             None => return StyledDom::default(),
         };
 
-        use azul::css::*;
-        use azul::str::String as AzString;
-        use azul::vec::{
-            DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec,
-            StyleBackgroundSizeVec, StyleBackgroundRepeatVec,
-            StyleBackgroundContentVec, StyleTransformVec,
-            StyleFontFamilyVec, StyleBackgroundPositionVec,
-            NormalizedLinearColorStopVec, NormalizedRadialColorStopVec,
-        };
-        use azul::dom::{
-            Dom, IdOrClass, TabIndex,
-            IdOrClass::{Id, Class},
-            NodeDataInlineCssProperty,
+        use azul::{
+            css::*,
+            dom::{
+                Dom, IdOrClass,
+                IdOrClass::{Class, Id},
+                NodeDataInlineCssProperty, TabIndex,
+            },
+            str::String as AzString,
+            vec::{
+                DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec, NormalizedLinearColorStopVec,
+                NormalizedRadialColorStopVec, StyleBackgroundContentVec,
+                StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec,
+                StyleFontFamilyVec, StyleTransformVec,
+            },
         };
 
         const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
-        const STYLE_BACKGROUND_CONTENT_4154864923475193136_ITEMS: &[StyleBackgroundContent] = &[
-            StyleBackgroundContent::Color(ColorU { r: 214, g: 214, b: 214, a: 255 })
-        ];
-        const STYLE_BACKGROUND_CONTENT_7327435497123668670_ITEMS: &[StyleBackgroundContent] = &[
-            StyleBackgroundContent::Color(ColorU { r: 68, g: 68, b: 68, a: 255 })
-        ];
-        const STYLE_BACKGROUND_CONTENT_9344791489195694459_ITEMS: &[StyleBackgroundContent] = &[
-            StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorners { from: DirectionCorner::Top, to: DirectionCorner::Bottom }),
+        const STYLE_BACKGROUND_CONTENT_4154864923475193136_ITEMS: &[StyleBackgroundContent] =
+            &[StyleBackgroundContent::Color(ColorU {
+                r: 214,
+                g: 214,
+                b: 214,
+                a: 255,
+            })];
+        const STYLE_BACKGROUND_CONTENT_7327435497123668670_ITEMS: &[StyleBackgroundContent] =
+            &[StyleBackgroundContent::Color(ColorU {
+                r: 68,
+                g: 68,
+                b: 68,
+                a: 255,
+            })];
+        const STYLE_BACKGROUND_CONTENT_9344791489195694459_ITEMS: &[StyleBackgroundContent] =
+            &[StyleBackgroundContent::LinearGradient(LinearGradient {
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Top,
+                    to: DirectionCorner::Bottom,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_8988125810324520145_ITEMS),
-            })
-        ];
-        const STYLE_BACKGROUND_CONTENT_13274507731280044099_ITEMS: &[StyleBackgroundContent] = &[
-            StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorners { from: DirectionCorner::Bottom, to: DirectionCorner::Top }),
+                stops: NormalizedLinearColorStopVec::from_const_slice(
+                    LINEAR_COLOR_STOP_8988125810324520145_ITEMS,
+                ),
+            })];
+        const STYLE_BACKGROUND_CONTENT_13274507731280044099_ITEMS: &[StyleBackgroundContent] =
+            &[StyleBackgroundContent::LinearGradient(LinearGradient {
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Bottom,
+                    to: DirectionCorner::Top,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_14496794322506994097_ITEMS),
-            })
-        ];
+                stops: NormalizedLinearColorStopVec::from_const_slice(
+                    LINEAR_COLOR_STOP_14496794322506994097_ITEMS,
+                ),
+            })];
         const LINEAR_COLOR_STOP_8988125810324520145_ITEMS: &[NormalizedLinearColorStop] = &[
-            NormalizedLinearColorStop { offset: PercentageValue::const_new(0), color: ColorU { r: 246, g: 145, b: 53, a: 255 } },
-        NormalizedLinearColorStop { offset: PercentageValue::const_new(100), color: ColorU { r: 243, g: 115, b: 53, a: 255 } }
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(0),
+                color: ColorU {
+                    r: 246,
+                    g: 145,
+                    b: 53,
+                    a: 255,
+                },
+            },
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(100),
+                color: ColorU {
+                    r: 243,
+                    g: 115,
+                    b: 53,
+                    a: 255,
+                },
+            },
         ];
         const LINEAR_COLOR_STOP_14496794322506994097_ITEMS: &[NormalizedLinearColorStop] = &[
-            NormalizedLinearColorStop { offset: PercentageValue::const_new(0), color: ColorU { r: 17, g: 17, b: 17, a: 255 } },
-        NormalizedLinearColorStop { offset: PercentageValue::const_new(100), color: ColorU { r: 68, g: 68, b: 68, a: 255 } }
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(0),
+                color: ColorU {
+                    r: 17,
+                    g: 17,
+                    b: 17,
+                    a: 255,
+                },
+            },
+            NormalizedLinearColorStop {
+                offset: PercentageValue::const_new(100),
+                color: ColorU {
+                    r: 68,
+                    g: 68,
+                    b: 68,
+                    a: 255,
+                },
+            },
         ];
         let STYLE_FONT_FAMILY_12348921234331816595_ITEMS = StyleFontFamilyVec::from_vec(vec![
             StyleFontFamily::Ref(font.clone()),
-            StyleFontFamily::System(STRING_16146701490593874959)
+            StyleFontFamily::System(STRING_16146701490593874959),
         ]);
 
         let CSS_MATCH_13227231438257162063 = NodeDataInlineCssPropertyVec::from_vec(vec![
             // .zero
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(2) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::None)),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::None)),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(StyleBorderBottomColorValue::None)),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(2),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+                LayoutBorderBottomWidthValue::None,
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+                StyleBorderBottomStyleValue::None,
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+                StyleBorderBottomColorValue::None,
+            )),
             // .numpad-button
-            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(StyleTextAlign::Center))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(StyleFontSize { inner: PixelValue::const_px(27) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone()))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(LayoutBoxSizing::BorderBox))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth { inner: PixelValue::const_px(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(StyleBorderRightColor { inner: ColorU { r: 141, g: 141, b: 141, a: 255 } }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(LayoutAlignItems::Center)))
+            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+                StyleTextAlign::Center,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
+                StyleFontSize {
+                    inner: PixelValue::const_px(27),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(
+                StyleFontFamilyVecValue::Exact(
+                    STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone(),
+                ),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(
+                LayoutBoxSizing::BorderBox,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+                LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+                StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+                StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+                    inner: ColorU {
+                        r: 141,
+                        g: 141,
+                        b: 141,
+                        a: 255,
+                    },
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(
+                LayoutAlignItemsValue::Exact(LayoutAlignItems::Center),
+            )),
         ]);
 
         let CSS_MATCH_15463971630940472146 = NodeDataInlineCssPropertyVec::from_vec(vec![
             // .result
-            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(StyleTextAlign::Right))),
-            NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(LayoutPaddingRight { inner: PixelValue::const_pt(16) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(LayoutMaxHeight { inner: PixelValue::const_pt(81) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::JustifyContent(LayoutJustifyContentValue::Exact(LayoutJustifyContent::End))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(StyleFontSize { inner: PixelValue::const_px(60) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone()))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row))),
-            NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_13274507731280044099_ITEMS))))
+            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+                StyleTextAlign::Right,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(
+                LayoutPaddingRightValue::Exact(LayoutPaddingRight {
+                    inner: PixelValue::const_pt(16),
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
+                LayoutMaxHeight {
+                    inner: PixelValue::const_pt(81),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::JustifyContent(
+                LayoutJustifyContentValue::Exact(LayoutJustifyContent::End),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
+                StyleFontSize {
+                    inner: PixelValue::const_px(60),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(
+                StyleFontFamilyVecValue::Exact(
+                    STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone(),
+                ),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(
+                StyleTextColor {
+                    inner: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                        a: 255,
+                    },
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+                    STYLE_BACKGROUND_CONTENT_13274507731280044099_ITEMS,
+                )),
+            )),
         ]);
 
         const CSS_MATCH_15575492078751046510_PROPERTIES: &[NodeDataInlineCssProperty] = &[
             // .row
-            NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight { inner: PixelValue::const_px(78) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::const_px(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(StyleBorderBottomColor { inner: ColorU { r: 141, g: 141, b: 141, a: 255 } })))
+            NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+                LayoutHeight {
+                    inner: PixelValue::const_px(78),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+                LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+                StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+                StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+                    inner: ColorU {
+                        r: 141,
+                        g: 141,
+                        b: 141,
+                        a: 255,
+                    },
+                }),
+            )),
         ];
-        const CSS_MATCH_15575492078751046510: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_15575492078751046510_PROPERTIES);
+        const CSS_MATCH_15575492078751046510: NodeDataInlineCssPropertyVec =
+            NodeDataInlineCssPropertyVec::from_const_slice(
+                CSS_MATCH_15575492078751046510_PROPERTIES,
+            );
 
         let CSS_MATCH_17546825476105236973 = NodeDataInlineCssPropertyVec::from_vec(vec![
             // .orange:focus
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::const_px(3) }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::const_px(3) }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth { inner: PixelValue::const_px(3) }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth { inner: PixelValue::const_px(3) }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderTopStyle(StyleBorderTopStyleValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(StyleBorderBottomColor { inner: ColorU { r: 0, g: 0, b: 255, a: 255 } }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderLeftColor(StyleBorderLeftColorValue::Exact(StyleBorderLeftColor { inner: ColorU { r: 0, g: 0, b: 255, a: 255 } }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(StyleBorderRightColor { inner: ColorU { r: 0, g: 0, b: 255, a: 255 } }))),
-            NodeDataInlineCssProperty::Focus(CssProperty::BorderTopColor(StyleBorderTopColorValue::Exact(StyleBorderTopColor { inner: ColorU { r: 0, g: 0, b: 255, a: 255 } }))),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderBottomWidth(
+                LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderLeftWidth(
+                LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderRightWidth(
+                LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderTopWidth(
+                LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+                    inner: PixelValue::const_px(3),
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderBottomStyle(
+                StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderLeftStyle(
+                StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderRightStyle(
+                StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderTopStyle(
+                StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderBottomColor(
+                StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+                    inner: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255,
+                    },
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderLeftColor(
+                StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+                    inner: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255,
+                    },
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderRightColor(
+                StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+                    inner: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255,
+                    },
+                }),
+            )),
+            NodeDataInlineCssProperty::Focus(CssProperty::BorderTopColor(
+                StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+                    inner: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255,
+                    },
+                }),
+            )),
             // .orange
-            NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth { inner: PixelValue::const_px(98) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(StyleTextAlign::Center))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(StyleFontSize { inner: PixelValue::const_px(27) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone()))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column))),
-            NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::const_px(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(StyleBorderBottomColor { inner: ColorU { r: 141, g: 141, b: 141, a: 255 } }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_9344791489195694459_ITEMS)))),
-            NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(LayoutAlignItems::Center)))
+            NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+                LayoutWidth {
+                    inner: PixelValue::const_px(98),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+                StyleTextAlign::Center,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
+                StyleFontSize {
+                    inner: PixelValue::const_px(27),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(
+                StyleFontFamilyVecValue::Exact(
+                    STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone(),
+                ),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(
+                StyleTextColor {
+                    inner: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                        a: 255,
+                    },
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+                LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+                StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+                StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+                    inner: ColorU {
+                        r: 141,
+                        g: 141,
+                        b: 141,
+                        a: 255,
+                    },
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+                    STYLE_BACKGROUND_CONTENT_9344791489195694459_ITEMS,
+                )),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(
+                LayoutAlignItemsValue::Exact(LayoutAlignItems::Center),
+            )),
         ]);
 
         let CSS_MATCH_2138985759714704825 = NodeDataInlineCssPropertyVec::from_vec(vec![
             // .expression
-            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(StyleTextAlign::Right))),
-            NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(LayoutPaddingRight { inner: PixelValue::const_pt(40) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(LayoutMaxHeight { inner: PixelValue::const_pt(50) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::JustifyContent(LayoutJustifyContentValue::Exact(LayoutJustifyContent::End))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(StyleFontSize { inner: PixelValue::const_px(27) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone()))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row))),
-            NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(StyleTextColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_7327435497123668670_ITEMS))))
+            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+                StyleTextAlign::Right,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(
+                LayoutPaddingRightValue::Exact(LayoutPaddingRight {
+                    inner: PixelValue::const_pt(40),
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
+                LayoutMaxHeight {
+                    inner: PixelValue::const_pt(50),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::JustifyContent(
+                LayoutJustifyContentValue::Exact(LayoutJustifyContent::End),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
+                StyleFontSize {
+                    inner: PixelValue::const_px(27),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(
+                StyleFontFamilyVecValue::Exact(
+                    STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone(),
+                ),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(
+                StyleTextColor {
+                    inner: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                        a: 255,
+                    },
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+                    STYLE_BACKGROUND_CONTENT_7327435497123668670_ITEMS,
+                )),
+            )),
         ]);
 
         const CSS_MATCH_3485639429117624417_PROPERTIES: &[NodeDataInlineCssProperty] = &[
             // .numpad-container
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_4154864923475193136_ITEMS))))
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+                    STYLE_BACKGROUND_CONTENT_4154864923475193136_ITEMS,
+                )),
+            )),
         ];
-        const CSS_MATCH_3485639429117624417: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_3485639429117624417_PROPERTIES);
+        const CSS_MATCH_3485639429117624417: NodeDataInlineCssPropertyVec =
+            NodeDataInlineCssPropertyVec::from_const_slice(
+                CSS_MATCH_3485639429117624417_PROPERTIES,
+            );
 
         let CSS_MATCH_8712209192727909676 = NodeDataInlineCssPropertyVec::from_vec(vec![
             // .numpad-button
-            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(StyleTextAlign::Center))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(StyleFontSize { inner: PixelValue::const_px(27) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone()))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(LayoutBoxSizing::BorderBox))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth { inner: PixelValue::const_px(1) }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(StyleBorderRightColor { inner: ColorU { r: 141, g: 141, b: 141, a: 255 } }))),
-            NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(LayoutAlignItems::Center)))
+            NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+                StyleTextAlign::Center,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
+                StyleFontSize {
+                    inner: PixelValue::const_px(27),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(
+                StyleFontFamilyVecValue::Exact(
+                    STYLE_FONT_FAMILY_12348921234331816595_ITEMS.clone(),
+                ),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::const_new(1),
+                },
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(
+                LayoutBoxSizing::BorderBox,
+            ))),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+                LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+                    inner: PixelValue::const_px(1),
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+                StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+                StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+                    inner: ColorU {
+                        r: 141,
+                        g: 141,
+                        b: 141,
+                        a: 255,
+                    },
+                }),
+            )),
+            NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(
+                LayoutAlignItemsValue::Exact(LayoutAlignItems::Center),
+            )),
         ]);
 
         Dom::body()
-        .with_callback(EventFilter::Window(WindowEventFilter::TextInput), data.clone(), handle_text_input)
-        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), data.clone(), handle_virtual_key_input)
-        .with_children(DomVec::from_vec(vec![
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2138985759714704825)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_5369347371275349724: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("expression")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5369347371275349724)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::text(AzString::from_const_str("expression"))
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_15463971630940472146)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_13535062482561510656: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("result")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_13535062482561510656)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::text(result)
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_3485639429117624417)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_11193070369341949283: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("numpad-container")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11193070369341949283)
-            })
+            .with_callback(
+                EventFilter::Window(WindowEventFilter::TextInput),
+                data.clone(),
+                handle_text_input,
+            )
+            .with_callback(
+                EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+                data.clone(),
+                handle_virtual_key_input,
+            )
             .with_children(DomVec::from_vec(vec![
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_15575492078751046510)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("C"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                    .with_inline_css_props(CSS_MATCH_2138985759714704825)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("+/-"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("%"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("/"))
-                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("orange")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8758059606014746022)
+                        const IDS_AND_CLASSES_5369347371275349724: &[IdOrClass] =
+                            &[Class(AzString::from_const_str("expression"))];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5369347371275349724)
                     })
-                        .with_tab_index(TabIndex::Auto)
-                ])),
+                    .with_children(DomVec::from_vec(vec![Dom::text(AzString::from_const_str(
+                        "expression",
+                    ))])),
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_15575492078751046510)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("7"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                    .with_inline_css_props(CSS_MATCH_15463971630940472146)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("8"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("9"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("x"))
-                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("orange")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8758059606014746022)
+                        const IDS_AND_CLASSES_13535062482561510656: &[IdOrClass] =
+                            &[Class(AzString::from_const_str("result"))];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_13535062482561510656)
                     })
-                        .with_tab_index(TabIndex::Auto)
-                ])),
+                    .with_children(DomVec::from_vec(vec![Dom::text(result)])),
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_15575492078751046510)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("4"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                    .with_inline_css_props(CSS_MATCH_3485639429117624417)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("5"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("6"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("-"))
-                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("orange")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8758059606014746022)
+                        const IDS_AND_CLASSES_11193070369341949283: &[IdOrClass] =
+                            &[Class(AzString::from_const_str("numpad-container"))];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11193070369341949283)
                     })
-                        .with_tab_index(TabIndex::Auto)
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_15575492078751046510)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("1"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("2"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("3"))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("+"))
-                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("orange")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8758059606014746022)
-                    })
-                        .with_tab_index(TabIndex::Auto)
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_15575492078751046510)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("0"))
-                    .with_inline_css_props(CSS_MATCH_13227231438257162063)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8661706322006749636: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-                        Class(AzString::from_const_str("zero")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8661706322006749636)
-                    }),
-                    Dom::text(AzString::from_const_str("."))
-                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("numpad-button")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1759473807768823455)
-                    }),
-                    Dom::text(AzString::from_const_str("="))
-                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] = &[
-                                        Class(AzString::from_const_str("orange")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8758059606014746022)
-                    })
-                        .with_tab_index(TabIndex::Auto)
-                ]))
-            ])),
-        ])).style(Css::empty())
+                    .with_children(DomVec::from_vec(vec![
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_15575492078751046510)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("row"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::text(AzString::from_const_str("C"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("+/-"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("%"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("/"))
+                                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("orange"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_8758059606014746022,
+                                        )
+                                    })
+                                    .with_tab_index(TabIndex::Auto),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_15575492078751046510)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("row"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::text(AzString::from_const_str("7"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("8"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("9"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("x"))
+                                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("orange"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_8758059606014746022,
+                                        )
+                                    })
+                                    .with_tab_index(TabIndex::Auto),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_15575492078751046510)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("row"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::text(AzString::from_const_str("4"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("5"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("6"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("-"))
+                                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("orange"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_8758059606014746022,
+                                        )
+                                    })
+                                    .with_tab_index(TabIndex::Auto),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_15575492078751046510)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("row"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::text(AzString::from_const_str("1"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("2"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("3"))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("+"))
+                                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("orange"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_8758059606014746022,
+                                        )
+                                    })
+                                    .with_tab_index(TabIndex::Auto),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_15575492078751046510)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_6148463700465089087: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("row"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6148463700465089087)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::text(AzString::from_const_str("0"))
+                                    .with_inline_css_props(CSS_MATCH_13227231438257162063)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_8661706322006749636: &[IdOrClass] = &[
+                                            Class(AzString::from_const_str("numpad-button")),
+                                            Class(AzString::from_const_str("zero")),
+                                        ];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_8661706322006749636,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("."))
+                                    .with_inline_css_props(CSS_MATCH_8712209192727909676.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1759473807768823455: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("numpad-button"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1759473807768823455,
+                                        )
+                                    }),
+                                Dom::text(AzString::from_const_str("="))
+                                    .with_inline_css_props(CSS_MATCH_17546825476105236973.clone())
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_8758059606014746022: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str("orange"))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_8758059606014746022,
+                                        )
+                                    })
+                                    .with_tab_index(TabIndex::Auto),
+                            ])),
+                    ])),
+            ]))
+            .style(Css::empty())
     }
 
-    extern "C" fn handle_mouseclick_numpad_btn(data: &mut RefAny, info:  &mut CallbackInfo) -> Update {
-
+    extern "C" fn handle_mouseclick_numpad_btn(
+        data: &mut RefAny,
+        info: &mut CallbackInfo,
+    ) -> Update {
         let mut data = match data.downcast_mut::<ButtonLocalDataset>() {
             Some(s) => s,
             None => return Update::DoNothing,
@@ -521,9 +895,10 @@ pub mod ui {
         return calculator.process_event(event);
     }
 
-    extern "C" fn handle_text_input(data: &mut RefAny, info:  &mut CallbackInfo) -> Update {
+    extern "C" fn handle_text_input(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         let current_char: Option<char> = info
-            .get_current_keyboard_state().current_char
+            .get_current_keyboard_state()
+            .current_char
             .into_option()
             .and_then(|u| char::from_u32(u));
 
@@ -555,8 +930,12 @@ pub mod ui {
         return calculator.process_event(event);
     }
 
-    extern "C" fn handle_virtual_key_input(data: &mut RefAny, info:  &mut CallbackInfo) -> Update {
-        let mut event = match info.get_current_keyboard_state().current_virtual_keycode.into_option() {
+    extern "C" fn handle_virtual_key_input(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+        let mut event = match info
+            .get_current_keyboard_state()
+            .current_virtual_keycode
+            .into_option()
+        {
             Some(VirtualKeyCode::Return) => Event::EqualSign,
             Some(VirtualKeyCode::Back) => Event::Clear,
             _ => return Update::DoNothing,
@@ -575,7 +954,8 @@ pub mod ui {
 pub mod logic {
 
     use azul::prelude::Update;
-    use crate::{Event, Calculator};
+
+    use crate::{Calculator, Event};
 
     #[derive(Debug, Clone, Default)]
     pub struct OperandStack {
@@ -629,14 +1009,19 @@ pub mod logic {
             }
 
             // Iterate the stack until the first Dot is found
-            let first_dot_position = self.stack.iter()
+            let first_dot_position = self
+                .stack
+                .iter()
                 .position(|x| *x == Number::Dot)
                 .and_then(|x| Some(x - 1))
                 .unwrap_or(stack_size - 1) as i32;
 
             let mut final_number = 0.0;
 
-            for (number_position, number) in self.stack.iter().filter_map(|x| match x {
+            for (number_position, number) in self
+                .stack
+                .iter()
+                .filter_map(|x| match x {
                     Number::Dot => None,
                     Number::Value(v) => Some(v),
                 })
@@ -678,12 +1063,12 @@ pub mod logic {
                 }
                 Event::InvertSign => {
                     if !self.division_by_zero {
-                        self.current_operand_stack.negative_number = !self.current_operand_stack.negative_number;
+                        self.current_operand_stack.negative_number =
+                            !self.current_operand_stack.negative_number;
                     }
                     Update::RefreshDom
                 }
                 Event::Percent => {
-
                     if self.division_by_zero {
                         return Update::DoNothing;
                     }
@@ -704,7 +1089,6 @@ pub mod logic {
                     Update::RefreshDom
                 }
                 Event::EqualSign => {
-
                     if self.division_by_zero {
                         return Update::DoNothing;
                     }
@@ -712,13 +1096,16 @@ pub mod logic {
                     if let Some(Event::EqualSign) = self.last_event {
                         self.expression = format!("{} =", self.current_operand_stack.get_display());
                     } else {
-                        self.expression.push_str(&format!("{} =", self.current_operand_stack.get_display()));
+                        self.expression
+                            .push_str(&format!("{} =", self.current_operand_stack.get_display()));
                         if let Some(operation) = &self.last_event.clone() {
                             if let Some(operand) = self.current_operator.clone() {
                                 let num = self.current_operand_stack.get_number();
                                 let op = operand.get_number();
                                 match operation.perform_operation(op, num) {
-                                    Some(r) => self.current_operand_stack = OperandStack::from_f32(r),
+                                    Some(r) => {
+                                        self.current_operand_stack = OperandStack::from_f32(r)
+                                    }
                                     None => self.division_by_zero = true,
                                 }
                             }
@@ -731,12 +1118,17 @@ pub mod logic {
                     Update::RefreshDom
                 }
                 Event::Dot => {
-
                     if self.division_by_zero {
                         return Update::DoNothing;
                     }
 
-                    if self.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
+                    if self
+                        .current_operand_stack
+                        .stack
+                        .iter()
+                        .position(|x| *x == Number::Dot)
+                        .is_none()
+                    {
                         if self.current_operand_stack.stack.len() == 0 {
                             self.current_operand_stack.stack.push(Number::Value(0));
                         }
@@ -753,7 +1145,6 @@ pub mod logic {
                     Update::RefreshDom
                 }
                 operation => {
-
                     if self.division_by_zero {
                         return Update::DoNothing;
                     }
@@ -762,7 +1153,8 @@ pub mod logic {
                         self.expression = String::new();
                     }
 
-                    self.expression.push_str(&self.current_operand_stack.get_display());
+                    self.expression
+                        .push_str(&self.current_operand_stack.get_display());
 
                     if let Some(Event::EqualSign) = self.last_event {
                         self.current_operator = Some(self.current_operand_stack.clone());
@@ -803,7 +1195,13 @@ pub mod logic {
                 Event::Multiply => Some(left_operand * right_operand),
                 Event::Subtract => Some(left_operand - right_operand),
                 Event::Plus => Some(left_operand + right_operand),
-                Event::Divide => if right_operand == 0.0 { None } else { Some(left_operand / right_operand) },
+                Event::Divide => {
+                    if right_operand == 0.0 {
+                        None
+                    } else {
+                        Some(left_operand / right_operand)
+                    }
+                }
                 _ => None, // unreachable
             }
         }
@@ -811,15 +1209,14 @@ pub mod logic {
 }
 
 fn main() {
-
     use azul::{
         app::{App, AppConfig, LayoutSolver},
+        callbacks::{LayoutCallbackInfo, RefAny},
         css::Css,
-        vec::U8Vec,
-        style::StyledDom,
-        option::OptionFontRef,
         font::{FontRef, FontSource},
-        callbacks::{RefAny, LayoutCallbackInfo},
+        option::OptionFontRef,
+        style::StyledDom,
+        vec::U8Vec,
         window::{WindowCreateOptions, WindowFrame},
     };
     let font = match FontRef::parse(FontSource {

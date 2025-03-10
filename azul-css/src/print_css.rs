@@ -1,8 +1,6 @@
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
-use crate::css::PrintAsCssValue;
-use crate::css_properties::*;
+use crate::{css::PrintAsCssValue, css_properties::*};
 
 impl PrintAsCssValue for StyleFilter {
     fn print_as_css_value(&self) -> String {

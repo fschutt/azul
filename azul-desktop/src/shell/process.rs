@@ -1,25 +1,21 @@
+use azul_core::{
+    app_resources::{AppConfig, ImageCache},
+    callbacks::{RefAny, Update},
+    styled_dom::DomId,
+    ui_solver::LayoutResult,
+    window::{
+        CallCallbacksResult, FullWindowState, ProcessEventResult, RawWindowHandle,
+        WindowCreateOptions, WindowId,
+    },
+    window_state::{CallbacksOfHitTest, Events, NodesToCheck, StyleAndLayoutChanges},
+};
+use webrender::Transaction as WrTransaction;
 
 #[cfg(target_os = "macos")]
 use crate::shell::appkit::Window;
 #[cfg(target_os = "windows")]
 use crate::shell::win32::Window;
-use crate::{
-    app::LazyFcCache, 
-    wr_translate::wr_synchronize_updated_images
-};
-use webrender::Transaction as WrTransaction;
-use azul_core::{
-    app_resources::{AppConfig, ImageCache}, 
-    callbacks::{RefAny, Update}, 
-    styled_dom::DomId, 
-    ui_solver::LayoutResult,
-    window::{
-        CallCallbacksResult, FullWindowState, ProcessEventResult, RawWindowHandle, WindowCreateOptions, WindowId 
-    },
-    window_state::{
-        CallbacksOfHitTest, Events, NodesToCheck, StyleAndLayoutChanges
-    }
-};
+use crate::{app::LazyFcCache, wr_translate::wr_synchronize_updated_images};
 
 // Assuming that current_window_state and the previous_window_state of the window
 // are set correctly and the hit-test has been performed, will call the callbacks
@@ -34,7 +30,6 @@ pub(crate) fn process_event(
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
-
     // TODO:
     // window.internal.current_window_state.monitor =
     // win32_translate_monitor(MonitorFromWindow(window.hwnd, MONITOR_DEFAULTTONEAREST));
@@ -46,20 +41,14 @@ pub(crate) fn process_event(
     );
 
     // Get nodes for events
-    let nodes_to_check = NodesToCheck::new(
-        &window.internal.current_window_state.last_hit_test,
-        &events
-    );
+    let nodes_to_check =
+        NodesToCheck::new(&window.internal.current_window_state.last_hit_test, &events);
 
     // Invoke callbacks on nodes
     let callback_result = fc_cache.apply_closure(|fc_cache| {
-
         // Get callbacks for nodes
-        let mut callbacks = CallbacksOfHitTest::new(
-            &nodes_to_check, 
-            &events, 
-            &window.internal.layout_results
-        );
+        let mut callbacks =
+            CallbacksOfHitTest::new(&nodes_to_check, &events, &window.internal.layout_results);
 
         let current_scroll_states = window.internal.get_current_scroll_states();
 
@@ -86,7 +75,7 @@ pub(crate) fn process_event(
         image_cache,
         fc_cache,
         new_windows,
-        destroyed_windows
+        destroyed_windows,
     );
 }
 
@@ -99,9 +88,8 @@ pub(crate) fn process_timer(
     image_cache: &mut ImageCache,
     config: &AppConfig,
     new_windows: &mut Vec<WindowCreateOptions>,
-    destroyed_windows: &mut Vec<WindowId>
+    destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
-
     use azul_core::window::{RawWindowHandle, WindowsHandle};
 
     let callback_result = fc_cache.apply_closure(|fc_cache| {
@@ -121,13 +109,17 @@ pub(crate) fn process_timer(
         callback_result,
         window,
         &NodesToCheck::empty(
-            window.internal.current_window_state.mouse_state.mouse_down(),
+            window
+                .internal
+                .current_window_state
+                .mouse_state
+                .mouse_down(),
             window.internal.current_window_state.focused_node,
         ),
         image_cache,
         fc_cache,
         new_windows,
-        destroyed_windows
+        destroyed_windows,
     );
 }
 
@@ -140,9 +132,8 @@ pub(crate) fn process_threads(
     image_cache: &mut ImageCache,
     config: &AppConfig,
     new_windows: &mut Vec<WindowCreateOptions>,
-    destroyed_windows: &mut Vec<WindowId>
+    destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
-
     use azul_core::window::{RawWindowHandle, WindowsHandle};
 
     let callback_result = fc_cache.apply_closure(|fc_cache| {
@@ -161,13 +152,17 @@ pub(crate) fn process_threads(
         callback_result,
         window,
         &NodesToCheck::empty(
-            window.internal.current_window_state.mouse_state.mouse_down(),
+            window
+                .internal
+                .current_window_state
+                .mouse_state
+                .mouse_down(),
             window.internal.current_window_state.focused_node,
         ),
         image_cache,
         fc_cache,
         new_windows,
-        destroyed_windows
+        destroyed_windows,
     );
 }
 
@@ -181,16 +176,16 @@ pub(crate) fn process_callback_results(
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
+    use azul_core::{
+        callbacks::Update,
+        window_state::{NodesToCheck, StyleAndLayoutChanges},
+    };
 
-    use azul_core::callbacks::Update;
-    use azul_core::window_state::{StyleAndLayoutChanges, NodesToCheck};
     use crate::wr_translate::wr_translate_document_id;
 
     let mut result = ProcessEventResult::DoNothing;
 
-    if callback_results.images_changed.is_some() ||
-    callback_results.image_masks_changed.is_some() {
-
+    if callback_results.images_changed.is_some() || callback_results.image_masks_changed.is_some() {
         let updated_images = window.internal.renderer_resources.update_image_resources(
             &window.internal.layout_results,
             callback_results.images_changed.unwrap_or_default(),
@@ -213,18 +208,21 @@ pub(crate) fn process_callback_results(
 
     window.start_stop_timers(
         callback_results.timers.unwrap_or_default(),
-        callback_results.timers_removed.unwrap_or_default()
+        callback_results.timers_removed.unwrap_or_default(),
     );
     window.start_stop_threads(
         callback_results.threads.unwrap_or_default(),
-        callback_results.threads_removed.unwrap_or_default()
+        callback_results.threads_removed.unwrap_or_default(),
     );
 
     for w in callback_results.windows_created {
         new_windows.push(w);
     }
 
-    let scroll = window.internal.current_window_state.process_system_scroll(&window.internal.scroll_states);
+    let scroll = window
+        .internal
+        .current_window_state
+        .process_system_scroll(&window.internal.scroll_states);
     let need_scroll_render = scroll.is_some();
 
     if let Some(modified) = callback_results.modified_window_state.as_ref() {
@@ -238,7 +236,9 @@ pub(crate) fn process_callback_results(
             window.internal.current_window_state.focused_node.clone(),
             window.internal.current_window_state.last_hit_test.clone(),
         );
-        if modified.size.get_layout_size() != window.internal.current_window_state.size.get_layout_size() {
+        if modified.size.get_layout_size()
+            != window.internal.current_window_state.size.get_layout_size()
+        {
             result = result.max_self(ProcessEventResult::UpdateHitTesterAndProcessAgain);
         } else if !need_scroll_render {
             result = result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow);
@@ -250,9 +250,10 @@ pub(crate) fn process_callback_results(
     #[cfg(target_os = "windows")]
     crate::shell::win32::synchronize_window_state_with_os(&window);
 
-    let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(
-        &window.internal.previous_window_state
-    );
+    let layout_callback_changed = window
+        .internal
+        .current_window_state
+        .layout_callback_changed(&window.internal.previous_window_state);
 
     if layout_callback_changed {
         return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
@@ -260,11 +261,11 @@ pub(crate) fn process_callback_results(
         match callback_results.callbacks_update_screen {
             Update::RefreshDom => {
                 return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
-            },
+            }
             Update::RefreshDomAllWindows => {
                 return ProcessEventResult::ShouldRegenerateDomAllWindows;
-            },
-            Update::DoNothing => { },
+            }
+            Update::DoNothing => {}
         }
     }
 
@@ -282,9 +283,7 @@ pub(crate) fn process_callback_results(
         azul_layout::do_the_relayout,
     );
 
-
     if let Some(rsn) = style_layout_changes.nodes_that_changed_size.as_ref() {
-
         let updated_images = fc_cache.apply_closure(|fc_cache| {
             LayoutResult::resize_images(
                 window.internal.id_namespace,
@@ -308,7 +307,9 @@ pub(crate) fn process_callback_results(
         if !updated_images.is_empty() {
             let mut txn = WrTransaction::new();
             wr_synchronize_updated_images(updated_images, &mut txn);
-            window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+            window
+                .render_api
+                .send_transaction(wr_translate_document_id(window.internal.document_id), txn);
         }
     }
 
@@ -325,7 +326,11 @@ pub(crate) fn process_callback_results(
         // Does a system scroll and re-invokes the IFrame
         // callbacks if scrolled out of view
         window.do_system_scroll(scroll);
-        window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
+        window
+            .internal
+            .current_window_state
+            .mouse_state
+            .reset_scroll_to_zero();
     }
 
     if style_layout_changes.did_resize_nodes() {

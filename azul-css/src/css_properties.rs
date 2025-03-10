@@ -1,16 +1,15 @@
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
-use crate::css::CssPropertyValue;
-use crate::{AzString, OptionI16, OptionU16, OptionU32, U8Vec};
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::cmp::Ordering;
-use core::ffi::c_void;
-use core::fmt;
-use core::hash::{Hash, Hasher};
-use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
+use core::{
+    cmp::Ordering,
+    ffi::c_void,
+    fmt,
+    hash::{Hash, Hasher},
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+};
+
+use crate::{AzString, OptionI16, OptionU16, OptionU32, U8Vec, css::CssPropertyValue};
 
 /// Currently hard-coded: Height of one em in pixels
 pub const EM_HEIGHT: f32 = 16.0;
@@ -949,7 +948,10 @@ impl CombinedCssPropertyType {
     /// ```rust
     /// # use azul_css::{CombinedCssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
-    /// assert_eq!(Some(CombinedCssPropertyType::Border), CombinedCssPropertyType::from_str("border", &map));
+    /// assert_eq!(
+    ///     Some(CombinedCssPropertyType::Border),
+    ///     CombinedCssPropertyType::from_str("border", &map)
+    /// );
     /// ```
     pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
         let input = input.trim();
@@ -1080,8 +1082,14 @@ impl CssPropertyType {
     /// ```rust
     /// # use azul_css::{CssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
-    /// assert_eq!(Some(CssPropertyType::Width), CssPropertyType::from_str("width", &map));
-    /// assert_eq!(Some(CssPropertyType::JustifyContent), CssPropertyType::from_str("justify-content", &map));
+    /// assert_eq!(
+    ///     Some(CssPropertyType::Width),
+    ///     CssPropertyType::from_str("width", &map)
+    /// );
+    /// assert_eq!(
+    ///     Some(CssPropertyType::JustifyContent),
+    ///     CssPropertyType::from_str("justify-content", &map)
+    /// );
     /// assert_eq!(None, CssPropertyType::from_str("asdfasdfasdf", &map));
     /// ```
     pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
@@ -1178,7 +1186,8 @@ impl CssPropertyType {
         }
     }
 
-    /// Returns whether this property can trigger a re-layout (important for incremental layout and caching layouted DOMs).
+    /// Returns whether this property can trigger a re-layout (important for incremental layout and
+    /// caching layouted DOMs).
     pub fn can_trigger_relayout(&self) -> bool {
         use self::CssPropertyType::*;
 
@@ -1247,7 +1256,8 @@ impl fmt::Display for CssPropertyType {
     }
 }
 
-/// Represents one parsed CSS key-value pair, such as `"width: 20px"` => `CssProperty::Width(LayoutWidth::px(20.0))`
+/// Represents one parsed CSS key-value pair, such as `"width: 20px"` =>
+/// `CssProperty::Width(LayoutWidth::px(20.0))`
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssProperty {
@@ -1905,13 +1915,19 @@ impl SvgRect {
     }
 
     /// Expands the rect with a certain amount of padding
-    pub fn expand(&self, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32) -> SvgRect {
+    pub fn expand(
+        &self,
+        padding_top: f32,
+        padding_bottom: f32,
+        padding_left: f32,
+        padding_right: f32,
+    ) -> SvgRect {
         SvgRect {
             width: self.width + padding_left + padding_right,
             height: self.height + padding_top + padding_bottom,
             x: self.x - padding_left,
             y: self.y - padding_top,
-            .. *self
+            ..*self
         }
     }
 
@@ -2631,11 +2647,7 @@ impl CssProperty {
             */
             (_, _) => {
                 // not animatable, fallback
-                if t > 0.5 {
-                    other.clone()
-                } else {
-                    self.clone()
-                }
+                if t > 0.5 { other.clone() } else { self.clone() }
             }
         }
     }
@@ -3563,7 +3575,7 @@ impl CssProperty {
 }
 
 macro_rules! impl_from_css_prop {
-    ($a:ident, $b:ident::$enum_type:ident) => {
+    ($a:ident, $b:ident:: $enum_type:ident) => {
         impl From<$a> for $b {
             fn from(e: $a) -> Self {
                 $b::$enum_type(CssPropertyValue::from(e))
@@ -3788,7 +3800,7 @@ impl AngleValue {
     #[inline]
     pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
         Self {
-            metric: metric,
+            metric,
             number: FloatValue::const_new(value),
         }
     }
@@ -3821,7 +3833,7 @@ impl AngleValue {
     #[inline]
     pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
         Self {
-            metric: metric,
+            metric,
             number: FloatValue::new(value),
         }
     }
@@ -3922,7 +3934,7 @@ impl PixelValue {
     #[inline]
     pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
         Self {
-            metric: metric,
+            metric,
             number: FloatValue::const_new(value),
         }
     }
@@ -3950,7 +3962,7 @@ impl PixelValue {
     #[inline]
     pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
-            metric: metric,
+            metric,
             number: FloatValue::new(value),
         }
     }
@@ -4138,8 +4150,8 @@ impl StyleBackgroundSize {
                 for q in a.iter_mut() {
                     q.scale_for_dpi(scale_factor);
                 }
-            },
-            _ => { },
+            }
+            _ => {}
         }
     }
 }
@@ -4220,8 +4232,10 @@ pub enum BackgroundPositionHorizontal {
 impl BackgroundPositionHorizontal {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            BackgroundPositionHorizontal::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            BackgroundPositionHorizontal::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4238,8 +4252,10 @@ pub enum BackgroundPositionVertical {
 impl BackgroundPositionVertical {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            BackgroundPositionVertical::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            BackgroundPositionVertical::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4360,8 +4376,10 @@ impl_pixel_value!(LayoutBorderBottomWidth);
 impl CssPropertyValue<StyleBorderTopLeftRadius> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4369,8 +4387,10 @@ impl CssPropertyValue<StyleBorderTopLeftRadius> {
 impl CssPropertyValue<StyleBorderTopRightRadius> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4378,8 +4398,10 @@ impl CssPropertyValue<StyleBorderTopRightRadius> {
 impl CssPropertyValue<StyleBorderBottomLeftRadius> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4387,8 +4409,10 @@ impl CssPropertyValue<StyleBorderBottomLeftRadius> {
 impl CssPropertyValue<StyleBorderBottomRightRadius> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4396,8 +4420,10 @@ impl CssPropertyValue<StyleBorderBottomRightRadius> {
 impl CssPropertyValue<LayoutBorderTopWidth> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4405,8 +4431,10 @@ impl CssPropertyValue<LayoutBorderTopWidth> {
 impl CssPropertyValue<LayoutBorderRightWidth> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4414,8 +4442,10 @@ impl CssPropertyValue<LayoutBorderRightWidth> {
 impl CssPropertyValue<LayoutBorderBottomWidth> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -4423,8 +4453,10 @@ impl CssPropertyValue<LayoutBorderBottomWidth> {
 impl CssPropertyValue<LayoutBorderLeftWidth> {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
-            _ => { },
+            CssPropertyValue::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
         }
     }
 }
@@ -5513,8 +5545,8 @@ impl Default for StyleWordSpacing {
     }
 }
 
-/// Same as the `LayoutFlexDirection`, but without the `-reverse` properties, used in the layout solver,
-/// makes decisions based on horizontal / vertical direction easier to write.
+/// Same as the `LayoutFlexDirection`, but without the `-reverse` properties, used in the layout
+/// solver, makes decisions based on horizontal / vertical direction easier to write.
 /// Use `LayoutFlexDirection::get_axis()` to get the axis for a given `LayoutFlexDirection`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -6197,12 +6229,14 @@ impl_option!(
 pub struct ScrollbarInfo {
     /// Total width (or height for vertical scrollbars) of the scrollbar in pixels
     pub width: LayoutWidth,
-    /// Padding of the scrollbar tracker, in pixels. The inner bar is `width - padding` pixels wide.
+    /// Padding of the scrollbar tracker, in pixels. The inner bar is `width - padding` pixels
+    /// wide.
     pub padding_left: LayoutPaddingLeft,
     /// Padding of the scrollbar (right)
     pub padding_right: LayoutPaddingRight,
     /// Style of the scrollbar background
-    /// (`-webkit-scrollbar` / `-webkit-scrollbar-track` / `-webkit-scrollbar-track-piece` combined)
+    /// (`-webkit-scrollbar` / `-webkit-scrollbar-track` / `-webkit-scrollbar-track-piece`
+    /// combined)
     pub track: StyleBackgroundContent,
     /// Style of the scrollbar thumbs (the "up" / "down" arrows), (`-webkit-scrollbar-thumb`)
     pub thumb: StyleBackgroundContent,
@@ -6353,7 +6387,8 @@ impl Default for FontMetrics {
 }
 
 impl FontMetrics {
-    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
+    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em =
+    /// 1000`)
     pub const fn zero() -> Self {
         FontMetrics {
             units_per_em: 1000,
@@ -6414,7 +6449,8 @@ impl FontMetrics {
         }
     }
 
-    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height
+    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the
+    /// height
     ///
     /// See [`USE_TYPO_METRICS`](https://docs.microsoft.com/en-us/typography/opentype/spec/os2#fss)
     pub fn use_typo_metrics(&self) -> bool {

@@ -22,8 +22,6 @@ pub mod macros;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
 #[macro_use]
 pub mod callbacks;
-/// Functions to paginate a DOM into multiple pages (sub-DOMs) for printing
-pub mod pagination;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod app_resources;
 /// Contains functions to format a CSS stylesheet to a Rust string
@@ -32,6 +30,8 @@ pub mod css;
 pub mod display_list;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
+/// Functions to paginate a DOM into multiple pages (sub-DOMs) for printing
+pub mod pagination;
 // Algorithms to create git-like diffs between two doms in linear time
 // pub mod diff;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing

@@ -63,24 +63,27 @@
 //! }
 //! ```rust
 
-use crate::gl::OptionGlContextPtr;
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    vec::Vec,
+};
+
+use azul_css::{AzString, CssProperty, LayoutPoint, LayoutRect, LayoutSize};
+use rust_fontconfig::FcFontCache;
+
 use crate::{
+    FastBTreeSet, FastHashMap,
     app_resources::{ImageCache, RendererResources},
     callbacks::{DocumentId, DomNodeId, HitTestItem, ScrollPosition, Update},
     dom::{EventFilter, FocusEventFilter, HoverEventFilter, NotEventFilter, WindowEventFilter},
+    gl::OptionGlContextPtr,
     id_tree::NodeId,
     styled_dom::{ChangedCssProperty, DomId, NodeHierarchyItemId},
     task::ExternalSystemCallbacks,
     ui_solver::{GpuEventChanges, LayoutResult, RelayoutChanges},
     window::{CallCallbacksResult, FullHitTest, FullWindowState, RawWindowHandle, ScrollStates},
-    FastBTreeSet, FastHashMap,
 };
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::collections::btree_set::BTreeSet;
-use alloc::vec::Vec;
-use azul_css::{AzString, CssProperty, LayoutPoint, LayoutRect, LayoutSize};
-use rust_fontconfig::FcFontCache;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Events {
@@ -225,7 +228,7 @@ impl NodesToCheck {
             old_hit_node_ids: BTreeMap::new(),
             onmouseenter_nodes: new_hit_node_ids,
             onmouseleave_nodes: BTreeMap::new(),
-            old_focus_node: old_focus_node,
+            old_focus_node,
             new_focus_node: old_focus_node,
             current_window_state_mouse_is_down: mouse_down,
         }
@@ -235,7 +238,8 @@ impl NodesToCheck {
     //
     // TODO: avoid iteration / allocation!
     pub fn new(hit_test: &FullHitTest, events: &Events) -> Self {
-        // TODO: If the current mouse is down, but the event wasn't a click, that means it was a drag
+        // TODO: If the current mouse is down, but the event wasn't a click, that means it was a
+        // drag
 
         // Figure out what the hovered NodeIds are
         let new_hit_node_ids = if events.event_was_mouse_leave {
@@ -306,7 +310,7 @@ impl NodesToCheck {
             onmouseenter_nodes,
             onmouseleave_nodes,
             old_focus_node: events.old_focus_node.clone(),
-            new_focus_node: new_focus_node,
+            new_focus_node,
             current_window_state_mouse_is_down: events.current_window_state_mouse_is_down,
         }
     }
@@ -317,7 +321,7 @@ impl NodesToCheck {
             old_hit_node_ids: BTreeMap::new(),
             onmouseenter_nodes: BTreeMap::new(),
             onmouseleave_nodes: BTreeMap::new(),
-            old_focus_node: old_focus_node,
+            old_focus_node,
             new_focus_node: old_focus_node,
             current_window_state_mouse_is_down: mouse_down,
         }
@@ -717,7 +721,6 @@ impl CallbacksOfHitTest {
         events: &Events,
         layout_results: &[LayoutResult],
     ) -> Self {
-
         let mut nodes_with_callbacks = BTreeMap::new();
 
         if events.is_empty() {
@@ -1011,9 +1014,9 @@ impl CallbacksOfHitTest {
         system_callbacks: &ExternalSystemCallbacks,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-        use crate::callbacks::CallbackInfo;
-        use crate::styled_dom::ParentWithNodeDepth;
-        use crate::window::WindowState;
+        use crate::{
+            callbacks::CallbackInfo, styled_dom::ParentWithNodeDepth, window::WindowState,
+        };
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -1058,9 +1061,9 @@ impl CallbacksOfHitTest {
                 let mut callbacks = BTreeMap::new();
                 for cbtc in callbacks_filter_list {
                     callbacks
-                    .entry(cbtc.node_id)
-                    .or_insert_with(|| Vec::new())
-                    .push((cbtc.hit_test_item, cbtc.event_filter));
+                        .entry(cbtc.node_id)
+                        .or_insert_with(|| Vec::new())
+                        .push((cbtc.hit_test_item, cbtc.event_filter));
                 }
                 let callbacks = callbacks;
                 let mut empty_vec = Vec::new();
@@ -1081,7 +1084,9 @@ impl CallbacksOfHitTest {
                         .unwrap()
                         .az_children(&lr.styled_dom.node_hierarchy.as_container())
                     {
-                        for (hit_test_item, event_filter) in callbacks.get(&child_id).unwrap_or(&empty_vec) {
+                        for (hit_test_item, event_filter) in
+                            callbacks.get(&child_id).unwrap_or(&empty_vec)
+                        {
                             if blacklisted_event_types.contains(&*event_filter) {
                                 continue;
                             }
@@ -1090,43 +1095,44 @@ impl CallbacksOfHitTest {
                             let mut stop_propagation = false;
 
                             let mut callback_info = CallbackInfo::new(
-                                /*layout_results:*/ &layout_results,
-                                /*renderer_resources:*/ renderer_resources,
-                                /*previous_window_state:*/ &previous_window_state,
-                                /*current_window_state:*/ &full_window_state,
-                                /*modifiable_window_state:*/ &mut ret_modified_window_state,
-                                /*gl_context,*/ gl_context,
-                                /*image_cache,*/ image_cache,
-                                /*system_fonts,*/ system_fonts,
-                                /*timers:*/ &mut ret_timers,
-                                /*threads:*/ &mut ret_threads,
-                                /*timers_removed:*/ &mut ret_timers_removed,
-                                /*threads_removed:*/ &mut ret_threads_removed,
-                                /*current_window_handle:*/ raw_window_handle,
-                                /*new_windows:*/ &mut ret.windows_created,
-                                /*system_callbacks*/ system_callbacks,
-                                /*stop_propagation:*/ &mut stop_propagation,
-                                /*focus_target:*/ &mut new_focus,
-                                /*words_changed_in_callbacks:*/ &mut ret_words_changed,
-                                /*images_changed_in_callbacks:*/ &mut ret_images_changed,
-                                /*image_masks_changed_in_callbacks:*/
+                                /* layout_results: */ &layout_results,
+                                /* renderer_resources: */ renderer_resources,
+                                /* previous_window_state: */ &previous_window_state,
+                                /* current_window_state: */ &full_window_state,
+                                /* modifiable_window_state: */
+                                &mut ret_modified_window_state,
+                                /* gl_context, */ gl_context,
+                                /* image_cache, */ image_cache,
+                                /* system_fonts, */ system_fonts,
+                                /* timers: */ &mut ret_timers,
+                                /* threads: */ &mut ret_threads,
+                                /* timers_removed: */ &mut ret_timers_removed,
+                                /* threads_removed: */ &mut ret_threads_removed,
+                                /* current_window_handle: */ raw_window_handle,
+                                /* new_windows: */ &mut ret.windows_created,
+                                /* system_callbacks */ system_callbacks,
+                                /* stop_propagation: */ &mut stop_propagation,
+                                /* focus_target: */ &mut new_focus,
+                                /* words_changed_in_callbacks: */ &mut ret_words_changed,
+                                /* images_changed_in_callbacks: */ &mut ret_images_changed,
+                                /* image_masks_changed_in_callbacks: */
                                 &mut ret_image_masks_changed,
-                                /*css_properties_changed_in_callbacks:*/
+                                /* css_properties_changed_in_callbacks: */
                                 &mut ret_css_properties_changed,
-                                /*current_scroll_states:*/ scroll_states,
-                                /*nodes_scrolled_in_callback:*/
+                                /* current_scroll_states: */ scroll_states,
+                                /* nodes_scrolled_in_callback: */
                                 &mut ret_nodes_scrolled_in_callbacks,
-                                /*hit_dom_node:*/
+                                /* hit_dom_node: */
                                 DomNodeId {
                                     dom: *dom_id,
                                     node: NodeHierarchyItemId::from_crate_internal(Some(child_id)),
                                 },
-                                /*cursor_relative_to_item:*/
+                                /* cursor_relative_to_item: */
                                 hit_test_item
                                     .as_ref()
                                     .map(|hi| hi.point_relative_to_item)
                                     .into(),
-                                /*cursor_in_viewport:*/
+                                /* cursor_in_viewport: */
                                 hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
                             );
 
@@ -1172,8 +1178,12 @@ impl CallbacksOfHitTest {
                         .root
                         .into_crate_internal()
                         .map(|root_id| {
-                            callbacks.get(&root_id).unwrap_or(&empty_vec).iter()
-                            .map(|item| (item, root_id)).collect::<Vec<_>>()
+                            callbacks
+                                .get(&root_id)
+                                .unwrap_or(&empty_vec)
+                                .iter()
+                                .map(|item| (item, root_id))
+                                .collect::<Vec<_>>()
                         })
                         .unwrap_or_default()
                     {
@@ -1185,43 +1195,43 @@ impl CallbacksOfHitTest {
                         let mut stop_propagation = false;
 
                         let mut callback_info = CallbackInfo::new(
-                            /*layout_results:*/ &layout_results,
-                            /*renderer_resources:*/ renderer_resources,
-                            /*previous_window_state:*/ &previous_window_state,
-                            /*current_window_state:*/ &full_window_state,
-                            /*modifiable_window_state:*/ &mut ret_modified_window_state,
-                            /*gl_context,*/ gl_context,
-                            /*image_cache,*/ image_cache,
-                            /*system_fonts,*/ system_fonts,
-                            /*timers:*/ &mut ret_timers,
-                            /*threads:*/ &mut ret_threads,
-                            /*timers_removed:*/ &mut ret_timers_removed,
-                            /*threads_removed:*/ &mut ret_threads_removed,
-                            /*current_window_handle:*/ raw_window_handle,
-                            /*new_windows:*/ &mut ret.windows_created,
-                            /*system_callbacks*/ system_callbacks,
-                            /*stop_propagation:*/ &mut stop_propagation,
-                            /*focus_target:*/ &mut new_focus,
-                            /*words_changed_in_callbacks:*/ &mut ret_words_changed,
-                            /*images_changed_in_callbacks:*/ &mut ret_images_changed,
-                            /*image_masks_changed_in_callbacks:*/
+                            /* layout_results: */ &layout_results,
+                            /* renderer_resources: */ renderer_resources,
+                            /* previous_window_state: */ &previous_window_state,
+                            /* current_window_state: */ &full_window_state,
+                            /* modifiable_window_state: */ &mut ret_modified_window_state,
+                            /* gl_context, */ gl_context,
+                            /* image_cache, */ image_cache,
+                            /* system_fonts, */ system_fonts,
+                            /* timers: */ &mut ret_timers,
+                            /* threads: */ &mut ret_threads,
+                            /* timers_removed: */ &mut ret_timers_removed,
+                            /* threads_removed: */ &mut ret_threads_removed,
+                            /* current_window_handle: */ raw_window_handle,
+                            /* new_windows: */ &mut ret.windows_created,
+                            /* system_callbacks */ system_callbacks,
+                            /* stop_propagation: */ &mut stop_propagation,
+                            /* focus_target: */ &mut new_focus,
+                            /* words_changed_in_callbacks: */ &mut ret_words_changed,
+                            /* images_changed_in_callbacks: */ &mut ret_images_changed,
+                            /* image_masks_changed_in_callbacks: */
                             &mut ret_image_masks_changed,
-                            /*css_properties_changed_in_callbacks:*/
+                            /* css_properties_changed_in_callbacks: */
                             &mut ret_css_properties_changed,
-                            /*current_scroll_states:*/ scroll_states,
-                            /*nodes_scrolled_in_callback:*/
+                            /* current_scroll_states: */ scroll_states,
+                            /* nodes_scrolled_in_callback: */
                             &mut ret_nodes_scrolled_in_callbacks,
-                            /*hit_dom_node:*/
+                            /* hit_dom_node: */
                             DomNodeId {
                                 dom: *dom_id,
                                 node: NodeHierarchyItemId::from_crate_internal(Some(root_id)),
                             },
-                            /*cursor_relative_to_item:*/
+                            /* cursor_relative_to_item: */
                             hit_test_item
                                 .as_ref()
                                 .map(|hi| hi.point_relative_to_item)
                                 .into(),
-                            /*cursor_in_viewport:*/
+                            /* cursor_in_viewport: */
                             hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
                         );
 
@@ -1261,7 +1271,6 @@ impl CallbacksOfHitTest {
                     break;
                 }
             }
-
         }
 
         // Scroll nodes from programmatic callbacks
@@ -1329,8 +1338,7 @@ fn get_window_events(
     current_window_state: &FullWindowState,
     previous_window_state: &Option<FullWindowState>,
 ) -> Vec<WindowEventFilter> {
-    use crate::window::CursorPosition::*;
-    use crate::window::WindowPosition;
+    use crate::window::{CursorPosition::*, WindowPosition};
 
     let mut events = Vec::new();
 

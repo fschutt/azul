@@ -1,6 +1,14 @@
 //! SVG rendering module
 
-use crate::xml::XmlError;
+use alloc::string::String;
+use core::fmt;
+
+use azul_css::{
+    AzString, ColorF, ColorU, OptionAzString, OptionColorU, OptionLayoutSize, StringVec,
+    StyleTransformOrigin, StyleTransformVec, U32Vec,
+};
+pub use azul_css::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector};
+
 use crate::{
     gl::{
         GlContextPtr, IndexBufferFormat, Texture, VertexAttribute, VertexAttributeType,
@@ -8,12 +16,8 @@ use crate::{
     },
     ui_solver::{ComputedTransform3D, RotationMode},
     window::PhysicalSizeU32,
+    xml::XmlError,
 };
-use alloc::string::String;
-use azul_css::{AzString, OptionAzString, OptionColorU, OptionLayoutSize, StringVec};
-use azul_css::{ColorF, ColorU, StyleTransformOrigin, StyleTransformVec, U32Vec};
-pub use azul_css::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector};
-use core::fmt;
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
@@ -34,7 +38,6 @@ pub struct SvgLine {
 }
 
 impl SvgLine {
-
     pub fn inwards_normal(&self) -> Option<SvgPoint> {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
@@ -52,8 +55,8 @@ impl SvgLine {
     pub fn outwards_normal(&self) -> Option<SvgPoint> {
         let inwards = self.inwards_normal()?;
         Some(SvgPoint {
-            x: -inwards.x, 
-            y: -inwards.y
+            x: -inwards.x,
+            y: -inwards.y,
         })
     }
 
@@ -228,7 +231,6 @@ pub struct SvgPath {
 }
 
 impl SvgPath {
-
     pub fn get_start(&self) -> Option<SvgPoint> {
         self.items.as_ref().first().map(|s| s.get_start())
     }
@@ -401,17 +403,9 @@ pub enum SvgSimpleNode {
     RectHole(SvgRect),
 }
 
-impl_vec!(
-    SvgSimpleNode,
-    SvgSimpleNodeVec,
-    SvgSimpleNodeVecDestructor
-);
+impl_vec!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor);
 impl_vec_debug!(SvgSimpleNode, SvgSimpleNodeVec);
-impl_vec_clone!(
-    SvgSimpleNode,
-    SvgSimpleNodeVec,
-    SvgSimpleNodeVecDestructor
-);
+impl_vec_clone!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor);
 impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
 
@@ -463,7 +457,7 @@ impl SvgNode {
                 }
 
                 first_mp_bounds
-            },
+            }
             SvgNode::Path(a) => a.get_bounds(),
             SvgNode::Circle(a) => a.get_bounds(),
             SvgNode::Rect(a) => a.clone(),
@@ -490,7 +484,7 @@ impl SvgNode {
                 }
 
                 true
-            },
+            }
             SvgNode::MultiShape(a) => {
                 for p in a.as_ref().iter() {
                     if !p.is_closed() {
@@ -671,7 +665,6 @@ impl TessellatedSvgNodeVecRef {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TessellatedColoredSvgNode {
@@ -752,10 +745,18 @@ impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 
-impl_vec!(SvgColoredVertex, SvgColoredVertexVec, SvgColoredVertexVecDestructor);
+impl_vec!(
+    SvgColoredVertex,
+    SvgColoredVertexVec,
+    SvgColoredVertexVecDestructor
+);
 impl_vec_debug!(SvgColoredVertex, SvgColoredVertexVec);
 impl_vec_partialord!(SvgColoredVertex, SvgColoredVertexVec);
-impl_vec_clone!(SvgColoredVertex, SvgColoredVertexVec, SvgColoredVertexVecDestructor);
+impl_vec_clone!(
+    SvgColoredVertex,
+    SvgColoredVertexVec,
+    SvgColoredVertexVecDestructor
+);
 impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -787,8 +788,9 @@ impl TessellatedGPUSvgNode {
         color: ColorU,
         transforms: StyleTransformVec,
     ) -> bool {
-        use crate::gl::{GlShader, Uniform, UniformType};
         use azul_css::PixelValue;
+
+        use crate::gl::{GlShader, Uniform, UniformType};
 
         let transform_origin = StyleTransformOrigin {
             x: PixelValue::px(target_size.width as f32 / 2.0),
@@ -869,8 +871,9 @@ impl TessellatedColoredGPUSvgNode {
         target_size: PhysicalSizeU32,
         transforms: StyleTransformVec,
     ) -> bool {
-        use crate::gl::{GlShader, Uniform, UniformType};
         use azul_css::PixelValue;
+
+        use crate::gl::{GlShader, Uniform, UniformType};
 
         let transform_origin = StyleTransformOrigin {
             x: PixelValue::px(target_size.width as f32 / 2.0),
@@ -987,7 +990,8 @@ pub struct SvgFillStyle {
     pub tolerance: f32,
     /// Whether to use the "winding" or "even / odd" fill rule when tesselating the path
     pub fill_rule: SvgFillRule,
-    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU - expensive)
+    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU -
+    /// expensive)
     pub transform: SvgTransform,
     /// Whether the fill is intended to be anti-aliased (default: true)
     pub anti_alias: bool,
@@ -1048,7 +1052,8 @@ pub struct SvgStrokeStyle {
     ///
     /// Default value: `true`. NOTE: currently unused!
     pub apply_line_width: bool,
-    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU - expensive)
+    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU -
+    /// expensive)
     pub transform: SvgTransform,
     /// Whether the fill is intended to be anti-aliased (default: true)
     pub anti_alias: bool,
@@ -1212,19 +1217,26 @@ pub struct SvgParseOptions {
     pub relative_image_path: OptionAzString,
     /// Target DPI. Impact units conversion. Default: 96.0
     pub dpi: f32,
-    /// Default font family. Will be used when no font-family attribute is set in the SVG. Default: Times New Roman
+    /// Default font family. Will be used when no font-family attribute is set in the SVG. Default:
+    /// Times New Roman
     pub default_font_family: AzString,
-    /// A default font size. Will be used when no font-size attribute is set in the SVG. Default: 12
+    /// A default font size. Will be used when no font-size attribute is set in the SVG. Default:
+    /// 12
     pub font_size: f32,
-    /// A list of languages. Will be used to resolve a systemLanguage conditional attribute. Format: en, en-US. Default: [en]
+    /// A list of languages. Will be used to resolve a systemLanguage conditional attribute.
+    /// Format: en, en-US. Default: [en]
     pub languages: StringVec,
-    /// Specifies the default shape rendering method. Will be used when an SVG element's shape-rendering property is set to auto. Default: GeometricPrecision
+    /// Specifies the default shape rendering method. Will be used when an SVG element's
+    /// shape-rendering property is set to auto. Default: GeometricPrecision
     pub shape_rendering: ShapeRendering,
-    /// Specifies the default text rendering method. Will be used when an SVG element's text-rendering property is set to auto. Default: OptimizeLegibility
+    /// Specifies the default text rendering method. Will be used when an SVG element's
+    /// text-rendering property is set to auto. Default: OptimizeLegibility
     pub text_rendering: TextRendering,
-    /// Specifies the default image rendering method. Will be used when an SVG element's image-rendering property is set to auto. Default: OptimizeQuality
+    /// Specifies the default image rendering method. Will be used when an SVG element's
+    /// image-rendering property is set to auto. Default: OptimizeQuality
     pub image_rendering: ImageRendering,
-    /// Keep named groups. If set to true, all non-empty groups with id attribute will not be removed. Default: false
+    /// Keep named groups. If set to true, all non-empty groups with id attribute will not be
+    /// removed. Default: false
     pub keep_named_groups: bool,
     /// When empty, text elements will be skipped. Default: `System`
     pub fontdb: FontDatabase,

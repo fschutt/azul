@@ -1,40 +1,34 @@
-use core::fmt;
 use alloc::vec::Vec;
-use azul_desktop::css::*;
-use azul_desktop::css::AzString;
-use azul_desktop::dom::{
-    Dom, IdOrClass, TabIndex,
-    HoverEventFilter, EventFilter,
-    CallbackData,
-    IdOrClass::{Id, Class},
-    NodeDataInlineCssProperty,
-    NodeDataInlineCssProperty::{Normal, Hover},
-    DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec,
+use core::fmt;
+
+use azul_core::{
+    app_resources::{ImageRef, RawImageFormat},
+    svg::{SvgLine, SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
+    window::{
+        CursorPosition::InWindow, LogicalPosition, LogicalRect, LogicalSize, Menu, MenuItem,
+        PhysicalSizeU32, StringMenuItem,
+    },
 };
-use azul_desktop::gl::Texture;
-use azul_desktop::app::extra::coloru_from_str;
-use azul_core::svg::{
-    SvgPathElement, SvgLine, SvgPath,
-    SvgStrokeStyle, TessellatedGPUSvgNode
-};
-use azul_desktop::callbacks::{
-    Update, RefAny, CallbackInfo, Callback,
-    RenderImageCallbackInfo,
-};
-use azul_core::app_resources::{
-    ImageRef, RawImageFormat
-};
-use azul_core::window::{
-    LogicalSize, LogicalPosition, LogicalRect, PhysicalSizeU32,
-    CursorPosition::InWindow, Menu, MenuItem, StringMenuItem,
+use azul_desktop::{
+    app::extra::coloru_from_str,
+    callbacks::{Callback, CallbackInfo, RefAny, RenderImageCallbackInfo, Update},
+    css::{AzString, *},
+    dom::{
+        CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
+        IdOrClass::{Class, Id},
+        IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssProperty::{Hover, Normal},
+        NodeDataInlineCssPropertyVec, TabIndex,
+    },
+    gl::Texture,
 };
 
 use crate::widgets::{
-    file_input::{FileInput, FileInputState},
-    text_input::{TextInput, TextInputState},
-    number_input::{NumberInput, NumberInputState},
-    color_input::{ColorInput, ColorInputState},
     check_box::{CheckBox, CheckBoxState},
+    color_input::{ColorInput, ColorInputState},
+    file_input::{FileInput, FileInputState},
+    number_input::{NumberInput, NumberInputState},
+    text_input::{TextInput, TextInputState},
 };
 
 /// Same as the NodeGraph but without generics and without the actual data
@@ -72,12 +66,13 @@ impl NodeGraph {
     /// Generates a new NodeId that is unique in the graph
     pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
         NodeGraphNodeId {
-            inner: self.nodes
+            inner: self
+                .nodes
                 .iter()
                 .map(|i| i.node_id.inner)
                 .max()
                 .unwrap_or(0)
-                .saturating_add(1)
+                .saturating_add(1),
         }
     }
 }
@@ -89,8 +84,16 @@ pub struct NodeTypeIdInfoMap {
     pub node_type_info: NodeTypeInfo,
 }
 
-impl_vec!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec, NodeTypeIdInfoMapVecDestructor);
-impl_vec_clone!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec, NodeTypeIdInfoMapVecDestructor);
+impl_vec!(
+    NodeTypeIdInfoMap,
+    NodeTypeIdInfoMapVec,
+    NodeTypeIdInfoMapVecDestructor
+);
+impl_vec_clone!(
+    NodeTypeIdInfoMap,
+    NodeTypeIdInfoMapVec,
+    NodeTypeIdInfoMapVecDestructor
+);
 impl_vec_mut!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec);
 impl_vec_debug!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec);
 
@@ -101,8 +104,16 @@ pub struct InputOutputTypeIdInfoMap {
     pub io_info: InputOutputInfo,
 }
 
-impl_vec!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec, InputOutputTypeIdInfoMapVecDestructor);
-impl_vec_clone!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec, InputOutputTypeIdInfoMapVecDestructor);
+impl_vec!(
+    InputOutputTypeIdInfoMap,
+    InputOutputTypeIdInfoMapVec,
+    InputOutputTypeIdInfoMapVecDestructor
+);
+impl_vec_clone!(
+    InputOutputTypeIdInfoMap,
+    InputOutputTypeIdInfoMapVec,
+    InputOutputTypeIdInfoMapVecDestructor
+);
 impl_vec_mut!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec);
 impl_vec_debug!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec);
 
@@ -138,51 +149,142 @@ pub struct NodeGraphCallbacks {
     pub on_node_field_edited: OptionOnNodeFieldEdited,
 }
 
-pub type OnNodeAddedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, new_node_type: NodeTypeId, new_node_id: NodeGraphNodeId, new_node_position: NodePosition) -> Update;
-impl_callback!(OnNodeAdded, OptionOnNodeAdded, OnNodeAddedCallback, OnNodeAddedCallbackType);
+pub type OnNodeAddedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    new_node_type: NodeTypeId,
+    new_node_id: NodeGraphNodeId,
+    new_node_position: NodePosition,
+) -> Update;
+impl_callback!(
+    OnNodeAdded,
+    OptionOnNodeAdded,
+    OnNodeAddedCallback,
+    OnNodeAddedCallbackType
+);
 
-pub type OnNodeRemovedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, node_id_to_remove: NodeGraphNodeId) -> Update;
-impl_callback!(OnNodeRemoved, OptionOnNodeRemoved, OnNodeRemovedCallback, OnNodeRemovedCallbackType);
+pub type OnNodeRemovedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    node_id_to_remove: NodeGraphNodeId,
+) -> Update;
+impl_callback!(
+    OnNodeRemoved,
+    OptionOnNodeRemoved,
+    OnNodeRemovedCallback,
+    OnNodeRemovedCallbackType
+);
 
-pub type OnNodeGraphDraggedCallbackType = extern "C" fn(data: &mut RefAny,info: &mut CallbackInfo, drag_amount: GraphDragAmount) -> Update;
-impl_callback!(OnNodeGraphDragged, OptionOnNodeGraphDragged, OnNodeGraphDraggedCallback, OnNodeGraphDraggedCallbackType);
+pub type OnNodeGraphDraggedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    drag_amount: GraphDragAmount,
+) -> Update;
+impl_callback!(
+    OnNodeGraphDragged,
+    OptionOnNodeGraphDragged,
+    OnNodeGraphDraggedCallback,
+    OnNodeGraphDraggedCallbackType
+);
 
-pub type OnNodeDraggedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, node_dragged: NodeGraphNodeId, drag_amount: NodeDragAmount) -> Update;
-impl_callback!(OnNodeDragged, OptionOnNodeDragged, OnNodeDraggedCallback, OnNodeDraggedCallbackType);
+pub type OnNodeDraggedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    node_dragged: NodeGraphNodeId,
+    drag_amount: NodeDragAmount,
+) -> Update;
+impl_callback!(
+    OnNodeDragged,
+    OptionOnNodeDragged,
+    OnNodeDraggedCallback,
+    OnNodeDraggedCallbackType
+);
 
-pub type OnNodeConnectedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, input: NodeGraphNodeId, input_index: usize, output: NodeGraphNodeId, output_index: usize) -> Update;
-impl_callback!(OnNodeConnected, OptionOnNodeConnected, OnNodeConnectedCallback, OnNodeConnectedCallbackType);
+pub type OnNodeConnectedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    input: NodeGraphNodeId,
+    input_index: usize,
+    output: NodeGraphNodeId,
+    output_index: usize,
+) -> Update;
+impl_callback!(
+    OnNodeConnected,
+    OptionOnNodeConnected,
+    OnNodeConnectedCallback,
+    OnNodeConnectedCallbackType
+);
 
-pub type OnNodeInputDisconnectedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, input: NodeGraphNodeId, input_index: usize) -> Update;
-impl_callback!(OnNodeInputDisconnected, OptionOnNodeInputDisconnected, OnNodeInputDisconnectedCallback, OnNodeInputDisconnectedCallbackType);
+pub type OnNodeInputDisconnectedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    input: NodeGraphNodeId,
+    input_index: usize,
+) -> Update;
+impl_callback!(
+    OnNodeInputDisconnected,
+    OptionOnNodeInputDisconnected,
+    OnNodeInputDisconnectedCallback,
+    OnNodeInputDisconnectedCallbackType
+);
 
-pub type OnNodeOutputDisconnectedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, output: NodeGraphNodeId, output_index: usize) -> Update;
-impl_callback!(OnNodeOutputDisconnected, OptionOnNodeOutputDisconnected, OnNodeOutputDisconnectedCallback, OnNodeOutputDisconnectedCallbackType);
+pub type OnNodeOutputDisconnectedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    output: NodeGraphNodeId,
+    output_index: usize,
+) -> Update;
+impl_callback!(
+    OnNodeOutputDisconnected,
+    OptionOnNodeOutputDisconnected,
+    OnNodeOutputDisconnectedCallback,
+    OnNodeOutputDisconnectedCallbackType
+);
 
-pub type OnNodeFieldEditedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, node_id: NodeGraphNodeId, field_id: usize, node_type: NodeTypeId, new_value: NodeTypeFieldValue) -> Update;
-impl_callback!(OnNodeFieldEdited, OptionOnNodeFieldEdited, OnNodeFieldEditedCallback, OnNodeFieldEditedCallbackType);
+pub type OnNodeFieldEditedCallbackType = extern "C" fn(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    node_id: NodeGraphNodeId,
+    field_id: usize,
+    node_type: NodeTypeId,
+    new_value: NodeTypeFieldValue,
+) -> Update;
+impl_callback!(
+    OnNodeFieldEdited,
+    OptionOnNodeFieldEdited,
+    OnNodeFieldEditedCallback,
+    OnNodeFieldEditedCallbackType
+);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct InputOutputTypeId {
-    pub inner: u64
+    pub inner: u64,
 }
 
-impl_vec!(InputOutputTypeId, InputOutputTypeIdVec, InputOutputTypeIdVecDestructor);
-impl_vec_clone!(InputOutputTypeId, InputOutputTypeIdVec, InputOutputTypeIdVecDestructor);
+impl_vec!(
+    InputOutputTypeId,
+    InputOutputTypeIdVec,
+    InputOutputTypeIdVecDestructor
+);
+impl_vec_clone!(
+    InputOutputTypeId,
+    InputOutputTypeIdVec,
+    InputOutputTypeIdVecDestructor
+);
 impl_vec_mut!(InputOutputTypeId, InputOutputTypeIdVec);
 impl_vec_debug!(InputOutputTypeId, InputOutputTypeIdVec);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NodeTypeId {
-    pub inner: u64
+    pub inner: u64,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NodeGraphNodeId {
-    pub inner: u64
+    pub inner: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -224,8 +326,16 @@ pub struct InputConnection {
     pub connects_to: OutputNodeAndIndexVec,
 }
 
-impl_vec!(InputConnection, InputConnectionVec, InputConnectionVecDestructor);
-impl_vec_clone!(InputConnection, InputConnectionVec, InputConnectionVecDestructor);
+impl_vec!(
+    InputConnection,
+    InputConnectionVec,
+    InputConnectionVecDestructor
+);
+impl_vec_clone!(
+    InputConnection,
+    InputConnectionVec,
+    InputConnectionVecDestructor
+);
 impl_vec_debug!(InputConnection, InputConnectionVec);
 impl_vec_mut!(InputConnection, InputConnectionVec);
 
@@ -236,8 +346,16 @@ pub struct OutputNodeAndIndex {
     pub output_index: usize,
 }
 
-impl_vec!(OutputNodeAndIndex, OutputNodeAndIndexVec, OutputNodeAndIndexVecDestructor);
-impl_vec_clone!(OutputNodeAndIndex, OutputNodeAndIndexVec, OutputNodeAndIndexVecDestructor);
+impl_vec!(
+    OutputNodeAndIndex,
+    OutputNodeAndIndexVec,
+    OutputNodeAndIndexVecDestructor
+);
+impl_vec_clone!(
+    OutputNodeAndIndex,
+    OutputNodeAndIndexVec,
+    OutputNodeAndIndexVecDestructor
+);
 impl_vec_debug!(OutputNodeAndIndex, OutputNodeAndIndexVec);
 impl_vec_mut!(OutputNodeAndIndex, OutputNodeAndIndexVec);
 
@@ -248,8 +366,16 @@ pub struct OutputConnection {
     pub connects_to: InputNodeAndIndexVec,
 }
 
-impl_vec!(OutputConnection, OutputConnectionVec, OutputConnectionVecDestructor);
-impl_vec_clone!(OutputConnection, OutputConnectionVec, OutputConnectionVecDestructor);
+impl_vec!(
+    OutputConnection,
+    OutputConnectionVec,
+    OutputConnectionVecDestructor
+);
+impl_vec_clone!(
+    OutputConnection,
+    OutputConnectionVec,
+    OutputConnectionVecDestructor
+);
 impl_vec_debug!(OutputConnection, OutputConnectionVec);
 impl_vec_mut!(OutputConnection, OutputConnectionVec);
 
@@ -260,8 +386,16 @@ pub struct InputNodeAndIndex {
     pub input_index: usize,
 }
 
-impl_vec!(InputNodeAndIndex, InputNodeAndIndexVec, InputNodeAndIndexVecDestructor);
-impl_vec_clone!(InputNodeAndIndex, InputNodeAndIndexVec, InputNodeAndIndexVecDestructor);
+impl_vec!(
+    InputNodeAndIndex,
+    InputNodeAndIndexVec,
+    InputNodeAndIndexVecDestructor
+);
+impl_vec_clone!(
+    InputNodeAndIndex,
+    InputNodeAndIndexVec,
+    InputNodeAndIndexVecDestructor
+);
 impl_vec_debug!(InputNodeAndIndex, InputNodeAndIndexVec);
 impl_vec_mut!(InputNodeAndIndex, InputNodeAndIndexVec);
 
@@ -339,7 +473,6 @@ pub struct NodeDragAmount {
 }
 
 impl NodeGraph {
-
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self::default();
         ::core::mem::swap(&mut default, self);
@@ -360,9 +493,10 @@ impl NodeGraph {
     /// One of:
     ///
     /// - `NodeGraphError::NodeInvalidNode(n)`: The node at `` of the inputs does not exist
-    /// - `NodeGraphError::NodeInvalidIndex(n, u)`: One node has an invalid `output` or `input` index
-    /// - `NodeGraphError::NodeMimeTypeMismatch`: The types of two connected
-    ///    `outputs` and `inputs` isn't the same
+    /// - `NodeGraphError::NodeInvalidIndex(n, u)`: One node has an invalid `output` or `input`
+    ///   index
+    /// - `NodeGraphError::NodeMimeTypeMismatch`: The types of two connected `outputs` and `inputs`
+    ///   isn't the same
     /// - `Ok`: The insertion of the new node went well.
     fn connect_input_output(
         &mut self,
@@ -371,25 +505,38 @@ impl NodeGraph {
         output_node_id: NodeGraphNodeId,
         output_index: usize,
     ) -> Result<(), NodeGraphError> {
-
         // Verify that the node type of the connection matches
-        let _ = self.verify_nodetype_match(
-            output_node_id,
-            output_index,
-            input_node_id,
-            input_index
-        )?;
+        let _ =
+            self.verify_nodetype_match(output_node_id, output_index, input_node_id, input_index)?;
 
         // connect input -> output
-        if let Some(input_node) = self.nodes.as_mut().iter_mut().find(|i| i.node_id == input_node_id) {
-            if let Some(position) = input_node.node.connect_in.as_ref().iter().position(|i| i.input_index == input_index) {
+        if let Some(input_node) = self
+            .nodes
+            .as_mut()
+            .iter_mut()
+            .find(|i| i.node_id == input_node_id)
+        {
+            if let Some(position) = input_node
+                .node
+                .connect_in
+                .as_ref()
+                .iter()
+                .position(|i| i.input_index == input_index)
+            {
                 input_node.node.connect_in.as_mut()[position]
-                .connects_to
-                .push(OutputNodeAndIndex { node_id: output_node_id, output_index });
+                    .connects_to
+                    .push(OutputNodeAndIndex {
+                        node_id: output_node_id,
+                        output_index,
+                    });
             } else {
                 input_node.node.connect_in.push(InputConnection {
                     input_index,
-                    connects_to: vec![OutputNodeAndIndex { node_id: output_node_id, output_index }].into(),
+                    connects_to: vec![OutputNodeAndIndex {
+                        node_id: output_node_id,
+                        output_index,
+                    }]
+                    .into(),
                 })
             }
         } else {
@@ -397,15 +544,33 @@ impl NodeGraph {
         }
 
         // connect output -> input
-        if let Some(output_node) = self.nodes.as_mut().iter_mut().find(|i| i.node_id == output_node_id) {
-            if let Some(position) = output_node.node.connect_out.as_ref().iter().position(|i| i.output_index == output_index) {
+        if let Some(output_node) = self
+            .nodes
+            .as_mut()
+            .iter_mut()
+            .find(|i| i.node_id == output_node_id)
+        {
+            if let Some(position) = output_node
+                .node
+                .connect_out
+                .as_ref()
+                .iter()
+                .position(|i| i.output_index == output_index)
+            {
                 output_node.node.connect_out.as_mut()[position]
-                .connects_to
-                .push(InputNodeAndIndex { node_id: input_node_id, input_index });
+                    .connects_to
+                    .push(InputNodeAndIndex {
+                        node_id: input_node_id,
+                        input_index,
+                    });
             } else {
                 output_node.node.connect_out.push(OutputConnection {
                     output_index,
-                    connects_to: vec![InputNodeAndIndex { node_id: input_node_id, input_index }].into(),
+                    connects_to: vec![InputNodeAndIndex {
+                        node_id: input_node_id,
+                        input_index,
+                    }]
+                    .into(),
                 })
             }
         } else {
@@ -424,32 +589,43 @@ impl NodeGraph {
     ///
     /// # Returns
     ///
-    /// - `Err(NodeGraphError::NodeInvalidNode(n))`: The node at index `input_node_id` does not exist
-    /// - `Err(NodeGraphError::NodeInvalidIndex(n, u))`: One node has an invalid `input` or `output` index
-    /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and `output` does not match
+    /// - `Err(NodeGraphError::NodeInvalidNode(n))`: The node at index `input_node_id` does not
+    ///   exist
+    /// - `Err(NodeGraphError::NodeInvalidIndex(n, u))`: One node has an invalid `input` or `output`
+    ///   index
+    /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and
+    ///   `output` does not match
     /// - `Ok(())`: The insertion of the new node went well.
-    ///
     fn disconnect_input(
         &mut self,
         input_node_id: NodeGraphNodeId,
         input_index: usize,
     ) -> Result<(), NodeGraphError> {
-
         let output_connections = {
-            let input_node = self.nodes.as_ref()
+            let input_node = self
+                .nodes
+                .as_ref()
                 .iter()
                 .find(|i| i.node_id == input_node_id)
                 .ok_or(NodeGraphError::NodeInvalidNode)?;
 
-            match input_node.node.connect_in.iter().find(|i| i.input_index == input_index) {
+            match input_node
+                .node
+                .connect_in
+                .iter()
+                .find(|i| i.input_index == input_index)
+            {
                 None => return Ok(()),
                 Some(s) => s.connects_to.clone(),
             }
         };
 
         // for every output that this input was connected to...
-        for OutputNodeAndIndex { node_id, output_index } in output_connections.as_ref().iter() {
-
+        for OutputNodeAndIndex {
+            node_id,
+            output_index,
+        } in output_connections.as_ref().iter()
+        {
             let output_node_id = *node_id;
             let output_index = *output_index;
 
@@ -458,21 +634,41 @@ impl NodeGraph {
                 output_node_id,
                 output_index,
                 input_node_id,
-                input_index
+                input_index,
             )?;
 
             // disconnect input -> output
 
-            if let Some(input_node) = self.nodes.as_mut().iter_mut().find(|i| i.node_id == input_node_id) {
-                if let Some(position) = input_node.node.connect_in.iter().position(|i| i.input_index == input_index) {
+            if let Some(input_node) = self
+                .nodes
+                .as_mut()
+                .iter_mut()
+                .find(|i| i.node_id == input_node_id)
+            {
+                if let Some(position) = input_node
+                    .node
+                    .connect_in
+                    .iter()
+                    .position(|i| i.input_index == input_index)
+                {
                     input_node.node.connect_in.remove(position);
                 }
             } else {
                 return Err(NodeGraphError::NodeInvalidNode);
             }
 
-            if let Some(output_node) = self.nodes.as_mut().iter_mut().find(|i| i.node_id == output_node_id) {
-                if let Some(position) = output_node.node.connect_out.iter().position(|i| i.output_index == output_index) {
+            if let Some(output_node) = self
+                .nodes
+                .as_mut()
+                .iter_mut()
+                .find(|i| i.node_id == output_node_id)
+            {
+                if let Some(position) = output_node
+                    .node
+                    .connect_out
+                    .iter()
+                    .position(|i| i.output_index == output_index)
+                {
                     output_node.node.connect_out.remove(position);
                 }
             } else {
@@ -492,31 +688,42 @@ impl NodeGraph {
     ///
     /// # Returns
     ///
-    /// - `Err(NodeGraphError::NodeInvalidNode(n))`: The node at index `output_node_id` does not exist
-    /// - `Err(NodeGraphError::NodeInvalidIndex(n, u))`: One node has an invalid `input` or `output` index
-    /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and `output` does not match
+    /// - `Err(NodeGraphError::NodeInvalidNode(n))`: The node at index `output_node_id` does not
+    ///   exist
+    /// - `Err(NodeGraphError::NodeInvalidIndex(n, u))`: One node has an invalid `input` or `output`
+    ///   index
+    /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and
+    ///   `output` does not match
     /// - `Ok(())`: The insertion of the new node went well.
-    ///
     fn disconnect_output(
         &mut self,
         output_node_id: NodeGraphNodeId,
         output_index: usize,
     ) -> Result<(), NodeGraphError> {
-
         let input_connections = {
-            let output_node = self.nodes.as_ref()
+            let output_node = self
+                .nodes
+                .as_ref()
                 .iter()
                 .find(|i| i.node_id == output_node_id)
                 .ok_or(NodeGraphError::NodeInvalidNode)?;
 
-            match output_node.node.connect_out.iter().find(|i| i.output_index == output_index) {
+            match output_node
+                .node
+                .connect_out
+                .iter()
+                .find(|i| i.output_index == output_index)
+            {
                 None => return Ok(()),
                 Some(s) => s.connects_to.clone(),
             }
         };
 
-        for InputNodeAndIndex { node_id, input_index } in input_connections.iter() {
-
+        for InputNodeAndIndex {
+            node_id,
+            input_index,
+        } in input_connections.iter()
+        {
             let input_node_id = *node_id;
             let input_index = *input_index;
 
@@ -525,19 +732,39 @@ impl NodeGraph {
                 output_node_id,
                 output_index,
                 input_node_id,
-                input_index
+                input_index,
             )?;
 
-            if let Some(output_node) = self.nodes.as_mut().iter_mut().find(|i| i.node_id == output_node_id) {
-                if let Some(position) = output_node.node.connect_out.iter().position(|i| i.output_index == output_index) {
+            if let Some(output_node) = self
+                .nodes
+                .as_mut()
+                .iter_mut()
+                .find(|i| i.node_id == output_node_id)
+            {
+                if let Some(position) = output_node
+                    .node
+                    .connect_out
+                    .iter()
+                    .position(|i| i.output_index == output_index)
+                {
                     output_node.node.connect_out.remove(position);
                 }
             } else {
                 return Err(NodeGraphError::NodeInvalidNode);
             }
 
-            if let Some(input_node) = self.nodes.as_mut().iter_mut().find(|i| i.node_id == input_node_id) {
-                if let Some(position) = input_node.node.connect_in.iter().position(|i| i.input_index == input_index) {
+            if let Some(input_node) = self
+                .nodes
+                .as_mut()
+                .iter_mut()
+                .find(|i| i.node_id == input_node_id)
+            {
+                if let Some(position) = input_node
+                    .node
+                    .connect_in
+                    .iter()
+                    .position(|i| i.input_index == input_index)
+                {
                     input_node.node.connect_in.remove(position);
                 }
             } else {
@@ -556,30 +783,41 @@ impl NodeGraph {
         input_node_id: NodeGraphNodeId,
         input_index: usize,
     ) -> Result<(), NodeGraphError> {
-
-        let output_node = self.nodes
-            .iter().find(|i| i.node_id == output_node_id)
+        let output_node = self
+            .nodes
+            .iter()
+            .find(|i| i.node_id == output_node_id)
             .ok_or(NodeGraphError::NodeInvalidNode)?;
 
-        let output_node_type = self.node_types
-            .iter().find(|i| i.node_type_id == output_node.node.node_type)
+        let output_node_type = self
+            .node_types
+            .iter()
+            .find(|i| i.node_type_id == output_node.node.node_type)
             .ok_or(NodeGraphError::NodeInvalidNode)?;
 
-        let output_type = output_node_type.node_type_info.outputs
+        let output_type = output_node_type
+            .node_type_info
+            .outputs
             .as_ref()
             .get(output_index)
             .copied()
             .ok_or(NodeGraphError::NodeInvalidIndex)?;
 
-        let input_node = self.nodes
-        .iter().find(|i| i.node_id == input_node_id)
+        let input_node = self
+            .nodes
+            .iter()
+            .find(|i| i.node_id == input_node_id)
             .ok_or(NodeGraphError::NodeInvalidNode)?;
 
-        let input_node_type = self.node_types
-            .iter().find(|i| i.node_type_id == input_node.node.node_type)
+        let input_node_type = self
+            .node_types
+            .iter()
+            .find(|i| i.node_type_id == input_node.node.node_type)
             .ok_or(NodeGraphError::NodeInvalidNode)?;
 
-        let input_type = input_node_type.node_type_info.inputs
+        let input_type = input_node_type
+            .node_type_info
+            .inputs
             .as_ref()
             .get(input_index)
             .copied()
@@ -594,18 +832,14 @@ impl NodeGraph {
     }
 
     pub fn dom(self) -> Dom {
+        static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
-        static NODEGRAPH_CLASS: &[IdOrClass] = &[
-            Class(AzString::from_const_str("nodegraph"))
-        ];
+        static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Image(
+            AzString::from_const_str("nodegraph-background"),
+        )];
 
-        static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[
-            StyleBackgroundContent::Image(AzString::from_const_str("nodegraph-background"))
-        ];
-
-        static NODEGRAPH_NODES_CONTAINER_CLASS: &[IdOrClass] = &[
-            Class(AzString::from_const_str("nodegraph-nodes-container"))
-        ];
+        static NODEGRAPH_NODES_CONTAINER_CLASS: &[IdOrClass] =
+            &[Class(AzString::from_const_str("nodegraph-nodes-container"))];
 
         static NODEGRAPH_NODES_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
@@ -616,12 +850,19 @@ impl NodeGraph {
             Normal(CssProperty::overflow_x(LayoutOverflow::Hidden)),
             Normal(CssProperty::overflow_y(LayoutOverflow::Hidden)),
             Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
-            Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(NODEGRAPH_BACKGROUND))),
-            Normal(CssProperty::background_repeat(vec![StyleBackgroundRepeat::Repeat].into())),
-            Normal(CssProperty::background_position(vec![StyleBackgroundPosition {
-                horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_px(0)),
-                vertical: BackgroundPositionVertical::Exact(PixelValue::const_px(0)),
-            }].into())),
+            Normal(CssProperty::background_content(
+                StyleBackgroundContentVec::from_const_slice(NODEGRAPH_BACKGROUND),
+            )),
+            Normal(CssProperty::background_repeat(
+                vec![StyleBackgroundRepeat::Repeat].into(),
+            )),
+            Normal(CssProperty::background_position(
+                vec![StyleBackgroundPosition {
+                    horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_px(0)),
+                    vertical: BackgroundPositionVertical::Exact(PixelValue::const_px(0)),
+                }]
+                .into(),
+            )),
         ];
 
         let nodegraph_props = vec![
@@ -631,7 +872,7 @@ impl NodeGraph {
             Normal(CssProperty::position(LayoutPosition::Relative)),
         ];
 
-        let node_connection_marker = RefAny::new(NodeConnectionMarkerDataset { });
+        let node_connection_marker = RefAny::new(NodeConnectionMarkerDataset {});
 
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
             node_graph: self.clone(), // TODO: expensive
@@ -641,7 +882,8 @@ impl NodeGraph {
             callbacks: self.callbacks.clone(),
         });
 
-        let context_menu = Menu::new(vec![
+        let context_menu = Menu::new(
+            vec![
             MenuItem::String(
                 StringMenuItem::new(self.add_node_str.clone())
                 .with_children(
@@ -663,58 +905,78 @@ impl NodeGraph {
                     .into()
                 )
             )
-        ].into());
+        ]
+            .into(),
+        );
 
         Dom::div()
-        .with_inline_css_props(nodegraph_wrapper_props.into())
-        .with_context_menu(context_menu)
-        .with_children(vec![
-           Dom::div()
-           .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_CLASS))
-           .with_inline_css_props(nodegraph_props.into())
-           .with_callbacks(vec![
-               CallbackData {
-                   event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                   data: node_graph_local_dataset.clone(),
-                   callback: Callback { cb: nodegraph_drag_graph_or_nodes },
-               },
-               CallbackData {
-                   event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                   data: node_graph_local_dataset.clone(),
-                   callback: Callback { cb: nodegraph_unset_active_node },
-               },
-           ].into())
-           .with_children({
+            .with_inline_css_props(nodegraph_wrapper_props.into())
+            .with_context_menu(context_menu)
+            .with_children(
                 vec![
-                    // connections
-                    render_connections(&self, node_connection_marker),
+                    Dom::div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_CLASS))
+                        .with_inline_css_props(nodegraph_props.into())
+                        .with_callbacks(
+                            vec![
+                                CallbackData {
+                                    event: EventFilter::Hover(HoverEventFilter::MouseOver),
+                                    data: node_graph_local_dataset.clone(),
+                                    callback: Callback {
+                                        cb: nodegraph_drag_graph_or_nodes,
+                                    },
+                                },
+                                CallbackData {
+                                    event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+                                    data: node_graph_local_dataset.clone(),
+                                    callback: Callback {
+                                        cb: nodegraph_unset_active_node,
+                                    },
+                                },
+                            ]
+                            .into(),
+                        )
+                        .with_children({
+                            vec![
+                                // connections
+                                render_connections(&self, node_connection_marker),
+                                // nodes
+                                self.nodes
+                                    .iter()
+                                    .filter_map(|NodeIdNodeMap { node_id, node }| {
+                                        let node_type_info = self
+                                            .node_types
+                                            .iter()
+                                            .find(|i| i.node_type_id == node.node_type)?;
+                                        let node_local_dataset = NodeLocalDataset {
+                                            node_id: *node_id,
+                                            backref: node_graph_local_dataset.clone(),
+                                        };
 
-                    // nodes
-                    self.nodes.iter()
-                    .filter_map(|NodeIdNodeMap { node_id, node }| {
-
-                        let node_type_info = self.node_types.iter().find(|i| i.node_type_id == node.node_type)?;
-                        let node_local_dataset = NodeLocalDataset {
-                            node_id: *node_id,
-                            backref: node_graph_local_dataset.clone(),
-                        };
-
-                        Some(render_node(
-                            node,
-                            (self.offset.x, self.offset.y),
-                            &node_type_info.node_type_info,
-                            node_local_dataset,
-                            self.scale_factor,
-                        ))
-                    })
-                    .collect::<Dom>()
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_CLASS))
-                    .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_PROPS)),
-
-                ].into()
-            })
-        ].into())
-        .with_dataset(Some(node_graph_local_dataset).into())
+                                        Some(render_node(
+                                            node,
+                                            (self.offset.x, self.offset.y),
+                                            &node_type_info.node_type_info,
+                                            node_local_dataset,
+                                            self.scale_factor,
+                                        ))
+                                    })
+                                    .collect::<Dom>()
+                                    .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                                        NODEGRAPH_NODES_CONTAINER_CLASS,
+                                    ))
+                                    .with_inline_css_props(
+                                        NodeDataInlineCssPropertyVec::from_const_slice(
+                                            NODEGRAPH_NODES_CONTAINER_PROPS,
+                                        ),
+                                    ),
+                            ]
+                            .into()
+                        }),
+                ]
+                .into(),
+            )
+            .with_dataset(Some(node_graph_local_dataset).into())
     }
 }
 
@@ -734,7 +996,7 @@ struct ContextMenuEntryLocalDataset {
     backref: RefAny, // RefAny<NodeGraphLocalDataset>
 }
 
-struct NodeConnectionMarkerDataset { }
+struct NodeConnectionMarkerDataset {}
 
 struct NodeLocalDataset {
     node_id: NodeGraphNodeId,
@@ -775,15 +1037,14 @@ fn render_node(
     mut node_local_dataset: NodeLocalDataset,
     scale_factor: f32,
 ) -> Dom {
-
-    use azul_desktop::css::*;
-    use azul_desktop::dom::{
-        Dom, DomVec, IdOrClass, IdOrClassVec,
-        NodeDataInlineCssPropertyVec,
-        IdOrClass::{Class, Id},
-        NodeDataInlineCssProperty, TabIndex,
+    use azul_desktop::{
+        css::{AzString, *},
+        dom::{
+            Dom, DomVec, IdOrClass,
+            IdOrClass::{Class, Id},
+            IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
+        },
     };
-    use azul_desktop::css::AzString;
 
     const STRING_9416190750059025162: AzString = AzString::from_const_str("Material Icons");
     const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
@@ -1225,7 +1486,6 @@ fn render_node(
     const CSS_MATCH_12400244273289328300: NodeDataInlineCssPropertyVec =
         NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_12400244273289328300_PROPERTIES);
 
-
     const CSS_MATCH_14906563417280941890_PROPERTIES: &[NodeDataInlineCssProperty] = &[
         // .outputs
         NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
@@ -1357,8 +1617,6 @@ fn render_node(
     ];
     const CSS_MATCH_2639191696846875011: NodeDataInlineCssPropertyVec =
         NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_2639191696846875011_PROPERTIES);
-
-
 
     const CSS_MATCH_3354247437065914166_PROPERTIES: &[NodeDataInlineCssProperty] = &[
         // .node_body
@@ -1774,17 +2032,43 @@ fn render_node(
     };
 
     // get names and colors for inputs / outputs
-    let inputs = node_info.inputs.iter().filter_map(|io_id| {
-        let node_graph_ref = node_local_dataset.backref.downcast_ref::<NodeGraphLocalDataset>()?;
-        let io_info = node_graph_ref.node_graph.input_output_types.iter().find(|i| i.io_type_id == *io_id)?;
-        Some((io_info.io_info.data_type.clone(), io_info.io_info.color.clone()))
-    }).collect::<Vec<_>>();
+    let inputs = node_info
+        .inputs
+        .iter()
+        .filter_map(|io_id| {
+            let node_graph_ref = node_local_dataset
+                .backref
+                .downcast_ref::<NodeGraphLocalDataset>()?;
+            let io_info = node_graph_ref
+                .node_graph
+                .input_output_types
+                .iter()
+                .find(|i| i.io_type_id == *io_id)?;
+            Some((
+                io_info.io_info.data_type.clone(),
+                io_info.io_info.color.clone(),
+            ))
+        })
+        .collect::<Vec<_>>();
 
-    let outputs = node_info.outputs.iter().filter_map(|io_id| {
-        let node_graph_ref = node_local_dataset.backref.downcast_ref::<NodeGraphLocalDataset>()?;
-        let io_info = node_graph_ref.node_graph.input_output_types.iter().find(|i| i.io_type_id == *io_id)?;
-        Some((io_info.io_info.data_type.clone(), io_info.io_info.color.clone()))
-    }).collect::<Vec<_>>();
+    let outputs = node_info
+        .outputs
+        .iter()
+        .filter_map(|io_id| {
+            let node_graph_ref = node_local_dataset
+                .backref
+                .downcast_ref::<NodeGraphLocalDataset>()?;
+            let io_info = node_graph_ref
+                .node_graph
+                .input_output_types
+                .iter()
+                .find(|i| i.io_type_id == *io_id)?;
+            Some((
+                io_info.io_info.data_type.clone(),
+                io_info.io_info.color.clone(),
+            ))
+        })
+        .collect::<Vec<_>>();
 
     let node_local_dataset = RefAny::new(node_local_dataset);
 
@@ -2410,14 +2694,20 @@ fn render_node(
 }
 
 fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> Dom {
+    const THEME_RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    }; // #484c52
+    const BACKGROUND_THEME_RED: &[StyleBackgroundContent] =
+        &[StyleBackgroundContent::Color(THEME_RED)];
+    const BACKGROUND_COLOR_RED: StyleBackgroundContentVec =
+        StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_RED);
 
-    const THEME_RED: ColorU = ColorU { r: 255,  g: 0,  b: 0,  a: 255 }; // #484c52
-    const BACKGROUND_THEME_RED: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(THEME_RED)];
-    const BACKGROUND_COLOR_RED: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_RED);
-
-    static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[
-        Class(AzString::from_const_str("nodegraph-connections-container"))
-    ];
+    static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
+        AzString::from_const_str("nodegraph-connections-container"),
+    )];
 
     static NODEGRAPH_CONNECTIONS_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
         Normal(CssProperty::position(LayoutPosition::Absolute)),
@@ -2425,93 +2715,130 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
     ];
 
     Dom::div()
-    .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_CONNECTIONS_CONTAINER_CLASS))
-    .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(NODEGRAPH_CONNECTIONS_CONTAINER_PROPS))
-    .with_dataset(Some(root_marker_nodedata).into())
-    .with_children({
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            NODEGRAPH_CONNECTIONS_CONTAINER_CLASS,
+        ))
+        .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(
+            NODEGRAPH_CONNECTIONS_CONTAINER_PROPS,
+        ))
+        .with_dataset(Some(root_marker_nodedata).into())
+        .with_children({
+            let mut children = Vec::new();
 
-        let mut children = Vec::new();
-
-        for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref().iter() {
-
-            let out_node_id = node_id;
-            let node_type_info = match node_graph.node_types.iter().find(|i| i.node_type_id == node.node_type) {
-                Some(s) => &s.node_type_info,
-                None => continue,
-            };
-
-            for OutputConnection { output_index, connects_to } in node.connect_out.as_ref().iter() {
-
-                let output_type_id = match node_type_info.outputs.get(*output_index) {
-                    Some(s) => s,
+            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref().iter() {
+                let out_node_id = node_id;
+                let node_type_info = match node_graph
+                    .node_types
+                    .iter()
+                    .find(|i| i.node_type_id == node.node_type)
+                {
+                    Some(s) => &s.node_type_info,
                     None => continue,
                 };
 
-                let output_color = match node_graph.input_output_types.iter().find(|o| o.io_type_id == *output_type_id) {
-                    Some(s) => s.io_info.color.clone(),
-                    None => continue,
-                };
-
-                for InputNodeAndIndex { node_id, input_index } in connects_to.as_ref().iter() {
-
-                    let in_node_id = node_id;
-
-                    let mut cld = ConnectionLocalDataset {
-                        out_node_id: *out_node_id,
-                        out_idx: *output_index,
-                        in_node_id: *in_node_id,
-                        in_idx: *input_index,
-                        swap_vert: false,
-                        swap_horz: false,
-                        color: output_color,
-                    };
-
-                    let (rect, swap_vert, swap_horz) = match get_rect(&node_graph, cld) {
+                for OutputConnection {
+                    output_index,
+                    connects_to,
+                } in node.connect_out.as_ref().iter()
+                {
+                    let output_type_id = match node_type_info.outputs.get(*output_index) {
                         Some(s) => s,
                         None => continue,
                     };
 
-                    cld.swap_vert = swap_vert;
-                    cld.swap_horz = swap_horz;
+                    let output_color = match node_graph
+                        .input_output_types
+                        .iter()
+                        .find(|o| o.io_type_id == *output_type_id)
+                    {
+                        Some(s) => s.io_info.color.clone(),
+                        None => continue,
+                    };
 
-                    let cld_refany = RefAny::new(cld);
-                    let connection_div = Dom::image(ImageRef::callback(draw_connection, cld_refany.clone()))
-                        .with_dataset(Some(cld_refany).into())
-                        .with_inline_css_props(vec![
-                            NodeDataInlineCssProperty::Normal(CssProperty::Transform(
-                                StyleTransformVecValue::Exact(vec![
-                                    StyleTransform::Translate(StyleTransformTranslate2D {
-                                        x: PixelValue::px(node_graph.offset.x + rect.origin.x),
-                                        y: PixelValue::px(node_graph.offset.y + rect.origin.y),
-                                    }),
-                                    StyleTransform::ScaleX(PercentageValue::new(node_graph.scale_factor * 100.0)),
-                                    StyleTransform::ScaleY(PercentageValue::new(node_graph.scale_factor * 100.0)),
-                                ].into()),
-                            )),
-                            NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-                                LayoutWidth { inner: PixelValue::px(rect.size.width) },
-                            ))),
-                            NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-                                LayoutHeight { inner: PixelValue::px(rect.size.height) },
-                            ))),
-                        ].into());
+                    for InputNodeAndIndex {
+                        node_id,
+                        input_index,
+                    } in connects_to.as_ref().iter()
+                    {
+                        let in_node_id = node_id;
 
-                    children.push(
-                        Dom::div()
-                        .with_inline_style("flex-grow: 1; position: absolute; overflow: hidden;")
-                        .with_children(vec![connection_div].into())
-                    );
+                        let mut cld = ConnectionLocalDataset {
+                            out_node_id: *out_node_id,
+                            out_idx: *output_index,
+                            in_node_id: *in_node_id,
+                            in_idx: *input_index,
+                            swap_vert: false,
+                            swap_horz: false,
+                            color: output_color,
+                        };
+
+                        let (rect, swap_vert, swap_horz) = match get_rect(&node_graph, cld) {
+                            Some(s) => s,
+                            None => continue,
+                        };
+
+                        cld.swap_vert = swap_vert;
+                        cld.swap_horz = swap_horz;
+
+                        let cld_refany = RefAny::new(cld);
+                        let connection_div =
+                            Dom::image(ImageRef::callback(draw_connection, cld_refany.clone()))
+                                .with_dataset(Some(cld_refany).into())
+                                .with_inline_css_props(
+                                    vec![
+                                        NodeDataInlineCssProperty::Normal(CssProperty::Transform(
+                                            StyleTransformVecValue::Exact(
+                                                vec![
+                                                    StyleTransform::Translate(
+                                                        StyleTransformTranslate2D {
+                                                            x: PixelValue::px(
+                                                                node_graph.offset.x + rect.origin.x,
+                                                            ),
+                                                            y: PixelValue::px(
+                                                                node_graph.offset.y + rect.origin.y,
+                                                            ),
+                                                        },
+                                                    ),
+                                                    StyleTransform::ScaleX(PercentageValue::new(
+                                                        node_graph.scale_factor * 100.0,
+                                                    )),
+                                                    StyleTransform::ScaleY(PercentageValue::new(
+                                                        node_graph.scale_factor * 100.0,
+                                                    )),
+                                                ]
+                                                .into(),
+                                            ),
+                                        )),
+                                        NodeDataInlineCssProperty::Normal(CssProperty::Width(
+                                            LayoutWidthValue::Exact(LayoutWidth {
+                                                inner: PixelValue::px(rect.size.width),
+                                            }),
+                                        )),
+                                        NodeDataInlineCssProperty::Normal(CssProperty::Height(
+                                            LayoutHeightValue::Exact(LayoutHeight {
+                                                inner: PixelValue::px(rect.size.height),
+                                            }),
+                                        )),
+                                    ]
+                                    .into(),
+                                );
+
+                        children.push(
+                            Dom::div()
+                                .with_inline_style(
+                                    "flex-grow: 1; position: absolute; overflow: hidden;",
+                                )
+                                .with_children(vec![connection_div].into()),
+                        );
+                    }
                 }
-             }
-        }
+            }
 
-        children.into()
-    })
+            children.into()
+        })
 }
 
-extern "C"
-fn draw_connection(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
-
+extern "C" fn draw_connection(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
     let size = info.get_bounds().get_physical_size();
     let invalid = ImageRef::null_image(
         size.width as usize,
@@ -2531,12 +2858,8 @@ fn draw_connection_inner(
     info: &mut RenderImageCallbackInfo,
     texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
-
-    use azul_desktop::svg::{
-        tessellate_path_stroke,
-        tessellate_multi_polygon_stroke,
-    };
     use azul_core::svg::SvgMultiPolygon;
+    use azul_desktop::svg::{tessellate_multi_polygon_stroke, tessellate_path_stroke};
 
     let data = data.downcast_ref::<ConnectionLocalDataset>()?;
     let data = &*data;
@@ -2556,65 +2879,109 @@ fn draw_connection_inner(
 
     let tex_half = (texture_size.width as f32) / 2.0;
 
-    let tessellated_stroke = tessellate_path_stroke(&SvgPath {
-        items: vec![
-            // depending on in which quadrant the curve is drawn relative to the input node,
-            // we need a different curve
-            if data.swap_vert {
-                if data.swap_horz {
-                    //          /- input
-                    //  output-/
-                    SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: 0.0, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                        ctrl_1: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                        ctrl_2: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                        end: SvgPoint { x: texture_size.width as f32, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                    })
+    let tessellated_stroke = tessellate_path_stroke(
+        &SvgPath {
+            items: vec![
+                // depending on in which quadrant the curve is drawn relative to the input node,
+                // we need a different curve
+                if data.swap_vert {
+                    if data.swap_horz {
+                        //          /- input
+                        //  output-/
+                        SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint {
+                                x: 0.0,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                            ctrl_1: SvgPoint {
+                                x: tex_half,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                            ctrl_2: SvgPoint {
+                                x: tex_half,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                            end: SvgPoint {
+                                x: texture_size.width as f32,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                        })
+                    } else {
+                        //  input -\
+                        //          \- output
+                        SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint {
+                                x: 0.0,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                            ctrl_1: SvgPoint {
+                                x: tex_half,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: tex_half,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                            end: SvgPoint {
+                                x: texture_size.width as f32,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                        })
+                    }
                 } else {
-                    //  input -\
-                    //          \- output
-                    SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: 0.0, y: CONNECTION_DOT_HEIGHT / 2.0  },
-                        ctrl_1: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                        ctrl_2: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                        end: SvgPoint { x: texture_size.width as f32, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                    })
-                }
-            } else {
-                if data.swap_horz {
-                    //  output-\
-                    //          \- input
-                    SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: 0.0, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                        ctrl_1: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                        ctrl_2: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                        end: SvgPoint { x: texture_size.width as f32, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                    })
-                } else {
-                    //         /- output
-                    // input -/
-                    SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: 0.0, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                        ctrl_1: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                        ctrl_2: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                        end: SvgPoint { x: texture_size.width as f32, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                    })
-                }
-            }
-        ].into()
-    }, stroke_style);
-
-    let tesselated_gpu_buffer = TessellatedGPUSvgNode::new(
-        &tessellated_stroke,
-        gl_context.clone(),
+                    if data.swap_horz {
+                        //  output-\
+                        //          \- input
+                        SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint {
+                                x: 0.0,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                            ctrl_1: SvgPoint {
+                                x: tex_half,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                            ctrl_2: SvgPoint {
+                                x: tex_half,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                            end: SvgPoint {
+                                x: texture_size.width as f32,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                        })
+                    } else {
+                        //         /- output
+                        // input -/
+                        SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: SvgPoint {
+                                x: 0.0,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                            ctrl_1: SvgPoint {
+                                x: tex_half,
+                                y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0),
+                            },
+                            ctrl_2: SvgPoint {
+                                x: tex_half,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                            end: SvgPoint {
+                                x: texture_size.width as f32,
+                                y: CONNECTION_DOT_HEIGHT / 2.0,
+                            },
+                        })
+                    }
+                },
+            ]
+            .into(),
+        },
+        stroke_style,
     );
 
-    tesselated_gpu_buffer.draw(
-        &mut texture,
-        texture_size,
-        data.color,
-        Vec::new().into()
-    );
+    let tesselated_gpu_buffer = TessellatedGPUSvgNode::new(&tessellated_stroke, gl_context.clone());
+
+    tesselated_gpu_buffer.draw(&mut texture, texture_size, data.color, Vec::new().into());
 
     Some(ImageRef::new_gltexture(texture))
 }
@@ -2625,17 +2992,29 @@ const DIST_BETWEEN_NODES: f32 = 10.0;
 const CONNECTION_DOT_HEIGHT: f32 = 15.0;
 
 // calculates the rect on which the connection is drawn in the UI
-fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Option<(LogicalRect, bool, bool)> {
-
-    let ConnectionLocalDataset { out_node_id, out_idx, in_node_id, in_idx, .. } = connection;
+fn get_rect(
+    node_graph: &NodeGraph,
+    connection: ConnectionLocalDataset,
+) -> Option<(LogicalRect, bool, bool)> {
+    let ConnectionLocalDataset {
+        out_node_id,
+        out_idx,
+        in_node_id,
+        in_idx,
+        ..
+    } = connection;
     let out_node = node_graph.nodes.iter().find(|i| i.node_id == out_node_id)?;
     let in_node = node_graph.nodes.iter().find(|i| i.node_id == in_node_id)?;
 
     let x_out = out_node.node.position.x + NODE_WIDTH;
-    let y_out = out_node.node.position.y + V_OFFSET + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+    let y_out = out_node.node.position.y
+        + V_OFFSET
+        + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
 
     let x_in = in_node.node.position.x;
-    let y_in = in_node.node.position.y + V_OFFSET + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+    let y_in = in_node.node.position.y
+        + V_OFFSET
+        + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
 
     let should_swap_vertical = y_in > y_out;
     let should_swap_horizontal = x_in < x_out;
@@ -2646,12 +3025,15 @@ fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Optio
     let x = x_in.min(x_out);
     let y = y_in.min(y_out);
 
-    Some((LogicalRect {
-        size: LogicalSize { width, height },
-        origin: LogicalPosition { x, y },
-    }, should_swap_vertical, should_swap_horizontal))
+    Some((
+        LogicalRect {
+            size: LogicalSize { width, height },
+            origin: LogicalPosition { x, y },
+        },
+        should_swap_vertical,
+        should_swap_horizontal,
+    ))
 }
-
 
 extern "C" fn nodegraph_set_active_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let data_clone = data.clone();
@@ -2673,7 +3055,6 @@ extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, info: &mut Callback
 
 // drag either the graph or the currently active nodes
 extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     let mut data = match data.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2690,7 +3071,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
         return Update::DoNothing;
     }
 
-    let (current_mouse_pos, previous_mouse_pos) = match (cur.cursor_position, prev.cursor_position) {
+    let (current_mouse_pos, previous_mouse_pos) = match (cur.cursor_position, prev.cursor_position)
+    {
         (InWindow(c), InWindow(p)) => (c, p),
         _ => return Update::DoNothing,
     };
@@ -2702,22 +3084,31 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
     let should_update = match data.active_node_being_dragged.clone() {
         // drag node
         Some((node_graph_node_id, data_marker)) => {
-
             let node_connection_marker = &mut data.node_connection_marker;
 
             let nodegraph_node = info.get_hit_node();
             let result = match data.callbacks.on_node_dragged.as_mut() {
-                Some(OnNodeDragged { callback, data }) => (callback.cb)(data, info, node_graph_node_id, NodeDragAmount { x: dx, y: dy }),
+                Some(OnNodeDragged { callback, data }) => (callback.cb)(
+                    data,
+                    info,
+                    node_graph_node_id,
+                    NodeDragAmount { x: dx, y: dy },
+                ),
                 None => Update::DoNothing,
             };
 
             // update the visual transform of the node in the UI
-            let node_position = match data.node_graph.nodes.iter_mut().find(|i| i.node_id == node_graph_node_id) {
+            let node_position = match data
+                .node_graph
+                .nodes
+                .iter_mut()
+                .find(|i| i.node_id == node_graph_node_id)
+            {
                 Some(s) => {
                     s.node.position.x += dx;
                     s.node.position.y += dy;
                     s.node.position
-                },
+                }
                 None => return Update::DoNothing,
             };
 
@@ -2731,31 +3122,37 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                 y: PixelValue::px(node_position.y + data.node_graph.offset.y),
             };
 
-            info.set_css_property(visual_node_id, CssProperty::transform(
-                if data.node_graph.scale_factor != 1.0 {
-                     vec![
-                         StyleTransform::Translate(node_transform),
-                         StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                         StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                     ]
-                } else {
-                     vec![
-                          StyleTransform::Translate(node_transform)
-                     ]
-                }.into())
+            info.set_css_property(
+                visual_node_id,
+                CssProperty::transform(
+                    if data.node_graph.scale_factor != 1.0 {
+                        vec![
+                            StyleTransform::Translate(node_transform),
+                            StyleTransform::ScaleX(PercentageValue::new(
+                                data.node_graph.scale_factor * 100.0,
+                            )),
+                            StyleTransform::ScaleY(PercentageValue::new(
+                                data.node_graph.scale_factor * 100.0,
+                            )),
+                        ]
+                    } else {
+                        vec![StyleTransform::Translate(node_transform)]
+                    }
+                    .into(),
+                ),
             );
 
             // get the NodeId of the node containing all the connection lines
-            let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-                Some(s) => s,
-                None => return result,
-            };
+            let connection_container_nodeid =
+                match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
+                    Some(s) => s,
+                    None => return result,
+                };
 
             // animate all the connections
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
             while let Some(connection_nodeid) = first_connection_child {
-
                 first_connection_child = info.get_next_sibling(connection_nodeid);
 
                 let first_child = match info.get_first_child(connection_nodeid) {
@@ -2773,10 +3170,10 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     None => continue,
                 };
 
-                if !(cld.out_node_id == node_graph_node_id || cld.in_node_id == node_graph_node_id) {
+                if !(cld.out_node_id == node_graph_node_id || cld.in_node_id == node_graph_node_id)
+                {
                     continue; // connection does not need to be modified
                 }
-
 
                 let (new_rect, swap_vert, swap_horz) = match get_rect(&data.node_graph, *cld) {
                     Some(s) => s,
@@ -2791,35 +3188,48 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
                 };
 
-                info.set_css_property(first_child, CssProperty::transform(
-                    if data.node_graph.scale_factor != 1.0 {
-                         vec![
-                             StyleTransform::Translate(node_transform),
-                             StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                             StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                         ]
-                    } else {
-                         vec![
-                              StyleTransform::Translate(node_transform)
-                         ]
-                    }.into())
+                info.set_css_property(
+                    first_child,
+                    CssProperty::transform(
+                        if data.node_graph.scale_factor != 1.0 {
+                            vec![
+                                StyleTransform::Translate(node_transform),
+                                StyleTransform::ScaleX(PercentageValue::new(
+                                    data.node_graph.scale_factor * 100.0,
+                                )),
+                                StyleTransform::ScaleY(PercentageValue::new(
+                                    data.node_graph.scale_factor * 100.0,
+                                )),
+                            ]
+                        } else {
+                            vec![StyleTransform::Translate(node_transform)]
+                        }
+                        .into(),
+                    ),
                 );
 
-                info.set_css_property(first_child, CssProperty::Width(LayoutWidthValue::Exact(
-                    LayoutWidth { inner: PixelValue::px(new_rect.size.width) },
-                )));
-                info.set_css_property(first_child, CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight { inner: PixelValue::px(new_rect.size.height) },
-                )));
+                info.set_css_property(
+                    first_child,
+                    CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
+                        inner: PixelValue::px(new_rect.size.width),
+                    })),
+                );
+                info.set_css_property(
+                    first_child,
+                    CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight {
+                        inner: PixelValue::px(new_rect.size.height),
+                    })),
+                );
             }
 
             result
-        },
+        }
         // drag graph
         None => {
-
             let result = match data.callbacks.on_node_graph_dragged.as_mut() {
-                Some(OnNodeGraphDragged { callback, data }) => (callback.cb)(data, info, GraphDragAmount { x: dx, y: dy }),
+                Some(OnNodeGraphDragged { callback, data }) => {
+                    (callback.cb)(data, info, GraphDragAmount { x: dx, y: dy })
+                }
                 None => Update::DoNothing,
             };
 
@@ -2843,7 +3253,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
             };
 
             loop {
-
                 let mut node_first_child = match info.get_first_child(node) {
                     Some(s) => s,
                     None => return Update::DoNothing,
@@ -2854,14 +3263,20 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     Some(s) => s,
                 };
 
-                let mut node_graph_node_id = match node_local_dataset.downcast_ref::<NodeLocalDataset>() {
-                    Some(s) => s,
-                    None => continue,
-                };
+                let mut node_graph_node_id =
+                    match node_local_dataset.downcast_ref::<NodeLocalDataset>() {
+                        Some(s) => s,
+                        None => continue,
+                    };
 
                 let node_graph_node_id = node_graph_node_id.node_id;
 
-                let node_position = match data.node_graph.nodes.iter().find(|i| i.node_id == node_graph_node_id) {
+                let node_position = match data
+                    .node_graph
+                    .nodes
+                    .iter()
+                    .find(|i| i.node_id == node_graph_node_id)
+                {
                     Some(s) => s.node.position,
                     None => continue,
                 };
@@ -2871,18 +3286,24 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     y: PixelValue::px(node_position.y + data.node_graph.offset.y),
                 };
 
-                info.set_css_property(node_first_child, CssProperty::transform(
-                    if data.node_graph.scale_factor != 1.0 {
-                         vec![
-                             StyleTransform::Translate(node_transform),
-                             StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                             StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                         ]
-                    } else {
-                         vec![
-                              StyleTransform::Translate(node_transform)
-                         ]
-                    }.into())
+                info.set_css_property(
+                    node_first_child,
+                    CssProperty::transform(
+                        if data.node_graph.scale_factor != 1.0 {
+                            vec![
+                                StyleTransform::Translate(node_transform),
+                                StyleTransform::ScaleX(PercentageValue::new(
+                                    data.node_graph.scale_factor * 100.0,
+                                )),
+                                StyleTransform::ScaleY(PercentageValue::new(
+                                    data.node_graph.scale_factor * 100.0,
+                                )),
+                            ]
+                        } else {
+                            vec![StyleTransform::Translate(node_transform)]
+                        }
+                        .into(),
+                    ),
                 );
 
                 node = match info.get_next_sibling(node) {
@@ -2894,15 +3315,15 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
             let node_connection_marker = &mut data.node_connection_marker;
 
             // Update the connection positions
-            let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-                Some(s) => s,
-                None => return result,
-            };
+            let connection_container_nodeid =
+                match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
+                    Some(s) => s,
+                    None => return result,
+                };
 
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
             while let Some(connection_nodeid) = first_connection_child {
-
                 first_connection_child = info.get_next_sibling(connection_nodeid);
 
                 let first_child = match info.get_first_child(connection_nodeid) {
@@ -2925,14 +3346,24 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     None => continue,
                 };
 
-                info.set_css_property(first_child, CssProperty::transform(vec![
-                    StyleTransform::Translate(StyleTransformTranslate2D {
-                        x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
-                        y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
-                    }),
-                    StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                    StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
-                ].into()));
+                info.set_css_property(
+                    first_child,
+                    CssProperty::transform(
+                        vec![
+                            StyleTransform::Translate(StyleTransformTranslate2D {
+                                x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
+                                y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+                            }),
+                            StyleTransform::ScaleX(PercentageValue::new(
+                                data.node_graph.scale_factor * 100.0,
+                            )),
+                            StyleTransform::ScaleY(PercentageValue::new(
+                                data.node_graph.scale_factor * 100.0,
+                            )),
+                        ]
+                        .into(),
+                    ),
+                );
             }
 
             result
@@ -2945,7 +3376,6 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
 }
 
 extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     let mut data = match data.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2955,7 +3385,6 @@ extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, info: &mut CallbackInf
 }
 
 extern "C" fn nodegraph_delete_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     let mut data = match data.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2970,14 +3399,13 @@ extern "C" fn nodegraph_delete_node(data: &mut RefAny, info: &mut CallbackInfo) 
 
     let result = match backref.callbacks.on_node_removed.as_mut() {
         Some(OnNodeRemoved { callback, data }) => (callback.cb)(data, info, node_id),
-        None => Update::DoNothing
+        None => Update::DoNothing,
     };
 
     result
 }
 
 extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     use azul_core::window::CursorPosition;
 
     let mut data = match data.downcast_mut::<ContextMenuEntryLocalDataset>() {
@@ -3010,14 +3438,18 @@ extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut Callbac
     };
 
     let new_node_pos = NodePosition {
-        x: (cursor_in_viewport.x - node_wrapper_offset.0) * (1.0 / backref.node_graph.scale_factor) - backref.node_graph.offset.x,
-        y: (cursor_in_viewport.y - node_wrapper_offset.1) * (1.0 / backref.node_graph.scale_factor) - backref.node_graph.offset.y,
+        x: (cursor_in_viewport.x - node_wrapper_offset.0) * (1.0 / backref.node_graph.scale_factor)
+            - backref.node_graph.offset.x,
+        y: (cursor_in_viewport.y - node_wrapper_offset.1) * (1.0 / backref.node_graph.scale_factor)
+            - backref.node_graph.offset.y,
     };
 
     let new_node_id = backref.node_graph.generate_unique_node_id();
 
     let result = match backref.callbacks.on_node_added.as_mut() {
-        Some(OnNodeAdded { callback, data }) => (callback.cb)(data, info, new_node_type, new_node_id, new_node_pos),
+        Some(OnNodeAdded { callback, data }) => {
+            (callback.cb)(data, info, new_node_type, new_node_id, new_node_pos)
+        }
         None => Update::DoNothing,
     };
 
@@ -3025,7 +3457,6 @@ extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut Callbac
 }
 
 extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
     use self::InputOrOutput::*;
 
     let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {
@@ -3052,7 +3483,7 @@ extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut Callb
             None => {
                 backref.last_input_or_output_clicked = Some((node_id, io_id));
                 return Update::DoNothing;
-            },
+            }
             Some((prev_node_id, prev_io_id)) => {
                 match (prev_io_id, io_id) {
                     (Input(i), Output(o)) => (prev_node_id, i, node_id, o),
@@ -3067,8 +3498,13 @@ extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut Callb
         };
 
     // verify that the nodetype matches
-    match backref.node_graph.connect_input_output(input_node, input_index, output_node, output_index) {
-        Ok(_) => { }
+    match backref.node_graph.connect_input_output(
+        input_node,
+        input_index,
+        output_node,
+        output_index,
+    ) {
+        Ok(_) => {}
         Err(e) => {
             eprintln!("{:?}", e);
             backref.last_input_or_output_clicked = None;
@@ -3078,18 +3514,27 @@ extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut Callb
 
     let result = match backref.callbacks.on_node_connected.as_mut() {
         Some(OnNodeConnected { callback, data }) => {
-            let r = (callback.cb)(data, info, input_node, input_index, output_node, output_index);
+            let r = (callback.cb)(
+                data,
+                info,
+                input_node,
+                input_index,
+                output_node,
+                output_index,
+            );
             backref.last_input_or_output_clicked = None;
             r
-        },
+        }
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_input_output_disconnect(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
+extern "C" fn nodegraph_input_output_disconnect(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+) -> Update {
     use self::InputOrOutput::*;
 
     let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {
@@ -3114,24 +3559,35 @@ extern "C" fn nodegraph_input_output_disconnect(data: &mut RefAny, info: &mut Ca
     let mut result = Update::DoNothing;
     match io_id {
         Input(i) => {
-            result.max_self(match backref.callbacks.on_node_input_disconnected.as_mut() {
-                Some(OnNodeInputDisconnected { callback, data }) => (callback.cb)(data, info, node_id, i),
-                None => Update::DoNothing,
-            });
-        },
+            result.max_self(
+                match backref.callbacks.on_node_input_disconnected.as_mut() {
+                    Some(OnNodeInputDisconnected { callback, data }) => {
+                        (callback.cb)(data, info, node_id, i)
+                    }
+                    None => Update::DoNothing,
+                },
+            );
+        }
         Output(o) => {
-            result.max_self(match backref.callbacks.on_node_output_disconnected.as_mut() {
-                Some(OnNodeOutputDisconnected { callback, data }) => (callback.cb)(data, info, node_id, o),
-                None => Update::DoNothing,
-            });
+            result.max_self(
+                match backref.callbacks.on_node_output_disconnected.as_mut() {
+                    Some(OnNodeOutputDisconnected { callback, data }) => {
+                        (callback.cb)(data, info, node_id, o)
+                    }
+                    None => Update::DoNothing,
+                },
+            );
         }
     };
 
     result
 }
 
-extern "C" fn nodegraph_on_textinput_focus_lost(data: &mut RefAny, info: &mut CallbackInfo, textinputstate: &TextInputState) -> Update {
-
+extern "C" fn nodegraph_on_textinput_focus_lost(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    textinputstate: &TextInputState,
+) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3146,26 +3602,44 @@ extern "C" fn nodegraph_on_textinput_focus_lost(data: &mut RefAny, info: &mut Ca
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut node_graph = match node_local_dataset
+        .backref
+        .downcast_mut::<NodeGraphLocalDataset>()
+    {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+    let node_type = match node_graph
+        .node_graph
+        .nodes
+        .iter()
+        .find(|i| i.node_id == node_id)
+    {
         Some(s) => s.node.node_type,
         None => return Update::DoNothing,
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::TextInput(textinputstate.get_text().into())),
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
+            data,
+            info,
+            node_id,
+            field_idx,
+            node_type,
+            NodeTypeFieldValue::TextInput(textinputstate.get_text().into()),
+        ),
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_on_numberinput_focus_lost(data: &mut RefAny, info: &mut CallbackInfo, numberinputstate: &NumberInputState) -> Update {
-
+extern "C" fn nodegraph_on_numberinput_focus_lost(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    numberinputstate: &NumberInputState,
+) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3180,26 +3654,44 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(data: &mut RefAny, info: &mut 
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut node_graph = match node_local_dataset
+        .backref
+        .downcast_mut::<NodeGraphLocalDataset>()
+    {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+    let node_type = match node_graph
+        .node_graph
+        .nodes
+        .iter()
+        .find(|i| i.node_id == node_id)
+    {
         Some(s) => s.node.node_type,
         None => return Update::DoNothing,
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::NumberInput(numberinputstate.number)),
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
+            data,
+            info,
+            node_id,
+            field_idx,
+            node_type,
+            NodeTypeFieldValue::NumberInput(numberinputstate.number),
+        ),
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_on_checkbox_value_changed(data: &mut RefAny, info: &mut CallbackInfo, checkboxinputstate: &CheckBoxState) -> Update {
-
+extern "C" fn nodegraph_on_checkbox_value_changed(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    checkboxinputstate: &CheckBoxState,
+) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3214,26 +3706,44 @@ extern "C" fn nodegraph_on_checkbox_value_changed(data: &mut RefAny, info: &mut 
 
     let node_id = node_local_dataset.node_id;
 
-    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut node_graph = match node_local_dataset
+        .backref
+        .downcast_mut::<NodeGraphLocalDataset>()
+    {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+    let node_type = match node_graph
+        .node_graph
+        .nodes
+        .iter()
+        .find(|i| i.node_id == node_id)
+    {
         Some(s) => s.node.node_type,
         None => return Update::DoNothing,
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::CheckBox(checkboxinputstate.checked)),
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
+            data,
+            info,
+            node_id,
+            field_idx,
+            node_type,
+            NodeTypeFieldValue::CheckBox(checkboxinputstate.checked),
+        ),
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_on_colorinput_value_changed(data: &mut RefAny, info: &mut CallbackInfo, colorinputstate: &ColorInputState) -> Update {
-
+extern "C" fn nodegraph_on_colorinput_value_changed(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    colorinputstate: &ColorInputState,
+) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3247,26 +3757,44 @@ extern "C" fn nodegraph_on_colorinput_value_changed(data: &mut RefAny, info: &mu
     };
 
     let node_id = node_local_dataset.node_id;
-    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut node_graph = match node_local_dataset
+        .backref
+        .downcast_mut::<NodeGraphLocalDataset>()
+    {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+    let node_type = match node_graph
+        .node_graph
+        .nodes
+        .iter()
+        .find(|i| i.node_id == node_id)
+    {
         Some(s) => s.node.node_type,
         None => return Update::DoNothing,
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::ColorInput(colorinputstate.color)),
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
+            data,
+            info,
+            node_id,
+            field_idx,
+            node_type,
+            NodeTypeFieldValue::ColorInput(colorinputstate.color),
+        ),
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_on_fileinput_button_clicked(data: &mut RefAny, info: &mut CallbackInfo, file: &FileInputState) -> Update {
-
+extern "C" fn nodegraph_on_fileinput_button_clicked(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    file: &FileInputState,
+) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3280,19 +3808,34 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(data: &mut RefAny, info: &mu
     };
 
     let node_id = node_local_dataset.node_id;
-    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut node_graph = match node_local_dataset
+        .backref
+        .downcast_mut::<NodeGraphLocalDataset>()
+    {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+    let node_type = match node_graph
+        .node_graph
+        .nodes
+        .iter()
+        .find(|i| i.node_id == node_id)
+    {
         Some(s) => s.node.node_type,
         None => return Update::DoNothing,
     };
 
     // If a new file was selected, invoke callback
     let mut result = match node_graph.callbacks.on_node_field_edited.as_mut() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::FileInput(file.path.clone())),
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
+            data,
+            info,
+            node_id,
+            field_idx,
+            node_type,
+            NodeTypeFieldValue::FileInput(file.path.clone()),
+        ),
         None => return Update::DoNothing,
     };
 

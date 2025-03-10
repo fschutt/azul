@@ -7,9 +7,10 @@
 extern crate alloc;
 extern crate core;
 
-use alloc::string::String;
-use alloc::string::ToString;
-use alloc::vec::Vec;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 #[macro_export]
 macro_rules! impl_vec {
@@ -460,11 +461,11 @@ macro_rules! impl_vec_mut {
             pub fn truncate(&mut self, len: usize) {
                 // This is safe because:
                 //
-                // * the slice passed to `drop_in_place` is valid; the `len > self.len`
-                //   case avoids creating an invalid slice, and
-                // * the `len` of the vector is shrunk before calling `drop_in_place`,
-                //   such that no value will be dropped twice in case `drop_in_place`
-                //   were to panic once (if it panics twice, the program aborts).
+                // * the slice passed to `drop_in_place` is valid; the `len > self.len` case avoids
+                //   creating an invalid slice, and
+                // * the `len` of the vector is shrunk before calling `drop_in_place`, such that no
+                //   value will be dropped twice in case `drop_in_place` were to panic once (if it
+                //   panics twice, the program aborts).
                 unsafe {
                     if len > self.len {
                         return;
@@ -541,7 +542,8 @@ macro_rules! impl_vec_ord {
 macro_rules! impl_vec_clone {
     ($struct_type:ident, $struct_name:ident, $destructor_name:ident) => {
         impl $struct_name {
-            // Creates a `Vec` from a `Cow<'static, [T]>` - useful to avoid allocating in the case of &'static memory
+            // Creates a `Vec` from a `Cow<'static, [T]>` - useful to avoid allocating in the case
+            // of &'static memory
             #[inline(always)]
             pub fn from_copy_on_write(
                 input: alloc::borrow::Cow<'static, [$struct_type]>,
@@ -1122,6 +1124,4 @@ mod css;
 mod css_properties;
 mod print_css;
 
-pub use crate::css::*;
-pub use crate::css_properties::*;
-pub use crate::print_css::*;
+pub use crate::{css::*, css_properties::*, print_css::*};

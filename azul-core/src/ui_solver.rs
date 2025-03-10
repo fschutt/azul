@@ -1,3 +1,22 @@
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::__m256;
+use core::{
+    fmt,
+    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
+};
+
+use azul_css::{
+    ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+    LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom, LayoutBoxSizing, LayoutDisplay,
+    LayoutFlexDirection, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
+    LayoutMarginRight, LayoutMarginTop, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
+    LayoutPaddingRight, LayoutPaddingTop, LayoutPoint, LayoutPosition, LayoutRect, LayoutRectVec,
+    LayoutRight, LayoutSize, LayoutTop, OptionF32, PixelValue, StyleBoxShadow, StyleFontSize,
+    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
+};
+use rust_fontconfig::FcFontCache;
+
 use crate::{
     app_resources::{
         Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
@@ -18,24 +37,6 @@ use crate::{
     },
     window_state::RelayoutFn,
 };
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::vec::Vec;
-use azul_css::{
-    ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
-    LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom, LayoutBoxSizing, LayoutDisplay,
-    LayoutFlexDirection, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
-    LayoutMarginRight, LayoutMarginTop, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
-    LayoutPaddingRight, LayoutPaddingTop, LayoutPoint, LayoutPosition, LayoutRect, LayoutRectVec,
-    LayoutRight, LayoutSize, LayoutTop, OptionF32, PixelValue, StyleBoxShadow, StyleFontSize,
-    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
-};
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::__m256;
-use core::fmt;
-use core::sync::atomic::AtomicBool;
-use core::sync::atomic::Ordering as AtomicOrdering;
-use rust_fontconfig::FcFontCache;
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static USE_AVX: AtomicBool = AtomicBool::new(false);
@@ -214,7 +215,8 @@ impl ::core::fmt::Debug for ExternalScrollId {
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrolledNodes {
     pub overflowing_nodes: BTreeMap<NodeHierarchyItemId, OverflowingScrollNode>,
-    /// Nodes that need to clip their direct children (i.e. nodes with overflow-x and overflow-y set to "Hidden")
+    /// Nodes that need to clip their direct children (i.e. nodes with overflow-x and overflow-y
+    /// set to "Hidden")
     pub clip_nodes: BTreeMap<NodeId, LogicalSize>,
     pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeHierarchyItemId>,
 }
@@ -401,7 +403,8 @@ impl WidthCalculatedRect {
             .unwrap_or(0.0)
     }
 
-    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
+    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated
+    /// differently
     pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
         self.min_inner_size_px
             + self.get_margin_left(parent_width)
@@ -538,7 +541,8 @@ impl HeightCalculatedRect {
             .unwrap_or(0.0)
     }
 
-    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
+    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated
+    /// differently
     pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
         self.min_inner_size_px
             + self.get_margin_top(parent_height)
@@ -606,8 +610,10 @@ pub struct LayoutResult {
     pub root_position: LayoutPoint,
     pub preferred_widths: NodeDataContainer<Option<f32>>,
     pub preferred_heights: NodeDataContainer<Option<f32>>,
-    pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>, // TODO: warning: large struct
-    pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>, // TODO: warning: large struct
+    pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>, /* TODO: warning: large
+                                                                         * struct */
+    pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>, /* TODO: warning:
+                                                                           * large struct */
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
     pub layout_flex_grows: NodeDataContainer<f32>,
@@ -701,8 +707,8 @@ impl LayoutResult {
         image_cache: &ImageCache,
     ) -> CachedDisplayList {
         use crate::display_list::{
-            displaylist_handle_rect, push_rectangles_into_displaylist, DisplayListFrame,
-            DisplayListMsg, DisplayListParametersRef, LayoutRectContent, RectBackground,
+            DisplayListFrame, DisplayListMsg, DisplayListParametersRef, LayoutRectContent,
+            RectBackground, displaylist_handle_rect, push_rectangles_into_displaylist,
         };
 
         let layout_result = match layout_results.get(dom_id.inner) {
@@ -862,11 +868,11 @@ impl LayoutResult {
                             window_theme,
                             hidpi_bounds,
                             // see /examples/assets/images/scrollbounds.png for documentation!
-                            /* scroll_size  */
+                            /* scroll_size */
                             scroll_node.child_rect.size,
                             /* scroll_offset */
                             scroll_node.child_rect.origin - scroll_node.parent_rect.origin,
-                            /* virtual_scroll_size  */ scroll_node.virtual_child_rect.size,
+                            /* virtual_scroll_size */ scroll_node.virtual_child_rect.size,
                             /* virtual_scroll_offset */
                             scroll_node.virtual_child_rect.origin - scroll_node.parent_rect.origin,
                         );
@@ -1075,7 +1081,6 @@ impl GpuValueCache {
         positioned_rects: &NodeDataContainerRef<'a, PositionedRectangle>,
         styled_dom: &StyledDom,
     ) -> GpuEventChanges {
-
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_data = styled_dom.node_data.as_container();
         let node_states = styled_dom.styled_nodes.as_container();
@@ -1260,10 +1265,11 @@ pub struct TextLayoutOptions {
     /// How many spaces should a tab character emulate
     /// (multiplying value, i.e. `4.0` = one tab = 4 spaces)?
     pub tab_width: Option<f32>,
-    /// Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this to None.
+    /// Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this
+    /// to None.
     pub max_horizontal_width: Option<f32>,
-    /// How many pixels of leading does the first line have? Note that this added onto to the holes,
-    /// so for effects like `:first-letter`, use a hole instead of a leading.
+    /// How many pixels of leading does the first line have? Note that this added onto to the
+    /// holes, so for effects like `:first-letter`, use a hole instead of a leading.
     pub leading: Option<f32>,
     /// This is more important for inline text layout where items can punch "holes"
     /// into the text flow, for example an image that floats to the right.
@@ -1288,10 +1294,11 @@ pub struct ResolvedTextLayoutOptions {
     /// How many spaces should a tab character emulate
     /// (multiplying value, i.e. `4.0` = one tab = 4 spaces)?
     pub tab_width: OptionF32,
-    /// Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this to None.
+    /// Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this
+    /// to None.
     pub max_horizontal_width: OptionF32,
-    /// How many pixels of leading does the first line have? Note that this added onto to the holes,
-    /// so for effects like `:first-letter`, use a hole instead of a leading.
+    /// How many pixels of leading does the first line have? Note that this added onto to the
+    /// holes, so for effects like `:first-letter`, use a hole instead of a leading.
     pub leading: OptionF32,
     /// This is more important for inline text layout where items can punch "holes"
     /// into the text flow, for example an image that floats to the right.
@@ -1533,7 +1540,8 @@ pub struct OverflowInfo {
 
 // stores how much the children overflow the parent in the given direction
 // if amount is negative, the children do not overflow the parent
-// if the amount is set to None, that means there are no children for this node, so no overflow can be calculated
+// if the amount is set to None, that means there are no children for this node, so no overflow can
+// be calculated
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DirectionalOverflowInfo {
     Scroll { amount: Option<isize> },
@@ -1591,7 +1599,6 @@ pub enum PositionInfo {
     Absolute(PositionInfoInner),
     Relative(PositionInfoInner),
 }
-
 
 impl PositionInfo {
     /// Shift this node vertically by `offset_amount`.
@@ -2106,20 +2113,14 @@ impl ComputedTransform3D {
     #[inline]
     pub const fn new_scale(x: f32, y: f32, z: f32) -> Self {
         Self::new(
-            x, 0.0, 0.0, 0.0, 
-            0.0, y, 0.0, 0.0, 
-            0.0, 0.0, z, 0.0, 
-            0.0, 0.0, 0.0, 1.0,
+            x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0,
         )
     }
 
     #[inline]
     pub const fn new_translation(x: f32, y: f32, z: f32) -> Self {
         Self::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0, 
-            0.0, 0.0, 1.0, 0.0, 
-            x, y, z, 1.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0,
         )
     }
 
@@ -2358,9 +2359,10 @@ impl ComputedTransform3D {
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn linear_combine_sse(a: [f32; 4], b: &ComputedTransform3D) -> [f32; 4] {
-        use core::arch::x86_64::__m128;
-        use core::arch::x86_64::{_mm_add_ps, _mm_mul_ps, _mm_shuffle_ps};
-        use core::mem;
+        use core::{
+            arch::x86_64::{__m128, _mm_add_ps, _mm_mul_ps, _mm_shuffle_ps},
+            mem,
+        };
 
         let a: __m128 = mem::transmute(a);
         let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute(b.m[0]));
@@ -2396,10 +2398,10 @@ impl ComputedTransform3D {
     // dual linear combination using AVX instructions on YMM regs
     #[cfg(target_arch = "x86_64")]
     pub unsafe fn linear_combine_avx8(a01: __m256, b: &ComputedTransform3D) -> __m256 {
-        use core::arch::x86_64::{
-            _mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps,
+        use core::{
+            arch::x86_64::{_mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps},
+            mem,
         };
-        use core::mem;
 
         let mut result = _mm256_mul_ps(
             _mm256_shuffle_ps(a01, a01, 0x00),
@@ -2432,8 +2434,10 @@ impl ComputedTransform3D {
     #[cfg(target_arch = "x86_64")]
     #[inline]
     pub unsafe fn then_avx8(&self, other: &Self) -> Self {
-        use core::arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper};
-        use core::mem;
+        use core::{
+            arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper},
+            mem,
+        };
 
         _mm256_zeroupper();
 

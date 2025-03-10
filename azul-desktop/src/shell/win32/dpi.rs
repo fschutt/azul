@@ -1,29 +1,28 @@
 #![allow(non_snake_case, unused_unsafe)]
 
-use std::mem;
-use winapi::shared::windef::HMONITOR;
-use winapi::shared::windef::HWND;
-use winapi::shared::windef::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE;
-use winapi::shared::windef::DPI_AWARENESS_CONTEXT;
-use winapi::shared::windef::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2;
-use winapi::shared::minwindef::BOOL;
-use winapi::shared::ntdef::HRESULT;
-use winapi::um::wingdi::LOGPIXELSX;
-use winapi::um::winuser::IsProcessDPIAware;
-use winapi::um::wingdi::GetDeviceCaps;
-use winapi::shared::winerror::S_OK;
-use winapi::um::winuser::MonitorFromWindow;
-use winapi::um::winuser::MONITOR_DEFAULTTONEAREST;
-use winapi::um::winuser::GetDC;
-use std::ffi::c_void;
-use winapi::shared::minwindef::HINSTANCE;
-use winapi::shared::windef::RECT;
+use std::{ffi::c_void, mem};
+
+use winapi::{
+    shared::{
+        minwindef::{BOOL, HINSTANCE},
+        ntdef::HRESULT,
+        windef::{
+            DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, HMONITOR, HWND, RECT,
+        },
+        winerror::S_OK,
+    },
+    um::{
+        wingdi::{GetDeviceCaps, LOGPIXELSX},
+        winuser::{GetDC, IsProcessDPIAware, MONITOR_DEFAULTTONEAREST, MonitorFromWindow},
+    },
+};
 
 #[repr(C)]
 pub enum ProcessDpiAwareness {
     PROCESS_DPI_UNAWARE = 0,
     PROCESS_SYSTEM_DPI_AWARE = 1,
-    PROCESS_PER_MONITOR_DPI_AWARE = 2
+    PROCESS_PER_MONITOR_DPI_AWARE = 2,
 }
 
 #[repr(C)]
@@ -31,12 +30,11 @@ pub enum MonitorDpiType {
     MDT_EFFECTIVE_DPI = 0,
     MDT_ANGULAR_DPI = 1,
     MDT_RAW_DPI = 2,
-    MDT_DEFAULT
+    MDT_DEFAULT,
 }
 
 pub type SetProcessDPIAware = unsafe extern "system" fn() -> BOOL;
-pub type SetProcessDpiAwareness =
-    unsafe extern "system" fn(value: ProcessDpiAwareness) -> HRESULT;
+pub type SetProcessDpiAwareness = unsafe extern "system" fn(value: ProcessDpiAwareness) -> HRESULT;
 pub type SetProcessDpiAwarenessContext =
     unsafe extern "system" fn(value: DPI_AWARENESS_CONTEXT) -> BOOL;
 pub type GetDpiForWindow = unsafe extern "system" fn(hwnd: HWND) -> u32;
@@ -67,7 +65,6 @@ pub struct DpiFunctions {
     set_process_dpi_aware: Option<SetProcessDPIAware>,
 }
 
-
 impl Drop for DpiFunctions {
     fn drop(&mut self) {
         use winapi::um::libloaderapi::FreeLibrary;
@@ -80,20 +77,35 @@ impl Drop for DpiFunctions {
 }
 
 impl DpiFunctions {
-
     pub fn init() -> Self {
         let user32_dll = super::load_dll("user32.dll");
 
         unsafe {
             Self {
                 user32_dll_handle: user32_dll,
-                get_dpi_for_window: Self::get_func(user32_dll, "GetDpiForWindow").map(|e| unsafe { mem::transmute(e) }),
-                adjust_window_rect_ex_for_dpi: Self::get_func(user32_dll, "AdjustWindowRectExForDpi").map(|e| unsafe { mem::transmute(e) }),
-                get_dpi_for_monitor: Self::get_func(user32_dll, "GetDpiForMonitor").map(|e| unsafe { mem::transmute(e) }),
-                enable_non_client_dpi_scaling: Self::get_func(user32_dll, "EnableNonClientDpiScaling").map(|e| unsafe { mem::transmute(e) }),
-                set_process_dpi_awareness_context: Self::get_func(user32_dll, "SetProcessDpiAwarenessContext").map(|e| unsafe { mem::transmute(e) }),
-                set_process_dpi_awareness: Self::get_func(user32_dll, "SetProcessDpiAwareness").map(|e| unsafe { mem::transmute(e) }),
-                set_process_dpi_aware: Self::get_func(user32_dll, "SetProcessDPIAware").map(|e| unsafe { mem::transmute(e) }),
+                get_dpi_for_window: Self::get_func(user32_dll, "GetDpiForWindow")
+                    .map(|e| unsafe { mem::transmute(e) }),
+                adjust_window_rect_ex_for_dpi: Self::get_func(
+                    user32_dll,
+                    "AdjustWindowRectExForDpi",
+                )
+                .map(|e| unsafe { mem::transmute(e) }),
+                get_dpi_for_monitor: Self::get_func(user32_dll, "GetDpiForMonitor")
+                    .map(|e| unsafe { mem::transmute(e) }),
+                enable_non_client_dpi_scaling: Self::get_func(
+                    user32_dll,
+                    "EnableNonClientDpiScaling",
+                )
+                .map(|e| unsafe { mem::transmute(e) }),
+                set_process_dpi_awareness_context: Self::get_func(
+                    user32_dll,
+                    "SetProcessDpiAwarenessContext",
+                )
+                .map(|e| unsafe { mem::transmute(e) }),
+                set_process_dpi_awareness: Self::get_func(user32_dll, "SetProcessDpiAwareness")
+                    .map(|e| unsafe { mem::transmute(e) }),
+                set_process_dpi_aware: Self::get_func(user32_dll, "SetProcessDPIAware")
+                    .map(|e| unsafe { mem::transmute(e) }),
             }
         }
     }
@@ -101,15 +113,21 @@ impl DpiFunctions {
     fn get_func(dll: Option<HINSTANCE>, s: &str) -> Option<*mut c_void> {
         use winapi::um::libloaderapi::GetProcAddress;
         let mut func_name = super::encode_ascii(s);
-        dll.and_then(|s| unsafe { 
-            let q = GetProcAddress(s, func_name.as_mut_ptr()); 
-            if q.is_null() { None } else { Some(q as *mut c_void)}
+        dll.and_then(|s| unsafe {
+            let q = GetProcAddress(s, func_name.as_mut_ptr());
+            if q.is_null() {
+                None
+            } else {
+                Some(q as *mut c_void)
+            }
         })
     }
 
     pub fn become_dpi_aware(&self) {
         unsafe {
-            if let Some(SetProcessDpiAwarenessContext) = self.set_process_dpi_awareness_context.clone() {
+            if let Some(SetProcessDpiAwarenessContext) =
+                self.set_process_dpi_awareness_context.clone()
+            {
                 // We are on Windows 10 Anniversary Update (1607) or later.
                 if SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
                     == false.into()
@@ -142,7 +160,13 @@ impl DpiFunctions {
                 // We are on Windows 8.1 or later.
                 let mut dpi_x = 0;
                 let mut dpi_y = 0;
-                if GetDpiForMonitor(hmonitor, MonitorDpiType::MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) == S_OK {
+                if GetDpiForMonitor(
+                    hmonitor,
+                    MonitorDpiType::MDT_EFFECTIVE_DPI,
+                    &mut dpi_x,
+                    &mut dpi_y,
+                ) == S_OK
+                {
                     // MSDN says that "the values of *dpiX and *dpiY are identical. You only need to
                     // record one of the values to determine the DPI and respond appropriately".
                     // https://msdn.microsoft.com/en-us/library/windows/desktop/dn280510(v=vs.85).aspx
@@ -173,7 +197,13 @@ impl DpiFunctions {
 
             let mut dpi_x = 0;
             let mut dpi_y = 0;
-            if GetDpiForMonitor(monitor, MonitorDpiType::MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) == S_OK {
+            if GetDpiForMonitor(
+                monitor,
+                MonitorDpiType::MDT_EFFECTIVE_DPI,
+                &mut dpi_x,
+                &mut dpi_y,
+            ) == S_OK
+            {
                 dpi_x
             } else {
                 BASE_DPI
@@ -181,13 +211,13 @@ impl DpiFunctions {
         } else {
             // We are on Vista or later.
             if IsProcessDPIAware() != false.into() {
-                // If the process is DPI aware, then scaling must be handled by the application using
-                // this DPI value.
+                // If the process is DPI aware, then scaling must be handled by the application
+                // using this DPI value.
                 GetDeviceCaps(hdc, LOGPIXELSX) as u32
             } else {
-                // If the process is DPI unaware, then scaling is performed by the OS; we thus return
-                // 96 (scale factor 1.0) to prevent the window from being re-scaled by both the
-                // application and the WM.
+                // If the process is DPI unaware, then scaling is performed by the OS; we thus
+                // return 96 (scale factor 1.0) to prevent the window from being
+                // re-scaled by both the application and the WM.
                 BASE_DPI
             }
         }

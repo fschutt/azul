@@ -1,36 +1,34 @@
-use crate::{
-    callbacks::{DocumentId, InlineText},
-    callbacks::{DomNodeId, RefAny, RenderImageCallback, RenderImageCallbackType, UpdateImageType},
-    display_list::GlStoreImageFn,
-    display_list::{GlyphInstance, RenderCallbacks},
-    dom::NodeType,
-    gl::OptionGlContextPtr,
-    gl::Texture,
-    id_tree::NodeId,
-    styled_dom::{
-        DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
-    },
-    task::ExternalSystemCallbacks,
-    ui_solver::LayoutResult,
-    ui_solver::{InlineTextLayout, InlineTextLine, ResolvedTextLayoutOptions},
-    window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
-    FastBTreeSet, FastHashMap,
-};
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::string::String;
-use alloc::vec::Vec;
-pub use azul_css::FontMetrics;
-use azul_css::{
-    AzString, ColorU, F32Vec, FontRef, LayoutRect, LayoutSize, OptionI32, StyleFontFamily,
-    StyleFontFamilyVec, StyleFontSize, U16Vec, U32Vec, U8Vec, FloatValue,
-};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{
     fmt,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicU32, AtomicUsize, Ordering as AtomicOrdering},
 };
+
+pub use azul_css::FontMetrics;
+use azul_css::{
+    AzString, ColorU, F32Vec, FloatValue, FontRef, LayoutRect, LayoutSize, OptionI32,
+    StyleFontFamily, StyleFontFamilyVec, StyleFontSize, U8Vec, U16Vec, U32Vec,
+};
 use rust_fontconfig::FcFontCache;
+
+use crate::{
+    FastBTreeSet, FastHashMap,
+    callbacks::{
+        DocumentId, DomNodeId, InlineText, RefAny, RenderImageCallback, RenderImageCallbackType,
+        UpdateImageType,
+    },
+    display_list::{GlStoreImageFn, GlyphInstance, RenderCallbacks},
+    dom::NodeType,
+    gl::{OptionGlContextPtr, Texture},
+    id_tree::NodeId,
+    styled_dom::{
+        DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
+    },
+    task::ExternalSystemCallbacks,
+    ui_solver::{InlineTextLayout, InlineTextLine, LayoutResult, ResolvedTextLayoutOptions},
+    window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -350,8 +348,9 @@ impl ImageRef {
                 format: *format,
                 tag: tag.clone(),
             },
-            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing from the trait),
-            // so calling clone() on a GL texture will result in an empty image
+            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing
+            // from the trait), so calling clone() on a GL texture will result in an
+            // empty image
             DecodedImage::Gl(tex) => DecodedImage::NullImage {
                 width: tex.size.width as usize,
                 height: tex.size.height as usize,
@@ -549,9 +548,9 @@ pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
 pub struct ImageCache {
     /// The AzString is the string used in the CSS, i.e. url("my_image") = "my_image" -> ImageId(4)
     ///
-    /// NOTE: This is the only map that is modifiable by the user and that has to be manually managed
-    /// all other maps are library-internal only and automatically delete their resources once they
-    /// aren't needed anymore
+    /// NOTE: This is the only map that is modifiable by the user and that has to be manually
+    /// managed all other maps are library-internal only and automatically delete their
+    /// resources once they aren't needed anymore
     pub image_id_map: FastHashMap<AzString, ImageRef>,
 }
 
@@ -610,14 +609,16 @@ pub struct RendererResources {
     /// All image keys currently active in the RenderApi
     currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
     /// All font keys currently active in the RenderApi
-    currently_registered_fonts: FastHashMap<FontKey, (FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
+    currently_registered_fonts:
+        FastHashMap<FontKey, (FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
     /// Fonts registered on the last frame
     ///
     /// Fonts differ from images in that regard that we can't immediately
     /// delete them on a new frame, instead we have to delete them on "current frame + 1"
     /// This is because when the frame is being built, we do not know
     /// whether the font will actually be successfully loaded
-    last_frame_registered_fonts: FastHashMap<FontKey, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>>,
+    last_frame_registered_fonts:
+        FastHashMap<FontKey, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>>,
     /// Map from the calculated families vec (["Arial", "Helvectia"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
@@ -747,7 +748,8 @@ impl RendererResources {
                     }),
             );
             // Delete the font and all instances if there are no more instances of the font
-            // NOTE: deletion is in reverse order - instances are deleted first, then the font is deleted
+            // NOTE: deletion is in reverse order - instances are deleted first, then the font is
+            // deleted
             if !self.currently_registered_fonts.contains_key(font_key) || font_instances.is_empty()
             {
                 delete_font_resources
@@ -847,9 +849,9 @@ impl RendererResources {
         layout_results: &mut [LayoutResult],
         gl_texture_cache: &mut GlTextureCache,
     ) -> Option<UpdateImageResult> {
-        use crate::callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo};
-        use crate::gl::{
-            insert_into_active_gl_textures, remove_single_texture_from_active_gl_textures,
+        use crate::{
+            callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
+            gl::{insert_into_active_gl_textures, remove_single_texture_from_active_gl_textures},
         };
 
         let mut layout_result = layout_results.get_mut(dom_id.inner)?;
@@ -875,16 +877,16 @@ impl RendererResources {
         // the "text selection" highlight (the text selection is nothing but an image
         // or an image mask).
         let mut gl_callback_info = RenderImageCallbackInfo::new(
-            /*gl_context:*/ gl_context,
-            /*image_cache:*/ image_cache,
-            /*system_fonts:*/ system_fonts,
-            /*node_hierarchy*/ &layout_result.styled_dom.node_hierarchy,
-            /*words_cache*/ &layout_result.words_cache,
-            /*shaped_words_cache*/ &layout_result.shaped_words_cache,
-            /*positioned_words_cache*/ &layout_result.positioned_words_cache,
-            /*positioned_rects*/ &layout_result.rects,
-            /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
-            /*hit_dom_node*/ callback_domnode_id,
+            /* gl_context: */ gl_context,
+            /* image_cache: */ image_cache,
+            /* system_fonts: */ system_fonts,
+            /* node_hierarchy */ &layout_result.styled_dom.node_hierarchy,
+            /* words_cache */ &layout_result.words_cache,
+            /* shaped_words_cache */ &layout_result.shaped_words_cache,
+            /* positioned_words_cache */ &layout_result.positioned_words_cache,
+            /* positioned_rects */ &layout_result.rects,
+            /* bounds: */ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
+            /* hit_dom_node */ callback_domnode_id,
         );
 
         let new_imageref = (render_image_callback.callback.cb)(
@@ -1067,8 +1069,8 @@ impl RendererResources {
 
                 let key = match existing_key {
                     Some(s) => s,
-                    None => continue, // updating an image requires at
-                                      // least one image to be present
+                    None => continue, /* updating an image requires at
+                                       * least one image to be present */
                 };
 
                 let (descriptor, data) = match decoded_image {
@@ -1183,15 +1185,16 @@ impl GlTextureCache {
         all_resource_updates: &mut Vec<ResourceUpdate>,
         renderer_resources: &mut RendererResources,
     ) -> Self {
+        use gl_context_loader::gl;
+
         use crate::{
             app_resources::{
-                add_resources, AddImage, DecodedImage, ExternalImageData, ExternalImageType,
-                ImageBufferKind, ImageData, ImageRef,
+                AddImage, DecodedImage, ExternalImageData, ExternalImageType, ImageBufferKind,
+                ImageData, ImageRef, add_resources,
             },
             callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
             dom::NodeType,
         };
-        use gl_context_loader::gl;
 
         let mut solved_image_callbacks = BTreeMap::new();
 
@@ -1217,16 +1220,16 @@ impl GlTextureCache {
                     // the "text selection" highlight (the text selection is nothing but an image
                     // or an image mask).
                     let mut gl_callback_info = RenderImageCallbackInfo::new(
-                        /*gl_context:*/ &gl_context,
-                        /*image_cache:*/ image_cache,
-                        /*system_fonts:*/ system_fonts,
-                        /*node_hierarchy*/ &layout_result.styled_dom.node_hierarchy,
-                        /*words_cache*/ &layout_result.words_cache,
-                        /*shaped_words_cache*/ &layout_result.shaped_words_cache,
-                        /*positioned_words_cache*/ &layout_result.positioned_words_cache,
-                        /*positioned_rects*/ &layout_result.rects,
-                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
-                        /*hit_dom_node*/ callback_domnode_id,
+                        /* gl_context: */ &gl_context,
+                        /* image_cache: */ image_cache,
+                        /* system_fonts: */ system_fonts,
+                        /* node_hierarchy */ &layout_result.styled_dom.node_hierarchy,
+                        /* words_cache */ &layout_result.words_cache,
+                        /* shaped_words_cache */ &layout_result.shaped_words_cache,
+                        /* positioned_words_cache */ &layout_result.positioned_words_cache,
+                        /* positioned_rects */ &layout_result.rects,
+                        /* bounds: */ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
+                        /* hit_dom_node */ callback_domnode_id,
                     );
 
                     let callback_image: Option<(ImageRef, ImageRefHash)> = {
@@ -1329,8 +1332,8 @@ impl GlTextureCache {
                             image_ref_hash,
                             AddImageMsg(AddImage {
                                 key,
-                                data: data,
-                                descriptor: descriptor,
+                                data,
+                                descriptor,
                                 tiling: None,
                             }),
                         ))
@@ -1517,7 +1520,7 @@ impl RawImage {
             height: size.height as usize,
             premultiplied_alpha: true,
             data_format: RawImageFormat::R8,
-            tag: Vec::new().into()
+            tag: Vec::new().into(),
         }
     }
 
@@ -1966,7 +1969,8 @@ pub struct Words {
     pub items: WordVec,
     /// String that makes up this paragraph of words
     pub internal_str: AzString,
-    /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't possible using UTF-8)
+    /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't
+    /// possible using UTF-8)
     pub internal_chars: U32Vec,
 }
 
@@ -2251,16 +2255,20 @@ pub fn get_inline_text(
                             let shaped_word_index = word_position.shaped_word_index?;
                             let shaped_word = shaped_words.items.get(shaped_word_index)?;
 
-                            // most words are less than 16 chars, avg length of an english word is 4.7 chars
+                            // most words are less than 16 chars, avg length of an english word is
+                            // 4.7 chars
                             let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
                             let mut x_pos_in_word_px = 0.0;
 
-                            // all words only store the unscaled horizontal advance + horizontal kerning
+                            // all words only store the unscaled horizontal advance + horizontal
+                            // kerning
                             for glyph_info in shaped_word.glyph_infos.iter() {
-                                // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
+                                // local x and y displacement of the glyph - does NOT advance the
+                                // horizontal cursor!
                                 let mut displacement = LogicalPosition::zero();
 
-                                // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
+                                // if the character is a mark, the mark displacement has to be added
+                                // ON TOP OF the existing displacement
                                 // the origin should be relative to the word, not the final text
                                 let (letter_spacing_for_glyph, origin) = match glyph_info.placement
                                 {
@@ -3137,7 +3145,6 @@ pub fn build_add_image_resource_updates(
     images_in_dom: &FastBTreeSet<ImageRef>,
     insert_into_active_gl_textures: GlStoreImageFn,
 ) -> Vec<(ImageRefHash, AddImageMsg)> {
-
     images_in_dom
         .iter()
         .filter_map(|image_ref| {
@@ -3182,7 +3189,8 @@ pub fn build_add_image_resource_updates(
                         AddImageMsg(AddImage {
                             key,
                             data: data.clone(), // deep-copy except in the &'static case
-                            descriptor: descriptor.clone(), // deep-copy, but struct is not very large
+                            descriptor: descriptor.clone(), /* deep-copy, but struct is not very
+                                                 * large */
                             tiling: None,
                         }),
                     ))
@@ -3193,7 +3201,8 @@ pub fn build_add_image_resource_updates(
                     format: _,
                     tag: _,
                 } => None,
-                DecodedImage::Callback(_) => None, // Texture callbacks are handled after layout is done
+                DecodedImage::Callback(_) => None, /* Texture callbacks are handled after layout
+                                                    * is done */
             }
         })
         .collect()

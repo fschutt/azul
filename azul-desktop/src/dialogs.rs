@@ -1,9 +1,10 @@
 #![allow(missing_copy_implementations)]
 
 use core::ffi::c_void;
-use azul_css::{AzString, StringVec, ColorU};
+
 use azul_core::window::AzStringPair;
-use tinyfiledialogs::{MessageBoxIcon, DefaultColorValue};
+use azul_css::{AzString, ColorU, StringVec};
+use tinyfiledialogs::{DefaultColorValue, MessageBoxIcon};
 
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function
 #[derive(Debug)]
@@ -25,7 +26,6 @@ pub struct ColorPickerDialog {
     /// reserved pointer (currently nullptr) for potential C extension
     pub _reserved: *mut c_void,
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -55,7 +55,12 @@ impl From<OkCancel> for ::tinyfiledialogs::OkCancel {
 }
 
 /// "Ok / Cancel" MsgBox (title, message, icon, default)
-pub fn msg_box_ok_cancel(title: &str, message: &str, icon: MessageBoxIcon, default: OkCancel) -> OkCancel {
+pub fn msg_box_ok_cancel(
+    title: &str,
+    message: &str,
+    icon: MessageBoxIcon,
+    default: OkCancel,
+) -> OkCancel {
     ::tinyfiledialogs::message_box_ok_cancel(title, message, icon, default.into()).into()
 }
 
@@ -120,14 +125,16 @@ pub fn msg_box_yes_no(title: &str, message: &str, icon: MessageBoxIcon, default:
 pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
     let mut msg = message.to_string();
 
-    #[cfg(target_os = "windows")] {
+    #[cfg(target_os = "windows")]
+    {
         // Windows does REALLY not like quotes in messages
         // otherwise the displayed message is just "INVALID MESSAGE WITH QUOTES"
         msg = msg.replace("\"", "");
         msg = msg.replace("\'", "");
     }
 
-    #[cfg(target_os = "linux")] {
+    #[cfg(target_os = "linux")]
+    {
         msg = msg.replace("\"", "");
         msg = msg.replace("\'", "");
     }
@@ -143,14 +150,14 @@ pub fn msg_box(content: &str) {
 /// Opens the default color picker dialog
 #[cfg(target_os = "windows")]
 pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
-
-    use winapi::shared::minwindef::TRUE;
-    use winapi::um::commdlg::{
-        CHOOSECOLORW, ChooseColorW,
-        CC_RGBINIT, CC_FULLOPEN, CC_ANYCOLOR
+    use winapi::{
+        shared::minwindef::TRUE,
+        um::{
+            commdlg::{CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW, ChooseColorW},
+            wingdi::{GetBValue, GetGValue, GetRValue, RGB},
+            winuser::GetForegroundWindow,
+        },
     };
-    use winapi::um::winuser::GetForegroundWindow;
-    use winapi::um::wingdi::{RGB, GetRValue, GetGValue, GetBValue};
 
     let rgb = [
         default_value.map(|c| c.r).unwrap_or_default(),
@@ -158,7 +165,7 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option
         default_value.map(|c| c.b).unwrap_or_default(),
     ];
 
-    let mut crCustColors = [0_u32;16];
+    let mut crCustColors = [0_u32; 16];
 
     let mut cc = CHOOSECOLORW {
         lStructSize: core::mem::size_of::<CHOOSECOLORW>() as u32,
@@ -181,14 +188,13 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option
             r: GetRValue(cc.rgbResult),
             g: GetGValue(cc.rgbResult),
             b: GetBValue(cc.rgbResult),
-            a: ColorU::ALPHA_OPAQUE
+            a: ColorU::ALPHA_OPAQUE,
         })
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
-
     let rgb = [
         default_value.map(|c| c.r).unwrap_or_default(),
         default_value.map(|c| c.g).unwrap_or_default(),
@@ -197,7 +203,12 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option
 
     let default = DefaultColorValue::RGB(&rgb);
     let result = ::tinyfiledialogs::color_chooser_dialog(title, default)?;
-    Some(ColorU { r: result.1[0], g: result.1[1], b: result.1[2], a: ColorU::ALPHA_OPAQUE })
+    Some(ColorU {
+        r: result.1[0],
+        g: result.1[1],
+        b: result.1[2],
+        a: ColorU::ALPHA_OPAQUE,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -207,14 +218,27 @@ pub struct FileTypeList {
     pub document_descriptor: AzString,
 }
 
-impl_option!(FileTypeList, OptionFileTypeList, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    FileTypeList,
+    OptionFileTypeList,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
 
 /// Open a single file, returns `None` if the user canceled the dialog.
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
-pub fn open_file_dialog(title: &str, default_path: Option<&str>, filter_list: Option<FileTypeList>) -> Option<AzString> {
-    let documents: Vec<AzString> = filter_list.as_ref().map(|s| s.document_types.clone().into_library_owned_vec()).unwrap_or_default().into();
+pub fn open_file_dialog(
+    title: &str,
+    default_path: Option<&str>,
+    filter_list: Option<FileTypeList>,
+) -> Option<AzString> {
+    let documents: Vec<AzString> = filter_list
+        .as_ref()
+        .map(|s| s.document_types.clone().into_library_owned_vec())
+        .unwrap_or_default()
+        .into();
     let documents: Vec<&str> = documents.iter().map(|s| s.as_str()).collect();
     let filter_list_ref = match filter_list.as_ref() {
         Some(s) => Some((documents.as_ref(), s.document_descriptor.as_str())),
@@ -225,9 +249,7 @@ pub fn open_file_dialog(title: &str, default_path: Option<&str>, filter_list: Op
 }
 
 /// Open a directory, returns `None` if the user canceled the dialog
-pub fn open_directory_dialog(title: &str, default_path: Option<&str>)
--> Option<AzString>
-{
+pub fn open_directory_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
     ::tinyfiledialogs::select_folder_dialog(title, default_path.unwrap_or("")).map(|s| s.into())
 }
 
@@ -236,10 +258,16 @@ pub fn open_directory_dialog(title: &str, default_path: Option<&str>)
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
-pub fn open_multiple_files_dialog(title: &str, default_path: Option<&str>, filter_list: Option<FileTypeList>)
--> Option<StringVec>
-{
-    let documents: Vec<AzString> = filter_list.as_ref().map(|s| s.document_types.clone().into_library_owned_vec()).unwrap_or_default().into();
+pub fn open_multiple_files_dialog(
+    title: &str,
+    default_path: Option<&str>,
+    filter_list: Option<FileTypeList>,
+) -> Option<StringVec> {
+    let documents: Vec<AzString> = filter_list
+        .as_ref()
+        .map(|s| s.document_types.clone().into_library_owned_vec())
+        .unwrap_or_default()
+        .into();
     let documents: Vec<&str> = documents.iter().map(|s| s.as_str()).collect();
     let filter_list_ref = match filter_list.as_ref() {
         Some(s) => Some((documents.as_ref(), s.document_descriptor.as_str())),
@@ -250,9 +278,7 @@ pub fn open_multiple_files_dialog(title: &str, default_path: Option<&str>, filte
 }
 
 /// Opens a save file dialog, returns `None` if the user canceled the dialog
-pub fn save_file_dialog(title: &str, default_path: Option<&str>)
--> Option<AzString>
-{
+pub fn save_file_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
     let path = default_path.unwrap_or("");
     ::tinyfiledialogs::save_file_dialog(title, path).map(|s| s.into())
 }

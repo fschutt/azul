@@ -2,9 +2,8 @@
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
-
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(warnings)]
 
@@ -18,18 +17,18 @@ extern crate azul_core;
 #[macro_use]
 extern crate azul_css;
 extern crate azul_layout;
-#[cfg(feature = "font_loading")]
-extern crate rust_fontconfig;
 #[cfg(feature = "image_loading")]
 extern crate image as image_crate;
+#[cfg(feature = "font_loading")]
+extern crate rust_fontconfig;
 
-/// XML-based DOM serialization and XML-to-Rust compiler implementation
-pub mod xml;
-pub mod svg;
 #[cfg(feature = "font_loading")]
 pub mod font;
 #[cfg(feature = "image_loading")]
 pub mod image;
+pub mod svg;
+/// XML-based DOM serialization and XML-to-Rust compiler implementation
+pub mod xml;
 /// Module for compiling CSS to Rust code
 pub mod css {
     pub use azul_core::css::*;
@@ -40,7 +39,7 @@ pub mod layout {
 }
 
 /// Module for decoding and loading fonts
-#[cfg(all(feature = "std", feature ="font_loading"))]
+#[cfg(all(feature = "std", feature = "font_loading"))]
 pub mod font_loading;
 
 /// Parse a string in the format of "600x100" -> (600, 100)
