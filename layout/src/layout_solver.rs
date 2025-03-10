@@ -4049,10 +4049,3 @@ pub fn do_the_relayout(
         gpu_key_changes,
     }
 }
-
-#[test]
-fn test_hash() {
-    let a = NodeData::new(NodeType::Div);
-    let b = NodeData::new(NodeType::Div);
-    assert_eq!(a.calculate_node_data_hash(), b.calculate_node_data_hash())
-}

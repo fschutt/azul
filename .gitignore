@@ -19,3 +19,7 @@ api/c/main/
 LICENSE-WINDOWS.json
 LICENSE-LINUX.json
 LICENSE-MAC.json
+LICENSE-WINDOWS.txt
+LICENSE-LINUX.txt
+LICENSE-MAC.txt
+Cargo.lock
