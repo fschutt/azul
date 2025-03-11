@@ -145,12 +145,12 @@ pub fn msg_box(content: &str) {
 /// Opens the default color picker dialog
 pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
     let rgb = default_value.map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
-    
+
     let default_color = DefaultColorValue::RGB(rgb);
     let result = tfd::ColorChooser::new(title)
         .with_default_color(default_color)
         .run_modal()?;
-    
+
     Some(ColorU {
         r: result.1[0],
         g: result.1[1],
@@ -183,35 +183,30 @@ pub fn open_file_dialog(
     filter_list: Option<FileTypeList>,
 ) -> Option<AzString> {
     let mut dialog = tfd::FileDialog::new(title);
-    
+
     if let Some(path) = default_path {
         dialog = dialog.with_path(path);
     }
-    
+
     if let Some(filter) = filter_list {
-        let v = filter.document_types
-            .clone()
-            .into_library_owned_vec();
-        
-        let patterns: Vec<&str> = v
-            .iter()
-            .map(|s| s.as_str())
-            .collect();
-        
+        let v = filter.document_types.clone().into_library_owned_vec();
+
+        let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+
         dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
     }
-    
+
     dialog.open_file().map(|s| s.into())
 }
 
 /// Open a directory, returns `None` if the user canceled the dialog
 pub fn open_directory_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
     let mut dialog = tfd::FileDialog::new(title);
-    
+
     if let Some(path) = default_path {
         dialog = dialog.with_path(path);
     }
-    
+
     dialog.select_folder().map(|s| s.into())
 }
 
@@ -225,37 +220,30 @@ pub fn open_multiple_files_dialog(
     default_path: Option<&str>,
     filter_list: Option<FileTypeList>,
 ) -> Option<StringVec> {
-    let mut dialog = tfd::FileDialog::new(title)
-        .with_multiple_selection(true);
-    
+    let mut dialog = tfd::FileDialog::new(title).with_multiple_selection(true);
+
     if let Some(path) = default_path {
         dialog = dialog.with_path(path);
     }
-    
-    if let Some(filter) = filter_list {
-        
-        let v = filter.document_types
-            .clone()
-            .into_library_owned_vec();
 
-        let patterns: Vec<&str> = v
-            .iter()
-            .map(|s| s.as_str())
-            .collect();
-        
+    if let Some(filter) = filter_list {
+        let v = filter.document_types.clone().into_library_owned_vec();
+
+        let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+
         dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
     }
-    
+
     dialog.open_files().map(|s| s.into())
 }
 
 /// Opens a save file dialog, returns `None` if the user canceled the dialog
 pub fn save_file_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
     let mut dialog = tfd::FileDialog::new(title);
-    
+
     if let Some(path) = default_path {
         dialog = dialog.with_path(path);
     }
-    
+
     dialog.save_file().map(|s| s.into())
 }

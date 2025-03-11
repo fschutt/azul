@@ -1,7 +1,5 @@
 use azul_core::dom::{
-    Dom, IdOrClass,
-    IdOrClass::Class,
-    IdOrClassVec, NodeDataInlineCssProperty,
+    Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
     NodeDataInlineCssPropertyVec,
 };
 use azul_css::*;

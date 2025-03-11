@@ -5,11 +5,9 @@ use azul_core::{
     app_resources::{ImageRef, RawImageFormat},
     callbacks::{Callback, CallbackInfo, RefAny, RenderImageCallbackInfo, Update},
     dom::{
-        CallbackData, Dom, EventFilter, HoverEventFilter, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::Normal,
-        NodeDataInlineCssPropertyVec, 
+        CallbackData, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
+        NodeDataInlineCssPropertyVec,
     },
     gl::Texture,
     svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
@@ -1036,9 +1034,8 @@ fn render_node(
     scale_factor: f32,
 ) -> Dom {
     use azul_core::dom::{
-        Dom, DomVec, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
+        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssPropertyVec,
     };
     use azul_css::*;
 
@@ -3258,11 +3255,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     Some(s) => s,
                 };
 
-                let node_graph_node_id =
-                    match node_local_dataset.downcast_ref::<NodeLocalDataset>() {
-                        Some(s) => s,
-                        None => continue,
-                    };
+                let node_graph_node_id = match node_local_dataset.downcast_ref::<NodeLocalDataset>()
+                {
+                    Some(s) => s,
+                    None => continue,
+                };
 
                 let node_graph_node_id = node_graph_node_id.node_id;
 

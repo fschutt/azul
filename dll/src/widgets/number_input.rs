@@ -9,10 +9,8 @@ use azul_core::{
 use azul_css::*;
 
 use crate::widgets::text_input::{
-    OnTextInputReturn, TextInput,
-    TextInputOnTextInputCallbackType, 
-    TextInputOnVirtualKeyDownCallbackType, TextInputState,
-    TextInputValid,
+    OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,
+    TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
 };
 
 pub type NumberInputOnValueChangeCallbackType =

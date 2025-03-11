@@ -3,9 +3,8 @@ use azul_css::*;
 use crate::desktop::{
     css::AzString,
     dom::{
-        Dom, DomVec, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
+        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssPropertyVec,
     },
 };
 

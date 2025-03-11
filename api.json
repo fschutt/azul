@@ -11828,7 +11828,7 @@
             "doc": "SVG parsing and rendering functions",
             "classes": {
                 "Svg": {
-                    "external": "azul_core::svg::Svg",
+                    "external": "azul_layout::xml::svg::Svg",
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"ptr": {"type": "*mut c_void"}},
@@ -11879,7 +11879,7 @@
                     }
                 },
                 "SvgXmlNode": {
-                    "external": "azul_core::svg::SvgXmlNode",
+                    "external": "azul_layout::xml::svg::SvgXmlNode",
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"ptr": {"type": "*mut c_void"}},
@@ -11897,7 +11897,7 @@
                     }
                 },
                 "SvgMultiPolygon": {
-                    "external": "azul_core::svg::SvgMultiPolygon",
+                    "external": "azul_layout::xml::svg::SvgMultiPolygon",
                     "struct_fields": [
                         {"rings": {"type": "SvgPathVec"}}
                     ],
@@ -11976,7 +11976,7 @@
                     }
                 },
                 "SvgNode": {
-                    "external": "azul_core::svg::SvgNode",
+                    "external": "azul_layout::xml::svg::SvgNode",
                     "enum_fields": [
                         {"MultiPolygonCollection": {"type": "SvgMultiPolygonVec"}},
                         {"MultiPolygon": {"type": "SvgMultiPolygon"}},
@@ -12031,7 +12031,7 @@
                     }
                 },
                 "SvgSimpleNode": {
-                    "external": "azul_core::svg::SvgSimpleNode",
+                    "external": "azul_layout::xml::svg::SvgSimpleNode",
                     "enum_fields": [
                         {"Path": {"type": "SvgPath"}},
                         {"Circle": {"type": "SvgCircle"}},
@@ -12050,7 +12050,7 @@
                     }
                 },
                 "SvgStyledNode": {
-                    "external": "azul_core::svg::SvgStyledNode",
+                    "external": "azul_layout::xml::svg::SvgStyledNode",
                     "struct_fields": [
                         {"geometry": {"type": "SvgNode"}},
                         {"style": {"type": "SvgStyle"}}
@@ -12066,7 +12066,7 @@
                     }
                 },
                 "SvgCircle": {
-                    "external": "azul_core::svg::SvgCircle",
+                    "external": "azul_layout::xml::svg::SvgCircle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"center_x": {"type": "f32"}},
@@ -12093,7 +12093,7 @@
                     }
                 },
                 "SvgPath": {
-                    "external": "azul_core::svg::SvgPath",
+                    "external": "azul_layout::xml::svg::SvgPath",
                     "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"items": {"type": "SvgPathElementVec"}}
@@ -12185,7 +12185,7 @@
                     }
                 },
                 "SvgPathElement": {
-                    "external": "azul_core::svg::SvgPathElement",
+                    "external": "azul_layout::xml::svg::SvgPathElement",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Line": {"type": "SvgLine"}},
@@ -12279,7 +12279,7 @@
                     }
                 },
                 "SvgPoint": {
-                    "external": "azul_core::svg::SvgPoint",
+                    "external": "azul_layout::xml::svg::SvgPoint",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
@@ -12298,7 +12298,7 @@
                     }
                 },
                 "SvgVector": {
-                    "external": "azul_core::svg::SvgVector",
+                    "external": "azul_layout::xml::svg::SvgVector",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f64"}},
@@ -12332,7 +12332,7 @@
                     }
                 },
                 "SvgLine": {
-                    "external": "azul_core::svg::SvgLine",
+                    "external": "azul_layout::xml::svg::SvgLine",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"start": {"type": "SvgPoint"}},
@@ -12434,7 +12434,7 @@
                     }
                 },
                 "SvgQuadraticCurve": {
-                    "external": "azul_core::svg::SvgQuadraticCurve",
+                    "external": "azul_layout::xml::svg::SvgQuadraticCurve",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"start": {"type": "SvgPoint"}},
@@ -12528,7 +12528,7 @@
                     }
                 },
                 "SvgCubicCurve": {
-                    "external": "azul_core::svg::SvgCubicCurve",
+                    "external": "azul_layout::xml::svg::SvgCubicCurve",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"start": {"type": "SvgPoint"}},
@@ -12623,7 +12623,7 @@
                     }
                 },
                 "SvgRect": {
-                    "external": "azul_core::svg::SvgRect",
+                    "external": "azul_layout::xml::svg::SvgRect",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"width": {"type": "f32"}},
@@ -12681,7 +12681,7 @@
                     }
                 },
                 "SvgColoredVertex": {
-                    "external": "azul_core::svg::SvgColoredVertex",
+                    "external": "azul_layout::xml::svg::SvgColoredVertex",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
@@ -12739,7 +12739,7 @@
                     }
                 },
                 "SvgVertex": {
-                    "external": "azul_core::svg::SvgVertex",
+                    "external": "azul_layout::xml::svg::SvgVertex",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
@@ -12792,7 +12792,7 @@
                     }
                 },
                 "SvgParseOptions": {
-                    "external": "azul_core::svg::SvgParseOptions",
+                    "external": "azul_layout::xml::svg::SvgParseOptions",
                     "struct_fields": [
                         {"relative_image_path": {"type": "OptionString", "doc": "SVG image path. Used to resolve relative image paths."}},
                         {"dpi": {"type": "f32", "doc": "Target DPI. Impact units conversion. Default: 96.0"}},
@@ -12847,7 +12847,7 @@
                     ]
                 },
                 "SvgRenderOptions": {
-                    "external": "azul_core::svg::SvgRenderOptions",
+                    "external": "azul_layout::xml::svg::SvgRenderOptions",
                     "struct_fields": [
                         {"target_size": {"type": "OptionLayoutSize"}},
                         {"background_color": {"type": "OptionColorU"}},
@@ -12862,7 +12862,7 @@
                     }
                 },
                 "SvgRenderTransform": {
-                    "external": "azul_core::svg::SvgRenderTransform",
+                    "external": "azul_layout::xml::svg::SvgRenderTransform",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"sx": {"type": "f32"}},
@@ -12874,7 +12874,7 @@
                     ]
                 },
                 "SvgStringFormatOptions": {
-                    "external": "azul_core::svg::SvgXmlOptions",
+                    "external": "azul_layout::xml::svg::SvgXmlOptions",
                     "struct_fields": [
                         {"use_single_quote": {"type": "bool", "doc": "Whether to use single or double quotes when formatting the SVG string"}},
                         {"indent": {"type": "Indent", "doc": "How to indent SVG nodes when formatting SVG"}},
@@ -12891,7 +12891,7 @@
                     ]
                 },
                 "SvgFitTo": {
-                    "external": "azul_core::svg::SvgFitTo",
+                    "external": "azul_layout::xml::svg::SvgFitTo",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Original": {}},
@@ -12901,7 +12901,7 @@
                     ]
                 },
                 "SvgStyle": {
-                    "external": "azul_core::svg::SvgStyle",
+                    "external": "azul_layout::xml::svg::SvgStyle",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Fill": {"type": "SvgFillStyle"}},
@@ -12909,7 +12909,7 @@
                     ]
                 },
                 "SvgFillRule": {
-                    "external": "azul_core::svg::SvgFillRule",
+                    "external": "azul_layout::xml::svg::SvgFillRule",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Winding": {"doc": "Use the winding order to determine the filled area"}},
@@ -12917,7 +12917,7 @@
                     ]
                 },
                 "SvgTransform": {
-                    "external": "azul_core::svg::SvgTransform",
+                    "external": "azul_layout::xml::svg::SvgTransform",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"sx": {"type": "f32" }},
@@ -12929,7 +12929,7 @@
                     ]
                 },
                 "SvgFillStyle": {
-                    "external": "azul_core::svg::SvgFillStyle",
+                    "external": "azul_layout::xml::svg::SvgFillStyle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"line_join": {"type": "SvgLineJoin", "doc": "How to tessellate edges in a path, default value = `Miter`"}},
@@ -12948,7 +12948,7 @@
                     }
                 },
                 "SvgStrokeStyle": {
-                    "external": "azul_core::svg::SvgStrokeStyle",
+                    "external": "azul_layout::xml::svg::SvgStrokeStyle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"start_cap": {"type": "SvgLineCap", "doc": "What cap to use at the start of each sub-path, default value = `Butt`"}},
@@ -12971,7 +12971,7 @@
                     }
                 },
                 "SvgLineJoin": {
-                    "external": "azul_core::svg::SvgLineJoin",
+                    "external": "azul_layout::xml::svg::SvgLineJoin",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Miter": {}},
@@ -12981,7 +12981,7 @@
                     ]
                 },
                 "SvgLineCap": {
-                    "external": "azul_core::svg::SvgLineCap",
+                    "external": "azul_layout::xml::svg::SvgLineCap",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Butt": {}},
@@ -12990,7 +12990,7 @@
                     ]
                 },
                 "SvgDashPattern": {
-                    "external": "azul_core::svg::SvgDashPattern",
+                    "external": "azul_layout::xml::svg::SvgDashPattern",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"offset": {"type": "f32"}},
@@ -14204,7 +14204,7 @@
                 "SvgMultiPolygonVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`",
                     "custom_destructor": true,
-                    "external": "azul_core::svg::SvgMultiPolygonVec",
+                    "external": "azul_layout::xml::svg::SvgMultiPolygonVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgMultiPolygon" } },
                         { "len": { "type": "usize" } },
@@ -14215,7 +14215,7 @@
                 "SvgSimpleNodeVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`",
                     "custom_destructor": true,
-                    "external": "azul_core::svg::SvgSimpleNodeVec",
+                    "external": "azul_layout::xml::svg::SvgSimpleNodeVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgSimpleNode" } },
                         { "len": { "type": "usize" } },
@@ -14226,7 +14226,7 @@
                 "SvgPathVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<SvgPath>`",
                     "custom_destructor": true,
-                    "external": "azul_core::svg::SvgPathVec",
+                    "external": "azul_layout::xml::svg::SvgPathVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgPath" } },
                         { "len": { "type": "usize" } },
@@ -14248,7 +14248,7 @@
                 "SvgPathElementVec": {
                     "doc": "Wrapper over a Rust-allocated `VertexAttribute`",
                     "custom_destructor": true,
-                    "external": "azul_core::svg::SvgPathElementVec",
+                    "external": "azul_layout::xml::svg::SvgPathElementVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgPathElement" } },
                         { "len": { "type": "usize" } },
@@ -14259,7 +14259,7 @@
                 "SvgVertexVec": {
                     "doc": "Wrapper over a Rust-allocated `SvgVertex`",
                     "custom_destructor": true,
-                    "external": "azul_core::svg::SvgVertexVec",
+                    "external": "azul_layout::xml::svg::SvgVertexVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgVertex" } },
                         { "len": { "type": "usize" } },
@@ -14270,7 +14270,7 @@
                 "SvgColoredVertexVec": {
                     "doc": "Wrapper over a Rust-allocated `SvgColoredVertex`",
                     "custom_destructor": true,
-                    "external": "azul_core::svg::SvgColoredVertexVec",
+                    "external": "azul_layout::xml::svg::SvgColoredVertexVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgColoredVertex" } },
                         { "len": { "type": "usize" } },
@@ -15130,7 +15130,7 @@
                     }
                 },
                 "SvgMultiPolygonVecDestructor": {
-                    "external": "azul_core::svg::SvgMultiPolygonVecDestructor",
+                    "external": "azul_layout::xml::svg::SvgMultiPolygonVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -15146,7 +15146,7 @@
                     }
                 },
                 "SvgSimpleNodeVecDestructor": {
-                    "external": "azul_core::svg::SvgSimpleNodeVecDestructor",
+                    "external": "azul_layout::xml::svg::SvgSimpleNodeVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -15162,7 +15162,7 @@
                     }
                 },
                 "SvgPathVecDestructor": {
-                    "external": "azul_core::svg::SvgPathVecDestructor",
+                    "external": "azul_layout::xml::svg::SvgPathVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -15194,7 +15194,7 @@
                     }
                 },
                 "SvgPathElementVecDestructor": {
-                    "external": "azul_core::svg::SvgPathElementVecDestructor",
+                    "external": "azul_layout::xml::svg::SvgPathElementVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -15210,7 +15210,7 @@
                     }
                 },
                 "SvgVertexVecDestructor": {
-                    "external": "azul_core::svg::SvgVertexVecDestructor",
+                    "external": "azul_layout::xml::svg::SvgVertexVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -15226,7 +15226,7 @@
                     }
                 },
                 "SvgColoredVertexVecDestructor": {
-                    "external": "azul_core::svg::SvgColoredVertexVecDestructor",
+                    "external": "azul_layout::xml::svg::SvgColoredVertexVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -16347,7 +16347,7 @@
                     ]
                 },
                 "SvgParseError": {
-                    "external": "azul_core::svg::SvgParseError",
+                    "external": "azul_layout::xml::svg::SvgParseError",
                     "enum_fields": [
                         {"NoParserAvailable": {}},
                         {"ElementsLimitReached": {}},

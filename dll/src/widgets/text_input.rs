@@ -3,10 +3,7 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
-    callbacks::{
-        Callback, CallbackInfo, RefAny,
-        Update,
-    },
+    callbacks::{Callback, CallbackInfo, RefAny, Update},
     dom::{
         Dom, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Focus, Hover, Normal},

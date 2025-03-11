@@ -4,10 +4,7 @@
 use azul_core::{
     app_resources::OptionImageRef,
     callbacks::{CallbackInfo, RefAny, Update},
-    dom::{
-        Dom,
-        NodeDataInlineCssPropertyVec,
-    },
+    dom::{Dom, NodeDataInlineCssPropertyVec},
 };
 use azul_css::*;
 

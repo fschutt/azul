@@ -1,14 +1,12 @@
-
 use azul_core::{
     callbacks::{
-        Callback, CallbackInfo, LayoutCallback, LayoutCallbackInfo,
-        MarshaledLayoutCallback, MarshaledLayoutCallbackInner, RefAny, Update,
+        Callback, CallbackInfo, LayoutCallback, LayoutCallbackInfo, MarshaledLayoutCallback,
+        MarshaledLayoutCallbackInner, RefAny, Update,
     },
     dom::{
-        CallbackData, Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssPropertyVec, TabIndex, WindowEventFilter,
+        CallbackData, Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
+        WindowEventFilter,
     },
     styled_dom::StyledDom,
 };
@@ -991,9 +989,7 @@ struct DropDownLocalDataset {
 }
 
 extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use azul_core::window::{
-        WindowCreateOptions, WindowPosition,
-    };
+    use azul_core::window::{WindowCreateOptions, WindowPosition};
 
     println!("dropdown clicked!");
 

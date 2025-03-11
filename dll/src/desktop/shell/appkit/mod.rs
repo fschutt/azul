@@ -904,11 +904,7 @@ extern "C" fn init_with_frame_pixel_format(
     }
 }
 
-extern "C" fn window_will_close(
-    ptr: Arc<Mutex<AppData>>,
-    window_id: WindowId,
-    mtm: MainThreadMarker,
-) {
+fn window_will_close(ptr: Arc<Mutex<AppData>>, window_id: WindowId, mtm: MainThreadMarker) {
     let mut app_data = match ptr.try_lock().ok() {
         Some(s) => s,
         None => {
@@ -926,11 +922,7 @@ extern "C" fn window_will_close(
     }
 }
 
-extern "C" fn window_did_resize(
-    ptr: Arc<Mutex<AppData>>,
-    window_id: WindowId,
-    _mtm: MainThreadMarker,
-) {
+fn window_did_resize(ptr: Arc<Mutex<AppData>>, window_id: WindowId, _mtm: MainThreadMarker) {
     let mut data = match ptr.try_lock().ok() {
         Some(s) => s,
         None => return,
@@ -993,11 +985,7 @@ extern "C" fn window_did_resize(
     Window::finish_gl(guard);
 }
 
-extern "C" fn window_did_become_key(
-    ptr: Arc<Mutex<AppData>>,
-    window_id: WindowId,
-    _mtm: MainThreadMarker,
-) {
+fn window_did_become_key(ptr: Arc<Mutex<AppData>>, window_id: WindowId, _mtm: MainThreadMarker) {
     let mut data = match ptr.try_lock().ok() {
         Some(s) => s,
         None => return,
@@ -1048,11 +1036,7 @@ extern "C" fn window_did_become_key(
     Window::finish_gl(guard);
 }
 
-extern "C" fn window_did_resign_key(
-    ptr: Arc<Mutex<AppData>>,
-    window_id: WindowId,
-    _mtm: MainThreadMarker,
-) {
+fn window_did_resign_key(ptr: Arc<Mutex<AppData>>, window_id: WindowId, _mtm: MainThreadMarker) {
     let mut data = match ptr.try_lock().ok() {
         Some(s) => s,
         None => return,
@@ -1104,7 +1088,7 @@ extern "C" fn window_did_resign_key(
 }
 
 // ADDED: Called when the screen’s backing scale changes => “dpichange”
-extern "C" fn window_did_change_backing(
+fn window_did_change_backing(
     ptr: Arc<Mutex<AppData>>,
     window_id: WindowId,
     _mtm: MainThreadMarker,

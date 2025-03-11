@@ -3,9 +3,7 @@ use alloc::vec::Vec;
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
-        Dom, DomVec, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty, 
+        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssPropertyVec, TabIndex,
     },
     gl::OptionUsize,

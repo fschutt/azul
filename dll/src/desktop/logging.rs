@@ -102,13 +102,13 @@ pub(crate) fn set_up_panic_hooks() {
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
             #[cfg(not(target_os = "linux"))]
             tfd::MessageBox::new("Unexpected fatal error", &error_str)
-            .with_icon(tfd::MessageBoxIcon::Info)
-            .run_modal();
+                .with_icon(tfd::MessageBoxIcon::Info)
+                .run_modal();
 
             #[cfg(target_os = "linux")]
             tfd::MessageBox::new("Unexpected fatal error", &error_str_clone)
-            .with_icon(tfd::MessageBoxIcon::Info)
-            .run_modal();
+                .with_icon(tfd::MessageBoxIcon::Info)
+                .run_modal();
         }
     }
 

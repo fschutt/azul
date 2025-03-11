@@ -1,11 +1,8 @@
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
-        Dom, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::Normal,
-        NodeDataInlineCssPropertyVec, TabIndex,
+        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec, TabIndex,
     },
 };
 use azul_css::*;
