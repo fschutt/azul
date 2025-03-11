@@ -1,11 +1,10 @@
 //! Text input (demonstrates two-way data binding)
 
 use alloc::{string::String, vec::Vec};
-use core::ops::Range;
 
 use azul_core::{
     callbacks::{
-        Animation, AnimationRepeatCount, Callback, CallbackInfo, DomNodeId, InlineText, RefAny,
+        Callback, CallbackInfo, RefAny,
         Update,
     },
     dom::{
@@ -13,9 +12,8 @@ use azul_core::{
         NodeDataInlineCssProperty::{Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec,
     },
-    styled_dom::StyledDom,
-    task::{OptionTimerId, SystemTimeDiff},
-    window::{KeyboardState, LogicalPosition, VirtualKeyCode},
+    task::OptionTimerId,
+    window::VirtualKeyCode,
 };
 use azul_css::*;
 
@@ -847,7 +845,7 @@ extern "C" fn default_on_focus_received(
         None => return Update::DoNothing,
     };
 
-    let mut text_input = &mut *text_input;
+    let text_input = &mut *text_input;
 
     let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
         Some(s) => s,
@@ -873,7 +871,7 @@ extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut Callback
         None => return Update::DoNothing,
     };
 
-    let mut text_input = &mut *text_input;
+    let text_input = &mut *text_input;
 
     let placeholder_text_node_id = match info.get_first_child(info.get_hit_node()) {
         Some(s) => s,
@@ -914,7 +912,7 @@ fn default_on_text_input_inner(text_input: &mut RefAny, info: &mut CallbackInfo)
     let c = keyboard_state.current_char.into_option()?;
     let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
-    let cursor_node_id = info.get_first_child(label_node_id)?;
+    let _cursor_node_id = info.get_first_child(label_node_id)?;
 
     let result = {
         // rustc doesn't understand the borrowing lifetime here
@@ -979,7 +977,7 @@ fn default_on_virtual_key_down_inner(
     let c = keyboard_state.current_virtual_keycode.into_option()?;
     let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
-    let cursor_node_id = info.get_first_child(label_node_id)?;
+    let _cursor_node_id = info.get_first_child(label_node_id)?;
 
     if c != VirtualKeyCode::Back {
         return None;
@@ -997,8 +995,8 @@ fn default_on_virtual_key_down_inner(
     None
 }
 
-extern "C" fn default_on_mouse_hover(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+extern "C" fn default_on_mouse_hover(text_input: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+    let _text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };

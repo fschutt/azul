@@ -1,7 +1,5 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
-use std::vec::Vec;
-
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
@@ -118,7 +116,7 @@ impl ColorInput {
     }
 
     #[inline]
-    pub fn dom(mut self) -> Dom {
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::Callback,
             dom::{CallbackData, EventFilter, HoverEventFilter, IdOrClass::Class},

@@ -2,8 +2,8 @@ use azul_core::{
     callbacks::{Callback, CallbackInfo, RefAny, Update},
     dom::{
         CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
-        IdOrClass::{Class, Id},
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
+        IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
 };
 use azul_css::*;

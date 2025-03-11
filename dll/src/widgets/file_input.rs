@@ -1,17 +1,12 @@
 //! File input button, same as `Button`, but selects and
 //! opens a file dialog instead
 
-use std::vec::Vec;
-
 use azul_core::{
-    app_resources::{ImageRef, OptionImageRef},
+    app_resources::OptionImageRef,
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
-        Dom, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
-        NodeDataInlineCssPropertyVec, TabIndex,
+        Dom,
+        NodeDataInlineCssPropertyVec,
     },
 };
 use azul_css::*;
@@ -157,7 +152,7 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn dom(mut self) -> Dom {
+    pub fn dom(self) -> Dom {
         // either show the default text or the file name
         // including the extension as the button label
         let button_label = match self.state.inner.path.as_ref() {
@@ -194,7 +189,7 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
         Some(s) => s,
         None => return Update::DoNothing,
     };
-    let mut fileinputstatewrapper = &mut *fileinputstatewrapper;
+    let fileinputstatewrapper = &mut *fileinputstatewrapper;
 
     // Open file select dialog
     let user_new_file_selected = match open_file_dialog(

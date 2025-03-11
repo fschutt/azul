@@ -1,6 +1,5 @@
 //! Same as TextInput, but only allows a number
 
-use core::ops::{Deref, DerefMut};
 use std::string::String;
 
 use azul_core::{
@@ -10,9 +9,10 @@ use azul_core::{
 use azul_css::*;
 
 use crate::widgets::text_input::{
-    OnTextInputReturn, TextInput, TextInputOnFocusLostCallbackType,
-    TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType, TextInputState,
-    TextInputStateWrapper, TextInputValid,
+    OnTextInputReturn, TextInput,
+    TextInputOnTextInputCallbackType, 
+    TextInputOnVirtualKeyDownCallbackType, TextInputState,
+    TextInputValid,
 };
 
 pub type NumberInputOnValueChangeCallbackType =
@@ -166,7 +166,7 @@ impl NumberInput {
 extern "C" fn on_focus_lost(
     data: &mut RefAny,
     info: &mut CallbackInfo,
-    state: &TextInputState,
+    _state: &TextInputState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,

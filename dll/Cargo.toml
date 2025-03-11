@@ -29,7 +29,7 @@ azul-layout = { path = "../layout", version = "0.0.4", default-features = false,
 pyo3 = { version = "0.16.5", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 log  = { version = "0.4.17",  default-features = false, optional = true }
 pyo3-log = { version = "0.6.0", default-features = false, optional = true }
-tinyfiledialogs         = { version = "3.9.1",  default-features = false, optional = true }
+tfd         = { version = "0.1.0",  default-features = false, optional = true }
 clipboard2              = { version = "0.1.1",  default-features = false, optional = true }
 raw-window-handle       = { version = "0.5.0", default-features = false, optional = true }
 fern                    = { version = "0.6.1",  default-features = false, optional = true }
@@ -98,7 +98,7 @@ use_fern_logger = ["logging"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "jpeg", "png", "tiff", "bmp"]
-desktop = ["std", "tinyfiledialogs", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "dispatch2", "bitflags", "block2"]
+desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "dispatch2", "bitflags", "block2"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
 png = ["azul-layout", "azul-layout/png"]

@@ -493,7 +493,7 @@ def generate_rust_dll(api_data):
 
     code += "\r\n"
     code += "pub mod widgets;\r\n"
-    code += "#[cfg(all(feature = \"python-extension\", feature = \"link_dynamic\", not(feature = \"link-static\")))]\r\n"
+    code += "#[cfg(all(feature = \"python-extension\", feature = \"link-dynamic\", not(feature = \"link-static\")))]\r\n"
     code += "pub mod python;\r\n"
     code += "\r\n"
 

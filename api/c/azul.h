@@ -1361,11 +1361,6 @@ enum AzSizeMetric {
 };
 typedef enum AzSizeMetric AzSizeMetric;
 
-struct AzFloatValue {
-    ssize_t number;
-};
-typedef struct AzFloatValue AzFloatValue;
-
 enum AzBoxShadowClipMode {
    AzBoxShadowClipMode_Outset,
    AzBoxShadowClipMode_Inset,
@@ -1469,6 +1464,11 @@ enum AzLayoutOverflow {
    AzLayoutOverflow_Visible,
 };
 typedef enum AzLayoutOverflow AzLayoutOverflow;
+
+struct AzFloatValue {
+    ssize_t number;
+};
+typedef struct AzFloatValue AzFloatValue;
 
 enum AzAngleMetric {
    AzAngleMetric_Degree,
@@ -12701,14 +12701,14 @@ extern DLLIMPORT AzMenuCallback AzMenuCallback_new(AzRefAny  data, AzCallbackTyp
 extern DLLIMPORT void AzMenuCallback_delete(AzMenuCallback* restrict instance);
 extern DLLIMPORT void AzMenuItemIcon_delete(AzMenuItemIcon* restrict instance);
 extern DLLIMPORT void AzCssRuleBlock_delete(AzCssRuleBlock* restrict instance);
-extern DLLIMPORT void AzCssDeclaration_delete(AzCssDeclaration* restrict instance);
-extern DLLIMPORT void AzDynamicCssProperty_delete(AzDynamicCssProperty* restrict instance);
 extern DLLIMPORT void AzCssPath_delete(AzCssPath* restrict instance);
 extern DLLIMPORT void AzCssPathSelector_delete(AzCssPathSelector* restrict instance);
 extern DLLIMPORT void AzStylesheet_delete(AzStylesheet* restrict instance);
 extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
 extern DLLIMPORT void AzCss_delete(AzCss* restrict instance);
+extern DLLIMPORT void AzCssDeclaration_delete(AzCssDeclaration* restrict instance);
+extern DLLIMPORT void AzDynamicCssProperty_delete(AzDynamicCssProperty* restrict instance);
 extern DLLIMPORT AzColorU AzColorU_fromStr(AzString  string);
 extern DLLIMPORT AzColorU AzColorU_transparent();
 extern DLLIMPORT AzColorU AzColorU_white();
@@ -15611,34 +15611,6 @@ bool AzMenuItemIcon_matchMutImage(AzMenuItemIcon* restrict value, AzImageRef* re
     return valid;
 }
 
-bool AzCssDeclaration_matchRefStatic(const AzCssDeclaration* value, const AzCssProperty** restrict out) {
-    const AzCssDeclarationVariant_Static* casted = (const AzCssDeclarationVariant_Static*)value;
-    bool valid = casted->tag == AzCssDeclarationTag_Static;
-    if (valid) { *out = &casted->payload; } else { *out = 0; }
-    return valid;
-}
-
-bool AzCssDeclaration_matchMutStatic(AzCssDeclaration* restrict value, AzCssProperty* restrict * restrict out) {
-    AzCssDeclarationVariant_Static* restrict casted = (AzCssDeclarationVariant_Static* restrict)value;
-    bool valid = casted->tag == AzCssDeclarationTag_Static;
-    if (valid) { *out = &casted->payload; } else { *out = 0; }
-    return valid;
-}
-
-bool AzCssDeclaration_matchRefDynamic(const AzCssDeclaration* value, const AzDynamicCssProperty** restrict out) {
-    const AzCssDeclarationVariant_Dynamic* casted = (const AzCssDeclarationVariant_Dynamic*)value;
-    bool valid = casted->tag == AzCssDeclarationTag_Dynamic;
-    if (valid) { *out = &casted->payload; } else { *out = 0; }
-    return valid;
-}
-
-bool AzCssDeclaration_matchMutDynamic(AzCssDeclaration* restrict value, AzDynamicCssProperty* restrict * restrict out) {
-    AzCssDeclarationVariant_Dynamic* restrict casted = (AzCssDeclarationVariant_Dynamic* restrict)value;
-    bool valid = casted->tag == AzCssDeclarationTag_Dynamic;
-    if (valid) { *out = &casted->payload; } else { *out = 0; }
-    return valid;
-}
-
 bool AzCssPathSelector_matchRefType(const AzCssPathSelector* value, const AzNodeTypeKey** restrict out) {
     const AzCssPathSelectorVariant_Type* casted = (const AzCssPathSelectorVariant_Type*)value;
     bool valid = casted->tag == AzCssPathSelectorTag_Type;
@@ -15733,6 +15705,34 @@ bool AzCssNthChildSelector_matchRefPattern(const AzCssNthChildSelector* value, c
 bool AzCssNthChildSelector_matchMutPattern(AzCssNthChildSelector* restrict value, AzCssNthChildPattern* restrict * restrict out) {
     AzCssNthChildSelectorVariant_Pattern* restrict casted = (AzCssNthChildSelectorVariant_Pattern* restrict)value;
     bool valid = casted->tag == AzCssNthChildSelectorTag_Pattern;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchRefStatic(const AzCssDeclaration* value, const AzCssProperty** restrict out) {
+    const AzCssDeclarationVariant_Static* casted = (const AzCssDeclarationVariant_Static*)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Static;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchMutStatic(AzCssDeclaration* restrict value, AzCssProperty* restrict * restrict out) {
+    AzCssDeclarationVariant_Static* restrict casted = (AzCssDeclarationVariant_Static* restrict)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Static;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchRefDynamic(const AzCssDeclaration* value, const AzDynamicCssProperty** restrict out) {
+    const AzCssDeclarationVariant_Dynamic* casted = (const AzCssDeclarationVariant_Dynamic*)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Dynamic;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchMutDynamic(AzCssDeclaration* restrict value, AzDynamicCssProperty* restrict * restrict out) {
+    AzCssDeclarationVariant_Dynamic* restrict casted = (AzCssDeclarationVariant_Dynamic* restrict)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Dynamic;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

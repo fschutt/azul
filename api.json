@@ -4,7 +4,7 @@
             "doc": "`App` construction and configuration",
             "classes": {
                 "App": {
-                    "external": "azul_core::app::AzAppPtr",
+                    "external": "crate::azul_impl::app::AzAppPtr",
                     "is_boxed_object": true,
                     "doc": "Main application class",
                     "struct_fields": [
@@ -18,7 +18,7 @@
                                 {"data": "RefAny", "doc": "The initialized data model of the application, will be passed to the `LayoutCallback` of the active windows"},
                                 {"config": "AppConfig", "doc": "Additional configuration on how the global application should behave"}
                             ],
-                            "fn_body": "azul_core::app::AzAppPtr::new(data, config)"
+                            "fn_body": "crate::azul_impl::app::AzAppPtr::new(data, config)"
                         }
                     },
                     "functions": {
@@ -1308,7 +1308,7 @@
                                 {"text": "String"}
                             ],
                             "returns": {"type": "OptionInlineText"},
-                            "fn_body": "azul_core::text_layout::callback_info_shape_text(callbackinfo, node_id, text).into()"
+                            "fn_body": "azul_layout::callback_info_shape_text(callbackinfo, node_id, text).into()"
                         },
                         "get_index_in_parent": {
                             "doc": "Returns the index of the node relative to the parent node.",
@@ -2657,7 +2657,7 @@
                                 {"self": "refmut"}
                             ],
                             "returns": {"type": "String"},
-                            "fn_body": "dom.style(AzCss::empty()).get_html_string(\"\", \"\", false).into()"
+                            "fn_body": "dom.style(AzCss::empty().into()).get_html_string(\"\", \"\", false).into()"
                         },
                         "get_html_string_test": {
                             "doc": "Returns a HTML for unit testing",
@@ -2665,7 +2665,7 @@
                                 {"self": "refmut"}
                             ],
                             "returns": {"type": "String"},
-                            "fn_body": "dom.style(AzCss::empty()).get_html_string(\"\", \"\", true).into()"
+                            "fn_body": "dom.style(AzCss::empty().into()).get_html_string(\"\", \"\", true).into()"
                         },
                         "style": {
                             "doc": "Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely",
@@ -2674,7 +2674,7 @@
                                 {"css": "Css"}
                             ],
                             "returns": {"type": "StyledDom"},
-                            "fn_body": "dom.style(css)"
+                            "fn_body": "dom.style(css.into())"
                         }
                     }
                 },
@@ -3466,20 +3466,6 @@
                         {"declarations": {"type": "CssDeclarationVec"}}
                     ]
                 },
-                "CssDeclaration": {
-                    "external": "azul_css::CssDeclaration",
-                    "enum_fields": [
-                        {"Static": {"type": "CssProperty"}},
-                        {"Dynamic": {"type": "DynamicCssProperty"}}
-                    ]
-                },
-                "DynamicCssProperty": {
-                    "external": "azul_css::DynamicCssProperty",
-                    "struct_fields": [
-                        {"dynamic_id": {"type": "String"}},
-                        {"default_value": {"type": "CssProperty"}}
-                    ]
-                },
                 "CssPath": {
                     "external": "azul_css::CssPath",
                     "struct_fields": [
@@ -3697,7 +3683,7 @@
                             "fn_args":[
                                 {"string": "String"}
                             ],
-                            "fn_body": "azul_css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK)"
+                            "fn_body": "azul_css::parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK)"
                         },
                         "transparent": {
                             "fn_args": [],
@@ -3730,13 +3716,6 @@
                         {"Pt": {}},
                         {"Em": {}},
                         {"Percent": {}}
-                    ]
-                },
-                "FloatValue": {
-                    "external": "azul_css::FloatValue",
-                    "derive": ["Copy", "Serialize", "Deserialize"],
-                    "struct_fields": [
-                        {"number": {"type": "isize"}}
                     ]
                 },
                 "PixelValue": {
@@ -6616,7 +6595,7 @@
                                 {"self": "refmut"}
                             ],
                             "returns": {"type": "Dom"},
-                            "fn_body": "let mut frame = frame.swap_with_default(); frame.dom()"
+                            "fn_body": "frame.swap_with_default().dom()"
                         }
                     }
                 },
@@ -6639,7 +6618,7 @@
                                 {"self": "refmut"}
                             ],
                             "returns": {"type": "Dom"},
-                            "fn_body": "let mut nodegraph = nodegraph.swap_with_default(); nodegraph.dom()"
+                            "fn_body": "nodegraph.swap_with_default().dom()"
                         }
                     }
                 },
@@ -7305,7 +7284,7 @@
                                 {"dom": "Dom"},
                                 {"css": "Css"}
                             ],
-                            "fn_body":"let mut dom = dom; let mut css = css; AzStyledDom::new(&mut dom, css)"
+                            "fn_body":"let mut dom = dom; AzStyledDom::new(&mut dom, css.into())"
                         },
                         "default": {
                             "doc": "Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case.",
@@ -7317,14 +7296,14 @@
                             "fn_args": [
                                 {"xml_string": "String"}
                             ],
-                            "fn_body": "azul_core::app::extra::styled_dom_from_str(xml_string.as_str())"
+                            "fn_body": "crate::extra::styled_dom_from_str(xml_string.as_str())"
                         },
                         "from_file": {
                             "doc": "Same as `from_xml`, but loads the file relative to the current directory",
                             "fn_args": [
                                 {"xml_file_path": "String"}
                             ],
-                            "fn_body": "azul_core::app::extra::styled_dom_from_file(xml_file_path.as_str())"
+                            "fn_body": "crate::extra::styled_dom_from_file(xml_file_path.as_str())"
                         }
                     },
                     "functions": {
@@ -7351,7 +7330,7 @@
                                 {"self": "refmut"},
                                 {"css": "Css"}
                             ],
-                            "fn_body": "styleddom.restyle(css);"
+                            "fn_body": "styleddom.restyle(css.into());"
                         },
                         "node_count": {
                             "doc": "Returns the number of nodes in the styled DOM",
@@ -7459,7 +7438,7 @@
                                 {"size": "PhysicalSizeU32"},
                                 {"background": "ColorU"}
                             ],
-                            "fn_body": "azul_layout::xml::svg::allocate_clipmask_texture(gl, size)"
+                            "fn_body": "azul_layout::xml::svg::allocate_clipmask_texture(gl, size, background)"
                         }
                     },
                     "functions": {
@@ -11390,7 +11369,7 @@
                                 {"bytes": "U8VecRef"}
                             ],
                             "returns": {"type": "ResultRawImageDecodeImageError"},
-                            "fn_body": "azul_core::app_resources::decode::decode_raw_image_from_any_bytes(bytes.as_slice())"
+                            "fn_body": "azul_layout::image::decode::decode_raw_image_from_any_bytes(bytes.as_slice())"
                         }
                     },
                     "functions": {
@@ -11409,7 +11388,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_bmp(rawimage)"
+                            "fn_body": "azul_layout::image::encode::encode_bmp(rawimage)"
                         },
                         "encode_png": {
                             "doc": "Encodes the RawImage in the PNG image format",
@@ -11417,7 +11396,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_png(rawimage)"
+                            "fn_body": "azul_layout::image::encode::encode_png(rawimage)"
                         },
                         "encode_jpeg": {
                             "doc": "Encodes the RawImage in the JPG image format",
@@ -11426,7 +11405,7 @@
                                 {"quality": "u8", "doc": "Output JPEG quality, value from 0 to 100"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_jpeg(rawimage, quality)"
+                            "fn_body": "azul_layout::image::encode::encode_jpeg(rawimage, quality)"
                         },
                         "encode_tga": {
                             "doc": "Encodes the RawImage in the TGA image format",
@@ -11434,7 +11413,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_tga(rawimage)"
+                            "fn_body": "azul_layout::image::encode::encode_tga(rawimage)"
                         },
                         "encode_pnm": {
                             "doc": "Encodes the RawImage in the PNM image format",
@@ -11442,7 +11421,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_pnm(rawimage)"
+                            "fn_body": "azul_layout::image::encode::encode_pnm(rawimage)"
                         },
                         "encode_gif": {
                             "doc": "Encodes the RawImage in the GIF image format",
@@ -11450,7 +11429,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_gif(rawimage)"
+                            "fn_body": "azul_layout::image::encode::encode_gif(rawimage)"
                         },
                         "encode_tiff": {
                             "doc": "Encodes the RawImage in the TIFF image format",
@@ -11458,7 +11437,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_core::app_resources::encode::encode_tiff(rawimage)"
+                            "fn_body": "azul_layout::image::encode::encode_tiff(rawimage)"
                         }
                     }
                 },
@@ -11487,7 +11466,7 @@
                     ]
                 },
                 "EncodeImageError": {
-                    "external": "azul_core::app_resources::encode::EncodeImageError",
+                    "external": "azul_layout::image::encode::EncodeImageError",
                     "enum_fields": [
                         {"EncoderNotAvailable": {"doc": "Library was not compiled with the given encoder"}},
                         {"InsufficientMemory": {"doc": "Not enough memory available to perform the encoding operation"}},
@@ -11497,7 +11476,7 @@
                     ]
                 },
                 "DecodeImageError": {
-                    "external": "azul_core::app_resources::decode::DecodeImageError",
+                    "external": "azul_layout::image::decode::DecodeImageError",
                     "enum_fields": [
                         {"InsufficientMemory": {"doc": "Not enough memory available to perform the encoding operation"}},
                         {"DimensionError": {"doc": "Width x height x channels does not match the image data"}},
@@ -11803,7 +11782,7 @@
                                 {"source": "FontSource"}
                             ],
                             "returns": {"type": "OptionFontRef"},
-                            "fn_body": "azul_core::text_layout::parse_font_fn(source).into()"
+                            "fn_body": "azul_layout::parse_font_fn(source).into()"
                         }
                     },
                     "functions": {
@@ -11821,7 +11800,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "FontMetrics"},
-                            "fn_body": "azul_core::text_layout::get_font_metrics_fontref(fontref)"
+                            "fn_body": "azul_layout::text::get_font_metrics_fontref(fontref)"
                         },
                         "shape_text": {
                             "doc": "Returns the text layout of the shaped text",
@@ -11831,7 +11810,7 @@
                                 {"options": "ResolvedTextLayoutOptions"}
                             ],
                             "returns": {"type": "InlineText"},
-                            "fn_body": "azul_core::text_layout::shape_text(fontref, text.as_str(), &options)"
+                            "fn_body": "azul_layout::text::layout::shape_text(fontref, text.as_str(), &options)"
                         },
                         "get_hash": {
                             "doc": "Returns the hash of the FontRef (fast)",
@@ -13040,7 +13019,7 @@
                                 {"xml_string": "Refstr"}
                             ],
                             "returns": {"type": "ResultXmlXmlError"},
-                            "fn_body": "azul_core::xml::parse_xml(xml_string.as_str()).into()"
+                            "fn_body": "azul_layout::xml::parse_xml(xml_string.as_str()).into()"
                         }
                     }
                 },
@@ -13060,7 +13039,7 @@
             "classes": {
                 "File": {
                     "doc": "**Reference-counted** file handle",
-                    "external": "azul_core::file::File",
+                    "external": "crate::azul_impl::file::File",
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}},
@@ -13313,7 +13292,7 @@
             "classes": {
                 "SystemClipboard": {
                     "doc": "Connection to the system clipboard, on some systems this connection can be cached",
-                    "external": "azul_core::app::Clipboard",
+                    "external": "crate::azul_impl::app::Clipboard",
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}},
@@ -15957,7 +15936,7 @@
                     ]
                 },
                 "OptionSystemClipboard": {
-                    "external": "azul_core::app::OptionClipboard",
+                    "external": "crate::azul_impl::app::OptionClipboard",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "SystemClipboard" }}
@@ -15999,7 +15978,7 @@
                     ]
                 },
                 "OptionFile": {
-                    "external": "azul_core::file::OptionFile",
+                    "external": "crate::azul_impl::file::OptionFile",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "File" }}
@@ -16340,14 +16319,14 @@
                     ]
                 },
                 "ResultRawImageDecodeImageError": {
-                    "external": "azul_core::app_resources::decode::ResultRawImageDecodeImageError",
+                    "external": "azul_layout::image::decode::ResultRawImageDecodeImageError",
                     "enum_fields": [
                         {"Ok": {"type": "RawImage"}},
                         {"Err": { "type": "DecodeImageError" }}
                     ]
                 },
                 "ResultU8VecEncodeImageError": {
-                    "external": "azul_core::app_resources::encode::ResultU8VecEncodeImageError",
+                    "external": "azul_layout::image::encode::ResultU8VecEncodeImageError",
                     "enum_fields": [
                         {"Ok": {"type": "U8Vec"}},
                         {"Err": { "type": "EncodeImageError" }}

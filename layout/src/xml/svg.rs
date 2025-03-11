@@ -1660,7 +1660,7 @@ pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> Tessellated
 
 // NOTE: This is a separate step both in order to reuse GPU textures
 // and also because texture allocation is heavy and can be offloaded to a different thread
-pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: PhysicalSizeU32) -> Texture {
+pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: PhysicalSizeU32, _background: ColorU) -> Texture {
     use azul_core::gl::TextureFlags;
 
     let textures = gl_context.gen_textures(1);

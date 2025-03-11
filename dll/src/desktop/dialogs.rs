@@ -4,23 +4,23 @@ use core::ffi::c_void;
 
 use azul_core::window::AzStringPair;
 use azul_css::{impl_option, impl_option_inner, AzString, ColorU, StringVec};
-use tinyfiledialogs::{DefaultColorValue, MessageBoxIcon};
+use tfd::{DefaultColorValue, MessageBoxIcon};
 
-/// Ok or cancel result, returned from the `msg_box_ok_cancel` function
+/// Button dialog wrapper for reserved integration purposes
 #[derive(Debug)]
 pub struct MsgBox {
     /// reserved pointer (currently nullptr) for potential C extension
     pub _reserved: *mut c_void,
 }
 
-/// Ok or cancel result, returned from the `msg_box_ok_cancel` function
+/// File dialog wrapper for reserved integration purposes
 #[derive(Debug)]
 pub struct FileDialog {
     /// reserved pointer (currently nullptr) for potential C extension
     pub _reserved: *mut c_void,
 }
 
-/// Ok or cancel result, returned from the `msg_box_ok_cancel` function
+/// Color picker dialog wrapper for reserved integration purposes
 #[derive(Debug)]
 pub struct ColorPickerDialog {
     /// reserved pointer (currently nullptr) for potential C extension
@@ -34,22 +34,22 @@ pub enum OkCancel {
     Cancel,
 }
 
-impl From<::tinyfiledialogs::OkCancel> for OkCancel {
+impl From<tfd::OkCancel> for OkCancel {
     #[inline]
-    fn from(e: ::tinyfiledialogs::OkCancel) -> OkCancel {
+    fn from(e: tfd::OkCancel) -> Self {
         match e {
-            ::tinyfiledialogs::OkCancel::Ok => OkCancel::Ok,
-            ::tinyfiledialogs::OkCancel::Cancel => OkCancel::Cancel,
+            tfd::OkCancel::Ok => OkCancel::Ok,
+            tfd::OkCancel::Cancel => OkCancel::Cancel,
         }
     }
 }
 
-impl From<OkCancel> for ::tinyfiledialogs::OkCancel {
+impl From<OkCancel> for tfd::OkCancel {
     #[inline]
-    fn from(e: OkCancel) -> ::tinyfiledialogs::OkCancel {
+    fn from(e: OkCancel) -> Self {
         match e {
-            OkCancel::Ok => ::tinyfiledialogs::OkCancel::Ok,
-            OkCancel::Cancel => ::tinyfiledialogs::OkCancel::Cancel,
+            OkCancel::Ok => tfd::OkCancel::Ok,
+            OkCancel::Cancel => tfd::OkCancel::Cancel,
         }
     }
 }
@@ -61,7 +61,10 @@ pub fn msg_box_ok_cancel(
     icon: MessageBoxIcon,
     default: OkCancel,
 ) -> OkCancel {
-    ::tinyfiledialogs::message_box_ok_cancel(title, message, icon, default.into()).into()
+    let msg_box = tfd::MessageBox::new(title, message)
+        .with_icon(icon)
+        .run_modal_ok_cancel(default.into());
+    msg_box.into()
 }
 
 /// Yes or No result, returned from the `msg_box_yes_no` function
@@ -72,22 +75,22 @@ pub enum YesNo {
     No,
 }
 
-impl From<YesNo> for ::tinyfiledialogs::YesNo {
+impl From<YesNo> for tfd::YesNo {
     #[inline]
-    fn from(e: YesNo) -> ::tinyfiledialogs::YesNo {
+    fn from(e: YesNo) -> Self {
         match e {
-            YesNo::Yes => ::tinyfiledialogs::YesNo::Yes,
-            YesNo::No => ::tinyfiledialogs::YesNo::No,
+            YesNo::Yes => tfd::YesNo::Yes,
+            YesNo::No => tfd::YesNo::No,
         }
     }
 }
 
-impl From<::tinyfiledialogs::YesNo> for YesNo {
+impl From<tfd::YesNo> for YesNo {
     #[inline]
-    fn from(e: ::tinyfiledialogs::YesNo) -> YesNo {
+    fn from(e: tfd::YesNo) -> Self {
         match e {
-            ::tinyfiledialogs::YesNo::Yes => YesNo::Yes,
-            ::tinyfiledialogs::YesNo::No => YesNo::No,
+            tfd::YesNo::Yes => YesNo::Yes,
+            tfd::YesNo::No => YesNo::No,
         }
     }
 }
@@ -104,7 +107,7 @@ pub enum MsgBoxIcon {
 
 impl From<MsgBoxIcon> for MessageBoxIcon {
     #[inline]
-    fn from(e: MsgBoxIcon) -> MessageBoxIcon {
+    fn from(e: MsgBoxIcon) -> Self {
         match e {
             MsgBoxIcon::Info => MessageBoxIcon::Info,
             MsgBoxIcon::Warning => MessageBoxIcon::Warning,
@@ -114,32 +117,24 @@ impl From<MsgBoxIcon> for MessageBoxIcon {
     }
 }
 
-// Note: password_box, input_box and list_dialog do not work, so they're not included here.
-
 /// "Y/N" MsgBox (title, message, icon, default)
 pub fn msg_box_yes_no(title: &str, message: &str, icon: MessageBoxIcon, default: YesNo) -> YesNo {
-    ::tinyfiledialogs::message_box_yes_no(title, message, icon, default.into()).into()
+    let msg_box = tfd::MessageBox::new(title, message)
+        .with_icon(icon)
+        .run_modal_yes_no(default.into());
+    msg_box.into()
 }
 
 /// "Ok" MsgBox (title, message, icon)
 pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
     let mut msg = message.to_string();
 
-    #[cfg(target_os = "windows")]
-    {
-        // Windows does REALLY not like quotes in messages
-        // otherwise the displayed message is just "INVALID MESSAGE WITH QUOTES"
-        msg = msg.replace("\"", "");
-        msg = msg.replace("\'", "");
-    }
+    msg = msg.replace('\"', "");
+    msg = msg.replace('\'', "");
 
-    #[cfg(target_os = "linux")]
-    {
-        msg = msg.replace("\"", "");
-        msg = msg.replace("\'", "");
-    }
-
-    ::tinyfiledialogs::message_box_ok(title, &msg, icon)
+    tfd::MessageBox::new(title, &msg)
+        .with_icon(icon)
+        .run_modal();
 }
 
 /// Wrapper around `message_box_ok` with the default title "Info" + an info icon.
@@ -148,61 +143,14 @@ pub fn msg_box(content: &str) {
 }
 
 /// Opens the default color picker dialog
-#[cfg(target_os = "windows")]
 pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
-    use winapi::{
-        shared::minwindef::TRUE,
-        um::{
-            commdlg::{ChooseColorW, CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW},
-            wingdi::{GetBValue, GetGValue, GetRValue, RGB},
-            winuser::GetForegroundWindow,
-        },
-    };
-
-    let rgb = [
-        default_value.map(|c| c.r).unwrap_or_default(),
-        default_value.map(|c| c.g).unwrap_or_default(),
-        default_value.map(|c| c.b).unwrap_or_default(),
-    ];
-
-    let mut crCustColors = [0_u32; 16];
-
-    let mut cc = CHOOSECOLORW {
-        lStructSize: core::mem::size_of::<CHOOSECOLORW>() as u32,
-        hwndOwner: unsafe { GetForegroundWindow() },
-        hInstance: core::ptr::null_mut(),
-        rgbResult: RGB(rgb[0], rgb[1], rgb[2]),
-        lpCustColors: crCustColors.as_mut_ptr(),
-        Flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR,
-        lCustData: 0,
-        lpfnHook: None,
-        lpTemplateName: core::ptr::null_mut(),
-    };
-
-    let ret = unsafe { ChooseColorW(&mut cc) };
-
-    if !ret == TRUE {
-        None
-    } else {
-        Some(ColorU {
-            r: GetRValue(cc.rgbResult),
-            g: GetGValue(cc.rgbResult),
-            b: GetBValue(cc.rgbResult),
-            a: ColorU::ALPHA_OPAQUE,
-        })
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
-    let rgb = [
-        default_value.map(|c| c.r).unwrap_or_default(),
-        default_value.map(|c| c.g).unwrap_or_default(),
-        default_value.map(|c| c.b).unwrap_or_default(),
-    ];
-
-    let default = DefaultColorValue::RGB(&rgb);
-    let result = ::tinyfiledialogs::color_chooser_dialog(title, default)?;
+    let rgb = default_value.map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
+    
+    let default_color = DefaultColorValue::RGB(rgb);
+    let result = tfd::ColorChooser::new(title)
+        .with_default_color(default_color)
+        .run_modal()?;
+    
     Some(ColorU {
         r: result.1[0],
         g: result.1[1],
@@ -234,23 +182,37 @@ pub fn open_file_dialog(
     default_path: Option<&str>,
     filter_list: Option<FileTypeList>,
 ) -> Option<AzString> {
-    let documents: Vec<AzString> = filter_list
-        .as_ref()
-        .map(|s| s.document_types.clone().into_library_owned_vec())
-        .unwrap_or_default()
-        .into();
-    let documents: Vec<&str> = documents.iter().map(|s| s.as_str()).collect();
-    let filter_list_ref = match filter_list.as_ref() {
-        Some(s) => Some((documents.as_ref(), s.document_descriptor.as_str())),
-        None => None,
-    };
-    let path = default_path.unwrap_or("");
-    ::tinyfiledialogs::open_file_dialog(title, path, filter_list_ref).map(|s| s.into())
+    let mut dialog = tfd::FileDialog::new(title);
+    
+    if let Some(path) = default_path {
+        dialog = dialog.with_path(path);
+    }
+    
+    if let Some(filter) = filter_list {
+        let v = filter.document_types
+            .clone()
+            .into_library_owned_vec();
+        
+        let patterns: Vec<&str> = v
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        
+        dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
+    }
+    
+    dialog.open_file().map(|s| s.into())
 }
 
 /// Open a directory, returns `None` if the user canceled the dialog
 pub fn open_directory_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
-    ::tinyfiledialogs::select_folder_dialog(title, default_path.unwrap_or("")).map(|s| s.into())
+    let mut dialog = tfd::FileDialog::new(title);
+    
+    if let Some(path) = default_path {
+        dialog = dialog.with_path(path);
+    }
+    
+    dialog.select_folder().map(|s| s.into())
 }
 
 /// Open multiple files at once, returns `None` if the user canceled the dialog,
@@ -263,29 +225,37 @@ pub fn open_multiple_files_dialog(
     default_path: Option<&str>,
     filter_list: Option<FileTypeList>,
 ) -> Option<StringVec> {
-    let documents: Vec<AzString> = filter_list
-        .as_ref()
-        .map(|s| s.document_types.clone().into_library_owned_vec())
-        .unwrap_or_default()
-        .into();
-    let documents: Vec<&str> = documents.iter().map(|s| s.as_str()).collect();
-    let filter_list_ref = match filter_list.as_ref() {
-        Some(s) => Some((documents.as_ref(), s.document_descriptor.as_str())),
-        None => None,
-    };
-    let path = default_path.unwrap_or("");
-    ::tinyfiledialogs::open_file_dialog_multi(title, path, filter_list_ref).map(|s| s.into())
+    let mut dialog = tfd::FileDialog::new(title)
+        .with_multiple_selection(true);
+    
+    if let Some(path) = default_path {
+        dialog = dialog.with_path(path);
+    }
+    
+    if let Some(filter) = filter_list {
+        
+        let v = filter.document_types
+            .clone()
+            .into_library_owned_vec();
+
+        let patterns: Vec<&str> = v
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        
+        dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
+    }
+    
+    dialog.open_files().map(|s| s.into())
 }
 
 /// Opens a save file dialog, returns `None` if the user canceled the dialog
 pub fn save_file_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
-    let path = default_path.unwrap_or("");
-    ::tinyfiledialogs::save_file_dialog(title, path).map(|s| s.into())
+    let mut dialog = tfd::FileDialog::new(title);
+    
+    if let Some(path) = default_path {
+        dialog = dialog.with_path(path);
+    }
+    
+    dialog.save_file().map(|s| s.into())
 }
-
-// TODO (at least on Windows):
-// - Find and replace dialog
-// - Font picker dialog
-// - Page setup dialog
-// - Print dialog
-// - Print property dialog

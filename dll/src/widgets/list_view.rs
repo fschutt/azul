@@ -4,8 +4,9 @@ use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
         Dom, DomVec, IdOrClass,
-        IdOrClass::{Class, Id},
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
+        IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty, 
+        NodeDataInlineCssPropertyVec, TabIndex,
     },
     gl::OptionUsize,
     window::{LogicalPosition, LogicalSize, Menu, OptionMenu},

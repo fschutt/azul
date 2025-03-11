@@ -1232,12 +1232,6 @@ namespace dll {
        Percent,
     };
     
-    struct FloatValue {
-        ssize_t number;
-        FloatValue& operator=(const FloatValue&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        FloatValue() = delete; /* disable default constructor, use C++20 designated initializer instead */
-    };
-    
     enum class BoxShadowClipMode {
        Outset,
        Inset,
@@ -1328,6 +1322,12 @@ namespace dll {
        Auto,
        Hidden,
        Visible,
+    };
+    
+    struct FloatValue {
+        ssize_t number;
+        FloatValue& operator=(const FloatValue&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        FloatValue() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     enum class AngleMetric {
@@ -10549,14 +10549,14 @@ namespace dll {
         void MenuCallback_delete(MenuCallback* restrict instance);
         void MenuItemIcon_delete(MenuItemIcon* restrict instance);
         void CssRuleBlock_delete(CssRuleBlock* restrict instance);
-        void CssDeclaration_delete(CssDeclaration* restrict instance);
-        void DynamicCssProperty_delete(DynamicCssProperty* restrict instance);
         void CssPath_delete(CssPath* restrict instance);
         void CssPathSelector_delete(CssPathSelector* restrict instance);
         void Stylesheet_delete(Stylesheet* restrict instance);
         Css Css_empty();
         Css Css_fromString(AzString  s);
         void Css_delete(Css* restrict instance);
+        void CssDeclaration_delete(CssDeclaration* restrict instance);
+        void DynamicCssProperty_delete(DynamicCssProperty* restrict instance);
         ColorU ColorU_fromStr(AzString  string);
         ColorU ColorU_transparent();
         ColorU ColorU_white();

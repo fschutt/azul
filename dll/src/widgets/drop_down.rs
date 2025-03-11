@@ -1,20 +1,16 @@
-use std::vec::Vec;
 
 use azul_core::{
-    app_resources::{ImageRef, OptionImageRef},
     callbacks::{
-        Callback, CallbackInfo, FocusTarget, LayoutCallback, LayoutCallbackInfo,
+        Callback, CallbackInfo, LayoutCallback, LayoutCallbackInfo,
         MarshaledLayoutCallback, MarshaledLayoutCallbackInner, RefAny, Update,
     },
     dom::{
-        CallbackData, Dom, DomVec, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass,
+        CallbackData, Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass,
         IdOrClass::Class,
         IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex, WindowEventFilter,
     },
     styled_dom::StyledDom,
-    window::{PhysicalPosition, PhysicalPositionI32, WindowState},
 };
 use azul_css::{parser::CssApiWrapper, *};
 
@@ -996,12 +992,12 @@ struct DropDownLocalDataset {
 
 extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     use azul_core::window::{
-        OptionHwndHandle, RawWindowHandle, WindowCreateOptions, WindowPosition, WindowsHandle,
+        WindowCreateOptions, WindowPosition,
     };
 
     println!("dropdown clicked!");
 
-    let mut data = match data.downcast_ref::<DropDown>() {
+    let data = match data.downcast_ref::<DropDown>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -1095,7 +1091,7 @@ struct ChoiceChangeLocalDataset {
 extern "C" fn dropdownWindowLayoutFn(
     data: &mut RefAny,
     _: &mut RefAny,
-    info: &mut LayoutCallbackInfo,
+    _info: &mut LayoutCallbackInfo,
 ) -> StyledDom {
     println!("rendering window!");
 

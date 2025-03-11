@@ -2,7 +2,6 @@ use azul_core::dom::{
     Dom, IdOrClass,
     IdOrClass::Class,
     IdOrClassVec, NodeDataInlineCssProperty,
-    NodeDataInlineCssProperty::{Focus, Normal},
     NodeDataInlineCssPropertyVec,
 };
 use azul_css::*;

@@ -5,14 +5,14 @@ use azul_core::{
     app_resources::{ImageRef, RawImageFormat},
     callbacks::{Callback, CallbackInfo, RefAny, RenderImageCallbackInfo, Update},
     dom::{
-        CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
-        IdOrClass::{Class, Id},
+        CallbackData, Dom, EventFilter, HoverEventFilter, IdOrClass,
+        IdOrClass::Class,
         IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Hover, Normal},
-        NodeDataInlineCssPropertyVec, TabIndex,
+        NodeDataInlineCssProperty::Normal,
+        NodeDataInlineCssPropertyVec, 
     },
     gl::Texture,
-    svg::{SvgLine, SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
+    svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::{
         CursorPosition::InWindow, LogicalPosition, LogicalRect, LogicalSize, Menu, MenuItem,
         PhysicalSizeU32, StringMenuItem,
@@ -1037,8 +1037,8 @@ fn render_node(
 ) -> Dom {
     use azul_core::dom::{
         Dom, DomVec, IdOrClass,
-        IdOrClass::{Class, Id},
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
+        IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     };
     use azul_css::*;
 
@@ -3030,7 +3030,7 @@ fn get_rect(
     ))
 }
 
-extern "C" fn nodegraph_set_active_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_set_active_node(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     let data_clone = data.clone();
     if let Some(mut data) = data.downcast_mut::<NodeLocalDataset>() {
         let node_id = data.node_id.clone();
@@ -3041,7 +3041,7 @@ extern "C" fn nodegraph_set_active_node(data: &mut RefAny, info: &mut CallbackIn
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     if let Some(mut data) = data.downcast_mut::<NodeGraphLocalDataset>() {
         data.active_node_being_dragged = None;
     }
@@ -3054,7 +3054,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
         Some(s) => s,
         None => return Update::DoNothing,
     };
-    let mut data = &mut *data;
+    let data = &mut *data;
 
     let prev = match info.get_previous_mouse_state() {
         Some(s) => s,
@@ -3081,7 +3081,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
         Some((node_graph_node_id, data_marker)) => {
             let node_connection_marker = &mut data.node_connection_marker;
 
-            let nodegraph_node = info.get_hit_node();
+            let _nodegraph_node = info.get_hit_node();
             let result = match data.callbacks.on_node_dragged.as_mut() {
                 Some(OnNodeDragged { callback, data }) => (callback.cb)(
                     data,
@@ -3248,7 +3248,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
             };
 
             loop {
-                let mut node_first_child = match info.get_first_child(node) {
+                let node_first_child = match info.get_first_child(node) {
                     Some(s) => s,
                     None => return Update::DoNothing,
                 };
@@ -3258,7 +3258,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     Some(s) => s,
                 };
 
-                let mut node_graph_node_id =
+                let node_graph_node_id =
                     match node_local_dataset.downcast_ref::<NodeLocalDataset>() {
                         Some(s) => s,
                         None => continue,
@@ -3370,8 +3370,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
     should_update
 }
 
-extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<NodeLocalDataset>() {
+extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+    let _data = match data.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3822,7 +3822,7 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
     };
 
     // If a new file was selected, invoke callback
-    let mut result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
             data,
             info,

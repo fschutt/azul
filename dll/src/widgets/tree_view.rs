@@ -1,15 +1,9 @@
-use std::vec::Vec;
 
-use azul_core::{
-    app_resources::{ImageRef, OptionImageRef},
-    callbacks::{CallbackInfo, RefAny, Update},
-    dom::{
-        Dom, DomVec, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
-        NodeDataInlineCssPropertyVec, TabIndex,
-    },
+use azul_core::dom::{
+    Dom, DomVec, IdOrClass,
+    IdOrClass::Class,
+    IdOrClassVec, NodeDataInlineCssProperty,
+    NodeDataInlineCssPropertyVec, TabIndex,
 };
 use azul_css::*;
 

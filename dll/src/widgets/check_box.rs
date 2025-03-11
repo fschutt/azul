@@ -1,10 +1,10 @@
 use azul_core::{
-    callbacks::{Callback, CallbackInfo, CallbackType, RefAny, Update},
+    callbacks::{CallbackInfo, RefAny, Update},
     dom::{
-        Dom, EventFilter, IdOrClass,
+        Dom, IdOrClass,
         IdOrClass::Class,
         IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
+        NodeDataInlineCssProperty::Normal,
         NodeDataInlineCssPropertyVec, TabIndex,
     },
 };
@@ -210,7 +210,7 @@ impl CheckBox {
     pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::Callback,
-            dom::{CallbackData, Dom, DomVec, EventFilter, HoverEventFilter},
+            dom::{CallbackData, Dom, EventFilter, HoverEventFilter},
         };
 
         Dom::div()

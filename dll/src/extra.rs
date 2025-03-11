@@ -1,8 +1,5 @@
-use azul_core::{
-    dom::{Dom, NodeType},
-    styled_dom::StyledDom,
-};
-use azul_css::{ColorU, Css};
+use azul_css::ColorU;
+use azul_core::styled_dom::StyledDom;
 
 pub fn coloru_from_str(s: &str) -> ColorU {
     azul_css::parser::parse_css_color(s)

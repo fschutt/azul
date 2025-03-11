@@ -19,6 +19,12 @@ pub struct CssApiWrapper {
     pub css: Css,
 }
 
+impl From<Css> for CssApiWrapper {
+    fn from(value: Css) -> Self {
+        Self { css: value }
+    }
+}
+
 impl CssApiWrapper {
     pub fn empty() -> Self {
         Self { css: Css::empty() }

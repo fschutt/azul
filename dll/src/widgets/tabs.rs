@@ -1,11 +1,10 @@
-use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{Callback, CallbackInfo, RefAny, Update},
     dom::{
         CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
-        IdOrClass::{Class, Id},
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
+        IdOrClass::Class,
+        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
 };
 use azul_css::*;
@@ -1445,7 +1444,7 @@ extern "C" fn on_tab_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update
             active_tab: tab_idx,
         };
 
-        let result = {
+        let _result = {
             // rustc doesn't understand the borrowing lifetime here
             let tab_local_dataset = &mut *tab_local_dataset;
             let onclick = &mut tab_local_dataset.on_click;
