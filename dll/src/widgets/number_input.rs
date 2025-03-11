@@ -2,11 +2,12 @@
 
 use core::ops::{Deref, DerefMut};
 use std::string::String;
-use azul_css::*;
+
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{Dom, NodeDataInlineCssPropertyVec},
 };
+use azul_css::*;
 
 use crate::widgets::text_input::{
     OnTextInputReturn, TextInput, TextInputOnFocusLostCallbackType,

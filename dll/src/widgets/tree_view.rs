@@ -1,6 +1,7 @@
 use std::vec::Vec;
-use azul_css::*;
+
 use azul_core::{
+    app_resources::{ImageRef, OptionImageRef},
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
         Dom, DomVec, IdOrClass,
@@ -9,8 +10,8 @@ use azul_core::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    app_resources::{ImageRef, OptionImageRef},
 };
+use azul_css::*;
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundContent] =
@@ -1468,509 +1469,499 @@ impl TreeView {
 
     pub fn dom(self) -> Dom {
         Dom::div()
-        .with_inline_css_props(CSS_MATCH_13401060217940352039)
-        .with_ids_and_classes({
-            const IDS_AND_CLASSES_9837365222714915139: &[IdOrClass] = &[
-                    Class(AzString::from_const_str("__azul-native-tree-view")),
-
-            ];
-            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9837365222714915139)
-        })
-        .with_children(DomVec::from_vec(vec![
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2919526787497691572)
+            .with_inline_css_props(CSS_MATCH_13401060217940352039)
             .with_ids_and_classes({
-                const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tree-view-row")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
+                const IDS_AND_CLASSES_9837365222714915139: &[IdOrClass] =
+                    &[Class(AzString::from_const_str("__azul-native-tree-view"))];
+                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9837365222714915139)
             })
             .with_children(DomVec::from_vec(vec![
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_8394859448076413888)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-minus")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_6438488809014395635)
+                    .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-minus-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15170138310983987150)
+                        const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-tree-view-row"),
+                        )];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
                         Dom::div()
-                        .with_inline_css_props(CSS_MATCH_11045010670475678001)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] = &[
-                                                    Class(AzString::from_const_str("__azul-native-tree-minus-icon")),
-
-                            ];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_276637619792188049)
-                        })
-                    ]))
-                ])),
+                            .with_inline_css_props(CSS_MATCH_8394859448076413888)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-minus"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_6438488809014395635)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-minus-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_15170138310983987150,
+                                    )
+                                })
+                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_11045010670475678001)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-minus-icon",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_276637619792188049,
+                                        )
+                                    })]))])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_3920366294746786702)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str(
+                                        "__azul-native-tree-view-row-label",
+                                    ))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-view-row-label-focusable-wrapper",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12039918700145849527,
+                                    )
+                                })
+                                .with_tab_index(TabIndex::Auto)
+                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                    AzString::from_const_str("Hello"),
+                                )]))])),
+                    ])),
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_3920366294746786702)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-view-row-label")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                    .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-view-row-label-focusable-wrapper")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12039918700145849527)
-                    })
-                        .with_tab_index(TabIndex::Auto)
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ]))
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2919526787497691572)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tree-view-row")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_13463400830017583629)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_8562870525116426737: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-pipe-down")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8562870525116426737)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_5748554468056235124)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_12623539011723615844: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-pipe-down-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12623539011723615844)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_17631951240816806439)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_13969147764958421470: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-space-1")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_13969147764958421470)
-                }),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_9703015952013196920)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-t")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_17035174955428217627)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-t-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6948782902341484076)
-                    }),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_10250347571702901767)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-t-content-minus")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7986348685827112423)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_3920366294746786702)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-view-row-label")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_15054086665198995512)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_966274871881623987: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-view-row-label-focusable-wrapper")),
-                        Class(AzString::from_const_str("focused")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_966274871881623987)
-                    })
-                        .with_tab_index(TabIndex::Auto)
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ]))
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2919526787497691572)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tree-view-row")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_9703015952013196920)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-t")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_17035174955428217627)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-t-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6948782902341484076)
-                    }),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_10250347571702901767)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-t-content-minus")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7986348685827112423)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_14455923367901630186)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-space-1-filled")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_17932671798964167701)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-space-1-filled-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11324832106902074912)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_6621536559891676126)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_3445414501074686586: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-cross")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3445414501074686586)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_9438342815980407130)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_1166576799478159097: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-cross-content-1")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1166576799478159097)
-                    }),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_1250869685159433269)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_5610655148321459708: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-cross-content-2")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5610655148321459708)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_3920366294746786702)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-view-row-label")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14249021884908901216)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-view-row-label-focusable-wrapper")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12039918700145849527)
-                    })
-                        .with_tab_index(TabIndex::Auto)
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ]))
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2919526787497691572)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tree-view-row")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_9703015952013196920)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-t")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_17035174955428217627)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-t-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6948782902341484076)
-                    }),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_10250347571702901767)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-t-content-minus")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7986348685827112423)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_14455923367901630186)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-space-1-filled")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_17932671798964167701)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-space-1-filled-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11324832106902074912)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_8394859448076413888)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-minus")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_6438488809014395635)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-minus-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15170138310983987150)
+                        const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-tree-view-row"),
+                        )];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
                         Dom::div()
-                        .with_inline_css_props(CSS_MATCH_11045010670475678001)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] = &[
-                                                    Class(AzString::from_const_str("__azul-native-tree-minus-icon")),
-
-                            ];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_276637619792188049)
-                        })
-                    ]))
-                ])),
+                            .with_inline_css_props(CSS_MATCH_13463400830017583629)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_8562870525116426737: &[IdOrClass] = &[Class(
+                                    AzString::from_const_str("__azul-native-tree-pipe-down"),
+                                )];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8562870525116426737)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_5748554468056235124)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12623539011723615844: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-pipe-down-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12623539011723615844,
+                                    )
+                                })])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_17631951240816806439)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_13969147764958421470: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str(
+                                        "__azul-native-tree-space-1",
+                                    ))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_13969147764958421470)
+                            }),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_9703015952013196920)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-t"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_17035174955428217627)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-t-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6948782902341484076,
+                                        )
+                                    }),
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_10250347571702901767)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-t-content-minus",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_7986348685827112423,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_3920366294746786702)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str(
+                                        "__azul-native-tree-view-row-label",
+                                    ))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_15054086665198995512)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_966274871881623987: &[IdOrClass] = &[
+                                        Class(AzString::from_const_str(
+                                            "__azul-native-tree-view-row-label-focusable-wrapper",
+                                        )),
+                                        Class(AzString::from_const_str("focused")),
+                                    ];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_966274871881623987,
+                                    )
+                                })
+                                .with_tab_index(TabIndex::Auto)
+                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                    AzString::from_const_str("Hello"),
+                                )]))])),
+                    ])),
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_3920366294746786702)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-view-row-label")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                    .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-view-row-label-focusable-wrapper")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12039918700145849527)
-                    })
-                        .with_tab_index(TabIndex::Auto)
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ]))
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2919526787497691572)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tree-view-row")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_9496626968151854549)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_11091968853782313624: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-l")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11091968853782313624)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_5479296065075700509)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_7201172733362059285: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-l-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7201172733362059285)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_14455923367901630186)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-space-1-filled")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_17932671798964167701)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-space-1-filled-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11324832106902074912)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_8394859448076413888)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-minus")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_6438488809014395635)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-minus-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15170138310983987150)
+                        const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-tree-view-row"),
+                        )];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
                         Dom::div()
-                        .with_inline_css_props(CSS_MATCH_11045010670475678001)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] = &[
-                                                    Class(AzString::from_const_str("__azul-native-tree-minus-icon")),
-
-                            ];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_276637619792188049)
-                        })
-                    ]))
-                ])),
+                            .with_inline_css_props(CSS_MATCH_9703015952013196920)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-t"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_17035174955428217627)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-t-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6948782902341484076,
+                                        )
+                                    }),
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_10250347571702901767)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-t-content-minus",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_7986348685827112423,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_14455923367901630186)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[Class(
+                                    AzString::from_const_str("__azul-native-tree-space-1-filled"),
+                                )];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_17932671798964167701)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-space-1-filled-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_11324832106902074912,
+                                    )
+                                })])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_6621536559891676126)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_3445414501074686586: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-cross"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3445414501074686586)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_9438342815980407130)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_1166576799478159097: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-cross-content-1",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_1166576799478159097,
+                                        )
+                                    }),
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_1250869685159433269)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_5610655148321459708: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-cross-content-2",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_5610655148321459708,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_3920366294746786702)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str(
+                                        "__azul-native-tree-view-row-label",
+                                    ))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-view-row-label-focusable-wrapper",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12039918700145849527,
+                                    )
+                                })
+                                .with_tab_index(TabIndex::Auto)
+                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                    AzString::from_const_str("Hello"),
+                                )]))])),
+                    ])),
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_3920366294746786702)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tree-view-row-label")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                    .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul-native-tree-view-row-label-focusable-wrapper")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12039918700145849527)
+                        const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-tree-view-row"),
+                        )];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
-                        .with_tab_index(TabIndex::Auto)
                     .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ]))
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_9703015952013196920)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-t"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_17035174955428217627)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-t-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6948782902341484076,
+                                        )
+                                    }),
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_10250347571702901767)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-t-content-minus",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_7986348685827112423,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_14455923367901630186)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[Class(
+                                    AzString::from_const_str("__azul-native-tree-space-1-filled"),
+                                )];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_17932671798964167701)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-space-1-filled-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_11324832106902074912,
+                                    )
+                                })])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_8394859448076413888)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-minus"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_6438488809014395635)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-minus-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_15170138310983987150,
+                                    )
+                                })
+                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_11045010670475678001)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-minus-icon",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_276637619792188049,
+                                        )
+                                    })]))])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_3920366294746786702)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str(
+                                        "__azul-native-tree-view-row-label",
+                                    ))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-view-row-label-focusable-wrapper",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12039918700145849527,
+                                    )
+                                })
+                                .with_tab_index(TabIndex::Auto)
+                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                    AzString::from_const_str("Hello"),
+                                )]))])),
+                    ])),
+                Dom::div()
+                    .with_inline_css_props(CSS_MATCH_2919526787497691572)
+                    .with_ids_and_classes({
+                        const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-tree-view-row"),
+                        )];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
+                    })
+                    .with_children(DomVec::from_vec(vec![
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_9496626968151854549)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_11091968853782313624: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-l"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11091968853782313624)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_5479296065075700509)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_7201172733362059285: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-l-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_7201172733362059285,
+                                    )
+                                })])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_14455923367901630186)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[Class(
+                                    AzString::from_const_str("__azul-native-tree-space-1-filled"),
+                                )];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_17932671798964167701)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-space-1-filled-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_11324832106902074912,
+                                    )
+                                })])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_8394859448076413888)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("__azul-native-tree-minus"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_6438488809014395635)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-minus-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_15170138310983987150,
+                                    )
+                                })
+                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_11045010670475678001)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul-native-tree-minus-icon",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_276637619792188049,
+                                        )
+                                    })]))])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_3920366294746786702)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str(
+                                        "__azul-native-tree-view-row-label",
+                                    ))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
+                            })
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_14249021884908901216)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-tree-view-row-label-focusable-wrapper",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12039918700145849527,
+                                    )
+                                })
+                                .with_tab_index(TabIndex::Auto)
+                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                    AzString::from_const_str("Hello"),
+                                )]))])),
+                    ])),
             ]))
-        ]))
     }
 }

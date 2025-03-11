@@ -1,4 +1,5 @@
 use std::{env, fs, path::Path, process::exit};
+
 use azul::{
     app_resources::{
         DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, LoadFontFn,
@@ -393,7 +394,6 @@ fn get_cpp_code(root_nodes: &[XmlNode]) -> Result<String, String> {
 fn get_python_code(root_nodes: &[XmlNode]) -> Result<String, String> {
     Ok(String::new()) // TODO
 }
-
 
 /// Parse a string in the format of "600x100" -> (600, 100)
 pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {

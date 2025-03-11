@@ -228,11 +228,9 @@ impl CheckBox {
             )
             .with_tab_index(TabIndex::Auto)
             .with_children(
-                vec![
-                    Dom::div()
-                        .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
-                        .with_inline_css_props(self.content_style),
-                ]
+                vec![Dom::div()
+                    .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
+                    .with_inline_css_props(self.content_style)]
                 .into(),
             )
     }
@@ -241,10 +239,8 @@ impl CheckBox {
 // handle input events for the checkbox
 mod input {
 
+    use azul_core::callbacks::{CallbackInfo, RefAny, Update};
     use azul_css::{CssProperty, StyleOpacity};
-    use azul_core::{
-        callbacks::{CallbackInfo, RefAny, Update},
-    };
 
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
 

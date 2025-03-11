@@ -2,8 +2,9 @@
 //! opens a file dialog instead
 
 use std::vec::Vec;
-use azul_css::*;
+
 use azul_core::{
+    app_resources::{ImageRef, OptionImageRef},
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
         Dom, IdOrClass,
@@ -12,10 +13,13 @@ use azul_core::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    app_resources::{ImageRef, OptionImageRef},
 };
-use crate::desktop::dialogs::OptionFileTypeList;
-use crate::widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback};
+use azul_css::*;
+
+use crate::{
+    desktop::dialogs::OptionFileTypeList,
+    widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]

@@ -7,9 +7,9 @@ use std::{
 
 use azul_core::window::{MenuCallback, WindowCreateOptions};
 use webrender::{
+    api::{DocumentId as WrDocumentId, RenderNotifier as WrRenderNotifier},
     ProgramCache as WrProgramCache, RendererOptions as WrRendererOptions,
     ShaderPrecacheFlags as WrShaderPrecacheFlags, Shaders as WrShaders,
-    api::{DocumentId as WrDocumentId, RenderNotifier as WrRenderNotifier},
 };
 
 // ID sent by WM_TIMER to re-generate the DOM

@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::__m256;
@@ -5,8 +7,7 @@ use core::{
     fmt,
     sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
 };
-#[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
+
 use azul_css::{
     ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
     LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom, LayoutBoxSizing, LayoutDisplay,
@@ -708,8 +709,8 @@ impl LayoutResult {
         image_cache: &ImageCache,
     ) -> CachedDisplayList {
         use crate::display_list::{
-            DisplayListFrame, DisplayListMsg, DisplayListParametersRef, LayoutRectContent,
-            RectBackground, displaylist_handle_rect, push_rectangles_into_displaylist,
+            displaylist_handle_rect, push_rectangles_into_displaylist, DisplayListFrame,
+            DisplayListMsg, DisplayListParametersRef, LayoutRectContent, RectBackground,
         };
 
         let layout_result = match layout_results.get(dom_id.inner) {

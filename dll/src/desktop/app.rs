@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 use std::{fmt, sync::Mutex, thread::JoinHandle};
-use azul_css::{impl_option, impl_option_inner};
+
 use azul_core::{
     app_resources::{AppConfig, ImageCache, ImageRef},
     callbacks::{Dummy, RefAny, Update},
@@ -8,7 +8,7 @@ use azul_core::{
     task::{Timer, TimerId},
     window::{MonitorVec, WindowCreateOptions},
 };
-use azul_css::AzString;
+use azul_css::{impl_option, impl_option_inner, AzString};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use rust_fontconfig::FcFontCache;
 
@@ -276,4 +276,3 @@ impl Drop for Clipboard {
         self.run_destructor = false;
     }
 }
-

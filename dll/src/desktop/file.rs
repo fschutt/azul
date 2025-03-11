@@ -6,7 +6,7 @@ use std::{
     sync::Mutex,
 };
 
-use azul_css::{AzString, U8Vec};
+use azul_css::{impl_option, impl_option_inner, AzString, U8Vec};
 
 #[repr(C)]
 pub struct File {
@@ -57,7 +57,7 @@ impl PartialOrd for File {
     }
 }
 
-azul_css::impl_option!(File, OptionFile, copy = false, [Clone, Debug]);
+impl_option!(File, OptionFile, copy = false, [Clone, Debug]);
 
 impl File {
     fn new(f: fs::File, path: AzString) -> Self {

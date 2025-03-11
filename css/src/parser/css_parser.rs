@@ -4826,9 +4826,8 @@ pub fn parse_linear_color_stop<'a>(
 pub fn parse_radial_color_stop<'a>(
     input: &'a str,
 ) -> Result<RadialColorStop, CssGradientStopParseError<'a>> {
-    use crate::OptionAngleValue;
-
     use self::CssGradientStopParseError::*;
+    use crate::OptionAngleValue;
 
     let input = input.trim();
 

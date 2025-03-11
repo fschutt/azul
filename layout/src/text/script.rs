@@ -147,7 +147,11 @@ pub fn detect_script(text: &str) -> Option<Script> {
         .cloned()
         .max_by_key(|&(_, _, count)| count)
         .unwrap();
-    if count != 0 { Some(script) } else { None }
+    if count != 0 {
+        Some(script)
+    } else {
+        None
+    }
 }
 
 fn is_cyrillic(ch: char) -> bool {

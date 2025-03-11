@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
@@ -10,22 +12,20 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 #[cfg(feature = "std")]
-use std::sync::Mutex;
-#[cfg(feature = "std")]
 use std::sync::mpsc::{Receiver, Sender};
+#[cfg(feature = "std")]
+use std::sync::Mutex;
 #[cfg(feature = "std")]
 use std::thread::{self, JoinHandle};
 #[cfg(feature = "std")]
 use std::time::Duration as StdDuration;
 #[cfg(feature = "std")]
 use std::time::Instant as StdInstant;
-#[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
+
 use azul_css::{AzString, CssProperty};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    FastBTreeSet, FastHashMap,
     app_resources::{ImageCache, ImageMask, ImageRef},
     callbacks::{
         CallbackInfo, DomNodeId, FocusTarget, OptionDomNodeId, RefAny, ScrollPosition,
@@ -40,6 +40,7 @@ use crate::{
         FullWindowState, LogicalPosition, OptionLogicalPosition, RawWindowHandle,
         WindowCreateOptions, WindowState,
     },
+    FastBTreeSet, FastHashMap,
 };
 
 /// Should a timer terminate or not - used to remove active timers
@@ -850,7 +851,6 @@ impl Drop for ThreadSender {
 }
 
 impl ThreadSender {
-
     #[cfg(not(feature = "std"))]
     pub fn new(t: ThreadSenderInner) -> Self {
         Self {
@@ -909,7 +909,6 @@ impl Drop for ThreadReceiver {
 }
 
 impl ThreadReceiver {
-
     #[cfg(not(feature = "std"))]
     pub fn new(t: ThreadReceiverInner) -> Self {
         Self {
@@ -1391,7 +1390,7 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
 }
 
 #[cfg(not(feature = "std"))]
-extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) { }
+extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {}
 
 #[cfg(feature = "std")]
 extern "C" fn library_send_thread_msg_fn(sender: *const c_void, msg: ThreadSendMsg) -> bool {
@@ -1438,7 +1437,6 @@ extern "C" fn default_receive_thread_msg_fn(receiver: *const c_void) -> OptionTh
         .into()
 }
 
-
 #[cfg(not(feature = "std"))]
 extern "C" fn default_receive_thread_msg_fn(receiver: *const c_void) -> OptionThreadSendMsg {
     None.into()
@@ -1458,7 +1456,6 @@ extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
 
 #[cfg(feature = "std")]
 extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
-
 
 #[cfg(not(feature = "std"))]
 extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}

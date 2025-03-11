@@ -1,6 +1,7 @@
 use std::vec::Vec;
-use azul_css::*;
+
 use azul_core::{
+    app_resources::{ImageRef, OptionImageRef},
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
         Dom, IdOrClass,
@@ -9,8 +10,8 @@ use azul_core::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    app_resources::{ImageRef, OptionImageRef},
 };
+use azul_css::*;
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -451,11 +452,9 @@ impl Button {
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
             .with_children(
-                vec![
-                    Dom::text(self.label)
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-                        .with_inline_css_props(self.label_style),
-                ]
+                vec![Dom::text(self.label)
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
+                    .with_inline_css_props(self.label_style)]
                 .into(),
             )
     }
@@ -464,7 +463,6 @@ impl Button {
 #[cfg(test)]
 mod ui_test {
     use azul_css::parser::CssApiWrapper;
-
 
     static EXPECTED_1: &str =
         "
@@ -483,10 +481,11 @@ mod ui_test {
 
     #[test]
     fn test_button_ui_1() {
-
         use crate::widgets::button::Button;
 
-        let button = Button::new("Hello".into()).dom().style(CssApiWrapper::empty());
+        let button = Button::new("Hello".into())
+            .dom()
+            .style(CssApiWrapper::empty());
         let button_html = button.get_html_string("", "", true);
 
         assert_lines(EXPECTED_1.trim(), button_html.as_str().trim());

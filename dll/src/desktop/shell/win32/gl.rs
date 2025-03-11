@@ -978,10 +978,10 @@ impl ExtraWglFunctions {
         use winapi::um::{
             libloaderapi::GetModuleHandleW,
             wingdi::{
-                ChoosePixelFormat, SetPixelFormat, wglCreateContext, wglDeleteContext,
-                wglGetProcAddress, wglMakeCurrent,
+                wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
+                ChoosePixelFormat, SetPixelFormat,
             },
-            winuser::{CW_USEDEFAULT, CreateWindowExW, DestroyWindow, GetDC, ReleaseDC},
+            winuser::{CreateWindowExW, DestroyWindow, GetDC, ReleaseDC, CW_USEDEFAULT},
         };
 
         use self::ExtraWglFunctionsLoadError::*;

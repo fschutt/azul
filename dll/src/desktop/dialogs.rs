@@ -1,9 +1,9 @@
 #![allow(missing_copy_implementations)]
 
 use core::ffi::c_void;
-use azul_css::{impl_option, impl_option_inner};
+
 use azul_core::window::AzStringPair;
-use azul_css::{AzString, ColorU, StringVec};
+use azul_css::{impl_option, impl_option_inner, AzString, ColorU, StringVec};
 use tinyfiledialogs::{DefaultColorValue, MessageBoxIcon};
 
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function
@@ -153,7 +153,7 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option
     use winapi::{
         shared::minwindef::TRUE,
         um::{
-            commdlg::{CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW, ChooseColorW},
+            commdlg::{ChooseColorW, CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW},
             wingdi::{GetBValue, GetGValue, GetRValue, RGB},
             winuser::GetForegroundWindow,
         },

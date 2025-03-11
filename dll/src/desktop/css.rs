@@ -36,9 +36,9 @@
 //! | `border`,  `-top`, `-left`, `-right`, `-bottom`    |              |             |            |                  |
 //! | `box-shadow`, `-top`, `-left`, `-right`, `-bottom` |              |             |            |                  |
 
-pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 use azul_css::parser::{self, CssParseError};
+pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
     pub use azul_css::parser::*;

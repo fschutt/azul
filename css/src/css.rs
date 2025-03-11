@@ -3,8 +3,8 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use crate::{
-    AzString,
     css_properties::{CssProperty, CssPropertyType},
+    AzString,
 };
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",

@@ -1,13 +1,11 @@
-
 use core::fmt;
 
 use azul_core::app_resources::{RawImage, RawImageFormat};
-use azul_css::U8Vec;
+use azul_css::{impl_result, impl_result_inner, U8Vec};
 use image::{
-    DynamicImage,
     error::{ImageError, LimitError, LimitErrorKind},
+    DynamicImage,
 };
-use azul_css::{impl_result, impl_result_inner};
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
@@ -23,8 +21,7 @@ impl fmt::Display for DecodeImageError {
         match self {
             DecodeImageError::InsufficientMemory => write!(
                 f,
-                "Error decoding image: Not enough memory available to perform encoding \
-                 operation"
+                "Error decoding image: Not enough memory available to perform encoding operation"
             ),
             DecodeImageError::DimensionError => {
                 write!(f, "Error decoding image: Wrong dimensions")

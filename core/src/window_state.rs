@@ -63,6 +63,8 @@
 //! }
 //! ```rust
 
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use alloc::{
     boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -71,10 +73,8 @@ use alloc::{
 
 use azul_css::{AzString, CssProperty, LayoutPoint, LayoutRect, LayoutSize};
 use rust_fontconfig::FcFontCache;
-#[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
+
 use crate::{
-    FastBTreeSet, FastHashMap,
     app_resources::{ImageCache, RendererResources},
     callbacks::{DocumentId, DomNodeId, HitTestItem, ScrollPosition, Update},
     dom::{EventFilter, FocusEventFilter, HoverEventFilter, NotEventFilter, WindowEventFilter},
@@ -84,6 +84,7 @@ use crate::{
     task::ExternalSystemCallbacks,
     ui_solver::{GpuEventChanges, LayoutResult, RelayoutChanges},
     window::{CallCallbacksResult, FullHitTest, FullWindowState, RawWindowHandle, ScrollStates},
+    FastBTreeSet, FastHashMap,
 };
 
 #[derive(Debug, Clone, PartialEq)]

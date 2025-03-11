@@ -75,23 +75,21 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                             .with_inline_style("margin-bottom: 5px;"),
                         Dom::div()
                             .with_inline_style("flex-direction: row;")
-                            .with_children(vec![
-                                ListView::new(vec![
-                                    format!("Column 1"),
-                                    format!("Column 2"),
-                                    format!("Column 3"),
-                                    format!("Column 4"),
-                                ])
-                                .with_rows(
-                                    (0..100)
-                                        .map(|i| ListViewRow {
-                                            cells: vec![Dom::text(format!("{}", i))].into(),
-                                            height: None.into(),
-                                        })
-                                        .collect::<Vec<_>>(),
-                                )
-                                .dom(),
-                            ]),
+                            .with_children(vec![ListView::new(vec![
+                                format!("Column 1"),
+                                format!("Column 2"),
+                                format!("Column 3"),
+                                format!("Column 4"),
+                            ])
+                            .with_rows(
+                                (0..100)
+                                    .map(|i| ListViewRow {
+                                        cells: vec![Dom::text(format!("{}", i))].into(),
+                                        height: None.into(),
+                                    })
+                                    .collect::<Vec<_>>(),
+                            )
+                            .dom()]),
                         /*
                         Dom::div()
                         .with_inline_style("flex-direction: row;padding:10px;")

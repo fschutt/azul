@@ -6,6 +6,7 @@ pub use azul_core::svg::*;
 // re-export everything except for Svg and SvgXmlNode
 #[cfg(feature = "svg")]
 pub use azul_core::svg::{
+    c_void,
     FontDatabase,
     ImageRendering,
     Indent,
@@ -63,7 +64,6 @@ pub use azul_core::svg::{
     TessellatedSvgNodeVecDestructor,
     TessellatedSvgNodeVecRef,
     TextRendering,
-    c_void,
 };
 use azul_core::{
     app_resources::{RawImage, RawImageFormat},
@@ -169,7 +169,7 @@ fn svg_multipolygon_to_lyon_path(polygon: &SvgMultiPolygon) -> Path {
 
 #[cfg(feature = "svg")]
 fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
-    use lyon::path::{Winding, traits::PathBuilder};
+    use lyon::path::{traits::PathBuilder, Winding};
 
     let mut builder = Path::builder();
 
@@ -1474,7 +1474,6 @@ pub fn tessellate_svgpathelement_stroke(
 
 #[cfg(feature = "svg")]
 pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNode {
-
     let mut index_offset = 0;
 
     // note: can not be parallelized!
@@ -1533,7 +1532,6 @@ pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNod
 pub fn join_tessellated_colored_nodes(
     nodes: &[TessellatedColoredSvgNode],
 ) -> TessellatedColoredSvgNode {
-
     let mut index_offset = 0;
 
     // note: can not be parallelized!

@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use alloc::{
     boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -10,8 +12,7 @@ use core::{
     ops,
     sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering},
 };
-#[cfg(not(feature = "std"))]
-use alloc::string::{String, ToString};
+
 use azul_css::{
     AzString, ColorU, CssPath, CssProperty, FloatValue, LayoutPoint, LayoutRect, LayoutSize,
     OptionAzString, OptionF32, OptionI32, U8Vec,
@@ -19,7 +20,6 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    FastBTreeSet, FastHashMap,
     app_resources::{
         DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef,
         RendererResources, ResourceUpdate,
@@ -39,6 +39,7 @@ use crate::{
         ExternalScrollId, HitTest, LayoutResult, OverflowingScrollNode, QuickResizeResult,
     },
     window_state::RelayoutFn,
+    FastBTreeSet, FastHashMap,
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";

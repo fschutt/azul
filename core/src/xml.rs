@@ -1,19 +1,21 @@
 //! XML structure definitions
 
-use alloc::collections::BTreeMap;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use alloc::boxed::Box;
-use core::hash::Hash;
-use core::fmt;
+use alloc::{
+    boxed::Box,
+    collections::BTreeMap,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{fmt, hash::Hash};
+
 use azul_css::{
+    parser::{CssApiWrapper, CssParseErrorOwned, ErrorLocation},
     AzString, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssProperty,
     CssRuleBlock, NodeTypeTag, NormalizedLinearColorStopVec, NormalizedRadialColorStopVec,
     OptionAzString, StyleBackgroundContentVec, StyleBackgroundPositionVec,
     StyleBackgroundRepeatVec, StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec,
 };
-use azul_css::parser::ErrorLocation;
-use azul_css::parser::{CssApiWrapper, CssParseErrorOwned};
+
 use crate::{
     css::VecContents,
     dom::Dom,

@@ -22,10 +22,10 @@ use azul_core::{
     },
     traits::GetTextLayout,
     ui_solver::{
-        DEFAULT_FONT_SIZE_PX, GpuValueCache, HeightCalculatedRect, HorizontalSolvedPosition,
-        LayoutResult, PositionInfoInner, PositionedRectangle, RelayoutChanges, ResolvedOffsets,
-        ScrolledNodes, StyleBoxShadowOffsets, VerticalSolvedPosition, WhConstraint,
-        WidthCalculatedRect,
+        GpuValueCache, HeightCalculatedRect, HorizontalSolvedPosition, LayoutResult,
+        PositionInfoInner, PositionedRectangle, RelayoutChanges, ResolvedOffsets, ScrolledNodes,
+        StyleBoxShadowOffsets, VerticalSolvedPosition, WhConstraint, WidthCalculatedRect,
+        DEFAULT_FONT_SIZE_PX,
     },
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -57,7 +57,6 @@ pub struct HeightConfig {
 }
 
 fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig> {
-
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
 
@@ -764,9 +763,9 @@ macro_rules! typed_arena {
                             };
 
                         let min_child_width = width_calculated_arena[*child_id].total(); // +
-                        // width_calculated_arena[*child_id].
-                        // $get_padding_fn(parent_node_inner_width);
-                        // + margin(child)
+                                                                                         // width_calculated_arena[*child_id].
+                                                                                         // $get_padding_fn(parent_node_inner_width);
+                                                                                         // + margin(child)
 
                         let space_available = parent_node_inner_width - min_child_width;
 
@@ -1537,7 +1536,6 @@ pub fn get_layout_displays<'a>(
 }
 
 fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffsets> {
-
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
     let styled_nodes = styled_dom.styled_nodes.as_container();
@@ -2732,7 +2730,7 @@ fn create_word_positions<'a>(
 ) {
     use azul_core::{
         app_resources::font_size_to_au,
-        ui_solver::{DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING, ResolvedTextLayoutOptions},
+        ui_solver::{ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING},
     };
 
     use crate::text::layout::position_words;
@@ -3217,9 +3215,10 @@ pub fn do_the_relayout(
             use azul_core::{
                 styled_dom::StyleFontFamiliesHash,
                 ui_solver::{
-                    DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING, ResolvedTextLayoutOptions,
+                    ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING,
                 },
             };
+
             use crate::text::{
                 layout::{
                     position_words, shape_words, split_text_into_words,

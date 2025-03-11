@@ -1,9 +1,9 @@
 use std::{
     collections::BTreeMap,
-    ffi::{CStr, CString, c_void},
+    ffi::{c_void, CStr, CString},
     sync::{
-        Arc, Mutex,
         atomic::{AtomicI32, AtomicIsize, Ordering},
+        Arc, Mutex,
     },
 };
 
@@ -14,12 +14,11 @@ use azul_core::{
     window_state::NodesToCheck,
 };
 use objc2::{
-    MainThreadMarker,
     declare::ClassDecl,
     msg_send,
     rc::{Id, Retained},
-    runtime::{AnyClass, AnyObject, NO, Object, Sel},
-    sel,
+    runtime::{AnyClass, AnyObject, Object, Sel, NO},
+    sel, MainThreadMarker,
 };
 use objc2_app_kit::{
     NSEventModifierFlags, NSMenu, NSMenuItem, NSUserInterfaceItemIdentification, NSWindow,

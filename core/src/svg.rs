@@ -1,8 +1,11 @@
 //! SVG rendering module
 
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::fmt;
-use alloc::vec::Vec;
-use alloc::string::{String, ToString};
+
 use azul_css::{
     AzString, ColorF, ColorU, OptionAzString, OptionColorU, OptionLayoutSize, StringVec,
     StyleTransformOrigin, StyleTransformVec, U32Vec,

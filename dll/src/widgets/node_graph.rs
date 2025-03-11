@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 use core::fmt;
-use crate::extra::coloru_from_str;
-use azul_css::*;
+
 use azul_core::{
+    app_resources::{ImageRef, RawImageFormat},
     callbacks::{Callback, CallbackInfo, RefAny, RenderImageCallbackInfo, Update},
     dom::{
         CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
@@ -11,21 +11,24 @@ use azul_core::{
         NodeDataInlineCssProperty::{Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    app_resources::{ImageRef, RawImageFormat},
+    gl::Texture,
     svg::{SvgLine, SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::{
         CursorPosition::InWindow, LogicalPosition, LogicalRect, LogicalSize, Menu, MenuItem,
         PhysicalSizeU32, StringMenuItem,
     },
-    gl::Texture,
 };
+use azul_css::*;
 
-use crate::widgets::{
-    check_box::{CheckBox, CheckBoxState},
-    color_input::{ColorInput, ColorInputState},
-    file_input::{FileInput, FileInputState},
-    number_input::{NumberInput, NumberInputState},
-    text_input::{TextInput, TextInputState},
+use crate::{
+    extra::coloru_from_str,
+    widgets::{
+        check_box::{CheckBox, CheckBoxState},
+        color_input::{ColorInput, ColorInputState},
+        file_input::{FileInput, FileInputState},
+        number_input::{NumberInput, NumberInputState},
+        text_input::{TextInput, TextInputState},
+    },
 };
 
 /// Same as the NodeGraph but without generics and without the actual data
@@ -910,67 +913,65 @@ impl NodeGraph {
             .with_inline_css_props(nodegraph_wrapper_props.into())
             .with_context_menu(context_menu)
             .with_children(
-                vec![
-                    Dom::div()
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_CLASS))
-                        .with_inline_css_props(nodegraph_props.into())
-                        .with_callbacks(
-                            vec![
-                                CallbackData {
-                                    event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                                    data: node_graph_local_dataset.clone(),
-                                    callback: Callback {
-                                        cb: nodegraph_drag_graph_or_nodes,
-                                    },
+                vec![Dom::div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_CLASS))
+                    .with_inline_css_props(nodegraph_props.into())
+                    .with_callbacks(
+                        vec![
+                            CallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::MouseOver),
+                                data: node_graph_local_dataset.clone(),
+                                callback: Callback {
+                                    cb: nodegraph_drag_graph_or_nodes,
                                 },
-                                CallbackData {
-                                    event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                                    data: node_graph_local_dataset.clone(),
-                                    callback: Callback {
-                                        cb: nodegraph_unset_active_node,
-                                    },
+                            },
+                            CallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+                                data: node_graph_local_dataset.clone(),
+                                callback: Callback {
+                                    cb: nodegraph_unset_active_node,
                                 },
-                            ]
-                            .into(),
-                        )
-                        .with_children({
-                            vec![
-                                // connections
-                                render_connections(&self, node_connection_marker),
-                                // nodes
-                                self.nodes
-                                    .iter()
-                                    .filter_map(|NodeIdNodeMap { node_id, node }| {
-                                        let node_type_info = self
-                                            .node_types
-                                            .iter()
-                                            .find(|i| i.node_type_id == node.node_type)?;
-                                        let node_local_dataset = NodeLocalDataset {
-                                            node_id: *node_id,
-                                            backref: node_graph_local_dataset.clone(),
-                                        };
+                            },
+                        ]
+                        .into(),
+                    )
+                    .with_children({
+                        vec![
+                            // connections
+                            render_connections(&self, node_connection_marker),
+                            // nodes
+                            self.nodes
+                                .iter()
+                                .filter_map(|NodeIdNodeMap { node_id, node }| {
+                                    let node_type_info = self
+                                        .node_types
+                                        .iter()
+                                        .find(|i| i.node_type_id == node.node_type)?;
+                                    let node_local_dataset = NodeLocalDataset {
+                                        node_id: *node_id,
+                                        backref: node_graph_local_dataset.clone(),
+                                    };
 
-                                        Some(render_node(
-                                            node,
-                                            (self.offset.x, self.offset.y),
-                                            &node_type_info.node_type_info,
-                                            node_local_dataset,
-                                            self.scale_factor,
-                                        ))
-                                    })
-                                    .collect::<Dom>()
-                                    .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                                        NODEGRAPH_NODES_CONTAINER_CLASS,
+                                    Some(render_node(
+                                        node,
+                                        (self.offset.x, self.offset.y),
+                                        &node_type_info.node_type_info,
+                                        node_local_dataset,
+                                        self.scale_factor,
                                     ))
-                                    .with_inline_css_props(
-                                        NodeDataInlineCssPropertyVec::from_const_slice(
-                                            NODEGRAPH_NODES_CONTAINER_PROPS,
-                                        ),
+                                })
+                                .collect::<Dom>()
+                                .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                                    NODEGRAPH_NODES_CONTAINER_CLASS,
+                                ))
+                                .with_inline_css_props(
+                                    NodeDataInlineCssPropertyVec::from_const_slice(
+                                        NODEGRAPH_NODES_CONTAINER_PROPS,
                                     ),
-                            ]
-                            .into()
-                        }),
-                ]
+                                ),
+                        ]
+                        .into()
+                    })]
                 .into(),
             )
             .with_dataset(Some(node_graph_local_dataset).into())
@@ -1034,14 +1035,12 @@ fn render_node(
     mut node_local_dataset: NodeLocalDataset,
     scale_factor: f32,
 ) -> Dom {
-    use azul_css::*;
-    use azul_core::{
-        dom::{
-            Dom, DomVec, IdOrClass,
-            IdOrClass::{Class, Id},
-            IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
-        },
+    use azul_core::dom::{
+        Dom, DomVec, IdOrClass,
+        IdOrClass::{Class, Id},
+        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
     };
+    use azul_css::*;
 
     const STRING_9416190750059025162: AzString = AzString::from_const_str("Material Icons");
     const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
@@ -2855,7 +2854,6 @@ fn draw_connection_inner(
     info: &mut RenderImageCallbackInfo,
     texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
-
     use azul_layout::xml::svg::tessellate_path_stroke;
 
     let data = data.downcast_ref::<ConnectionLocalDataset>()?;

@@ -4,12 +4,12 @@ use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
     gsub::RawGlyphFlags,
-    layout::{GDEFTable, GPOS, GSUB, LayoutCache},
+    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     tables::{
-        FontTableProvider, HeadTable, HheaTable, MaxpTable,
-        cmap::{CmapSubtable, owned::CmapSubtable as OwnedCmapSubtable},
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
         glyf::{BoundingBox, GlyfRecord, GlyfTable, Glyph},
         loca::{LocaOffsets, LocaTable},
+        FontTableProvider, HeadTable, HheaTable, MaxpTable,
     },
 };
 use azul_core::app_resources::{
@@ -744,7 +744,7 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
     const TAG_WARA: u32 = tag!(b"wara"); // Warang Citi
     const TAG_YEZI: u32 = tag!(b"yezi"); // Yezidi
     const TAG_ZANB: u32 = tag!(b"zanb"); // Zanabazar Square
-    // missing: Yi
+                                         // missing: Yi
 
     // auto-detect script + language from text (todo: performance!)
 
@@ -800,7 +800,7 @@ fn shape<'a>(
 
     use allsorts::{
         gpos::apply as gpos_apply,
-        gsub::{FeatureMask, Features, apply as gsub_apply},
+        gsub::{apply as gsub_apply, FeatureMask, Features},
     };
 
     // Map glyphs

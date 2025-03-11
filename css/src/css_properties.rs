@@ -9,7 +9,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 
-use crate::{AzString, OptionI16, OptionU16, OptionU32, U8Vec, css::CssPropertyValue};
+use crate::{css::CssPropertyValue, AzString, OptionI16, OptionU16, OptionU32, U8Vec};
 
 /// Currently hard-coded: Height of one em in pixels
 pub const EM_HEIGHT: f32 = 16.0;
@@ -2647,7 +2647,11 @@ impl CssProperty {
             */
             (_, _) => {
                 // not animatable, fallback
-                if t > 0.5 { other.clone() } else { self.clone() }
+                if t > 0.5 {
+                    other.clone()
+                } else {
+                    self.clone()
+                }
             }
         }
     }

@@ -12,12 +12,13 @@ pub use azul_core::{
     callbacks::InlineText,
     display_list::GlyphInstance,
     ui_solver::{
-        DEFAULT_LETTER_SPACING, DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
-        InlineTextLayout, ResolvedTextLayoutOptions, TextLayoutOptions,
+        InlineTextLayout, ResolvedTextLayoutOptions, TextLayoutOptions, DEFAULT_LETTER_SPACING,
+        DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 pub use azul_css::FontRef;
+
 pub use super::shaping::ParsedFont;
 
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
@@ -138,7 +139,6 @@ pub fn split_text_into_words(text: &str) -> Words {
 /// Takes a text broken into semantic items and shape all the words
 /// (does NOT scale the words, only shapes them)
 pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
-
     let (script, lang) = super::shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph

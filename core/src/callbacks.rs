@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use alloc::{alloc::Layout, boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{
     ffi::c_void,
@@ -8,8 +10,7 @@ use core::{
 };
 #[cfg(feature = "std")]
 use std::hash::Hash;
-#[cfg(not(feature = "std"))]
-use alloc::string::ToString;
+
 use azul_css::{
     AnimationInterpolationFunction, AzString, CssPath, CssProperty, CssPropertyType, FontRef,
     InterpolateResolver, LayoutRect, LayoutSize,
@@ -17,7 +18,6 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    FastBTreeSet, FastHashMap,
     app_resources::{
         FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef, LayoutedGlyphs,
         RendererResources, ShapedWords, WordPositions, Words,
@@ -42,6 +42,7 @@ use crate::{
         MouseState, OptionChar, OptionLogicalPosition, PhysicalSize, RawWindowHandle,
         UpdateFocusWarning, WindowCreateOptions, WindowFlags, WindowSize, WindowState, WindowTheme,
     },
+    FastBTreeSet, FastHashMap,
 };
 
 // NOTE: must be repr(C), otherwise UB

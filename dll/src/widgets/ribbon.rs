@@ -1,4 +1,3 @@
-use azul_css::*;
 use azul_core::{
     callbacks::{Callback, CallbackInfo, RefAny, Update},
     dom::{
@@ -7,6 +6,7 @@ use azul_core::{
         IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
     },
 };
+use azul_css::*;
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4878363956973295354_ITEMS: &[StyleBackgroundContent] =
@@ -2328,357 +2328,403 @@ impl_callback!(
 impl Ribbon {
     pub fn dom(&self, callback: RibbonOnTabClickedCallback, data: RefAny) -> Dom {
         Dom::div()
-        .with_ids_and_classes({
-            const IDS_AND_CLASSES_9612282517634156717: &[IdOrClass] = &[
-                    Class(AzString::from_const_str("__azul_native-ribbon-container")),
-
-            ];
-            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9612282517634156717)
-        })
-        .with_children(DomVec::from_vec(vec![
-
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_2258738109329535793)
             .with_ids_and_classes({
-                const IDS_AND_CLASSES_9041457122899952067: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul_native-ribbon-tabs")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9041457122899952067)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::text(AzString::from_const_str("FILE"))
-                .with_inline_css_props(CSS_MATCH_14371786645818370801)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_4826288409200248071: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("home")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4826288409200248071)
-                }),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_9926913261609802002)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_9410866575549354381: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("between-tabs")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9410866575549354381)
-                }),
-                render_tab_element("HOME", self.tab_active == 0, 0, callback, data.clone()),
-                render_tab_element("INSERT", self.tab_active == 1, 1, callback, data.clone()),
-                render_tab_element("PAGE LAYOUT", self.tab_active == 2, 2, callback, data.clone()),
-                render_tab_element("FORMULAS", self.tab_active == 3, 3, callback, data.clone()),
-                render_tab_element("DATA", self.tab_active == 4, 4, callback, data.clone()),
-                render_tab_element("REVIEW", self.tab_active == 5, 5, callback, data.clone()),
-                render_tab_element("VIEW", self.tab_active == 6, 6, callback, data.clone()),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_11184921220530473733)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16912306910777040419: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("after-tabs")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16912306910777040419)
-                })
-            ])),
-
-            // tab content
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_3221151331850347044)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_2825694991725398553: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul_native-ribbon-body")),
-
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2825694991725398553)
+                const IDS_AND_CLASSES_9612282517634156717: &[IdOrClass] = &[Class(
+                    AzString::from_const_str("__azul_native-ribbon-container"),
+                )];
+                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9612282517634156717)
             })
             .with_children(DomVec::from_vec(vec![
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_12860013474863056225)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_10025392060247617630: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("1")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10025392060247617630)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_9123706516995286623)
+                    .with_inline_css_props(CSS_MATCH_2258738109329535793)
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
+                        const IDS_AND_CLASSES_9041457122899952067: &[IdOrClass] =
+                            &[Class(AzString::from_const_str("__azul_native-ribbon-tabs"))];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9041457122899952067)
+                    })
+                    .with_children(DomVec::from_vec(vec![
+                        Dom::text(AzString::from_const_str("FILE"))
+                            .with_inline_css_props(CSS_MATCH_14371786645818370801)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_4826288409200248071: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("home"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4826288409200248071)
+                            }),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_9926913261609802002)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_9410866575549354381: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("between-tabs"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9410866575549354381)
+                            }),
+                        render_tab_element("HOME", self.tab_active == 0, 0, callback, data.clone()),
+                        render_tab_element(
+                            "INSERT",
+                            self.tab_active == 1,
+                            1,
+                            callback,
+                            data.clone(),
+                        ),
+                        render_tab_element(
+                            "PAGE LAYOUT",
+                            self.tab_active == 2,
+                            2,
+                            callback,
+                            data.clone(),
+                        ),
+                        render_tab_element(
+                            "FORMULAS",
+                            self.tab_active == 3,
+                            3,
+                            callback,
+                            data.clone(),
+                        ),
+                        render_tab_element("DATA", self.tab_active == 4, 4, callback, data.clone()),
+                        render_tab_element(
+                            "REVIEW",
+                            self.tab_active == 5,
+                            5,
+                            callback,
+                            data.clone(),
+                        ),
+                        render_tab_element("VIEW", self.tab_active == 6, 6, callback, data.clone()),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_11184921220530473733)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_16912306910777040419: &[IdOrClass] =
+                                    &[Class(AzString::from_const_str("after-tabs"))];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16912306910777040419)
+                            }),
+                    ])),
+                // tab content
+                Dom::div()
+                    .with_inline_css_props(CSS_MATCH_3221151331850347044)
+                    .with_ids_and_classes({
+                        const IDS_AND_CLASSES_2825694991725398553: &[IdOrClass] =
+                            &[Class(AzString::from_const_str("__azul_native-ribbon-body"))];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2825694991725398553)
                     })
                     .with_children(DomVec::from_vec(vec![
                         Dom::div()
-                        .with_inline_css_props(CSS_MATCH_7952568575592251546)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_6126546624613363847: &[IdOrClass] = &[
-                                                    Class(AzString::from_const_str("__azul_native-ribbon-action-vertical-large")),
-
-                            ];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6126546624613363847)
-                        })
-                        .with_children(DomVec::from_vec(vec![
-                            Dom::div()
-                            .with_inline_css_props(CSS_MATCH_14701061083766788292)
+                            .with_inline_css_props(CSS_MATCH_12860013474863056225)
                             .with_ids_and_classes({
-                                const IDS_AND_CLASSES_4343297541786025485: &[IdOrClass] = &[
-                                                            Class(AzString::from_const_str("icon-wrapper")),
-
+                                const IDS_AND_CLASSES_10025392060247617630: &[IdOrClass] = &[
+                                    Class(AzString::from_const_str("__azul_native-ribbon-section")),
+                                    Class(AzString::from_const_str("1")),
                                 ];
-                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4343297541786025485)
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10025392060247617630)
                             })
                             .with_children(DomVec::from_vec(vec![
                                 Dom::div()
-                                .with_inline_css_props(CSS_MATCH_15716718910432952660)
-                                .with_ids_and_classes({
-                                    const IDS_AND_CLASSES_638783468819161744: &[IdOrClass] = &[
-                                                                    Class(AzString::from_const_str("icon")),
-
-                                    ];
-                                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_638783468819161744)
-                                })
+                                    .with_inline_css_props(CSS_MATCH_9123706516995286623)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::div()
+                                        .with_inline_css_props(CSS_MATCH_7952568575592251546)
+                                        .with_ids_and_classes({
+                                            const IDS_AND_CLASSES_6126546624613363847:
+                                                &[IdOrClass] = &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-action-vertical-large",
+                                            ))];
+                                            IdOrClassVec::from_const_slice(
+                                                IDS_AND_CLASSES_6126546624613363847,
+                                            )
+                                        })
+                                        .with_children(DomVec::from_vec(vec![
+                                            Dom::div()
+                                                .with_inline_css_props(
+                                                    CSS_MATCH_14701061083766788292,
+                                                )
+                                                .with_ids_and_classes({
+                                                    const IDS_AND_CLASSES_4343297541786025485:
+                                                        &[IdOrClass] = &[Class(
+                                                        AzString::from_const_str("icon-wrapper"),
+                                                    )];
+                                                    IdOrClassVec::from_const_slice(
+                                                        IDS_AND_CLASSES_4343297541786025485,
+                                                    )
+                                                })
+                                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                                    .with_inline_css_props(
+                                                        CSS_MATCH_15716718910432952660,
+                                                    )
+                                                    .with_ids_and_classes({
+                                                        const IDS_AND_CLASSES_638783468819161744:
+                                                            &[IdOrClass] = &[Class(
+                                                            AzString::from_const_str("icon"),
+                                                        )];
+                                                        IdOrClassVec::from_const_slice(
+                                                            IDS_AND_CLASSES_638783468819161744,
+                                                        )
+                                                    })])),
+                                            Dom::text(AzString::from_const_str("Paste"))
+                                                .with_inline_css_props(
+                                                    CSS_MATCH_6756514148882865175,
+                                                ),
+                                            Dom::div()
+                                                .with_inline_css_props(
+                                                    CSS_MATCH_1934381104964361563,
+                                                )
+                                                .with_ids_and_classes({
+                                                    const IDS_AND_CLASSES_17000242124219500924:
+                                                        &[IdOrClass] = &[Class(
+                                                        AzString::from_const_str("dropdown"),
+                                                    )];
+                                                    IdOrClassVec::from_const_slice(
+                                                        IDS_AND_CLASSES_17000242124219500924,
+                                                    )
+                                                })
+                                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                                    .with_inline_css_props(
+                                                        CSS_MATCH_491594124841839797,
+                                                    )
+                                                    .with_ids_and_classes({
+                                                        const IDS_AND_CLASSES_638783468819161744:
+                                                            &[IdOrClass] = &[Class(
+                                                            AzString::from_const_str("icon"),
+                                                        )];
+                                                        IdOrClassVec::from_const_slice(
+                                                            IDS_AND_CLASSES_638783468819161744,
+                                                        )
+                                                    })])),
+                                        ]))])),
+                                Dom::text(AzString::from_const_str("Clipboard"))
+                                    .with_inline_css_props(CSS_MATCH_2233073185823558635)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
                             ])),
-                            Dom::text(AzString::from_const_str("Paste"))
-                            .with_inline_css_props(CSS_MATCH_6756514148882865175),
-                            Dom::div()
-                            .with_inline_css_props(CSS_MATCH_1934381104964361563)
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_11324334306954975636)
                             .with_ids_and_classes({
-                                const IDS_AND_CLASSES_17000242124219500924: &[IdOrClass] = &[
-                                                            Class(AzString::from_const_str("dropdown")),
-
+                                const IDS_AND_CLASSES_16234433965518568113: &[IdOrClass] = &[
+                                    Class(AzString::from_const_str("__azul_native-ribbon-section")),
+                                    Class(AzString::from_const_str("2")),
                                 ];
-                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17000242124219500924)
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16234433965518568113)
                             })
                             .with_children(DomVec::from_vec(vec![
                                 Dom::div()
-                                .with_inline_css_props(CSS_MATCH_491594124841839797)
-                                .with_ids_and_classes({
-                                    const IDS_AND_CLASSES_638783468819161744: &[IdOrClass] = &[
-                                                                    Class(AzString::from_const_str("icon")),
-
-                                    ];
-                                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_638783468819161744)
-                                })
-                            ]))
-                        ]))
-                    ])),
-                    Dom::text(AzString::from_const_str("Clipboard"))
-                    .with_inline_css_props(CSS_MATCH_2233073185823558635)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_11324334306954975636)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16234433965518568113: &[IdOrClass] = &[
+                                    .with_inline_css_props(CSS_MATCH_4538658364223133674)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                        AzString::from_const_str(""),
+                                    )])),
+                                Dom::text(AzString::from_const_str("Font"))
+                                    .with_inline_css_props(CSS_MATCH_12543025518776072814)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_970131228357345953)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_8769206706192203364: &[IdOrClass] = &[
                                     Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("2")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16234433965518568113)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_4538658364223133674)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str(""))
-                    ])),
-                    Dom::text(AzString::from_const_str("Font"))
-                    .with_inline_css_props(CSS_MATCH_12543025518776072814)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_970131228357345953)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_8769206706192203364: &[IdOrClass] = &[
+                                    Class(AzString::from_const_str("3")),
+                                ];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8769206706192203364)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_8561962837455305444)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                        AzString::from_const_str(""),
+                                    )])),
+                                Dom::text(AzString::from_const_str("Alignment"))
+                                    .with_inline_css_props(CSS_MATCH_8808521992961481081)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_6736299128913213977)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_8980483043948686304: &[IdOrClass] = &[
                                     Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("3")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8769206706192203364)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_8561962837455305444)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str(""))
-                    ])),
-                    Dom::text(AzString::from_const_str("Alignment"))
-                    .with_inline_css_props(CSS_MATCH_8808521992961481081)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_6736299128913213977)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_8980483043948686304: &[IdOrClass] = &[
+                                    Class(AzString::from_const_str("4")),
+                                ];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8980483043948686304)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_9206206203058145671)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                        AzString::from_const_str(""),
+                                    )])),
+                                Dom::text(AzString::from_const_str("Number"))
+                                    .with_inline_css_props(CSS_MATCH_16851364358900804450)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_3888401522023951407)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_6781594546968350058: &[IdOrClass] = &[
                                     Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("4")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8980483043948686304)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_9206206203058145671)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str(""))
-                    ])),
-                    Dom::text(AzString::from_const_str("Number"))
-                    .with_inline_css_props(CSS_MATCH_16851364358900804450)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_3888401522023951407)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6781594546968350058: &[IdOrClass] = &[
+                                    Class(AzString::from_const_str("5")),
+                                ];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6781594546968350058)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_14738982339524920711)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                        AzString::from_const_str(""),
+                                    )])),
+                                Dom::text(AzString::from_const_str("Styles"))
+                                    .with_inline_css_props(CSS_MATCH_8787113990689659847)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_4060245836920688376)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_11618651107626783359: &[IdOrClass] = &[
                                     Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("5")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6781594546968350058)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14738982339524920711)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str(""))
-                    ])),
-                    Dom::text(AzString::from_const_str("Styles"))
-                    .with_inline_css_props(CSS_MATCH_8787113990689659847)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_4060245836920688376)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_11618651107626783359: &[IdOrClass] = &[
+                                    Class(AzString::from_const_str("6")),
+                                ];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11618651107626783359)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_11894410514907408907)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                        AzString::from_const_str(""),
+                                    )])),
+                                Dom::text(AzString::from_const_str("Cells"))
+                                    .with_inline_css_props(CSS_MATCH_6328747057139953245)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
+                            ])),
+                        Dom::div()
+                            .with_inline_css_props(CSS_MATCH_17089226259487272686)
+                            .with_ids_and_classes({
+                                const IDS_AND_CLASSES_4188199152450384868: &[IdOrClass] = &[
                                     Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("6")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11618651107626783359)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_11894410514907408907)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str(""))
+                                    Class(AzString::from_const_str("7")),
+                                ];
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4188199152450384868)
+                            })
+                            .with_children(DomVec::from_vec(vec![
+                                Dom::div()
+                                    .with_inline_css_props(CSS_MATCH_14707506486468900090)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-content",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_2004408468416758999,
+                                        )
+                                    })
+                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                        AzString::from_const_str(""),
+                                    )])),
+                                Dom::text(AzString::from_const_str("Editing"))
+                                    .with_inline_css_props(CSS_MATCH_4856252049803891913)
+                                    .with_ids_and_classes({
+                                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
+                                            &[Class(AzString::from_const_str(
+                                                "__azul_native-ribbon-section-name",
+                                            ))];
+                                        IdOrClassVec::from_const_slice(
+                                            IDS_AND_CLASSES_6233255149722984275,
+                                        )
+                                    }),
+                            ])),
                     ])),
-                    Dom::text(AzString::from_const_str("Cells"))
-                    .with_inline_css_props(CSS_MATCH_6328747057139953245)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_17089226259487272686)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_4188199152450384868: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-ribbon-section")),
-                    Class(AzString::from_const_str("7")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4188199152450384868)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14707506486468900090)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-content")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2004408468416758999)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str(""))
-                    ])),
-                    Dom::text(AzString::from_const_str("Editing"))
-                    .with_inline_css_props(CSS_MATCH_4856252049803891913)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-ribbon-section-name")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6233255149722984275)
-                    })
-                ]))
             ]))
-        ]))
     }
 }
 

@@ -161,7 +161,7 @@ mod pagination_tests {
 
     use crate::{
         id_tree::{NodeDataContainer, NodeDataContainerRef, NodeId},
-        pagination::{PaginatedPage, paginate_layout_result},
+        pagination::{paginate_layout_result, PaginatedPage},
         styled_dom::NodeHierarchyItem,
         ui_solver::{PositionedRectangle, ResolvedOffsets, StyleBoxShadowOffsets},
         window::{LogicalPosition, LogicalSize},

@@ -2,16 +2,16 @@
 use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
 use core::{fmt, num::ParseIntError};
 
+pub use azul_simplecss::Error as CssSyntaxError;
+use azul_simplecss::Tokenizer;
+
+pub use crate::parser::{CssParsingError, CssParsingErrorOwned};
 use crate::{
     AzString, CombinedCssPropertyType, Css, CssDeclaration, CssKeyMap, CssNthChildSelector,
     CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector, CssPropertyType,
     CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
     NodeTypeTagParseErrorOwned, Stylesheet,
 };
-pub use azul_simplecss::Error as CssSyntaxError;
-use azul_simplecss::Tokenizer;
-
-pub use crate::parser::{CssParsingError, CssParsingErrorOwned};
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
 #[repr(transparent)]
@@ -973,8 +973,9 @@ pub fn parse_css_declaration<'a>(
         if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
             // margin-left: var(--my-variable);
             let (css_var_id, css_var_default) = css_var?;
-            let parsed_default_value = crate::parser::parse_css_property(normal_key, css_var_default)
-                .map_err(|e| DynamicCssParseError(e.into()))?;
+            let parsed_default_value =
+                crate::parser::parse_css_property(normal_key, css_var_default)
+                    .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
                 dynamic_id: css_var_id.to_string().into(),
@@ -982,8 +983,9 @@ pub fn parse_css_declaration<'a>(
             }));
         } else {
             // margin-left: 10px;
-            let parsed_css_value = crate::parser::parse_css_property(normal_key, unparsed_css_value)
-                .map_err(|e| DynamicCssParseError(e.into()))?;
+            let parsed_css_value =
+                crate::parser::parse_css_property(normal_key, unparsed_css_value)
+                    .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Static(parsed_css_value));
         }
@@ -1006,7 +1008,8 @@ fn check_if_value_is_css_var<'a>(
 ) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
     const DEFAULT_VARIABLE_DEFAULT: &str = "none";
 
-    let (_, brace_contents) = crate::parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
+    let (_, brace_contents) =
+        crate::parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
 
     // value is a CSS variable, i.e. var(--main-bg-color)
     Some(match parse_css_variable_brace_contents(brace_contents) {

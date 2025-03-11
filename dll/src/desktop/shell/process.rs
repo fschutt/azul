@@ -15,7 +15,7 @@ use webrender::Transaction as WrTransaction;
 use crate::desktop::shell::appkit::Window;
 #[cfg(target_os = "windows")]
 use crate::desktop::shell::win32::Window;
-use crate::{desktop::app::LazyFcCache, desktop::wr_translate::wr_synchronize_updated_images};
+use crate::desktop::{app::LazyFcCache, wr_translate::wr_synchronize_updated_images};
 
 // Assuming that current_window_state and the previous_window_state of the window
 // are set correctly and the hit-test has been performed, will call the callbacks
@@ -134,8 +134,8 @@ pub(crate) fn process_threads(
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
-
-    #[cfg(feature = "std")] {
+    #[cfg(feature = "std")]
+    {
         use azul_core::window::{RawWindowHandle, WindowsHandle};
 
         let callback_result = fc_cache.apply_closure(|fc_cache| {
@@ -149,7 +149,7 @@ pub(crate) fn process_threads(
                 &config.system_callbacks,
             )
         });
-    
+
         process_callback_results(
             callback_result,
             window,
@@ -168,7 +168,8 @@ pub(crate) fn process_threads(
         )
     }
 
-    #[cfg(not(feature = "std"))] {
+    #[cfg(not(feature = "std"))]
+    {
         ProcessEventResult::DoNothing
     }
 }

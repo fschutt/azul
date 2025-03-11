@@ -3,33 +3,32 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
 };
+
 use azul_css::{
-    AzString, Css, CssPath, CssProperty, CssPropertyType, LayoutAlignContentValue,
-    LayoutAlignItemsValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
-    LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue,
-    LayoutBoxSizingValue, LayoutDisplayValue, LayoutFlexDirectionValue, LayoutFlexGrowValue,
-    LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutHeightValue,
-    LayoutJustifyContentValue, LayoutLeftValue, LayoutMarginBottomValue, LayoutMarginLeftValue,
-    LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue,
-    LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
-    LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue, LayoutPositionValue,
-    LayoutRightValue, LayoutTopValue, LayoutWidthValue, StyleBackfaceVisibilityValue,
-    StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue,
-    StyleBackgroundSizeVecValue, StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
-    StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue, StyleBorderLeftColorValue,
-    StyleBorderLeftStyleValue, StyleBorderRightColorValue, StyleBorderRightStyleValue,
-    StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue,
-    StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCursorValue, StyleFilterVecValue,
-    StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue, StyleFontSize,
-    StyleFontSizeValue, StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue,
-    StyleOpacityValue, StylePerspectiveOriginValue, StyleTabWidthValue, StyleTextAlignValue,
-    StyleTextColor, StyleTextColorValue, StyleTransformOriginValue, StyleTransformVecValue,
-    StyleWordSpacingValue,
+    parser::CssApiWrapper, AzString, Css, CssPath, CssProperty, CssPropertyType,
+    LayoutAlignContentValue, LayoutAlignItemsValue, LayoutBorderBottomWidthValue,
+    LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderTopWidthValue,
+    LayoutBottomValue, LayoutBoxSizingValue, LayoutDisplayValue, LayoutFlexDirectionValue,
+    LayoutFlexGrowValue, LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue,
+    LayoutHeightValue, LayoutJustifyContentValue, LayoutLeftValue, LayoutMarginBottomValue,
+    LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue,
+    LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue,
+    LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue,
+    LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutTopValue, LayoutWidthValue,
+    StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
+    StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
+    StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
+    StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
+    StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
+    StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue,
+    StyleBoxShadowValue, StyleCursorValue, StyleFilterVecValue, StyleFontFamily,
+    StyleFontFamilyVec, StyleFontFamilyVecValue, StyleFontSize, StyleFontSizeValue,
+    StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
+    StylePerspectiveOriginValue, StyleTabWidthValue, StyleTextAlignValue, StyleTextColor,
+    StyleTextColorValue, StyleTransformOriginValue, StyleTransformVecValue, StyleWordSpacingValue,
 };
-use azul_css::parser::CssApiWrapper;
 
 use crate::{
-    FastBTreeSet, FastHashMap,
     app_resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
@@ -38,10 +37,11 @@ use crate::{
     },
     id_tree::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     style::{
-        CascadeInfo, CascadeInfoVec, construct_html_cascade_tree, matches_html_element,
-        rule_ends_with,
+        construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
+        CascadeInfoVec,
     },
     window::Menu,
+    FastBTreeSet, FastHashMap,
 };
 
 #[repr(C)]
@@ -2751,7 +2751,8 @@ impl StyledDom {
         // inject self.root as the nth node
         let inject_as_id = 0;
 
-        #[cfg(feature = "std")] {
+        #[cfg(feature = "std")]
+        {
             println!(
                 "inject scroll bars:\r\n{}",
                 dom_to_inject.get_html_string("", "", true)

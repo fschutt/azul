@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use azul_css::*;
+
 use azul_core::{
     callbacks::{Callback, CallbackInfo, RefAny, Update},
     dom::{
@@ -8,6 +8,7 @@ use azul_core::{
         IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
     },
 };
+use azul_css::*;
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
@@ -1251,16 +1252,14 @@ impl TabHeader {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
             })
             .with_children({
-                let mut tab_items = vec![
-                    Dom::div()
-                        .with_inline_css_props(CSS_MATCH_17290739305197504468)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[Class(
-                                AzString::from_const_str("__azul-native-tabs-before-tabs"),
-                            )];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
-                        }),
-                ];
+                let mut tab_items = vec![Dom::div()
+                    .with_inline_css_props(CSS_MATCH_17290739305197504468)
+                    .with_ids_and_classes({
+                        const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-tabs-before-tabs"),
+                        )];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
+                    })];
 
                 let s = self.swap_with_default();
 
@@ -1422,13 +1421,13 @@ impl TabContent {
 
         Dom::div()
             .with_inline_css_props(tab_content_css_style)
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                        IDS_AND_CLASSES_2989815829020816222,
-                    ))
-                    .with_children(DomVec::from_vec(vec![self.content.swap_with_default()])),
-            ]))
+            .with_children(DomVec::from_vec(vec![Dom::div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                    IDS_AND_CLASSES_2989815829020816222,
+                ))
+                .with_children(DomVec::from_vec(vec![self
+                    .content
+                    .swap_with_default()]))]))
     }
 }
 

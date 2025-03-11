@@ -1,20 +1,19 @@
 #![cfg(target_os = "macos")]
 use std::{
     collections::BTreeMap,
-    ffi::{CStr, CString, c_void},
+    ffi::{c_void, CStr, CString},
     fmt, mem,
     os::raw::c_char,
     ptr,
     ptr::NonNull,
     rc::Rc,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
     },
 };
 
 use azul_core::{
-    FastBTreeSet, FastHashMap,
     app_resources::ImageCache,
     callbacks::{DomNodeId, HitTestItem},
     gl::OptionGlContextPtr,
@@ -27,12 +26,13 @@ use azul_core::{
         WindowInternal, WindowInternalInit, WindowPosition, WindowsHandle,
     },
     window_state::NodesToCheck,
+    FastBTreeSet, FastHashMap,
 };
 use gl_context_loader::GenericGlContext;
 use objc2::{
     declare::ClassDecl,
     ffi::{id, nil},
-    rc::{AutoreleasePool, Id, Retained, autoreleasepool},
+    rc::{autoreleasepool, AutoreleasePool, Id, Retained},
     runtime::{AnyClass, AnyObject, Class, ClassBuilder, Object, ProtocolObject, Sel, YES},
     *,
 };
@@ -48,18 +48,18 @@ use objc2_foundation::{
     NSPoint, NSRect, NSSize, NSString,
 };
 use webrender::{
-    PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
-    RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
-    Shaders as WrShaders, Transaction as WrTransaction,
     api::{
-        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
-        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
         units::{
             DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
             DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
         },
+        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
+        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
     },
     render_api::RenderApi as WrRenderApi,
+    PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
+    RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
+    Shaders as WrShaders, Transaction as WrTransaction,
 };
 
 use self::gl::GlFunctions;
@@ -68,8 +68,8 @@ use crate::desktop::{
     app::{self, App, LazyFcCache},
     compositor::Compositor,
     wr_translate::{
-        AsyncHitTester, generate_frame, rebuild_display_list, translate_document_id_wr,
-        translate_id_namespace_wr, wr_synchronize_updated_images, wr_translate_document_id,
+        generate_frame, rebuild_display_list, translate_document_id_wr, translate_id_namespace_wr,
+        wr_synchronize_updated_images, wr_translate_document_id, AsyncHitTester,
     },
 };
 
@@ -1037,7 +1037,9 @@ extern "C" fn window_did_become_key(
 
     mem::drop(window);
 
-    let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, window_id, ud, &guard, &raw);
+    let _ = crate::desktop::shell::event::handle_process_event_result(
+        r, dw, window_id, ud, &guard, &raw,
+    );
 
     if let Some(window) = dw.get_mut(&window_id) {
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1090,7 +1092,9 @@ extern "C" fn window_did_resign_key(
 
     mem::drop(window);
 
-    let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, window_id, ud, &guard, &raw);
+    let _ = crate::desktop::shell::event::handle_process_event_result(
+        r, dw, window_id, ud, &guard, &raw,
+    );
 
     if let Some(window) = dw.get_mut(&window_id) {
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1147,7 +1151,9 @@ extern "C" fn window_did_change_backing(
 
     mem::drop(window);
 
-    let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, window_id, ud, &guard, &raw);
+    let _ = crate::desktop::shell::event::handle_process_event_result(
+        r, dw, window_id, ud, &guard, &raw,
+    );
 
     if let Some(window) = dw.get_mut(&window_id) {
         window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1211,7 +1217,8 @@ extern "C" fn mouse_down(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1266,11 +1273,18 @@ extern "C" fn mouse_up(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        let r = crate::desktop::shell::event::wm_lbuttonup(window, ud, &guard, &raw, &mut data.active_menus);
+        let r = crate::desktop::shell::event::wm_lbuttonup(
+            window,
+            ud,
+            &guard,
+            &raw,
+            &mut data.active_menus,
+        );
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1330,7 +1344,8 @@ extern "C" fn rightMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1386,11 +1401,18 @@ extern "C" fn rightMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        let r = crate::desktop::shell::event::wm_rbuttonup(window, ud, &guard, &raw, &mut data.active_menus);
+        let r = crate::desktop::shell::event::wm_rbuttonup(
+            window,
+            ud,
+            &guard,
+            &raw,
+            &mut data.active_menus,
+        );
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1450,7 +1472,8 @@ extern "C" fn otherMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1510,7 +1533,8 @@ extern "C" fn otherMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1573,7 +1597,8 @@ extern "C" fn mouseMoved(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1631,11 +1656,13 @@ extern "C" fn scrollWheel(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         // If you want the scroll amount:
         let delta_y: f64 = msg_send![event, scrollingDeltaY];
-        let r = crate::desktop::shell::event::wm_mousewheel(window, ud, &guard, &raw, delta_y as f32);
+        let r =
+            crate::desktop::shell::event::wm_mousewheel(window, ud, &guard, &raw, delta_y as f32);
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1701,7 +1728,8 @@ extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
@@ -1767,7 +1795,8 @@ extern "C" fn keyUp(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         mem::drop(window);
 
-        let _ = crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
+        let _ =
+            crate::desktop::shell::event::handle_process_event_result(r, dw, wid, ud, &guard, &raw);
 
         if let Some(window) = dw.get_mut(&wid) {
             window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };

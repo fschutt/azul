@@ -1,13 +1,11 @@
-use azul_css::*;
-use azul_core::{
-    dom::{
-        Dom, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Focus, Normal},
-        NodeDataInlineCssPropertyVec,
-    },
+use azul_core::dom::{
+    Dom, IdOrClass,
+    IdOrClass::Class,
+    IdOrClassVec, NodeDataInlineCssProperty,
+    NodeDataInlineCssProperty::{Focus, Normal},
+    NodeDataInlineCssPropertyVec,
 };
+use azul_css::*;
 
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {

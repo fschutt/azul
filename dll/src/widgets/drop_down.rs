@@ -1,20 +1,22 @@
 use std::vec::Vec;
-use azul_css::{parser::CssApiWrapper, *};
+
 use azul_core::{
-    callbacks::{Callback, FocusTarget, MarshaledLayoutCallback, MarshaledLayoutCallbackInner},
-    dom::{CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter},
-    window::{PhysicalPosition, PhysicalPositionI32, WindowState},
-    callbacks::{CallbackInfo, LayoutCallback, LayoutCallbackInfo, RefAny, Update},
+    app_resources::{ImageRef, OptionImageRef},
+    callbacks::{
+        Callback, CallbackInfo, FocusTarget, LayoutCallback, LayoutCallbackInfo,
+        MarshaledLayoutCallback, MarshaledLayoutCallbackInner, RefAny, Update,
+    },
     dom::{
-        Dom, DomVec, IdOrClass,
+        CallbackData, Dom, DomVec, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass,
         IdOrClass::Class,
         IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
-        NodeDataInlineCssPropertyVec, TabIndex,
+        NodeDataInlineCssPropertyVec, TabIndex, WindowEventFilter,
     },
-    app_resources::{ImageRef, OptionImageRef},
     styled_dom::StyledDom,
+    window::{PhysicalPosition, PhysicalPositionI32, WindowState},
 };
+use azul_css::{parser::CssApiWrapper, *};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
@@ -921,78 +923,67 @@ impl DropDown {
                     &[Class(AzString::from_const_str("__azul-native-dropdown"))];
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9466018534284317754)
             })
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                    .with_inline_css_props(CSS_MATCH_10188117026223137249)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_6395608618544226348: &[IdOrClass] = &[Class(
-                            AzString::from_const_str("__azul-native-dropdown-wrapper"),
-                        )];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6395608618544226348)
-                    })
-                    .with_tab_index(TabIndex::Auto)
-                    .with_callbacks(
-                        vec![CallbackData {
-                            event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                            data: data.clone(),
-                            callback: Callback {
-                                cb: on_dropdown_click,
-                            },
-                        }]
-                        .into(),
-                    )
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::div()
-                            .with_inline_css_props(CSS_MATCH_7938442083662451131)
+            .with_children(DomVec::from_vec(vec![Dom::div()
+                .with_inline_css_props(CSS_MATCH_10188117026223137249)
+                .with_ids_and_classes({
+                    const IDS_AND_CLASSES_6395608618544226348: &[IdOrClass] = &[Class(
+                        AzString::from_const_str("__azul-native-dropdown-wrapper"),
+                    )];
+                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6395608618544226348)
+                })
+                .with_tab_index(TabIndex::Auto)
+                .with_callbacks(
+                    vec![CallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::FocusReceived),
+                        data: data.clone(),
+                        callback: Callback {
+                            cb: on_dropdown_click,
+                        },
+                    }]
+                    .into(),
+                )
+                .with_children(DomVec::from_vec(vec![
+                    Dom::div()
+                        .with_inline_css_props(CSS_MATCH_7938442083662451131)
+                        .with_ids_and_classes({
+                            const IDS_AND_CLASSES_11862789041977911489: &[IdOrClass] = &[Class(
+                                AzString::from_const_str("__azul-native-dropdown-focused-text"),
+                            )];
+                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11862789041977911489)
+                        })
+                        .with_children(DomVec::from_vec(vec![Dom::text(
+                            AzString::from_const_str("Checkbox"),
+                        )
+                        .with_inline_css_props(CSS_MATCH_16432538576103237591)])),
+                    Dom::div()
+                        .with_inline_css_props(CSS_MATCH_6763840958685503000)
+                        .with_ids_and_classes({
+                            const IDS_AND_CLASSES_17649077225810153180: &[IdOrClass] = &[Class(
+                                AzString::from_const_str("__azul-native-dropdown-arrow"),
+                            )];
+                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17649077225810153180)
+                        })
+                        .with_children(DomVec::from_vec(vec![Dom::div()
+                            .with_inline_css_props(CSS_MATCH_4687758758634879229)
                             .with_ids_and_classes({
-                                const IDS_AND_CLASSES_11862789041977911489: &[IdOrClass] =
+                                const IDS_AND_CLASSES_17777388057004109464: &[IdOrClass] =
                                     &[Class(AzString::from_const_str(
-                                        "__azul-native-dropdown-focused-text",
+                                        "__azul-native-dropdown-arrow-wrapper",
                                     ))];
-                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11862789041977911489)
+                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17777388057004109464)
                             })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::text(AzString::from_const_str("Checkbox"))
-                                    .with_inline_css_props(CSS_MATCH_16432538576103237591),
-                            ])),
-                        Dom::div()
-                            .with_inline_css_props(CSS_MATCH_6763840958685503000)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_17649077225810153180: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "__azul-native-dropdown-arrow",
-                                    ))];
-                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17649077225810153180)
-                            })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::div()
-                                    .with_inline_css_props(CSS_MATCH_4687758758634879229)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_17777388057004109464: &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "__azul-native-dropdown-arrow-wrapper",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_17777388057004109464,
-                                        )
-                                    })
-                                    .with_children(DomVec::from_vec(vec![
-                                        Dom::div()
-                                            .with_inline_css_props(CSS_MATCH_5369484915686807864)
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_12603885741328163120:
-                                                    &[IdOrClass] =
-                                                    &[Class(AzString::from_const_str(
-                                                        "__azul-native-dropdown-arrow-content",
-                                                    ))];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_12603885741328163120,
-                                                )
-                                            }),
-                                    ])),
-                            ])),
-                    ])),
-            ]))
+                            .with_children(DomVec::from_vec(vec![Dom::div()
+                                .with_inline_css_props(CSS_MATCH_5369484915686807864)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12603885741328163120: &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "__azul-native-dropdown-arrow-content",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12603885741328163120,
+                                    )
+                                })]))])),
+                ]))]))
     }
 }
 

@@ -16,7 +16,6 @@ use std::{
 };
 
 use azul_core::{
-    FastBTreeSet, FastHashMap,
     app_resources::{
         AppConfig, Epoch, GlTextureCache, ImageCache, ImageMask, ImageRef, RendererResources,
         ResourceUpdate,
@@ -34,29 +33,30 @@ use azul_core::{
         WindowState,
     },
     window_state::NodesToCheck,
+    FastBTreeSet, FastHashMap,
 };
-use gl_context_loader::{GenericGlContext, gl};
+use gl_context_loader::{gl, GenericGlContext};
 use webrender::{
-    PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
-    RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
-    Shaders as WrShaders, Transaction as WrTransaction,
     api::{
-        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
-        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
         units::{
             DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
             DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
         },
+        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
+        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
     },
     render_api::RenderApi as WrRenderApi,
+    PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
+    RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
+    Shaders as WrShaders, Transaction as WrTransaction,
 };
 
 use crate::{
     app::{App, LazyFcCache},
     gl::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_ushort},
     wr_translate::{
-        AsyncHitTester, generate_frame, rebuild_display_list, scroll_all_nodes,
-        synchronize_gpu_values, wr_synchronize_updated_images,
+        generate_frame, rebuild_display_list, scroll_all_nodes, synchronize_gpu_values,
+        wr_synchronize_updated_images, AsyncHitTester,
     },
 };
 
@@ -1605,7 +1605,7 @@ impl X11Window {
             gl::GlContextPtr,
             window::{HwAcceleration, RendererType},
         };
-        use webrender::{ProgramCache as WrProgramCache, api::ColorF as WrColorF};
+        use webrender::{api::ColorF as WrColorF, ProgramCache as WrProgramCache};
 
         use self::{
             LinuxStartupError::Create,

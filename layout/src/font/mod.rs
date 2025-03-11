@@ -231,7 +231,7 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
     for pattern in patterns {
         if let Some(FcFontPath { path, font_index }) = fc_cache.query(&pattern) {
             if path.starts_with("base64:") {
-                use base64::{Engine as _, engine::general_purpose::URL_SAFE};
+                use base64::{engine::general_purpose::URL_SAFE, Engine as _};
                 let base64_str = &path[7..];
                 let decoded = URL_SAFE
                     .decode(base64_str)

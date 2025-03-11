@@ -1,6 +1,5 @@
 //! Desktop implementation of the Azul GUI toolkit
 
-
 #![allow(dead_code)]
 #![deny(unused_must_use)]
 #![deny(unreachable_patterns)]
@@ -47,8 +46,10 @@ pub mod traits {
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
-    pub use azul_layout::callback_info_shape_text;
-    pub use azul_layout::text::{InlineText, layout::*, shaping::*, *};
+    pub use azul_layout::{
+        callback_info_shape_text,
+        text::{layout::*, shaping::*, InlineText, *},
+    };
 }
 
 /// SVG parsing + rendering

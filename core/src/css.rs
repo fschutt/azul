@@ -1,9 +1,10 @@
 //! Module for printing the CSS to Rust code
 
-use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
-use core::hash::Hash;
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
+use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
+use core::hash::Hash;
+
 use azul_css::*;
 
 // In order to generate the Rust code, all items that implement Drop

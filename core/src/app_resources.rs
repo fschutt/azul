@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{
     fmt,
@@ -8,13 +10,11 @@ use core::{
 pub use azul_css::FontMetrics;
 use azul_css::{
     AzString, ColorU, F32Vec, FloatValue, FontRef, LayoutRect, LayoutSize, OptionI32,
-    StyleFontFamily, StyleFontFamilyVec, StyleFontSize, U8Vec, U16Vec, U32Vec,
+    StyleFontFamily, StyleFontFamilyVec, StyleFontSize, U16Vec, U32Vec, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
-#[cfg(not(feature = "std"))]
-use alloc::string::ToString;
+
 use crate::{
-    FastBTreeSet, FastHashMap,
     callbacks::{
         DocumentId, DomNodeId, InlineText, RefAny, RenderImageCallback, RenderImageCallbackType,
         UpdateImageType,
@@ -29,6 +29,7 @@ use crate::{
     task::ExternalSystemCallbacks,
     ui_solver::{InlineTextLayout, InlineTextLine, LayoutResult, ResolvedTextLayoutOptions},
     window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
+    FastBTreeSet, FastHashMap,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1190,8 +1191,8 @@ impl GlTextureCache {
 
         use crate::{
             app_resources::{
-                AddImage, DecodedImage, ExternalImageData, ExternalImageType, ImageBufferKind,
-                ImageData, ImageRef, add_resources,
+                add_resources, AddImage, DecodedImage, ExternalImageData, ExternalImageType,
+                ImageBufferKind, ImageData, ImageRef,
             },
             callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
             dom::NodeType,

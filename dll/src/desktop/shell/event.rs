@@ -12,12 +12,12 @@ use azul_core::{
 };
 use gl_context_loader::GenericGlContext;
 use webrender::{
-    Transaction,
     api::units::{DeviceIntRect, DeviceIntSize},
+    Transaction,
 };
 
 use super::{
-    AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM, CommandMap, MenuTarget, appkit::GlContextGuard,
+    appkit::GlContextGuard, CommandMap, MenuTarget, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM,
 };
 use crate::desktop::app::{self, App};
 #[cfg(target_os = "macos")]
@@ -35,8 +35,8 @@ use crate::desktop::shell::win32::Window;
 ///! Instead of sending `PostMessageW(...)`, we call these event functions directly.
 ///! This way, the same logic is reusable for both Win32 and macOS.
 use crate::desktop::wr_translate::{
-    AsyncHitTester, generate_frame, rebuild_display_list, wr_synchronize_updated_images,
-    wr_translate_document_id,
+    generate_frame, rebuild_display_list, wr_synchronize_updated_images, wr_translate_document_id,
+    AsyncHitTester,
 };
 
 fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {

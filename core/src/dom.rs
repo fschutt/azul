@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{
     fmt,
@@ -6,9 +8,9 @@ use core::{
     mem,
     sync::atomic::{AtomicUsize, Ordering},
 };
+
 use azul_css::{AzString, Css, CssProperty, FontRef, NodeTypeTag, OptionAzString};
-#[cfg(not(feature = "std"))]
-use alloc::string::ToString;
+
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
 use crate::{
     app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
@@ -618,8 +620,7 @@ pub enum NodeDataInlineCssProperty {
 
 macro_rules! parse_from_str {
     ($s:expr, $prop_type:ident) => {{
-        use azul_css::{CssDeclaration, CssKeyMap};
-        use azul_css::parser::ErrorLocation;
+        use azul_css::{parser::ErrorLocation, CssDeclaration, CssKeyMap};
 
         let s = $s.trim();
         let css_key_map = CssKeyMap::get();

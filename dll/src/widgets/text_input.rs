@@ -2,20 +2,22 @@
 
 use alloc::{string::String, vec::Vec};
 use core::ops::Range;
-use azul_css::*;
+
 use azul_core::{
-    callbacks::{Animation, AnimationRepeatCount, DomNodeId, InlineText},
-    task::SystemTimeDiff,
-    window::{KeyboardState, LogicalPosition, VirtualKeyCode},
-    callbacks::{Callback, CallbackInfo, RefAny, Update},
+    callbacks::{
+        Animation, AnimationRepeatCount, Callback, CallbackInfo, DomNodeId, InlineText, RefAny,
+        Update,
+    },
     dom::{
         Dom, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec,
     },
     styled_dom::StyledDom,
-    task::OptionTimerId,
+    task::{OptionTimerId, SystemTimeDiff},
+    window::{KeyboardState, LogicalPosition, VirtualKeyCode},
 };
+use azul_css::*;
 
 const BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
@@ -737,8 +739,7 @@ impl TextInput {
 
     pub fn dom(mut self) -> Dom {
         use azul_core::dom::{
-            CallbackData, EventFilter, FocusEventFilter, 
-            HoverEventFilter, IdOrClass::Class,
+            CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class,
             TabIndex,
         };
 
@@ -820,18 +821,15 @@ impl TextInput {
                         )
                         .with_inline_css_props(self.label_style)
                         .with_children(
-                            vec![
-                                Dom::div()
-                                    .with_ids_and_classes(
-                                        vec![Class("__azul-native-text-input-cursor".into())]
-                                            .into(),
-                                    )
-                                    .with_inline_css_props(
-                                        NodeDataInlineCssPropertyVec::from_const_slice(
-                                            TEXT_CURSOR_PROPS,
-                                        ),
+                            vec![Dom::div()
+                                .with_ids_and_classes(
+                                    vec![Class("__azul-native-text-input-cursor".into())].into(),
+                                )
+                                .with_inline_css_props(
+                                    NodeDataInlineCssPropertyVec::from_const_slice(
+                                        TEXT_CURSOR_PROPS,
                                     ),
-                            ]
+                                )]
                             .into(),
                         ),
                 ]

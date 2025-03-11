@@ -83,74 +83,72 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
             .with_inline_style(
                 "flex-direction: column; align-items: center; justify-content: center;",
             )
-            .with_children(vec![
-                match &downcasted.connection_status {
-                    NotConnected { database } => Dom::div().with_children(vec![
-                        Dom::text("Enter database to connect to:"),
-                        TextInput::new()
-                            .with_text(database.clone())
-                            .with_on_text_input(data_clone.clone(), edit_database_input)
-                            .dom(),
-                        Button::new("Connect")
-                            .with_on_click(data_clone.clone(), start_background_thread)
-                            .dom(),
-                    ]),
-                    InProgress {
-                        stage,
-                        start_time,
-                        estimated_wait,
-                        data_in_progress,
-                        ..
-                    } => {
-                        use self::ConnectionStage::*;
+            .with_children(vec![match &downcasted.connection_status {
+                NotConnected { database } => Dom::div().with_children(vec![
+                    Dom::text("Enter database to connect to:"),
+                    TextInput::new()
+                        .with_text(database.clone())
+                        .with_on_text_input(data_clone.clone(), edit_database_input)
+                        .dom(),
+                    Button::new("Connect")
+                        .with_on_click(data_clone.clone(), start_background_thread)
+                        .dom(),
+                ]),
+                InProgress {
+                    stage,
+                    start_time,
+                    estimated_wait,
+                    data_in_progress,
+                    ..
+                } => {
+                    use self::ConnectionStage::*;
 
-                        let progress_div = match stage {
-                            EstablishingConnection => Dom::text("Establishing connection..."),
-                            ConnectionEstablished => {
-                                Dom::text("Connection established! Waiting for data...")
-                            }
-                            LoadingData { percent_done } => Dom::div().with_children(vec![
-                                Dom::text("Loading data..."),
-                                ProgressBar::new(*percent_done).dom(),
-                            ]),
-                            LoadingFinished => Dom::text("Loading finished!"),
-                        };
+                    let progress_div = match stage {
+                        EstablishingConnection => Dom::text("Establishing connection..."),
+                        ConnectionEstablished => {
+                            Dom::text("Connection established! Waiting for data...")
+                        }
+                        LoadingData { percent_done } => Dom::div().with_children(vec![
+                            Dom::text("Loading data..."),
+                            ProgressBar::new(*percent_done).dom(),
+                        ]),
+                        LoadingFinished => Dom::text("Loading finished!"),
+                    };
 
-                        let data_rendered_div = data_in_progress
-                            .chunks(10)
-                            .map(|chunk| Dom::text(format!("{:?}", chunk)))
-                            .collect::<Dom>();
+                    let data_rendered_div = data_in_progress
+                        .chunks(10)
+                        .map(|chunk| Dom::text(format!("{:?}", chunk)))
+                        .collect::<Dom>();
 
-                        let stop_btn = Button::new("Stop thread")
-                            .with_on_click(data_clone.clone(), stop_background_thread)
-                            .dom();
+                    let stop_btn = Button::new("Stop thread")
+                        .with_on_click(data_clone.clone(), stop_background_thread)
+                        .dom();
 
-                        Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
-                    }
-                    DataLoaded { data: data_loaded } => {
-                        let data_rendered_div = data_loaded
-                            .chunks(10)
-                            .map(|chunk| Dom::text(format!("{:?}", chunk)))
-                            .collect::<Dom>();
-
-                        let reset_btn = Button::new("Reset")
-                            .with_on_click(data_clone.clone(), reset)
-                            .dom();
-
-                        Dom::div().with_children(vec![data_rendered_div, reset_btn])
-                    }
-                    Error { error } => {
-                        let error_div = Dom::text(format!("{}", error));
-
-                        let reset_btn = Button::new("Reset")
-                            .with_on_click(data_clone.clone(), reset)
-                            .dom();
-
-                        Dom::div().with_children(vec![error_div, reset_btn])
-                    }
+                    Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
                 }
-                .with_inline_style("max-width: 350px; display:block;"),
-            ]),
+                DataLoaded { data: data_loaded } => {
+                    let data_rendered_div = data_loaded
+                        .chunks(10)
+                        .map(|chunk| Dom::text(format!("{:?}", chunk)))
+                        .collect::<Dom>();
+
+                    let reset_btn = Button::new("Reset")
+                        .with_on_click(data_clone.clone(), reset)
+                        .dom();
+
+                    Dom::div().with_children(vec![data_rendered_div, reset_btn])
+                }
+                Error { error } => {
+                    let error_div = Dom::text(format!("{}", error));
+
+                    let reset_btn = Button::new("Reset")
+                        .with_on_click(data_clone.clone(), reset)
+                        .dom();
+
+                    Dom::div().with_children(vec![error_div, reset_btn])
+                }
+            }
+            .with_inline_style("max-width: 350px; display:block;")]),
     );
 
     body.style(Css::empty())

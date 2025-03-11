@@ -14,7 +14,7 @@ use winapi::{
     },
     um::{
         wingdi::{GetDeviceCaps, LOGPIXELSX},
-        winuser::{GetDC, IsProcessDPIAware, MONITOR_DEFAULTTONEAREST, MonitorFromWindow},
+        winuser::{GetDC, IsProcessDPIAware, MonitorFromWindow, MONITOR_DEFAULTTONEAREST},
     },
 };
 

@@ -22,7 +22,6 @@ use core::{
 };
 
 use azul_core::{
-    FastBTreeSet, FastHashMap,
     app_resources::{
         AppConfig, DpiScaleFactor, Epoch, GlTextureCache, ImageCache, ImageMask, ImageRef,
         RendererResources, ResourceUpdate,
@@ -40,21 +39,22 @@ use azul_core::{
         WindowInternal, WindowState,
     },
     window_state::NodesToCheck,
+    FastBTreeSet, FastHashMap,
 };
 use azul_css::FloatValue;
 use webrender::{
-    PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
-    RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
-    Shaders as WrShaders, Transaction as WrTransaction,
     api::{
-        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
-        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
         units::{
             DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
             DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
         },
+        ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
+        HitTesterRequest as WrHitTesterRequest, RenderNotifier as WrRenderNotifier,
     },
     render_api::RenderApi as WrRenderApi,
+    PipelineInfo as WrPipelineInfo, Renderer as WrRenderer, RendererError as WrRendererError,
+    RendererOptions as WrRendererOptions, ShaderPrecacheFlags as WrShaderPrecacheFlags,
+    Shaders as WrShaders, Transaction as WrTransaction,
 };
 use winapi::{
     ctypes::wchar_t,
@@ -74,12 +74,12 @@ use self::{
     dpi::DpiFunctions,
     gl::{ExtraWglFunctions, ExtraWglFunctionsLoadError, GlFunctions},
 };
-use super::{AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM, Notifier};
+use super::{Notifier, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM};
 use crate::{
     app::{App, LazyFcCache},
     wr_translate::{
-        AsyncHitTester, generate_frame, rebuild_display_list, scroll_all_nodes,
-        synchronize_gpu_values, wr_synchronize_updated_images,
+        generate_frame, rebuild_display_list, scroll_all_nodes, synchronize_gpu_values,
+        wr_synchronize_updated_images, AsyncHitTester,
     },
 };
 
@@ -119,12 +119,12 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         um::{
             libloaderapi::GetModuleHandleW,
             winbase::{INFINITE, WAIT_FAILED},
-            wingdi::{CreateSolidBrush, wglMakeCurrent},
+            wingdi::{wglMakeCurrent, CreateSolidBrush},
             winuser::{
-                CS_HREDRAW, CS_OWNDC, CS_VREDRAW, DispatchMessageW, GetDC, GetForegroundWindow,
-                GetMessageW, MSG, MsgWaitForMultipleObjects, PM_NOREMOVE, PM_NOYIELD, PeekMessageW,
-                QS_ALLEVENTS, RegisterClassW, ReleaseDC, SetProcessDPIAware, TranslateMessage,
-                WNDCLASSW,
+                DispatchMessageW, GetDC, GetForegroundWindow, GetMessageW,
+                MsgWaitForMultipleObjects, PeekMessageW, RegisterClassW, ReleaseDC,
+                SetProcessDPIAware, TranslateMessage, CS_HREDRAW, CS_OWNDC, CS_VREDRAW, MSG,
+                PM_NOREMOVE, PM_NOYIELD, QS_ALLEVENTS, WNDCLASSW,
             },
         },
     };
@@ -320,7 +320,11 @@ pub fn load_dll(name: &'static str) -> Option<HINSTANCE> {
     use winapi::um::libloaderapi::LoadLibraryW;
     let mut dll_name = encode_wide(name);
     let dll = unsafe { LoadLibraryW(dll_name.as_mut_ptr()) };
-    if dll.is_null() { None } else { Some(dll) }
+    if dll.is_null() {
+        None
+    } else {
+        Some(dll)
+    }
 }
 
 #[derive(Debug)]
@@ -562,19 +566,19 @@ impl Window {
                 RendererType, ScrollResult, WindowFrame, WindowInternalInit,
             },
         };
-        use webrender::{ProgramCache as WrProgramCache, api::ColorF as WrColorF};
+        use webrender::{api::ColorF as WrColorF, ProgramCache as WrProgramCache};
         use winapi::{
             shared::windef::POINT,
             um::{
                 wingdi::{
-                    GetDeviceCaps, LOGPIXELSX, LOGPIXELSY, SwapBuffers, wglDeleteContext,
-                    wglMakeCurrent,
+                    wglDeleteContext, wglMakeCurrent, GetDeviceCaps, SwapBuffers, LOGPIXELSX,
+                    LOGPIXELSY,
                 },
                 winuser::{
-                    CW_USEDEFAULT, CreateWindowExW, DestroyWindow, GetClientRect, GetCursorPos,
-                    GetDC, GetWindowRect, HWND_TOP, ReleaseDC, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE,
-                    SW_NORMAL, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOZORDER,
-                    ScreenToClient, SetMenu, SetWindowPos, ShowWindow, WS_CAPTION,
+                    CreateWindowExW, DestroyWindow, GetClientRect, GetCursorPos, GetDC,
+                    GetWindowRect, ReleaseDC, ScreenToClient, SetMenu, SetWindowPos, ShowWindow,
+                    CW_USEDEFAULT, HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOZORDER, SW_HIDE,
+                    SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_SHOWNORMAL, WS_CAPTION,
                     WS_EX_ACCEPTFILES, WS_EX_APPWINDOW, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
                     WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME,
                 },
@@ -1196,8 +1200,8 @@ fn create_gl_context(
 ) -> Result<HGLRC, WindowsOpenGlError> {
     use winapi::um::{
         wingdi::{
-            ChoosePixelFormat, DescribePixelFormat, SetPixelFormat, wglCreateContext,
-            wglDeleteContext, wglMakeCurrent,
+            wglCreateContext, wglDeleteContext, wglMakeCurrent, ChoosePixelFormat,
+            DescribePixelFormat, SetPixelFormat,
         },
         winuser::{GetDC, ReleaseDC},
     };
@@ -1482,14 +1486,14 @@ unsafe extern "system" fn WindowProc(
     use winapi::um::{
         wingdi::wglMakeCurrent,
         winuser::{
-            CREATESTRUCTW, DefWindowProcW, GWLP_USERDATA, GetWindowLongPtrW, PostMessageW,
-            PostQuitMessage, SetWindowLongPtrW, VK_F4, WHEEL_DELTA, WM_ACTIVATE, WM_CHAR,
-            WM_COMMAND, WM_CREATE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND,
-            WM_HSCROLL, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP,
-            WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSELEAVE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE,
-            WM_NCHITTEST, WM_NCMOUSELEAVE, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-            WM_SETFOCUS, WM_SIZE, WM_SIZING, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
-            WM_VSCROLL, WM_WINDOWPOSCHANGED,
+            DefWindowProcW, GetWindowLongPtrW, PostMessageW, PostQuitMessage, SetWindowLongPtrW,
+            CREATESTRUCTW, GWLP_USERDATA, VK_F4, WHEEL_DELTA, WM_ACTIVATE, WM_CHAR, WM_COMMAND,
+            WM_CREATE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_HSCROLL,
+            WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+            WM_MBUTTONUP, WM_MOUSELEAVE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCHITTEST,
+            WM_NCMOUSELEAVE, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE,
+            WM_SIZING, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_VSCROLL,
+            WM_WINDOWPOSCHANGED,
         },
     };
 
@@ -1889,8 +1893,8 @@ unsafe extern "system" fn WindowProc(
                 use winapi::{
                     shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM},
                     um::winuser::{
-                        GCLP_HCURSOR, HOVER_DEFAULT, SetClassLongPtrW, TME_LEAVE, TRACKMOUSEEVENT,
-                        TrackMouseEvent,
+                        SetClassLongPtrW, TrackMouseEvent, GCLP_HCURSOR, HOVER_DEFAULT, TME_LEAVE,
+                        TRACKMOUSEEVENT,
                     },
                 };
 
@@ -2148,7 +2152,7 @@ unsafe extern "system" fn WindowProc(
                 use azul_core::window::{
                     CursorPosition, FullHitTest, LogicalPosition, OptionMouseCursorType,
                 };
-                use winapi::um::winuser::{GCLP_HCURSOR, SetClassLongPtrW};
+                use winapi::um::winuser::{SetClassLongPtrW, GCLP_HCURSOR};
 
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let current_focus = current_window.internal.current_window_state.focused_node;
@@ -2216,7 +2220,7 @@ unsafe extern "system" fn WindowProc(
                     {
                         use winapi::um::winuser::{
                             ClientToScreen, CreatePopupMenu, GetClientRect, SetForegroundWindow,
-                            TPM_LEFTALIGN, TPM_TOPALIGN, TrackPopupMenu,
+                            TrackPopupMenu, TPM_LEFTALIGN, TPM_TOPALIGN,
                         };
 
                         let mut hPopupMenu = CreatePopupMenu();
@@ -2331,7 +2335,7 @@ unsafe extern "system" fn WindowProc(
                     {
                         use winapi::um::winuser::{
                             ClientToScreen, CreatePopupMenu, GetClientRect, SetForegroundWindow,
-                            TPM_LEFTALIGN, TPM_TOPALIGN, TrackPopupMenu,
+                            TrackPopupMenu, TPM_LEFTALIGN, TPM_TOPALIGN,
                         };
 
                         let mut hPopupMenu = CreatePopupMenu();

@@ -1,11 +1,9 @@
-
 use alloc::vec::Vec;
 use core::fmt;
 use std::io::Cursor;
-use azul_css::{impl_result, impl_result_inner};
+
 use azul_core::app_resources::{RawImage, RawImageFormat};
-use azul_css::U8Vec;
-use image::error::{LimitError, LimitErrorKind};
+use azul_css::{impl_result, impl_result_inner, U8Vec};
 #[cfg(feature = "bmp")]
 use image::codecs::bmp::BmpEncoder;
 #[cfg(feature = "gif")]
@@ -22,7 +20,7 @@ use image::codecs::pnm::PnmEncoder;
 use image::codecs::tga::TgaEncoder;
 #[cfg(feature = "tiff")]
 use image::codecs::tiff::TiffEncoder;
-use image::error::ImageError;
+use image::error::{ImageError, LimitError, LimitErrorKind};
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
@@ -45,8 +43,7 @@ impl fmt::Display for EncodeImageError {
             ),
             InsufficientMemory => write!(
                 f,
-                "Error encoding image: Not enough memory available to perform encoding \
-                    operation"
+                "Error encoding image: Not enough memory available to perform encoding operation"
             ),
             DimensionError => write!(f, "Error encoding image: Wrong dimensions"),
             InvalidData => write!(f, "Error encoding image: Invalid data format"),
@@ -133,7 +130,6 @@ encode_func!(encode_tiff, TiffEncoder, "tiff");
 encode_func!(encode_gif, GifEncoder, "gif");
 encode_func!(encode_pnm, PnmEncoder, "pnm");
 
-
 #[cfg(feature = "png")]
 pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
     use image::ImageEncoder;
@@ -142,7 +138,11 @@ pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
 
     {
         let mut cursor = Cursor::new(&mut result);
-        let mut encoder = PngEncoder::new_with_quality(&mut cursor, image::codecs::png::CompressionType::Best, image::codecs::png::FilterType::Adaptive);
+        let mut encoder = PngEncoder::new_with_quality(
+            &mut cursor,
+            image::codecs::png::CompressionType::Best,
+            image::codecs::png::FilterType::Adaptive,
+        );
         let pixels = match image.pixels.get_u8_vec_ref() {
             Some(s) => s,
             None => {
@@ -168,7 +168,6 @@ pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
 pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
     ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
 }
-
 
 #[cfg(feature = "jpeg")]
 pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {

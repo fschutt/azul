@@ -6,26 +6,26 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    fmt,
-    ffi,
+    ffi, fmt,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
+
 use azul_css::{AzString, ColorF, ColorU, StringVec, U8Vec};
 pub use gl_context_loader::{
-    GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat, GLint,
-    GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid, ctypes::*,
+    ctypes::*, GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat,
+    GLint, GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid,
 };
-use gl_context_loader::{GenericGlContext, GlType, gl};
+use gl_context_loader::{gl, GenericGlContext, GlType};
 
 use crate::{
-    FastHashMap,
     app_resources::{
         Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat,
     },
     callbacks::DocumentId,
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::{PhysicalSizeU32, RendererType},
+    FastHashMap,
 };
 
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
@@ -3567,7 +3567,8 @@ impl GlShader {
         );
         gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
 
-        #[cfg(feature = "std")] {
+        #[cfg(feature = "std")]
+        {
             let fb_check = gl_context.check_frame_buffer_status(gl::FRAMEBUFFER);
             match fb_check {
                 gl::FRAMEBUFFER_COMPLETE => {}
@@ -3601,7 +3602,7 @@ impl GlShader {
                 o => {
                     println!("glFramebufferStatus returned unknown return code: {}", o);
                 }
-            }    
+            }
         }
 
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);

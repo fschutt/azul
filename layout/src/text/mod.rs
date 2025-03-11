@@ -68,9 +68,12 @@
 
 // #![no_std] // doable once allsorts PR is merged
 
-pub mod script;
 pub mod layout;
+pub mod script;
 pub mod shaping;
+
+use alloc::boxed::Box;
+use core::ffi::c_void;
 
 use azul_core::{
     app_resources::{LoadedFontSource, ShapedWords, Words},
@@ -79,12 +82,9 @@ use azul_core::{
     traits::GetTextLayout,
     ui_solver::{InlineTextLayout, ResolvedTextLayoutOptions},
 };
-
-use alloc::boxed::Box;
-use core::ffi::c_void;
 use azul_css::{FontData, FontRef};
-use self::shaping::ParsedFont;
-use self::layout::FontMetrics;
+
+use self::{layout::FontMetrics, shaping::ParsedFont};
 
 #[derive(Debug, Clone)]
 pub struct InlineText<'a> {
