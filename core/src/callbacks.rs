@@ -637,7 +637,11 @@ pub struct ScrollHitTestItem {
 /// for a Callback with a `.0` field:
 ///
 /// ```
-/// struct MyCallback(fn(&T));
+/// # use azul_core::impl_callback;
+/// type T = String;
+/// struct MyCallback {
+///     cb: fn(&T),
+/// };
 ///
 /// // impl Display, Debug, etc. for MyCallback
 /// impl_callback!(MyCallback);
@@ -648,13 +652,13 @@ pub struct ScrollHitTestItem {
 macro_rules! impl_callback {
     ($callback_value:ident) => {
         impl ::core::fmt::Display for $callback_value {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)
             }
         }
 
         impl ::core::fmt::Debug for $callback_value {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
                 write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
             }
@@ -668,7 +672,7 @@ macro_rules! impl_callback {
             }
         }
 
-        impl core::hash::Hash for $callback_value {
+        impl ::core::hash::Hash for $callback_value {
             fn hash<H>(&self, state: &mut H)
             where
                 H: ::core::hash::Hasher,

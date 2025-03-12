@@ -1,0 +1,229 @@
+name: Cross-Compile and Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy to GitHub Pages'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Build for Linux
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        api_version: ['1.0.0-alpha1', 'nightly']
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config
+      
+      - name: Build DLL
+        run: |
+          cd dll
+          cargo build --release --target x86_64-unknown-linux-gnu
+          mkdir -p ../release/${{ matrix.api_version }}/linux
+          cp ../target/x86_64-unknown-linux-gnu/release/libazul.so ../release/${{ matrix.api_version }}/linux/
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-${{ matrix.api_version }}
+          path: release/${{ matrix.api_version }}/linux
+
+  # Build for Windows
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        api_version: ['1.0.0-alpha1', 'nightly']
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      
+      - name: Build DLL
+        run: |
+          cd dll
+          cargo build --release --target x86_64-pc-windows-msvc
+          mkdir -p ../release/${{ matrix.api_version }}/windows
+          cp ../target/x86_64-pc-windows-msvc/release/azul.dll ../release/${{ matrix.api_version }}/windows/
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-${{ matrix.api_version }}
+          path: release/${{ matrix.api_version }}/windows
+
+  # Build for macOS
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        api_version: ['1.0.0-alpha1', 'nightly']
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      
+      - name: Build DLL
+        run: |
+          cd dll
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p ../release/${{ matrix.api_version }}/macos
+          cp ../target/x86_64-apple-darwin/release/libazul.dylib ../release/${{ matrix.api_version }}/macos/
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-${{ matrix.api_version }}
+          path: release/${{ matrix.api_version }}/macos
+
+  # Generate bindings and documentation
+  generate-docs:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-license
+        run: cargo install cargo-license
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: release/
+      
+      - name: Generate documentation
+        run: |
+          # Organize artifacts by version
+          mkdir -p target/deploy
+          
+          # Move artifacts to the appropriate locations
+          for version in 1.0.0-alpha1 nightly; do
+            mkdir -p target/deploy/release/$version/files
+            
+            # Windows files
+            cp release/windows-$version/windows/azul.dll target/deploy/release/$version/files/
+            
+            # Linux files
+            cp release/linux-$version/linux/libazul.so target/deploy/release/$version/files/
+            
+            # macOS files
+            cp release/macos-$version/macos/libazul.dylib target/deploy/release/$version/files/
+          done
+          
+          # Enable web deployment
+          export AZUL_DEPLOY_WEB=github
+          
+          # Run the build script to generate everything
+          cargo run --bin build_script
+      
+      - name: Generate license information
+        run: |
+          cd dll
+          cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json
+          cargo license --filter-platform=x86_64-unknown-linux-gnu --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-LINUX.json
+          cargo license --filter-platform=x86_64-apple-darwin --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-MAC.json
+          cd ..
+          
+          # Process license files
+          cargo run --bin license_generator
+          
+          # Copy license files to each version
+          for version in 1.0.0-alpha1 nightly; do
+            cp LICENSE-WINDOWS.txt target/deploy/release/$version/files/license.txt
+          done
+      
+      - name: Prepare release files
+        run: |
+          # Generate example ZIPs (simplified for this example)
+          for version in 1.0.0-alpha1 nightly; do
+            # Create example files for each platform
+            mkdir -p examples/{windows,linux,macos}
+            echo "Windows Example" > examples/windows/example.txt
+            echo "Linux Example" > examples/linux/example.txt
+            echo "macOS Example" > examples/macos/example.txt
+            
+            # Zip example files
+            cd examples
+            zip -r ../target/deploy/release/$version/files/examples-windows.zip windows
+            zip -r ../target/deploy/release/$version/files/examples-linux.zip linux
+            zip -r ../target/deploy/release/$version/files/examples-macos.zip macos
+            cd ..
+            
+            # Copy API.json and azul.h
+            cp api.json target/deploy/release/$version/files/
+            cp api/c/azul.h target/deploy/release/$version/files/
+            
+            # Create source code zip
+            zip -r target/deploy/release/$version/files/sourcecode.zip . -x "target/*" "release/*" ".git/*"
+          done
+      
+      - name: Deploy to GitHub Pages
+        if: ${{ github.event.inputs.deploy == 'true' }}
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: target/deploy/html
+          branch: gh-pages
+          clean: true
+
+  # Cross-Compile for other platforms (optional extension)
+  cross-compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Install cross (cross-compilation tool)
+        run: cargo install cross
+      
+      - name: Cross-compile
+        run: |
+          cd dll
+          cross build --release --target ${{ matrix.target }}
+          mkdir -p ../release/nightly/${{ matrix.target }}
+          cp ../target/${{ matrix.target }}/release/libazul.so ../release/nightly/${{ matrix.target }}/
+      
+      - name: Upload Cross-compiled Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.target }}
+          path: release/nightly/${{ matrix.target }}

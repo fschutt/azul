@@ -268,6 +268,7 @@ impl EventFilter {
 /// variant if the enum is that variant.
 ///
 /// ```rust
+/// # use azul_core::dom::get_single_enum_type;
 /// enum A {
 ///     Abc(AbcType),
 /// }

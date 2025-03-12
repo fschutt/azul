@@ -68,9 +68,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "allsorts"
-version = "0.15.0"
-source = "git+https://github.com/fschutt/allsorts?branch=optional-brotli#35e2c8d45de790cd87f4e1009b51aab31278c5b9"
+name = "allsorts-subset-browser"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "318f830be541711fe34053ec9c0db9d1bc8eb751ce20baa73e03c2d436015d8b"
 dependencies = [
  "bitflags 1.3.2",
  "bitreader",
@@ -233,7 +234,7 @@ dependencies = [
 name = "azul-layout"
 version = "0.0.4"
 dependencies = [
- "allsorts 0.15.0 (git+https://github.com/fschutt/allsorts?branch=optional-brotli)",
+ "allsorts-subset-browser",
  "azul-core",
  "azul-css",
  "base64 0.22.1",
@@ -1748,7 +1749,7 @@ version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34f79014d061d4b959d842bc1a09c41f752fff163e25dfdde68552859fed1bd0"
 dependencies = [
- "allsorts 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "allsorts",
  "base64 0.22.1",
  "mmapio",
  "xmlparser",

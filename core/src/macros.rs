@@ -36,6 +36,7 @@ macro_rules! impl_task_api {
 /// Implement the `From` trait for any type.
 /// Example usage:
 /// ```
+/// # use azul_core::impl_from;
 /// enum MyError<'a> {
 ///     Bar(BarError<'a>)
 ///     Foo(FooError<'a>)
@@ -69,12 +70,13 @@ macro_rules! impl_from {
 ///
 /// Example usage:
 /// ```
+/// # use azul_core::impl_display;
 /// enum Foo<'a> {
-///     Bar(&'a str)
-///     Baz(i32)
+///     Bar(&'a str),
+///     Baz(i32),
 /// }
 ///
-/// impl_display!{ Foo<'a>, {
+/// impl_display! { Foo<'a>, {
 ///     Bar(s) => s,
 ///     Baz(i) => format!("{}", i)
 /// }}

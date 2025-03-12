@@ -2,7 +2,7 @@
 name: Deploy
 
 on:
-    workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,12 +13,12 @@ jobs:
       matrix:
         include:
           - build: macos-x64
-            os: macos-11
+            os: macos-latest
           - build: windows-x64
-            os: windows-2019
+            os: windows-latest
           - build: linux-x64
-            os: ubuntu-22.04
-  steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: actions/upload-artifact@v4
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/upload-artifact@v4

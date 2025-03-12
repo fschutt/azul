@@ -1825,8 +1825,8 @@ pub enum DynamicItem {
 
 /// Splits a string into formatting arguments
 /// ```rust
-/// # use azulc::xml::DynamicItem::*;
-/// # use azulc::xml::split_dynamic_string;
+/// # use azul_core::xml::DynamicItem::*;
+/// # use azul_core::xml::split_dynamic_string;
 /// let s = "hello {a}, {b}{{ {c} }}";
 /// let split = split_dynamic_string(s);
 /// let output = vec![
@@ -1953,10 +1953,11 @@ pub fn combine_and_replace_dynamic_items(
 ///
 /// ```rust
 /// # use std::collections::BTreeMap;
-/// # use azulc::xml::format_args_dynamic;
-/// let mut variables = BTreeMap::new();
-/// variables.insert(String::from("a"), (String::from("value1"), 0));
-/// variables.insert(String::from("b"), (String::from("value2"), 1));
+/// # use azul_core::xml::format_args_dynamic;
+/// let mut variables = vec![
+///     (String::from("a"), String::from("value1")),
+///     (String::from("b"), String::from("value2")),
+/// ];
 ///
 /// let initial = "hello {a}, {b}{{ {c} }}";
 /// let expected = "hello value1, value2{ {c} }".to_string();
