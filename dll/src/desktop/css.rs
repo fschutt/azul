@@ -44,7 +44,7 @@ pub mod css_parser {
     pub use azul_css::parser::*;
 }
 
-// azul_css::Css and azul_css_parser::CssApiWrapper
+// azul_css::Css and azul_css::parser::CssApiWrapper
 // have the exact same binary layout. However, we
 // don't want the azul_css crate to depend on a CSS parser
 // which requires this workaround for static linking.

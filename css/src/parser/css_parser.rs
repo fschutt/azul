@@ -154,8 +154,7 @@ macro_rules! multi_type_parser {
         multi_type_parser!($fn, stringify!($return), $return,
             concat!(
                 "# extern crate azul_css;", "\r\n",
-                "# extern crate azul_css_parser;", "\r\n",
-                "# use azul_css_parser::", stringify!($fn), ";", "\r\n",
+                "# use azul_css::parser::", stringify!($fn), ";", "\r\n",
                 "# use azul_css::", stringify!($return), ";"
             ),
             $([
@@ -199,9 +198,7 @@ macro_rules! typed_pixel_value_parser {
             concat!(
                 "# extern crate azul_css;",
                 "\r\n",
-                "# extern crate azul_css_parser;",
-                "\r\n",
-                "# use azul_css_parser::",
+                "# use azul_css::parser::",
                 stringify!($fn),
                 ";",
                 "\r\n",
@@ -224,13 +221,12 @@ macro_rules! typed_pixel_value_parser {
 /// returns the parsed value or an error
 ///
 /// ```rust
-/// # extern crate azul_css_parser;
 /// # extern crate azul_css;
 ///
 /// # use azul_css_parser;
 /// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssPropertyValue, CssProperty};
 /// assert_eq!(
-///     azul_css_parser::parse_css_property(CssPropertyType::Width, "500px"),
+///     azul_css::parser::parse_css_property(CssPropertyType::Width, "500px"),
 ///     Ok(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth { inner: PixelValue::px(500.0) })))
 /// )
 /// ```
@@ -392,12 +388,11 @@ pub fn parse_css_property<'a>(
 /// "margin-left" and "margin-right")
 ///
 /// ```rust
-/// # extern crate azul_css_parser;
 /// # extern crate azul_css;
 /// # use azul_css_parser;
 /// # use azul_css::*;
 /// assert_eq!(
-///     azul_css_parser::parse_combined_css_property(CombinedCssPropertyType::BorderRadius, "10px"),
+///     azul_css::parser::parse_combined_css_property(CombinedCssPropertyType::BorderRadius, "10px"),
 ///     Ok(vec![
 ///         CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(
 ///             StyleBorderTopLeftRadius::px(10.0)
@@ -4672,8 +4667,8 @@ pub fn parse_image<'a>(input: &'a str) -> Result<AzString, CssImageParseError<'a
 /// # Example
 ///
 /// ```rust
-/// # extern crate azul_css_parser;
-/// # use azul_css_parser::{strip_quotes, QuoteStripped, UnclosedQuotesError};
+/// # extern crate azul_css;
+/// # use azul_css::parser::{strip_quotes, QuoteStripped, UnclosedQuotesError};
 /// assert_eq!(
 ///     strip_quotes("\"Helvetica\""),
 ///     Ok(QuoteStripped("Helvetica"))
@@ -4948,8 +4943,7 @@ impl CssDirectionParseErrorOwned {
 ///
 /// ```rust
 /// # extern crate azul_css;
-/// # extern crate azul_css_parser;
-/// # use azul_css_parser::parse_direction;
+/// # use azul_css::parser::parse_direction;
 /// # use azul_css::{Direction, DirectionCorners, AngleValue};
 /// use azul_css::DirectionCorner::*;
 ///
@@ -5446,8 +5440,7 @@ impl CssStyleFontFamilyParseErrorOwned {
 ///
 /// ```rust
 /// # extern crate azul_css;
-/// # extern crate azul_css_parser;
-/// # use azul_css_parser::parse_style_font_family;
+/// # use azul_css::parser::parse_style_font_family;
 /// # use azul_css::{StyleFontFamily, StyleFontFamilyVec};
 /// let input = "\"Helvetica\", 'Arial', Times New Roman";
 /// let fonts: StyleFontFamilyVec = vec![
@@ -5548,8 +5541,8 @@ impl ParenthesisParseErrorOwned {
 /// on failure returns None.
 ///
 /// ```rust
-/// # use azul_css_parser::parse_parentheses;
-/// # use azul_css_parser::ParenthesisParseError::*;
+/// # use azul_css::parser::parse_parentheses;
+/// # use azul_css::parser::ParenthesisParseError::*;
 /// // Search for the nearest "abc()" brace
 /// assert_eq!(
 ///     parse_parentheses("abc(def(g))", &["abc"]),
