@@ -15,7 +15,7 @@ use azul_css::{
     AnimationInterpolationFunction, AzString, CssPath, CssProperty, CssPropertyType, FontRef,
     InterpolateResolver, LayoutRect, LayoutSize,
 };
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{FcFontCache, FontSource};
 
 use crate::{
     app_resources::{
@@ -2576,14 +2576,21 @@ impl LayoutCallbackInfo {
     }
 
     pub fn get_system_fonts(&self) -> Vec<AzStringPair> {
-        self.internal_get_system_fonts()
+        let fc_cache = self.internal_get_system_fonts();
+
+        fc_cache
             .list()
             .iter()
-            .filter_map(|(k, v)| {
-                Some(AzStringPair {
-                    key: k.name.as_ref()?.clone().into(),
-                    value: v.path.clone().into(),
-                })
+            .filter_map(|(pattern, font_id)| {
+                let source = fc_cache.get_font_by_id(font_id)?;
+                match source {
+                    FontSource::Memory(f) => None,
+                    FontSource::Disk(d) => Some((pattern.name.as_ref()?.clone(), d.path.clone())),
+                }
+            })
+            .map(|(k, v)| AzStringPair {
+                key: k.into(),
+                value: v.into(),
             })
             .collect()
     }

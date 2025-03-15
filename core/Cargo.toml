@@ -18,7 +18,7 @@ azul-css                = { path = "../css", version = "0.0.1", default-features
 libm                    = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version ="0.1.8", default-features = false }
 highway                 = { version = "0.8.0", default-features = false }
-rust-fontconfig         = { version = "0.1.13", default-features = false }
+rust-fontconfig         = { version = "1.0.0", default-features = false }
 
 [features]
 default = ["std"]

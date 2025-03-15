@@ -22,7 +22,7 @@ autoexamples = false
 azul-css                = { path = "../css", version = "0.0.1", default-features = false, features = ["parser"] }
 azul-core               = { path = "../core", version = "0.0.2", default-features = false }
 image                   = { version = "0.25", default-features = false }
-rust-fontconfig         = { version = "0.1.13", default-features = false }
+rust-fontconfig         = { version = "1.0.0", default-features = false }
 
 unicode-normalization   = { version = "0.1.21",  default-features = false, optional = true }
 allsorts-subset-browser = { version = "0.16.0",  default-features = false, features = ["flate2_rust"], optional = true  }
@@ -37,7 +37,6 @@ geo                     = { version = "0.26.0", default-features = false, option
 roxmltree               = { version = "0.14.0",   default-features = false, optional = true }
 xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }
 xmlparser               = { version = "0.13.3",   default-features = false, optional = true }
-base64                  = { version = "0.22.1", default-features = false, optional = true }
 gl-context-loader       = { version = "0.1.8", default-features = false, optional = true }
 
 [features]
@@ -54,6 +53,6 @@ tga = ["image/tga"]
 hdr = ["image/hdr"]
 webp = ["image/webp"]
 pnm = ["image/pnm"]
-font_loading = ["base64"]
+font_loading = []
 xml = ["roxmltree", "xmlwriter", "xmlparser"]
 svg = ["lyon", "tiny-skia", "usvg", "resvg", "xml", "geo-booleanop", "geo", "gl-context-loader"]

@@ -1,7 +1,7 @@
 #![cfg(feature = "font_loading")]
 
 use azul_css::{AzString, U8Vec};
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{FcFontCache, FontSource};
 
 pub mod loading;
 
@@ -229,21 +229,24 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
     patterns.push(FcPattern::default());
 
     for pattern in patterns {
-        if let Some(FcFontPath { path, font_index }) = fc_cache.query(&pattern) {
-            if path.starts_with("base64:") {
-                use base64::{engine::general_purpose::URL_SAFE, Engine as _};
-                let base64_str = &path[7..];
-                let decoded = URL_SAFE
-                    .decode(base64_str)
-                    .ok()
-                    .map(|s| (s.into(), *font_index as i32));
-                if let Some(s) = decoded {
-                    return Some(s);
-                }
-            } else {
+        // TODO: handle font fallbacks via s.fallbacks
+        let font_source = fc_cache
+            .query(&pattern, &mut Vec::new())
+            .and_then(|s| fc_cache.get_font_by_id(&s.id));
+
+        let font_source = match font_source {
+            Some(s) => s,
+            None => continue,
+        };
+
+        match font_source {
+            FontSource::Memory(m) => {
+                return Some((m.bytes.clone().into(), m.font_index as i32));
+            }
+            FontSource::Disk(d) => {
                 use std::{fs, path::Path};
-                if let Ok(bytes) = fs::read(Path::new(path)) {
-                    return Some((bytes.into(), *font_index as i32));
+                if let Ok(bytes) = fs::read(Path::new(&d.path)) {
+                    return Some((bytes.into(), d.font_index as i32));
                 }
             }
         }

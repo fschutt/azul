@@ -392,7 +392,10 @@ pub fn parse_css_property<'a>(
 /// # use azul_css_parser;
 /// # use azul_css::*;
 /// assert_eq!(
-///     azul_css::parser::parse_combined_css_property(CombinedCssPropertyType::BorderRadius, "10px"),
+///     azul_css::parser::parse_combined_css_property(
+///         CombinedCssPropertyType::BorderRadius,
+///         "10px"
+///     ),
 ///     Ok(vec![
 ///         CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(
 ///             StyleBorderTopLeftRadius::px(10.0)
