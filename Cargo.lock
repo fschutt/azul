@@ -146,7 +146,7 @@ dependencies = [
 
 [[package]]
 name = "azul-core"
-version = "0.0.2"
+version = "0.0.5"
 dependencies = [
  "azul-css",
  "gl-context-loader",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "azul-css"
-version = "0.0.1"
+version = "0.0.5"
 dependencies = [
  "azul-simplecss",
  "libm",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "azul-dll"
-version = "0.0.1"
+version = "0.0.5"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "azul-layout"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "allsorts-subset-browser",
  "azul-core",
