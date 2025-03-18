@@ -24,7 +24,7 @@ serde = { version = "1", optional = true, default-features = false }
 serde_derive = { version = "1", optional = true, default-features = false }
 
 [dependencies.azul-dll]
-version = "0.0.1"
+version = "0.0.5"
 path = "../../dll"
 default-features = false
 features = ["rlib"]

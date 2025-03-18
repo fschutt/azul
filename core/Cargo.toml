@@ -1,6 +1,6 @@
 [package]
 name = "azul-core"
-version = "0.0.2"
+version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = '''
@@ -14,7 +14,7 @@ edition = "2021"
 autoexamples = false
 
 [dependencies]
-azul-css                = { path = "../css", version = "0.0.1", default-features = false }
+azul-css                = { version = "0.0.5", path = "../css", default-features = false }
 libm                    = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version ="0.1.8", default-features = false }
 highway                 = { version = "0.8.0", default-features = false }

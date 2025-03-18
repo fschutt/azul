@@ -7,7 +7,7 @@
 
 [package]
 name = "azul-layout"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = "Layout solver + font and image loader the Azul GUI framework"
@@ -19,8 +19,8 @@ edition = "2021"
 autoexamples = false
 
 [dependencies]
-azul-css                = { path = "../css", version = "0.0.1", default-features = false, features = ["parser"] }
-azul-core               = { path = "../core", version = "0.0.2", default-features = false }
+azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }
+azul-core               = { version = "0.0.5", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false }
 rust-fontconfig         = { version = "1.0.0", default-features = false }
 
