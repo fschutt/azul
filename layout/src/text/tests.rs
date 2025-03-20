@@ -87,14 +87,14 @@ fn test_position_words() {
         .with_glyph_index('W' as u32, 6)
         .with_glyph_index('r' as u32, 7)
         .with_glyph_index('d' as u32, 8)
-        .with_glyph_advance(1, 10)
-        .with_glyph_advance(2, 8)
-        .with_glyph_advance(3, 5)
-        .with_glyph_advance(4, 9)
-        .with_glyph_advance(5, 4)  // space
-        .with_glyph_advance(6, 12) // W
-        .with_glyph_advance(7, 6)  // r
-        .with_glyph_advance(8, 8)  // d
+        .with_glyph_advance(1, 300)  // H
+        .with_glyph_advance(2, 250)  // e
+        .with_glyph_advance(3, 200)  // l
+        .with_glyph_advance(4, 250)  // o
+        .with_glyph_advance(5, 100)  // space
+        .with_glyph_advance(6, 350)  // W
+        .with_glyph_advance(7, 200)  // r
+        .with_glyph_advance(8, 250)  // d
         .with_glyph_size(1, (10, 20))
         .with_glyph_size(2, (8, 15))
         .with_glyph_size(3, (5, 18))
