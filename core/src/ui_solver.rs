@@ -9,13 +9,14 @@ use core::{
 };
 
 use azul_css::{
-    ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
-    LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom, LayoutBoxSizing, LayoutDisplay,
-    LayoutFlexDirection, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
-    LayoutMarginRight, LayoutMarginTop, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
-    LayoutPaddingRight, LayoutPaddingTop, LayoutPoint, LayoutPosition, LayoutRect, LayoutRectVec,
-    LayoutRight, LayoutSize, LayoutTop, OptionF32, PixelValue, StyleBoxShadow, StyleFontSize,
-    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
+    AzString, ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth,
+    LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom,
+    LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutLeft,
+    LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutOverflow,
+    LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPoint,
+    LayoutPosition, LayoutRect, LayoutRectVec, LayoutRight, LayoutSize, LayoutTop, OptionF32,
+    PixelValue, StyleBoxShadow, StyleFontSize, StyleTextAlign, StyleTextColor, StyleTransform,
+    StyleTransformOrigin, StyleVerticalAlign,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -34,8 +35,8 @@ use crate::{
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeId},
     styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
     window::{
-        FullWindowState, LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, ScrollStates,
-        WindowSize, WindowTheme,
+        FullWindowState, LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, OptionChar,
+        ScrollStates, WindowSize, WindowTheme,
     },
     window_state::RelayoutFn,
 };
@@ -1282,7 +1283,7 @@ pub struct TextLayoutOptions {
 
 /// Same as `TextLayoutOptions`, but with the widths / heights of the `PixelValue`s
 /// resolved to regular f32s (because `letter_spacing`, `word_spacing`, etc. may be %-based value)
-#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ResolvedTextLayoutOptions {
     /// Font size (in pixels) that this text has been laid out with
@@ -1307,6 +1308,77 @@ pub struct ResolvedTextLayoutOptions {
     ///
     /// TODO: Currently unused!
     pub holes: LogicalRectVec,
+    // Stop layout after y coordinate
+    pub max_vertical_height: OptionF32,
+    // Whether text can break lines
+    pub can_break: bool,
+    // Whether text can be hyphenated
+    pub can_hyphenate: bool,
+    // Custom hyphenation character
+    pub hyphenation_character: OptionChar,
+    // Force RTL or LTR (Mixed = auto-detect)
+    pub is_rtl: ScriptType,
+    // Text justification mode
+    pub text_justify: TextJustification,
+}
+
+// Add new text justification enum
+#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
+pub enum TextJustification {
+    #[default]
+    None,
+    Left,
+    Center,
+    Right,
+    Full,
+}
+
+impl Default for ResolvedTextLayoutOptions {
+    fn default() -> Self {
+        Self {
+            font_size_px: DEFAULT_FONT_SIZE_PX as f32,
+            line_height: None.into(),
+            letter_spacing: None.into(),
+            word_spacing: None.into(),
+            tab_width: None.into(),
+            max_horizontal_width: None.into(),
+            leading: None.into(),
+            holes: Vec::new().into(),
+            max_vertical_height: None.into(),
+            can_break: true,
+            can_hyphenate: true,
+            hyphenation_character: Some('-' as u32).into(),
+            is_rtl: ScriptType::default(),
+            text_justify: TextJustification::default(),
+        }
+    }
+}
+
+// Define a struct for debug messages
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct LayoutDebugMessage {
+    pub message: AzString,
+    pub location: AzString,
+}
+
+// Struct to hold script information for text spans
+#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct TextScriptInfo {
+    pub script: ScriptType,
+    pub start: usize,
+    pub end: usize,
+}
+
+// Define script types
+#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(C)]
+pub enum ScriptType {
+    LTR,
+    RTL,
+    #[default]
+    Mixed,
 }
 
 impl_option!(

@@ -5716,9 +5716,11 @@ multi_type_parser!(
     parse_layout_display,
     LayoutDisplay,
     ["none", None],
-    ["flex", Flex],
     ["block", Block],
-    ["inline-block", InlineBlock]
+    ["inline", Inline],
+    ["inline-block", InlineBlock],
+    ["flex", Flex],
+    ["inline-flex", InlineFlex]
 );
 
 multi_type_parser!(

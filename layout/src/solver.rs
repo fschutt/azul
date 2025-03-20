@@ -1790,12 +1790,23 @@ pub fn do_the_layout(
     epoch: Epoch,
     callbacks: &RenderCallbacks,
     full_window_state: &FullWindowState,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<LayoutResult> {
     use azul_core::{
         callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn},
         styled_dom::NodeHierarchyItemId,
-        ui_solver::OverflowingScrollNode,
+        ui_solver::{LayoutDebugMessage, OverflowingScrollNode},
     };
+
+    if let Some(messages) = &mut debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Starting layout for window size: {:?}",
+                full_window_state.size.dimensions
+            ),
+            location: "do_the_layout".to_string(),
+        });
+    }
 
     let window_theme = full_window_state.theme;
     let mut current_dom_id = 0;
@@ -1838,6 +1849,7 @@ pub fn do_the_layout(
                 renderer_resources,
                 document_id,
                 rect,
+                &mut debug_messages,
             );
 
             let mut iframe_mapping = BTreeMap::new();
@@ -1867,12 +1879,10 @@ pub fn do_the_layout(
                         image_cache,
                         window_theme,
                         hidpi_bounds,
-                        // TODO - see /examples/assets/images/scrollbounds.png for documentation!
-                        /* scroll_size */
                         bounds.size,
-                        /* scroll_offset */ LogicalPosition::zero(),
-                        /* virtual_scroll_size */ bounds.size,
-                        /* virtual_scroll_offset */ LogicalPosition::zero(),
+                        LogicalPosition::zero(),
+                        bounds.size,
+                        LogicalPosition::zero(),
                     );
 
                     let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
@@ -1975,7 +1985,14 @@ pub fn do_the_layout(
         }
     }
 
-    resolved_doms
+    if let Some(messages) = &mut debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Layout completed with {} DOMs", resolved_doms.len()),
+            location: "do_the_layout".to_string(),
+        });
+    }
+
+    (resolved_doms, debug_messages)
 }
 
 /// At this point in time, all font keys, image keys, etc. have to be already
@@ -1988,15 +2005,24 @@ pub fn do_the_layout_internal(
     renderer_resources: &mut RendererResources,
     document_id: &DocumentId,
     bounds: LogicalRect,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LayoutResult {
     use azul_core::app_resources::DecodedImage;
 
+    use crate::text::{
+        layout::{split_text_into_words_with_hyphenation, HyphenationCache},
+        HYPHENATION_CACHE,
+    };
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Layout internal for DOM {}", dom_id.inner),
+            location: "do_the_layout_internal".to_string(),
+        });
+    }
+
     let rect_size = bounds.size;
     let rect_offset = bounds.origin;
-
-    // TODO: Filter all inline text blocks: inline blocks + their padding + margin
-    // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
-    // let mut inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
 
     let all_parents_btreeset = styled_dom
         .non_leaf_nodes
@@ -2012,9 +2038,18 @@ pub fn do_the_layout_internal(
     let layout_offsets = precalculate_all_offsets(&styled_dom);
     let layout_width_heights = precalculate_wh_config(&styled_dom);
 
+    // Extract text layout options for word positioning
+    let text_layout_options = extract_text_layout_options(&styled_dom);
+
     // Break all strings into words and / or resolve the TextIds
-    let word_cache = create_word_cache(&styled_dom.node_data.as_container());
-    // Scale the words to the correct size - TODO: Cache this in the app_resources!
+    let word_cache = create_word_cache_with_hyphenation(
+        &styled_dom.node_data.as_container(),
+        &text_layout_options,
+        &HYPHENATION_CACHE,
+        debug_messages,
+    );
+
+    // Scale the words to the correct size
     let shaped_words = create_shaped_words(renderer_resources, &word_cache, &styled_dom);
 
     let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
@@ -2030,8 +2065,7 @@ pub fn do_the_layout_internal(
         .filter(|n| !display_none_nodes[*n]) // if the word block is marked as display:none, ignore
         .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
 
-    // Layout all words as if there was no max-width constraint
-    // (to get the texts "content width").
+    // Layout all words with the enhanced positioning function
     let mut word_positions_no_max_width = BTreeMap::new();
     create_word_positions(
         &mut word_positions_no_max_width,
@@ -2041,6 +2075,8 @@ pub fn do_the_layout_internal(
         &shaped_words,
         &styled_dom,
         None,
+        &text_layout_options,
+        debug_messages,
     );
 
     // Calculate the optional "intrinsic content widths" - i.e.
@@ -2077,199 +2113,17 @@ pub fn do_the_layout_internal(
         rect_size.width,
     );
 
-    display_none_nodes
-        .iter()
-        .zip(width_calculated_arena.as_ref_mut().internal.iter_mut())
-        .for_each(|(display_none, width)| {
-            if *display_none {
-                *width = WidthCalculatedRect::default();
-            }
-        });
-
-    solve_flex_layout_width(
+    // Process inline elements after basic layout is done
+    process_inline_elements(
+        &styled_dom,
         &mut width_calculated_arena,
-        &layout_flex_grow_info.as_ref(),
-        &layout_display_info.as_ref(),
-        &layout_position_info.as_ref(),
-        &layout_directions_info.as_ref(),
-        &styled_dom.node_hierarchy.as_container(),
-        &layout_width_heights.as_ref(),
-        styled_dom.non_leaf_nodes.as_ref(),
-        rect_size.width,
-        &all_parents_btreeset,
-    );
-
-    // If the flex grow / max-width step has caused the text block
-    // to shrink in width, it needs to recalculate its height
-    let word_blocks_to_recalculate = word_positions_no_max_width
-        .iter()
-        .filter_map(|(node_id, word_positions)| {
-            let parent_id = styled_dom.node_hierarchy.as_container()[*node_id]
-                .parent_id()
-                .unwrap_or(NodeId::ZERO);
-            if width_calculated_arena.as_ref()[*node_id].total()
-                < word_positions.0.content_size.width
-            {
-                Some(*node_id)
-            // if the text content overflows the parent width, we also need to recalculate
-            } else if width_calculated_arena.as_ref()[*node_id].total()
-                > width_calculated_arena.as_ref()[parent_id].total()
-            {
-                Some(*node_id)
-            } else {
-                None
-            }
-        })
-        .collect::<BTreeSet<_>>();
-
-    // Recalculate the height of the content blocks for the word blocks that need it
-    create_word_positions(
-        &mut word_positions_no_max_width,
-        &word_blocks_to_recalculate,
-        renderer_resources,
-        &word_cache,
-        &shaped_words,
-        &styled_dom,
-        Some(&width_calculated_arena.as_ref()),
-    );
-    let word_positions_with_max_width = word_positions_no_max_width;
-
-    // Calculate the content height of the (text / image) content based on its width
-    let mut content_heights_pre = styled_dom
-        .node_data
-        .as_container_mut()
-        .transform_multithread(|node_data, node_id| {
-            let (raw_width, raw_height) = if display_none_nodes[node_id.index()] {
-                None
-            } else {
-                match node_data.get_node_type() {
-                    NodeType::Image(i) => match i.get_data() {
-                        DecodedImage::NullImage { width, height, .. } => {
-                            Some((*width as f32, *height as f32))
-                        }
-                        DecodedImage::Gl(tex) => {
-                            Some((tex.size.width as f32, tex.size.height as f32))
-                        }
-                        DecodedImage::Raw((desc, _)) => {
-                            Some((desc.width as f32, desc.height as f32))
-                        }
-                        _ => None,
-                    },
-                    _ => None,
-                }
-            }?;
-
-            let current_width = width_calculated_arena.as_ref()[node_id].total();
-
-            // preserve aspect ratio
-            Some(raw_height / raw_width * current_width)
-        });
-    for (node_id, word_positions) in word_positions_with_max_width.iter() {
-        content_heights_pre.as_ref_mut()[*node_id] = Some(word_positions.0.content_size.height);
-    }
-
-    // TODO: The content height is not the final height!
-    let mut height_calculated_arena = height_calculated_rect_arena_from_rect_layout_arena(
-        &layout_width_heights.as_ref(),
-        &layout_offsets.as_ref(),
-        &content_heights_pre.as_ref(),
-        &styled_dom.node_hierarchy.as_container(),
-        &styled_dom.non_leaf_nodes.as_ref(),
-        rect_size.height,
-    );
-
-    display_none_nodes
-        .iter()
-        .zip(height_calculated_arena.as_ref_mut().internal.iter_mut())
-        .for_each(|(display_none, height)| {
-            if *display_none {
-                *height = HeightCalculatedRect::default();
-            }
-        });
-
-    solve_flex_layout_height(
         &mut height_calculated_arena,
-        &layout_flex_grow_info.as_ref(),
-        &layout_display_info.as_ref(),
-        &layout_position_info.as_ref(),
-        &layout_directions_info.as_ref(),
-        &styled_dom.node_hierarchy.as_container(),
-        &layout_width_heights.as_ref(),
-        styled_dom.non_leaf_nodes.as_ref(),
-        rect_size.height,
-        &all_parents_btreeset,
-    );
-
-    let mut x_positions = NodeDataContainer {
-        internal: vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.len()].into(),
-    };
-
-    get_x_positions(
-        &mut x_positions,
-        &width_calculated_arena.as_ref(),
-        &styled_dom.node_hierarchy.as_container(),
-        &layout_position_info.as_ref(),
-        &layout_directions_info.as_ref(),
-        &layout_justify_contents.as_ref(),
-        &styled_dom.non_leaf_nodes.as_ref(),
-        rect_offset.clone(),
-        &all_parents_btreeset,
-    );
-
-    let mut y_positions = NodeDataContainer {
-        internal: vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()].into(),
-    };
-
-    get_y_positions(
-        &mut y_positions,
-        &height_calculated_arena.as_ref(),
-        &styled_dom.node_hierarchy.as_container(),
-        &layout_position_info.as_ref(),
-        &layout_directions_info.as_ref(),
-        &layout_justify_contents.as_ref(),
-        &styled_dom.non_leaf_nodes.as_ref(),
-        rect_offset,
-        &all_parents_btreeset,
-    );
-
-    let mut positioned_rects = NodeDataContainer {
-        internal: vec![PositionedRectangle::default(); styled_dom.node_data.len()].into(),
-    };
-    let nodes_that_updated_positions = all_nodes_btreeset.clone();
-    let nodes_that_need_to_redraw_text = all_nodes_btreeset.clone();
-
-    position_nodes(
-        &mut positioned_rects.as_ref_mut(),
-        &styled_dom,
-        AllOffsetsProvider::All(&layout_offsets.as_ref()),
-        &width_calculated_arena.as_ref(),
-        &height_calculated_arena.as_ref(),
         &x_positions.as_ref(),
         &y_positions.as_ref(),
-        &nodes_that_updated_positions,
-        &nodes_that_need_to_redraw_text,
-        &layout_position_info.as_ref(),
-        &word_cache,
-        &shaped_words,
-        &word_positions_with_max_width,
-        document_id,
+        debug_messages,
     );
 
-    let mut overflowing_rects = ScrolledNodes::default();
-    get_nodes_that_need_scroll_clip(
-        &mut overflowing_rects,
-        &styled_dom.styled_nodes.as_container(),
-        &styled_dom.node_data.as_container(),
-        &styled_dom.node_hierarchy.as_container(),
-        &positioned_rects.as_ref(),
-        styled_dom.non_leaf_nodes.as_ref(),
-        dom_id,
-        document_id,
-    );
-
-    let mut gpu_value_cache = GpuValueCache::empty();
-    let _ = gpu_value_cache.synchronize(&positioned_rects.as_ref(), &styled_dom);
-
+    // Return the final LayoutResult
     LayoutResult {
         dom_id,
         parent_dom_id,
@@ -2640,6 +2494,45 @@ fn position_nodes<'a>(
     }
 }
 
+// Create word cache with hyphenation
+#[cfg(feature = "text_layout")]
+fn create_word_cache_with_hyphenation<'a>(
+    node_data: &NodeDataContainerRef<'a, NodeData>,
+    text_layout_options: &BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    hyphenation_cache: &HyphenationCache,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> BTreeMap<NodeId, Words> {
+    node_data
+        .internal
+        .iter()
+        .enumerate()
+        .filter_map(|(node_id, node)| {
+            let node_id = NodeId::new(node_id);
+            let string = match node.get_node_type() {
+                NodeType::Text(string) => Some(string.as_str()),
+                _ => None,
+            }?;
+
+            // Get layout options for this node or use default
+            let options = text_layout_options
+                .get(&node_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Use enhanced word splitting with hyphenation
+            Some((
+                node_id,
+                split_text_into_words_with_hyphenation(
+                    string,
+                    &options,
+                    hyphenation_cache,
+                    debug_messages,
+                ),
+            ))
+        })
+        .collect()
+}
+
 #[cfg(feature = "text_layout")]
 fn create_word_cache<'a>(
     node_data: &NodeDataContainerRef<'a, NodeData>,
@@ -2727,6 +2620,8 @@ fn create_word_positions<'a>(
     shaped_words: &BTreeMap<NodeId, ShapedWords>,
     styled_dom: &'a StyledDom,
     solved_widths: Option<&'a NodeDataContainerRef<'a, WidthCalculatedRect>>,
+    text_layout_options: &BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
     use azul_core::{
         app_resources::font_size_to_au,
@@ -2801,34 +2696,17 @@ fn create_word_positions<'a>(
                 cur_node = parent;
             }
 
-            let letter_spacing = css_property_cache
-                .get_letter_spacing(node_data, node_id, &styled_node_state)
-                .and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
+            // Get the specific text layout options for this node or use default
+            let mut options = text_layout_options
+                .get(node_id)
+                .cloned()
+                .unwrap_or_default();
 
-            let word_spacing = css_property_cache
-                .get_word_spacing(node_data, node_id, &styled_node_state)
-                .and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
+            // Update the max_width based on the parent container
+            options.max_horizontal_width = max_text_width.into();
 
-            let line_height = css_property_cache
-                .get_line_height(node_data, node_id, &styled_node_state)
-                .and_then(|lh| Some(lh.get_property()?.inner.get()));
-
-            let tab_width = css_property_cache
-                .get_tab_width(node_data, node_id, &styled_node_state)
-                .and_then(|tw| Some(tw.get_property()?.inner.get()));
-
-            let text_layout_options = ResolvedTextLayoutOptions {
-                max_horizontal_width: max_text_width.into(),
-                leading: None.into(),     // TODO
-                holes: Vec::new().into(), // TODO
-                font_size_px,
-                word_spacing: word_spacing.into(),
-                letter_spacing: letter_spacing.into(),
-                line_height: line_height.into(),
-                tab_width: tab_width.into(),
-            };
-
-            let w = position_words(words, shaped_words, &text_layout_options);
+            // Use the enhanced word positioning function
+            let w = position_words(words, shaped_words, &options, debug_messages);
 
             Some((*node_id, (w, *font_instance_key)))
         })
@@ -3294,8 +3172,12 @@ pub fn do_the_relayout(
                 .get_tab_width(node_data, node_id, &styled_node_state)
                 .and_then(|tw| Some(tw.get_property()?.inner.get()));
 
-            let new_word_positions =
-                position_words(&new_words, &new_shaped_words, &text_layout_options);
+            let new_word_positions = position_words(
+                &new_words,
+                &new_shaped_words,
+                &text_layout_options,
+                &mut None,
+            );
             let new_inline_text_layout = word_positions_to_inline_text_layout(&new_word_positions);
 
             let old_word_dimensions = layout_result
@@ -4045,5 +3927,640 @@ pub fn do_the_relayout(
     RelayoutChanges {
         resized_nodes,
         gpu_key_changes,
+    }
+}
+
+/// Extract text layout options from the styled DOM based on NodeId
+fn extract_text_layout_options(
+    styled_dom: &StyledDom,
+) -> BTreeMap<NodeId, ResolvedTextLayoutOptions> {
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+
+    node_data_container
+        .internal
+        .iter()
+        .enumerate()
+        .filter_map(|(node_id, node_data)| {
+            let node_id = NodeId::new(node_id);
+            let styled_node_state = &styled_nodes[node_id].state;
+
+            // Only extract options for text nodes
+            if let NodeType::Text(_) = node_data.get_node_type() {
+                // Extract standard text layout options
+                let font_size = css_property_cache.get_font_size_or_default(
+                    node_data,
+                    &node_id,
+                    styled_node_state,
+                );
+                let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
+
+                let letter_spacing = css_property_cache
+                    .get_letter_spacing(node_data, &node_id, styled_node_state)
+                    .and_then(|ls| {
+                        Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING))
+                    });
+
+                let word_spacing = css_property_cache
+                    .get_word_spacing(node_data, &node_id, styled_node_state)
+                    .and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
+
+                let line_height = css_property_cache
+                    .get_line_height(node_data, &node_id, styled_node_state)
+                    .and_then(|lh| Some(lh.get_property()?.inner.get()));
+
+                let tab_width = css_property_cache
+                    .get_tab_width(node_data, &node_id, styled_node_state)
+                    .and_then(|tw| Some(tw.get_property()?.inner.get()));
+
+                // Extract width constraint
+                let mut max_width = None;
+                let mut cur_node = node_id;
+                while let Some(parent) =
+                    styled_dom.node_hierarchy.as_container()[node_id].parent_id()
+                {
+                    let overflow_x = css_property_cache
+                        .get_overflow_x(
+                            &node_data_container[parent],
+                            &parent,
+                            &styled_nodes[parent].state,
+                        )
+                        .cloned();
+
+                    match overflow_x {
+                        Some(CssPropertyValue::Exact(LayoutOverflow::Hidden))
+                        | Some(CssPropertyValue::Exact(LayoutOverflow::Visible)) => {
+                            max_width = None;
+                            break;
+                        }
+                        None
+                        | Some(CssPropertyValue::None)
+                        | Some(CssPropertyValue::Auto)
+                        | Some(CssPropertyValue::Initial)
+                        | Some(CssPropertyValue::Inherit)
+                        | Some(CssPropertyValue::Exact(LayoutOverflow::Auto))
+                        | Some(CssPropertyValue::Exact(LayoutOverflow::Scroll)) => {
+                            // We'll set this later when solved widths are available
+                            max_width = Some(1000.0); // Placeholder
+                            break;
+                        }
+                    }
+
+                    cur_node = parent;
+                }
+
+                // NEW: Extract text direction (RTL/LTR)
+                let direction = css_property_cache
+                    .get_direction(node_data, &node_id, styled_node_state)
+                    .and_then(|d| d.get_property().copied());
+
+                let is_rtl = match direction {
+                    Some(TextDirection::RTL) => Some(true),
+                    Some(TextDirection::LTR) => Some(false),
+                    _ => None, // Auto-detect
+                };
+
+                // NEW: Extract text justify mode
+                let text_align = css_property_cache
+                    .get_text_align(node_data, &node_id, styled_node_state)
+                    .and_then(|ta| ta.get_property().copied());
+
+                let text_justify = match text_align {
+                    Some(StyleTextAlign::Left) => Some(TextJustification::Left),
+                    Some(StyleTextAlign::Center) => Some(TextJustification::Center),
+                    Some(StyleTextAlign::Right) => Some(TextJustification::Right),
+                    Some(StyleTextAlign::Justify) => Some(TextJustification::Full),
+                    _ => None,
+                };
+
+                // NEW: Extract whether text can break
+                let white_space = css_property_cache
+                    .get_white_space(node_data, &node_id, styled_node_state)
+                    .and_then(|ws| ws.get_property().copied());
+
+                let can_break = match white_space {
+                    Some(WhiteSpace::NoWrap) => false,
+                    _ => true,
+                };
+
+                // NEW: Extract whether text can be hyphenated
+                let hyphens = css_property_cache
+                    .get_hyphens(node_data, &node_id, styled_node_state)
+                    .and_then(|h| h.get_property().copied());
+
+                let can_hyphenate = match hyphens {
+                    Some(Hyphens::None) => false,
+                    Some(Hyphens::Auto) => true,
+                    _ => true, // Default to true
+                };
+
+                let options = ResolvedTextLayoutOptions {
+                    font_size_px,
+                    line_height: line_height.into(),
+                    letter_spacing: letter_spacing.into(),
+                    word_spacing: word_spacing.into(),
+                    tab_width: tab_width.into(),
+                    max_horizontal_width: max_width.into(),
+                    leading: None.into(),
+                    holes: Vec::new().into(),
+                    max_vertical_height: None,
+                    can_break,
+                    can_hyphenate,
+                    hyphenation_character: Some('-'),
+                    is_rtl,
+                    text_justify,
+                };
+
+                Some((node_id, options))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Data structure to track inline elements
+#[derive(Debug, Clone)]
+pub struct InlineElement {
+    pub node_id: NodeId,
+    pub position: LogicalPosition,
+    pub size: LogicalSize,
+    pub is_text: bool,
+}
+
+/// Process and layout inline elements within a container
+pub fn layout_inline_elements(
+    container_node_id: NodeId,
+    styled_dom: &StyledDom,
+    width_calculated_rects: &NodeDataContainerRef<WidthCalculatedRect>,
+    height_calculated_rects: &NodeDataContainerRef<HeightCalculatedRect>,
+    x_positions: &NodeDataContainerRef<HorizontalSolvedPosition>,
+    y_positions: &NodeDataContainerRef<VerticalSolvedPosition>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> Vec<InlineElement> {
+    // Get container dimensions
+    let container_rect = PositionedRectangle {
+        size: LogicalSize::new(
+            width_calculated_rects[container_node_id].total(),
+            height_calculated_rects[container_node_id].total(),
+        ),
+        position: PositionInfo::Static(PositionInfoInner {
+            x_offset: x_positions[container_node_id].0,
+            y_offset: y_positions[container_node_id].0,
+            static_x_offset: x_positions[container_node_id].0,
+            static_y_offset: y_positions[container_node_id].0,
+        }),
+        padding: Default::default(),
+        margin: Default::default(),
+        border_widths: Default::default(),
+        box_shadow: Default::default(),
+        box_sizing: Default::default(),
+        resolved_text_layout_options: None,
+        overflow_x: Default::default(),
+        overflow_y: Default::default(),
+    };
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Laying out inline elements for container node {}",
+                container_node_id.index()
+            ),
+            location: "layout_inline_elements".to_string(),
+        });
+    }
+
+    // Get relevant display info for all nodes
+    let display_values = get_display_values(styled_dom);
+
+    // Find all direct children that are inline or inline-block
+    let mut inline_elements = Vec::new();
+    let children = container_node_id
+        .az_children(&styled_dom.node_hierarchy.as_container())
+        .collect::<Vec<_>>();
+
+    // Handle RTL direction for the container
+    let direction = get_container_direction(styled_dom, container_node_id);
+    let is_rtl = direction == TextDirection::RTL;
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Container direction: {:?}, child count: {}",
+                direction,
+                children.len()
+            ),
+            location: "layout_inline_elements".to_string(),
+        });
+    }
+
+    // First pass: collect all inline elements
+    for child_id in &children {
+        let display = display_values
+            .get(child_id)
+            .cloned()
+            .unwrap_or(Display::Block);
+
+        if display == Display::Inline || display == Display::InlineBlock {
+            let child_width = width_calculated_rects[*child_id].total();
+            let child_height = height_calculated_rects[*child_id].total();
+
+            // Determine if this is a text node
+            let is_text = match &styled_dom.node_data.as_container()[*child_id].get_node_type() {
+                NodeType::Text(_) => true,
+                _ => false,
+            };
+
+            inline_elements.push(InlineElement {
+                node_id: *child_id,
+                position: LogicalPosition::zero(), // Will be calculated in second pass
+                size: LogicalSize::new(child_width, child_height),
+                is_text,
+            });
+
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!(
+                        "Found inline element: node {}, size: {}x{}, is_text: {}",
+                        child_id.index(),
+                        child_width,
+                        child_height,
+                        is_text
+                    ),
+                    location: "layout_inline_elements".to_string(),
+                });
+            }
+        }
+    }
+
+    // Second pass: layout the inline elements
+    let container_padding_left = get_container_padding_left(
+        container_node_id,
+        width_calculated_rects,
+        container_rect.size.width,
+    );
+    let container_padding_top = get_container_padding_top(
+        container_node_id,
+        height_calculated_rects,
+        container_rect.size.height,
+    );
+
+    let mut current_x = container_padding_left;
+    let mut current_y = container_padding_top;
+    let mut line_height = 0.0;
+    let max_width = container_rect.size.width
+        - container_padding_left
+        - get_container_padding_right(
+            container_node_id,
+            width_calculated_rects,
+            container_rect.size.width,
+        );
+
+    // Store elements for each line to handle RTL layout
+    let mut current_line_elements = Vec::new();
+
+    for inline_element in &inline_elements {
+        // Check if element fits on the current line
+        if current_x + inline_element.size.width > max_width && current_x > container_padding_left {
+            // Doesn't fit, move to next line
+            // First, lay out the current line (for RTL support)
+            layout_current_line(&mut current_line_elements, is_rtl, current_x, max_width);
+            current_line_elements.clear();
+
+            current_y += line_height;
+            current_x = container_padding_left;
+            line_height = 0.0;
+        }
+
+        // Add element to current position
+        let element_position = LogicalPosition::new(current_x, current_y);
+        current_line_elements.push((inline_element.node_id, element_position));
+
+        // Update position and track maximum line height
+        current_x += inline_element.size.width;
+        line_height = line_height.max(inline_element.size.height);
+    }
+
+    // Layout the last line if needed
+    if !current_line_elements.is_empty() {
+        layout_current_line(&mut current_line_elements, is_rtl, current_x, max_width);
+    }
+
+    // Update positions in the inline_elements vector
+    for (node_id, position) in current_line_elements {
+        for element in &mut inline_elements {
+            if element.node_id == node_id {
+                element.position = position;
+                break;
+            }
+        }
+    }
+
+    inline_elements
+}
+
+// Helper function to layout a single line of inline elements
+fn layout_current_line(
+    line_elements: &mut Vec<(NodeId, LogicalPosition)>,
+    is_rtl: bool,
+    line_width: f32,
+    max_width: f32,
+) {
+    if !is_rtl {
+        return; // No adjustment needed for LTR
+    }
+
+    // For RTL, we need to reposition elements from right to left
+    // Calculate the space to leave on the left side
+    let space_on_left = max_width - line_width;
+
+    // Reverse positions
+    let elements_count = line_elements.len();
+    for i in 0..elements_count {
+        let (node_id, mut position) = line_elements[i];
+        position.x = max_width - position.x - space_on_left;
+        line_elements[i] = (node_id, position);
+    }
+}
+
+// Helper function to get text direction for a container
+fn get_container_direction(styled_dom: &StyledDom, node_id: NodeId) -> TextDirection {
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+    // Check for direction property
+    let direction = css_property_cache
+        .get_direction(node_data, &node_id, styled_node_state)
+        .and_then(|d| d.get_property().copied());
+
+    match direction {
+        Some(TextDirection::RTL) => TextDirection::RTL,
+        _ => TextDirection::LTR, // Default to LTR
+    }
+}
+
+// Helper to get display values from the DOM
+fn get_display_values(styled_dom: &StyledDom) -> BTreeMap<NodeId, LayoutDisplay> {
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+
+    let mut display_values = BTreeMap::new();
+
+    for (node_id, styled_node) in styled_nodes.internal.iter().enumerate() {
+        let node_id = NodeId::new(node_id);
+
+        // Convert from LayoutDisplay to our Display enum
+        let layout_display = css_property_cache
+            .get_display(&node_data_container[node_id], &node_id, &styled_node.state)
+            .and_then(|d| d.get_property().cloned())
+            .unwrap_or(LayoutDisplay::Block);
+
+        display_values.insert(node_id, display);
+    }
+
+    display_values
+}
+
+// Helper functions to get container padding
+fn get_container_padding_left(
+    node_id: NodeId,
+    width_rects: &NodeDataContainerRef<WidthCalculatedRect>,
+    container_width: f32,
+) -> f32 {
+    width_rects[node_id]
+        .padding_left
+        .and_then(|p| p.get_property().map(|v| v.inner.to_pixels(container_width)))
+        .unwrap_or(0.0)
+}
+
+fn get_container_padding_right(
+    node_id: NodeId,
+    width_rects: &NodeDataContainerRef<WidthCalculatedRect>,
+    container_width: f32,
+) -> f32 {
+    width_rects[node_id]
+        .padding_right
+        .and_then(|p| p.get_property().map(|v| v.inner.to_pixels(container_width)))
+        .unwrap_or(0.0)
+}
+
+fn get_container_padding_top(
+    node_id: NodeId,
+    height_rects: &NodeDataContainerRef<HeightCalculatedRect>,
+    container_height: f32,
+) -> f32 {
+    height_rects[node_id]
+        .padding_top
+        .and_then(|p| {
+            p.get_property()
+                .map(|v| v.inner.to_pixels(container_height))
+        })
+        .unwrap_or(0.0)
+}
+
+fn get_container_padding_bottom(
+    node_id: NodeId,
+    height_rects: &NodeDataContainerRef<HeightCalculatedRect>,
+    container_height: f32,
+) -> f32 {
+    height_rects[node_id]
+        .padding_bottom
+        .and_then(|p| {
+            p.get_property()
+                .map(|v| v.inner.to_pixels(container_height))
+        })
+        .unwrap_or(0.0)
+}
+
+// NEW: Process inline elements after basic layout
+fn process_inline_elements(
+    styled_dom: &StyledDom,
+    width_calculated_rects: &mut NodeDataContainer<WidthCalculatedRect>,
+    height_calculated_rects: &mut NodeDataContainer<HeightCalculatedRect>,
+    x_positions: &NodeDataContainerRef<HorizontalSolvedPosition>,
+    y_positions: &NodeDataContainerRef<VerticalSolvedPosition>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) {
+    use crate::text::layout::{adjust_sizes_after_inline_layout, layout_inline_elements};
+
+    // Get display info for all nodes
+    let display_values = get_display_values(styled_dom);
+
+    // Find container nodes that may have inline children
+    let potential_containers = styled_dom
+        .non_leaf_nodes
+        .iter()
+        .filter_map(|node| node.node_id.into_crate_internal())
+        .filter(|node_id| {
+            // Check if node has any inline children
+            node_id
+                .az_children(&styled_dom.node_hierarchy.as_container())
+                .any(|child_id| {
+                    let display = display_values.get(&child_id).unwrap_or(&Display::Block);
+                    *display == Display::Inline || *display == Display::InlineBlock
+                })
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Processing {} containers with inline elements",
+                potential_containers.len()
+            ),
+            location: "process_inline_elements".to_string(),
+        });
+    }
+
+    // Process each container with inline elements
+    for container_id in potential_containers {
+        // Layout the inline elements within this container
+        let inline_elements = layout_inline_elements(
+            container_id,
+            styled_dom,
+            &width_calculated_rects.as_ref(),
+            &height_calculated_rects.as_ref(),
+            x_positions,
+            y_positions,
+            debug_messages,
+        );
+
+        if !inline_elements.is_empty() {
+            // Adjust container and parent sizes based on inline layout
+            adjust_sizes_after_inline_layout(
+                container_id,
+                styled_dom,
+                &mut width_calculated_rects.as_ref_mut(),
+                &mut height_calculated_rects.as_ref_mut(),
+                &inline_elements,
+                debug_messages,
+            );
+        }
+    }
+}
+
+// Adjust parent and sibling sizes after inline layout
+pub fn adjust_sizes_after_inline_layout(
+    container_node_id: NodeId,
+    styled_dom: &StyledDom,
+    width_calculated_rects: &mut NodeDataContainerRefMut<WidthCalculatedRect>,
+    height_calculated_rects: &mut NodeDataContainerRefMut<HeightCalculatedRect>,
+    inline_elements: &[InlineElement],
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) {
+    if inline_elements.is_empty() {
+        return;
+    }
+
+    // Calculate the total bounds of all inline elements
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+
+    for element in inline_elements {
+        min_x = min_x.min(element.position.x);
+        min_y = min_y.min(element.position.y);
+        max_x = max_x.max(element.position.x + element.size.width);
+        max_y = max_y.max(element.position.y + element.size.height);
+    }
+
+    // Calculate container padding
+    let container_width = width_calculated_rects[container_node_id].total();
+    let container_height = height_calculated_rects[container_node_id].total();
+
+    let padding_left = get_container_padding_left(
+        container_node_id,
+        width_calculated_rects.as_ref(),
+        container_width,
+    );
+    let padding_right = get_container_padding_right(
+        container_node_id,
+        width_calculated_rects.as_ref(),
+        container_width,
+    );
+    let padding_top = get_container_padding_top(
+        container_node_id,
+        height_calculated_rects.as_ref(),
+        container_height,
+    );
+    let padding_bottom = get_container_padding_bottom(
+        container_node_id,
+        height_calculated_rects.as_ref(),
+        container_height,
+    );
+
+    // Calculate the content width and height needed
+    let content_width = max_x - min_x;
+    let content_height = max_y - min_y;
+
+    // Calculate the total width and height needed (including padding)
+    let total_width_needed = content_width + padding_left + padding_right;
+    let total_height_needed = content_height + padding_top + padding_bottom;
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Adjusting container size after inline layout. Original: {}x{}, New: {}x{}",
+                container_width, container_height, total_width_needed, total_height_needed
+            ),
+            location: "adjust_sizes_after_inline_layout".to_string(),
+        });
+    }
+
+    // Expand the container if needed to fit inline content
+    if total_width_needed > container_width {
+        width_calculated_rects.as_ref_mut()[container_node_id].min_inner_size_px =
+            content_width.max(width_calculated_rects[container_node_id].min_inner_size_px);
+
+        width_calculated_rects.as_ref_mut()[container_node_id].flex_grow_px = (total_width_needed
+            - width_calculated_rects[container_node_id].min_inner_size_px)
+            .max(0.0);
+    }
+
+    if total_height_needed > container_height {
+        height_calculated_rects.as_ref_mut()[container_node_id].min_inner_size_px =
+            content_height.max(height_calculated_rects[container_node_id].min_inner_size_px);
+
+        height_calculated_rects.as_ref_mut()[container_node_id].flex_grow_px = (total_height_needed
+            - height_calculated_rects[container_node_id].min_inner_size_px)
+            .max(0.0);
+    }
+}
+
+// Function to update node positions after inline layout
+pub fn update_inline_element_positions(
+    positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
+    inline_elements: &[InlineElement],
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) {
+    for element in inline_elements {
+        if let Some(rect) = positioned_rects.as_ref_mut().get_mut(element.node_id) {
+            // Update the position based on inline layout calculation
+            match &mut rect.position {
+                PositionInfo::Static(info) | PositionInfo::Relative(info) => {
+                    info.x_offset = element.position.x;
+                    info.y_offset = element.position.y;
+                    info.static_x_offset = element.position.x;
+                    info.static_y_offset = element.position.y;
+
+                    if let Some(messages) = debug_messages {
+                        messages.push(LayoutDebugMessage {
+                            message: format!(
+                                "Updated inline element position: node {}, position: {:?}",
+                                element.node_id.index(),
+                                element.position
+                            ),
+                            location: "update_inline_element_positions".to_string(),
+                        });
+                    }
+                }
+                // Don't adjust absolute or fixed positioned elements
+                _ => {}
+            }
+        }
     }
 }

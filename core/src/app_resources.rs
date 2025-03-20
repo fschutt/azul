@@ -27,7 +27,9 @@ use crate::{
         DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
     },
     task::ExternalSystemCallbacks,
-    ui_solver::{InlineTextLayout, InlineTextLine, LayoutResult, ResolvedTextLayoutOptions},
+    ui_solver::{
+        InlineTextLayout, InlineTextLine, LayoutResult, ResolvedTextLayoutOptions, ScriptType,
+    },
     window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
     FastBTreeSet, FastHashMap,
 };
@@ -1974,6 +1976,8 @@ pub struct Words {
     /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't
     /// possible using UTF-8)
     pub internal_chars: U32Vec,
+    /// Whether the words are RTL or LTR
+    pub is_rtl: bool,
 }
 
 impl Words {
@@ -1997,7 +2001,7 @@ impl Words {
 }
 
 /// Section of a certain type
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct Word {
     pub start: usize,
@@ -2015,8 +2019,8 @@ impl_vec_partialord!(Word, WordVec);
 impl_vec_hash!(Word, WordVec);
 
 /// Either a white-space delimited word, tab or return character
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum WordType {
     /// Encountered a word (delimited by spaces)
     Word,
@@ -2026,6 +2030,8 @@ pub enum WordType {
     Return,
     /// Space character
     Space,
+    /// Hyphenated word that can span multiple lines
+    WordWithHyphenation(U32Vec),
 }
 
 /// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
@@ -2506,6 +2512,7 @@ pub struct WordPositions {
     /// Note that the vertical extent can be larger than the last words' position,
     /// because of trailing negative glyph advances.
     pub content_size: LogicalSize,
+    pub is_rtl: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2513,6 +2520,7 @@ pub struct WordPosition {
     pub shaped_word_index: Option<usize>,
     pub position: LogicalPosition,
     pub size: LogicalSize,
+    pub hyphenated: bool,
 }
 
 /// Returns the layouted glyph instances

@@ -152,6 +152,8 @@ impl PrintAsCssValue for LayoutDisplay {
             LayoutDisplay::Flex => "flex",
             LayoutDisplay::Block => "block",
             LayoutDisplay::InlineBlock => "inline-block",
+            LayoutDisplay::Inline => "inline",
+            LayoutDisplay::InlineFlex => "inline-flex",
         })
     }
 }

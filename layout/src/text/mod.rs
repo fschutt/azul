@@ -87,8 +87,14 @@ use azul_core::{
     ui_solver::{InlineTextLayout, ResolvedTextLayoutOptions},
 };
 use azul_css::{FontData, FontRef};
+use layout::position_words;
 
 use self::{layout::FontMetrics, shaping::ParsedFont};
+
+// Set up a global hyphenation cache
+lazy_static! {
+    static ref HYPHENATION_CACHE: HyphenationCache = HyphenationCache::new();
+}
 
 #[derive(Debug, Clone)]
 pub struct InlineText<'a> {
@@ -103,8 +109,12 @@ impl<'a> GetTextLayout for InlineText<'a> {
         _: NodeId,
         text_layout_options: &ResolvedTextLayoutOptions,
     ) -> InlineTextLayout {
-        let layouted_text_block =
-            self::layout::position_words(self.words, self.shaped_words, text_layout_options);
+        let layouted_text_block = self::layout::position_words(
+            self.words,
+            self.shaped_words,
+            text_layout_options,
+            &mut None,
+        );
         // TODO: Cache the layouted text block on the &mut self
         self::layout::word_positions_to_inline_text_layout(&layouted_text_block)
     }

@@ -5564,9 +5564,19 @@ pub enum LayoutAxis {
 #[repr(C)]
 pub enum LayoutDisplay {
     None,
-    Flex,
     Block,
+    Inline,
     InlineBlock,
+    Flex,
+    InlineFlex,
+}
+
+// TextDirection enum (if not already defined)
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub enum TextDirection {
+    LTR,
+    RTL,
 }
 
 impl Default for LayoutDisplay {
