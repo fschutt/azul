@@ -69,8 +69,12 @@
 // #![no_std] // doable once allsorts PR is merged
 
 pub mod layout;
+/// Mock font implementation to test text layouting without a font
+pub mod mock;
 pub mod script;
 pub mod shaping;
+#[cfg(test)]
+pub mod tests;
 
 use alloc::boxed::Box;
 use core::ffi::c_void;
@@ -131,4 +135,31 @@ pub fn parse_font_fn(source: LoadedFontSource) -> Option<FontRef> {
 pub fn get_font_metrics_fontref(font_ref: &FontRef) -> FontMetrics {
     let parsed_font = unsafe { &*(font_ref.get_data().parsed as *const ParsedFont) };
     parsed_font.font_metrics.clone()
+}
+
+/// Trait for font implementations that can be used for text shaping and layout.
+/// This abstraction allows for mocking fonts during testing.
+pub trait FontImpl {
+    /// Returns the width of the space character, if available
+    fn get_space_width(&self) -> Option<usize>;
+
+    /// Returns the horizontal advance of a glyph
+    fn get_horizontal_advance(&self, glyph_index: u16) -> u16;
+
+    /// Returns the size (width, height) of a glyph, if available
+    fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)>;
+
+    /// Shapes text using the font
+    fn shape(
+        &self,
+        text: &[u32],
+        script: u32,
+        lang: Option<u32>,
+    ) -> shaping::ShapedTextBufferUnsized;
+
+    /// Looks up a glyph index from a Unicode codepoint
+    fn lookup_glyph_index(&self, c: u32) -> Option<u16>;
+
+    /// Returns a reference to the font metrics
+    fn get_font_metrics(&self) -> &azul_core::app_resources::FontMetrics;
 }

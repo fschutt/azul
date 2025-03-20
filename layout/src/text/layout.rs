@@ -20,6 +20,7 @@ pub use azul_core::{
 pub use azul_css::FontRef;
 
 pub use super::shaping::ParsedFont;
+use super::{shaping::ShapedTextBufferUnsized, FontImpl};
 
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
@@ -138,13 +139,13 @@ pub fn split_text_into_words(text: &str) -> Words {
 
 /// Takes a text broken into semantic items and shape all the words
 /// (does NOT scale the words, only shapes them)
-pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
+pub fn shape_words<F: FontImpl>(words: &Words, font: &F) -> ShapedWords {
     let (script, lang) = super::shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph
     let space_advance = font
         .get_space_width()
-        .unwrap_or(font.font_metrics.units_per_em as usize);
+        .unwrap_or(font.get_font_metrics().units_per_em as usize);
 
     let mut longest_word_width = 0_usize;
 
@@ -154,8 +155,6 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
         .iter()
         .filter(|w| w.word_type == WordType::Word)
         .map(|word| {
-            use super::shaping::ShapedTextBufferUnsized;
-
             let chars = &words.internal_chars.as_ref()[word.start..word.end];
             let shaped_word = font.shape(chars, script, lang);
             let word_width = shaped_word.get_word_visual_width_unscaled();
@@ -171,14 +170,16 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
         })
         .collect();
 
+    let font_metrics = font.get_font_metrics();
+
     ShapedWords {
         items: shaped_words,
         longest_word_width,
         space_advance,
-        font_metrics_units_per_em: font.font_metrics.units_per_em,
-        font_metrics_ascender: font.font_metrics.get_ascender_unscaled(),
-        font_metrics_descender: font.font_metrics.get_descender_unscaled(),
-        font_metrics_line_gap: font.font_metrics.get_line_gap_unscaled(),
+        font_metrics_units_per_em: font_metrics.units_per_em,
+        font_metrics_ascender: font_metrics.ascender,
+        font_metrics_descender: font_metrics.descender,
+        font_metrics_line_gap: font_metrics.line_gap,
     }
 }
 

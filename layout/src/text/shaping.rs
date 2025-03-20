@@ -17,6 +17,8 @@ use azul_core::app_resources::{
 };
 use tinyvec::tiny_vec;
 
+use super::FontImpl;
+
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     #[derive(Default)]
     struct Os2Info {
@@ -210,6 +212,32 @@ pub struct ParsedFont {
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
     pub cmap_subtable: Option<OwnedCmapSubtable>,
+}
+
+impl FontImpl for ParsedFont {
+    fn get_space_width(&self) -> Option<usize> {
+        self.get_space_width()
+    }
+
+    fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
+        self.get_horizontal_advance(glyph_index)
+    }
+
+    fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
+        self.get_glyph_size(glyph_index)
+    }
+
+    fn shape(&self, text: &[u32], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized {
+        self.shape(text, script, lang)
+    }
+
+    fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
+        self.lookup_glyph_index(c)
+    }
+
+    fn get_font_metrics(&self) -> &azul_core::app_resources::FontMetrics {
+        &self.font_metrics
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "api/rust",
     "dll",
-    "workbench",
+    # "workbench",
     "css",
     "core",
     "layout",

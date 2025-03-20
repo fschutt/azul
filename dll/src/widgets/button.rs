@@ -464,8 +464,7 @@ impl Button {
 mod ui_test {
     use azul_css::parser::CssApiWrapper;
 
-    static EXPECTED_1: &str =
-        "
+    static EXPECTED_1: &str = "
 <div data-az-node-id=\"0\"  class=\"__azul-native-button-container\"  tabindex=\"0\"  \
          style=\"background: linear-gradient(from top to bottom, 0%#efefefff, \
          100%#e5e5e5ff);cursor: pointer;border-top-color: #acacacff;border-left-color: \

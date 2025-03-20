@@ -881,29 +881,34 @@ impl NodeGraph {
         });
 
         let context_menu = Menu::new(
-            vec![
-            MenuItem::String(
-                StringMenuItem::new(self.add_node_str.clone())
-                .with_children(
+            vec![MenuItem::String(
+                StringMenuItem::new(self.add_node_str.clone()).with_children(
                     self.node_types
-                    .iter()
-                    .map(|NodeTypeIdInfoMap { node_type_id, node_type_info }| {
+                        .iter()
+                        .map(
+                            |NodeTypeIdInfoMap {
+                                 node_type_id,
+                                 node_type_info,
+                             }| {
+                                let context_menu_local_dataset =
+                                    RefAny::new(ContextMenuEntryLocalDataset {
+                                        node_type: *node_type_id,
+                                        backref: node_graph_local_dataset.clone(), // RefAny<NodeGraphLocalDataset>
+                                    });
 
-                        let context_menu_local_dataset = RefAny::new(ContextMenuEntryLocalDataset {
-                            node_type: *node_type_id,
-                            backref: node_graph_local_dataset.clone(), // RefAny<NodeGraphLocalDataset>
-                        });
-
-                        MenuItem::String(
-                            StringMenuItem::new(node_type_info.name.clone().into())
-                            .with_callback(context_menu_local_dataset, nodegraph_context_menu_click)
+                                MenuItem::String(
+                                    StringMenuItem::new(node_type_info.name.clone().into())
+                                        .with_callback(
+                                            context_menu_local_dataset,
+                                            nodegraph_context_menu_click,
+                                        ),
+                                )
+                            },
                         )
-                    })
-                    .collect::<Vec<_>>()
-                    .into()
-                )
-            )
-        ]
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+            )]
             .into(),
         );
 
