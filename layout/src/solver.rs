@@ -21,9 +21,9 @@ use azul_core::{
     traits::GetTextLayout,
     ui_solver::{
         GpuValueCache, HeightCalculatedRect, HorizontalSolvedPosition, LayoutDebugMessage,
-        LayoutResult, PositionInfoInner, PositionedRectangle, RelayoutChanges, ResolvedOffsets,
-        ScrolledNodes, StyleBoxShadowOffsets, VerticalSolvedPosition, WhConstraint,
-        WidthCalculatedRect, DEFAULT_FONT_SIZE_PX, DEFAULT_WORD_SPACING,
+        LayoutResult, PositionInfo, PositionInfoInner, PositionedRectangle, RelayoutChanges,
+        ResolvedOffsets, ScriptType, ScrolledNodes, StyleBoxShadowOffsets, VerticalSolvedPosition,
+        WhConstraint, WidthCalculatedRect, DEFAULT_FONT_SIZE_PX, DEFAULT_WORD_SPACING,
     },
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -4517,7 +4517,7 @@ fn get_display_values(styled_dom: &StyledDom) -> BTreeMap<NodeId, LayoutDisplay>
             .and_then(|d| d.get_property().cloned())
             .unwrap_or(LayoutDisplay::Block);
 
-        display_values.insert(node_id, display);
+        display_values.insert(node_id, layout_display);
     }
 
     display_values
@@ -4598,8 +4598,10 @@ fn process_inline_elements(
             node_id
                 .az_children(&styled_dom.node_hierarchy.as_container())
                 .any(|child_id| {
-                    let display = display_values.get(&child_id).unwrap_or(&Display::Block);
-                    *display == Display::Inline || *display == Display::InlineBlock
+                    let display = display_values
+                        .get(&child_id)
+                        .unwrap_or(&LayoutDisplay::Block);
+                    *display == LayoutDisplay::Inline || *display == LayoutDisplay::InlineBlock
                 })
         })
         .collect::<Vec<_>>();
@@ -4674,12 +4676,12 @@ pub fn adjust_sizes_after_inline_layout(
 
     let padding_left = get_container_padding_left(
         container_node_id,
-        width_calculated_rects.as_ref(),
+        &width_calculated_rects.as_borrowing_ref(),
         container_width,
     );
     let padding_right = get_container_padding_right(
         container_node_id,
-        width_calculated_rects.as_ref(),
+        &width_calculated_rects.as_borrowing_ref(),
         container_width,
     );
     let padding_top = get_container_padding_top(
@@ -4739,7 +4741,7 @@ pub fn update_inline_element_positions(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
     for element in inline_elements {
-        if let Some(rect) = positioned_rects.as_ref_mut().get_mut(element.node_id) {
+        if let Some(rect) = positioned_rects.get_mut(element.node_id) {
             // Update the position based on inline layout calculation
             match &mut rect.position {
                 PositionInfo::Static(info) | PositionInfo::Relative(info) => {
@@ -4754,8 +4756,9 @@ pub fn update_inline_element_positions(
                                 "Updated inline element position: node {}, position: {:?}",
                                 element.node_id.index(),
                                 element.position
-                            ),
-                            location: "update_inline_element_positions".to_string(),
+                            )
+                            .into(),
+                            location: "update_inline_element_positions".to_string().into(),
                         });
                     }
                 }

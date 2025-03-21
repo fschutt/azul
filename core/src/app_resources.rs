@@ -2258,7 +2258,7 @@ pub fn get_inline_text(
                 .filter_map(|(word_idx, word)| {
                     let word_idx = word_start + word_idx;
                     match word.word_type {
-                        WordType::Word => {
+                        WordType::Word | WordType::WordWithHyphenation(_) => {
                             let word_position = word_positions.word_positions.get(word_idx)?;
                             let shaped_word_index = word_position.shaped_word_index?;
                             let shaped_word = shaped_words.items.get(shaped_word_index)?;

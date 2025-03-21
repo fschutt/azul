@@ -88,8 +88,8 @@ pub fn split_text_into_words(text: &str) -> Words {
             _ => None,
         };
 
-        // Character is a whitespace or the character is the last character in the text (end of
-        // text)
+        // Character is a whitespace or the character is the
+        // last character in the text (end of text)
         let should_push_word = if current_char_is_whitespace && !last_char_was_whitespace {
             Some(Word {
                 start: current_word_start,
@@ -105,7 +105,7 @@ pub fn split_text_into_words(text: &str) -> Words {
         }
 
         let mut push_words = |arr: [Option<Word>; 2]| {
-            words.extend(arr.iter().filter_map(|e| *e));
+            words.extend(arr.iter().filter_map(|e| e.clone())); // TODO: perf!
         };
 
         push_words([should_push_word, should_push_delimiter]);
@@ -237,7 +237,7 @@ pub fn split_text_into_words_with_hyphenation(
         }
 
         let mut push_words = |arr: [Option<Word>; 2]| {
-            words.extend(arr.iter().filter_map(|e| *e));
+            words.extend(arr.iter().filter_map(|e| e.clone())); // TODO: perf!
         };
 
         push_words([should_push_word, should_push_delimiter]);
@@ -411,6 +411,7 @@ pub fn position_words(
         text_layout_options
             .hyphenation_character
             .into_option()
+            .and_then(|s| char::from_u32(s))
             .unwrap_or('-'),
         text_layout_options.font_size_px,
     );
@@ -498,7 +499,7 @@ pub fn position_words(
     // The last word is a bit special: Any text must have at least one line break!
     for (word_idx, word) in words.items.iter().enumerate() {
         // Check if we've exceeded the max vertical height
-        if let Some(max_y) = text_layout_options.max_vertical_height {
+        if let Some(max_y) = text_layout_options.max_vertical_height.into_option() {
             if line_caret_y > max_y {
                 if let Some(messages) = debug_messages {
                     messages.push(LayoutDebugMessage {
@@ -808,7 +809,7 @@ pub fn position_words(
         apply_text_justification(
             &mut word_positions,
             &line_breaks,
-            justify,
+            text_layout_options.text_justify,
             text_layout_options.max_horizontal_width.into(),
             word_spacing_px,
             debug_messages,
@@ -898,7 +899,7 @@ fn check_line_intersection(
                                 new_y: current_y,
                             },
                             true,
-                            Some(point),
+                            Some(*point as usize),
                         );
                     }
                 }

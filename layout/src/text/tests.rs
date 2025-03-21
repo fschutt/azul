@@ -1,10 +1,14 @@
 use azul_core::{
     app_resources::{FontMetrics, WordType},
-    ui_solver::ResolvedTextLayoutOptions,
+    ui_solver::{ResolvedTextLayoutOptions, ScriptType, TextJustification},
 };
 
 use crate::text::{
-    layout::{position_words, shape_words, split_text_into_words},
+    layout::{
+        detect_text_direction, find_hyphenation_points, position_words, shape_words,
+        split_by_direction, split_text_into_words, split_text_into_words_with_hyphenation,
+        HyphenationCache,
+    },
     mock::MockFont,
 };
 
@@ -188,20 +192,6 @@ fn test_with_line_breaks() {
     );
 }
 
-// In layout/src/text/tests.rs
-use azul_core::{
-    app_resources::{FontMetrics, WordType},
-    ui_solver::{ResolvedTextLayoutOptions, ScriptType, TextJustification},
-};
-
-use crate::text::{
-    layout::{
-        detect_text_direction, find_hyphenation_points, position_words_enhanced,
-        split_by_direction, split_text_into_words_with_hyphenation, HyphenationCache,
-    },
-    mock::MockFont,
-};
-
 #[test]
 fn test_split_text_into_words_with_hyphenation() {
     // Create a hyphenation cache
@@ -210,19 +200,10 @@ fn test_split_text_into_words_with_hyphenation() {
     // Create basic text layout options
     let options = ResolvedTextLayoutOptions {
         font_size_px: 16.0,
-        line_height: None.into(),
-        letter_spacing: None.into(),
-        word_spacing: None.into(),
-        tab_width: None.into(),
-        max_horizontal_width: None.into(),
-        leading: None.into(),
-        holes: Vec::new().into(),
-        max_vertical_height: None,
         can_break: true,
         can_hyphenate: true,
-        hyphenation_character: Some('-'),
-        is_rtl: None,
-        text_justify: None,
+        hyphenation_character: Some('-' as u32).into(),
+        ..Default::default()
     };
 
     // Test with a hyphenable word
@@ -361,24 +342,14 @@ fn test_position_words_enhanced_basic() {
 
     let options = ResolvedTextLayoutOptions {
         font_size_px: 16.0,
-        line_height: None.into(),
-        letter_spacing: None.into(),
-        word_spacing: None.into(),
-        tab_width: None.into(),
-        max_horizontal_width: None.into(),
-        leading: None.into(),
-        holes: Vec::new().into(),
-        max_vertical_height: None,
         can_break: true,
         can_hyphenate: true,
-        hyphenation_character: Some('-'),
-        is_rtl: None,
-        text_justify: None,
+        hyphenation_character: Some('-' as u32).into(),
+        ..Default::default()
     };
 
     let mut debug_messages = Some(Vec::new());
-    let word_positions =
-        position_words_enhanced(&words, &shaped_words, &options, &mut debug_messages);
+    let word_positions = position_words(&words, &shaped_words, &options, &mut debug_messages);
 
     // Verify word positions were calculated correctly
     assert_eq!(word_positions.word_positions.len(), 3); // "Hello", space, "World"
@@ -395,7 +366,7 @@ fn test_position_words_enhanced_basic() {
         ..options
     };
 
-    let constrained_word_positions = position_words_enhanced(
+    let constrained_word_positions = position_words(
         &words,
         &shaped_words,
         &constrained_options,
@@ -460,7 +431,7 @@ fn test_position_words_enhanced_non_breaking() {
         ..ResolvedTextLayoutOptions::default()
     };
 
-    let word_positions = position_words_enhanced(
+    let word_positions = position_words(
         &words,
         &shaped_words,
         &non_breaking_options,
@@ -475,13 +446,13 @@ fn test_position_words_enhanced_non_breaking() {
         font_size_px: 16.0,
         line_height: Some(1.2).into(),           // Line height factor
         max_horizontal_width: Some(30.0).into(), // Force line break
-        max_vertical_height: Some(20.0),         // Very small max height to force cutoff
+        max_vertical_height: Some(20.0).into(),  // Very small max height to force cutoff
         can_break: true,
-        ..ResolvedTextLayoutOptions::default()
+        ..Default::default()
     };
 
     // This should stop layout after reaching max height
-    let word_positions = position_words_enhanced(
+    let word_positions = position_words(
         &words,
         &shaped_words,
         &max_height_options,
@@ -545,7 +516,7 @@ fn test_position_words_with_justification() {
             ..ResolvedTextLayoutOptions::default()
         };
 
-        let word_positions = position_words_enhanced(
+        let word_positions = position_words(
             &words,
             &shaped_words,
             &justify_options,
@@ -610,21 +581,19 @@ fn test_rtl_text_layout() {
 
     let rtl_options = ResolvedTextLayoutOptions {
         font_size_px: 16.0,
-        is_rtl: Some(true), // Force RTL rendering
+        is_rtl: ScriptType::RTL, // Force RTL rendering
         ..ResolvedTextLayoutOptions::default()
     };
 
     let ltr_options = ResolvedTextLayoutOptions {
         font_size_px: 16.0,
-        is_rtl: Some(false), // Force LTR rendering
+        is_rtl: ScriptType::LTR, // Force LTR rendering
         ..ResolvedTextLayoutOptions::default()
     };
 
-    let rtl_positions =
-        position_words_enhanced(&words, &shaped_words, &rtl_options, &mut Some(Vec::new()));
+    let rtl_positions = position_words(&words, &shaped_words, &rtl_options, &mut Some(Vec::new()));
 
-    let ltr_positions =
-        position_words_enhanced(&words, &shaped_words, &ltr_options, &mut Some(Vec::new()));
+    let ltr_positions = position_words(&words, &shaped_words, &ltr_options, &mut Some(Vec::new()));
 
     // RTL and LTR layouts should position words differently
     // In RTL, the "Hello" word should be positioned further right than in LTR
@@ -634,5 +603,5 @@ fn test_rtl_text_layout() {
     // In a proper RTL implementation, this would be true
     // But since we're just testing the framework without actual RTL scripts,
     // this may not hold true in all test environments
-    // assert!(hello_pos_rtl > hello_pos_ltr);
+    assert!(hello_pos_rtl > hello_pos_ltr);
 }

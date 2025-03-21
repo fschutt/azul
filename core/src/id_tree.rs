@@ -305,7 +305,7 @@ pub struct NodeDataContainerRefMut<'a, T> {
 }
 
 impl<'a, T> NodeDataContainerRefMut<'a, T> {
-    pub fn as_borrowing_ref<'b>(self) -> NodeDataContainerRef<'b, T> {
+    pub fn as_borrowing_ref<'b>(&'b self) -> NodeDataContainerRef<'b, T> {
         NodeDataContainerRef {
             internal: &*self.internal,
         }

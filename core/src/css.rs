@@ -1093,7 +1093,7 @@ impl_enum_fmt!(LayoutPosition, Static, Fixed, Absolute, Relative);
 
 impl_enum_fmt!(LayoutOverflow, Auto, Scroll, Visible, Hidden);
 
-impl_enum_fmt!(StyleTextAlign, Center, Left, Right);
+impl_enum_fmt!(StyleTextAlign, Center, Left, Right, Justify);
 
 impl_enum_fmt!(
     DirectionCorner,

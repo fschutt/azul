@@ -80,6 +80,7 @@ impl PrintAsCssValue for StyleTextAlign {
             StyleTextAlign::Left => "left",
             StyleTextAlign::Center => "center",
             StyleTextAlign::Right => "right",
+            StyleTextAlign::Justify => "justify",
         })
     }
 }

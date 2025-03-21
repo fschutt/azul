@@ -95,7 +95,7 @@ use self::{layout::FontMetrics, shaping::ParsedFont};
 // Set up a global hyphenation cache
 #[cfg(feature = "text_layout")]
 lazy_static::lazy_static! {
-    pub static ref HYPHENATION_CACHE: HyphenationCache = HyphenationCache::new();
+    pub static ref HYPHENATION_CACHE: layout::HyphenationCache = layout::HyphenationCache::new();
 }
 
 #[derive(Debug, Clone)]

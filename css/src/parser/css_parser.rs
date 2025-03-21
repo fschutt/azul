@@ -5809,5 +5809,6 @@ multi_type_parser!(
     StyleTextAlign,
     ["center", Center],
     ["left", Left],
-    ["right", Right]
+    ["right", Right],
+    ["justify", Justify]
 );

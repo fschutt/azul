@@ -184,6 +184,7 @@ pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlig
     use azul_css::StyleTextAlign::*;
     match horizontal_alignment {
         Left => None,
+        Justify => None,     // handled differently?
         Center => Some(0.5), // move the line by the half width
         Right => Some(1.0),  // move the line by the full width
     }
@@ -1319,18 +1320,7 @@ pub struct ResolvedTextLayoutOptions {
     // Force RTL or LTR (Mixed = auto-detect)
     pub is_rtl: ScriptType,
     // Text justification mode
-    pub text_justify: TextJustification,
-}
-
-// Add new text justification enum
-#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
-pub enum TextJustification {
-    #[default]
-    None,
-    Left,
-    Center,
-    Right,
-    Full,
+    pub text_justify: OptionStyleTextAlign,
 }
 
 impl Default for ResolvedTextLayoutOptions {
@@ -1349,7 +1339,7 @@ impl Default for ResolvedTextLayoutOptions {
             can_hyphenate: true,
             hyphenation_character: Some('-' as u32).into(),
             is_rtl: ScriptType::default(),
-            text_justify: TextJustification::default(),
+            text_justify: None.into(),
         }
     }
 }
