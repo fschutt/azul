@@ -5,8 +5,6 @@ use alloc::{
 };
 use core::f32;
 
-#[cfg(feature = "text_layout")]
-use azul_core::callbacks::{CallbackInfo, DomNodeId, InlineText};
 use azul_core::{
     app_resources::{
         DpiScaleFactor, Epoch, FontInstanceKey, IdNamespace, ImageCache, RendererResources,
@@ -22,15 +20,22 @@ use azul_core::{
     },
     traits::GetTextLayout,
     ui_solver::{
-        GpuValueCache, HeightCalculatedRect, HorizontalSolvedPosition, LayoutResult,
-        PositionInfoInner, PositionedRectangle, RelayoutChanges, ResolvedOffsets, ScrolledNodes,
-        StyleBoxShadowOffsets, VerticalSolvedPosition, WhConstraint, WidthCalculatedRect,
-        DEFAULT_FONT_SIZE_PX,
+        GpuValueCache, HeightCalculatedRect, HorizontalSolvedPosition, LayoutDebugMessage,
+        LayoutResult, PositionInfoInner, PositionedRectangle, RelayoutChanges, ResolvedOffsets,
+        ScrolledNodes, StyleBoxShadowOffsets, VerticalSolvedPosition, WhConstraint,
+        WidthCalculatedRect, DEFAULT_FONT_SIZE_PX, DEFAULT_WORD_SPACING,
     },
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
+#[cfg(feature = "text_layout")]
+use azul_core::{
+    callbacks::{CallbackInfo, DomNodeId, InlineText},
+    ui_solver::ResolvedTextLayoutOptions,
+};
 use azul_css::*;
 use rust_fontconfig::FcFontCache;
+
+use crate::text;
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 0.0;
 
@@ -1798,13 +1803,14 @@ pub fn do_the_layout(
         ui_solver::{LayoutDebugMessage, OverflowingScrollNode},
     };
 
-    if let Some(messages) = &mut debug_messages {
+    if let Some(messages) = debug_messages.as_mut() {
         messages.push(LayoutDebugMessage {
             message: format!(
                 "Starting layout for window size: {:?}",
                 full_window_state.size.dimensions
-            ),
-            location: "do_the_layout".to_string(),
+            )
+            .into(),
+            location: "do_the_layout".to_string().into(),
         });
     }
 
@@ -1849,7 +1855,7 @@ pub fn do_the_layout(
                 renderer_resources,
                 document_id,
                 rect,
-                &mut debug_messages,
+                debug_messages,
             );
 
             let mut iframe_mapping = BTreeMap::new();
@@ -1985,14 +1991,14 @@ pub fn do_the_layout(
         }
     }
 
-    if let Some(messages) = &mut debug_messages {
+    if let Some(messages) = debug_messages.as_mut() {
         messages.push(LayoutDebugMessage {
-            message: format!("Layout completed with {} DOMs", resolved_doms.len()),
-            location: "do_the_layout".to_string(),
+            message: format!("Layout completed with {} DOMs", resolved_doms.len()).into(),
+            location: "do_the_layout".to_string().into(),
         });
     }
 
-    (resolved_doms, debug_messages)
+    resolved_doms
 }
 
 /// At this point in time, all font keys, image keys, etc. have to be already
@@ -2016,8 +2022,8 @@ pub fn do_the_layout_internal(
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Layout internal for DOM {}", dom_id.inner),
-            location: "do_the_layout_internal".to_string(),
+            message: format!("Layout internal for DOM {}", dom_id.inner).into(),
+            location: "do_the_layout_internal".to_string().into(),
         });
     }
 
@@ -2112,6 +2118,202 @@ pub fn do_the_layout_internal(
         &styled_dom.non_leaf_nodes.as_ref(),
         rect_size.width,
     );
+
+    display_none_nodes
+        .iter()
+        .zip(width_calculated_arena.as_ref_mut().internal.iter_mut())
+        .for_each(|(display_none, width)| {
+            if *display_none {
+                *width = WidthCalculatedRect::default();
+            }
+        });
+
+    solve_flex_layout_width(
+        &mut width_calculated_arena,
+        &layout_flex_grow_info.as_ref(),
+        &layout_display_info.as_ref(),
+        &layout_position_info.as_ref(),
+        &layout_directions_info.as_ref(),
+        &styled_dom.node_hierarchy.as_container(),
+        &layout_width_heights.as_ref(),
+        styled_dom.non_leaf_nodes.as_ref(),
+        rect_size.width,
+        &all_parents_btreeset,
+    );
+
+    // If the flex grow / max-width step has caused the text block
+    // to shrink in width, it needs to recalculate its height
+    let word_blocks_to_recalculate = word_positions_no_max_width
+        .iter()
+        .filter_map(|(node_id, word_positions)| {
+            let parent_id = styled_dom.node_hierarchy.as_container()[*node_id]
+                .parent_id()
+                .unwrap_or(NodeId::ZERO);
+            if width_calculated_arena.as_ref()[*node_id].total()
+                < word_positions.0.content_size.width
+            {
+                Some(*node_id)
+            // if the text content overflows the parent width, we also need to recalculate
+            } else if width_calculated_arena.as_ref()[*node_id].total()
+                > width_calculated_arena.as_ref()[parent_id].total()
+            {
+                Some(*node_id)
+            } else {
+                None
+            }
+        })
+        .collect::<BTreeSet<_>>();
+
+    // Recalculate the height of the content blocks for the word blocks that need it
+    create_word_positions(
+        &mut word_positions_no_max_width,
+        &word_blocks_to_recalculate,
+        renderer_resources,
+        &word_cache,
+        &shaped_words,
+        &styled_dom,
+        Some(&width_calculated_arena.as_ref()),
+        &text_layout_options,
+        debug_messages,
+    );
+    let word_positions_with_max_width = word_positions_no_max_width;
+
+    // Calculate the content height of the (text / image) content based on its width
+    let mut content_heights_pre = styled_dom
+        .node_data
+        .as_container_mut()
+        .transform_multithread(|node_data, node_id| {
+            let (raw_width, raw_height) = if display_none_nodes[node_id.index()] {
+                None
+            } else {
+                match node_data.get_node_type() {
+                    NodeType::Image(i) => match i.get_data() {
+                        DecodedImage::NullImage { width, height, .. } => {
+                            Some((*width as f32, *height as f32))
+                        }
+                        DecodedImage::Gl(tex) => {
+                            Some((tex.size.width as f32, tex.size.height as f32))
+                        }
+                        DecodedImage::Raw((desc, _)) => {
+                            Some((desc.width as f32, desc.height as f32))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }?;
+
+            let current_width = width_calculated_arena.as_ref()[node_id].total();
+
+            // preserve aspect ratio
+            Some(raw_height / raw_width * current_width)
+        });
+    for (node_id, word_positions) in word_positions_with_max_width.iter() {
+        content_heights_pre.as_ref_mut()[*node_id] = Some(word_positions.0.content_size.height);
+    }
+
+    // TODO: The content height is not the final height!
+    let mut height_calculated_arena = height_calculated_rect_arena_from_rect_layout_arena(
+        &layout_width_heights.as_ref(),
+        &layout_offsets.as_ref(),
+        &content_heights_pre.as_ref(),
+        &styled_dom.node_hierarchy.as_container(),
+        &styled_dom.non_leaf_nodes.as_ref(),
+        rect_size.height,
+    );
+
+    display_none_nodes
+        .iter()
+        .zip(height_calculated_arena.as_ref_mut().internal.iter_mut())
+        .for_each(|(display_none, height)| {
+            if *display_none {
+                *height = HeightCalculatedRect::default();
+            }
+        });
+
+    solve_flex_layout_height(
+        &mut height_calculated_arena,
+        &layout_flex_grow_info.as_ref(),
+        &layout_display_info.as_ref(),
+        &layout_position_info.as_ref(),
+        &layout_directions_info.as_ref(),
+        &styled_dom.node_hierarchy.as_container(),
+        &layout_width_heights.as_ref(),
+        styled_dom.non_leaf_nodes.as_ref(),
+        rect_size.height,
+        &all_parents_btreeset,
+    );
+
+    let mut x_positions = NodeDataContainer {
+        internal: vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.len()].into(),
+    };
+
+    get_x_positions(
+        &mut x_positions,
+        &width_calculated_arena.as_ref(),
+        &styled_dom.node_hierarchy.as_container(),
+        &layout_position_info.as_ref(),
+        &layout_directions_info.as_ref(),
+        &layout_justify_contents.as_ref(),
+        &styled_dom.non_leaf_nodes.as_ref(),
+        rect_offset.clone(),
+        &all_parents_btreeset,
+    );
+
+    let mut y_positions = NodeDataContainer {
+        internal: vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()].into(),
+    };
+
+    get_y_positions(
+        &mut y_positions,
+        &height_calculated_arena.as_ref(),
+        &styled_dom.node_hierarchy.as_container(),
+        &layout_position_info.as_ref(),
+        &layout_directions_info.as_ref(),
+        &layout_justify_contents.as_ref(),
+        &styled_dom.non_leaf_nodes.as_ref(),
+        rect_offset,
+        &all_parents_btreeset,
+    );
+
+    let mut positioned_rects = NodeDataContainer {
+        internal: vec![PositionedRectangle::default(); styled_dom.node_data.len()].into(),
+    };
+    let nodes_that_updated_positions = all_nodes_btreeset.clone();
+    let nodes_that_need_to_redraw_text = all_nodes_btreeset.clone();
+
+    position_nodes(
+        &mut positioned_rects.as_ref_mut(),
+        &styled_dom,
+        AllOffsetsProvider::All(&layout_offsets.as_ref()),
+        &width_calculated_arena.as_ref(),
+        &height_calculated_arena.as_ref(),
+        &x_positions.as_ref(),
+        &y_positions.as_ref(),
+        &nodes_that_updated_positions,
+        &nodes_that_need_to_redraw_text,
+        &layout_position_info.as_ref(),
+        &word_cache,
+        &shaped_words,
+        &word_positions_with_max_width,
+        document_id,
+        debug_messages,
+    );
+
+    let mut overflowing_rects = ScrolledNodes::default();
+    get_nodes_that_need_scroll_clip(
+        &mut overflowing_rects,
+        &styled_dom.styled_nodes.as_container(),
+        &styled_dom.node_data.as_container(),
+        &styled_dom.node_hierarchy.as_container(),
+        &positioned_rects.as_ref(),
+        styled_dom.non_leaf_nodes.as_ref(),
+        dom_id,
+        document_id,
+    );
+
+    let mut gpu_value_cache = GpuValueCache::empty();
+    let _ = gpu_value_cache.synchronize(&positioned_rects.as_ref(), &styled_dom);
 
     // Process inline elements after basic layout is done
     process_inline_elements(
@@ -2230,6 +2432,7 @@ fn position_nodes<'a>(
     shaped_words: &BTreeMap<NodeId, ShapedWords>,
     word_positions: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     document_id: &DocumentId,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
     use azul_core::ui_solver::PositionInfo;
 
@@ -2499,9 +2702,11 @@ fn position_nodes<'a>(
 fn create_word_cache_with_hyphenation<'a>(
     node_data: &NodeDataContainerRef<'a, NodeData>,
     text_layout_options: &BTreeMap<NodeId, ResolvedTextLayoutOptions>,
-    hyphenation_cache: &HyphenationCache,
+    hyphenation_cache: &crate::text::layout::HyphenationCache,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> BTreeMap<NodeId, Words> {
+    use crate::text::layout::split_text_into_words_with_hyphenation;
+
     node_data
         .internal
         .iter()
@@ -2625,7 +2830,7 @@ fn create_word_positions<'a>(
 ) {
     use azul_core::{
         app_resources::font_size_to_au,
-        ui_solver::{ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING},
+        ui_solver::{DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING},
     };
 
     use crate::text::layout::position_words;
@@ -2925,6 +3130,7 @@ pub fn do_the_relayout(
     document_id: &DocumentId,
     nodes_to_relayout: Option<&BTreeMap<NodeId, Vec<ChangedCssProperty>>>,
     words_to_relayout: Option<&BTreeMap<NodeId, AzString>>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> RelayoutChanges {
     // shortcut: in most cases, the root size hasn't
     // changed and there are no nodes to relayout
@@ -3092,9 +3298,7 @@ pub fn do_the_relayout(
         for (node_id, new_string) in words_to_relayout.iter() {
             use azul_core::{
                 styled_dom::StyleFontFamiliesHash,
-                ui_solver::{
-                    ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING,
-                },
+                ui_solver::{DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING},
             };
 
             use crate::text::{
@@ -3814,6 +4018,8 @@ pub fn do_the_relayout(
     updated_word_caches.extend(node_ids_that_changed_text_content.clone().into_iter());
 
     #[cfg(feature = "text_layout")]
+    let text_layout_options = extract_text_layout_options(&layout_result.styled_dom);
+    #[cfg(feature = "text_layout")]
     create_word_positions(
         &mut layout_result.positioned_words_cache,
         &updated_word_caches,
@@ -3822,6 +4028,8 @@ pub fn do_the_relayout(
         &layout_result.shaped_words_cache,
         &layout_result.styled_dom,
         Some(&layout_result.width_calculated_rects.as_ref()),
+        &text_layout_options,
+        debug_messages,
     );
 
     // determine which nodes changed their size and return
@@ -3899,6 +4107,7 @@ pub fn do_the_relayout(
         &layout_result.shaped_words_cache,
         &layout_result.positioned_words_cache,
         document_id,
+        debug_messages,
     );
 
     layout_result.root_size = root_bounds.size;
@@ -3959,7 +4168,11 @@ fn extract_text_layout_options(
                 let letter_spacing = css_property_cache
                     .get_letter_spacing(node_data, &node_id, styled_node_state)
                     .and_then(|ls| {
-                        Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING))
+                        Some(
+                            ls.get_property()?
+                                .inner
+                                .to_pixels(azul_core::ui_solver::DEFAULT_LETTER_SPACING),
+                        )
                     });
 
                 let word_spacing = css_property_cache
@@ -4013,47 +4226,30 @@ fn extract_text_layout_options(
                 // NEW: Extract text direction (RTL/LTR)
                 let direction = css_property_cache
                     .get_direction(node_data, &node_id, styled_node_state)
-                    .and_then(|d| d.get_property().copied());
+                    .and_then(|d| d.get_property().copied())
+                    .unwrap_or(TextDirection::LTR);
 
                 let is_rtl = match direction {
-                    Some(TextDirection::RTL) => Some(true),
-                    Some(TextDirection::LTR) => Some(false),
-                    _ => None, // Auto-detect
+                    Some(TextDirection::RTL) => ScriptType::RTL,
+                    Some(TextDirection::LTR) => ScriptType::LTR,
+                    _ => ScriptType::Mixed, // Auto-detect
                 };
 
-                // NEW: Extract text justify mode
-                let text_align = css_property_cache
+                let text_justify = css_property_cache
                     .get_text_align(node_data, &node_id, styled_node_state)
                     .and_then(|ta| ta.get_property().copied());
 
-                let text_justify = match text_align {
-                    Some(StyleTextAlign::Left) => Some(TextJustification::Left),
-                    Some(StyleTextAlign::Center) => Some(TextJustification::Center),
-                    Some(StyleTextAlign::Right) => Some(TextJustification::Right),
-                    Some(StyleTextAlign::Justify) => Some(TextJustification::Full),
-                    _ => None,
-                };
-
-                // NEW: Extract whether text can break
                 let white_space = css_property_cache
                     .get_white_space(node_data, &node_id, styled_node_state)
                     .and_then(|ws| ws.get_property().copied());
 
-                let can_break = match white_space {
-                    Some(WhiteSpace::NoWrap) => false,
-                    _ => true,
-                };
+                let can_break = white_space == Some(LayoutWhiteSpace::Nowrap);
 
-                // NEW: Extract whether text can be hyphenated
                 let hyphens = css_property_cache
                     .get_hyphens(node_data, &node_id, styled_node_state)
                     .and_then(|h| h.get_property().copied());
 
-                let can_hyphenate = match hyphens {
-                    Some(Hyphens::None) => false,
-                    Some(Hyphens::Auto) => true,
-                    _ => true, // Default to true
-                };
+                let can_hyphenate = hyphens != Some(Hyphens::None);
 
                 let options = ResolvedTextLayoutOptions {
                     font_size_px,
@@ -4064,10 +4260,10 @@ fn extract_text_layout_options(
                     max_horizontal_width: max_width.into(),
                     leading: None.into(),
                     holes: Vec::new().into(),
-                    max_vertical_height: None,
+                    max_vertical_height: None.into(),
                     can_break,
                     can_hyphenate,
-                    hyphenation_character: Some('-'),
+                    hyphenation_character: Some('-' as u32).into(),
                     is_rtl,
                     text_justify,
                 };
@@ -4126,8 +4322,9 @@ pub fn layout_inline_elements(
             message: format!(
                 "Laying out inline elements for container node {}",
                 container_node_id.index()
-            ),
-            location: "layout_inline_elements".to_string(),
+            )
+            .into(),
+            location: "layout_inline_elements".to_string().into(),
         });
     }
 
@@ -4150,8 +4347,9 @@ pub fn layout_inline_elements(
                 "Container direction: {:?}, child count: {}",
                 direction,
                 children.len()
-            ),
-            location: "layout_inline_elements".to_string(),
+            )
+            .into(),
+            location: "layout_inline_elements".to_string().into(),
         });
     }
 
@@ -4160,9 +4358,9 @@ pub fn layout_inline_elements(
         let display = display_values
             .get(child_id)
             .cloned()
-            .unwrap_or(Display::Block);
+            .unwrap_or(LayoutDisplay::Block);
 
-        if display == Display::Inline || display == Display::InlineBlock {
+        if display == LayoutDisplay::Inline || display == LayoutDisplay::InlineBlock {
             let child_width = width_calculated_rects[*child_id].total();
             let child_height = height_calculated_rects[*child_id].total();
 
@@ -4187,8 +4385,9 @@ pub fn layout_inline_elements(
                         child_width,
                         child_height,
                         is_text
-                    ),
-                    location: "layout_inline_elements".to_string(),
+                    )
+                    .into(),
+                    location: "layout_inline_elements".to_string().into(),
                 });
             }
         }
@@ -4410,8 +4609,9 @@ fn process_inline_elements(
             message: format!(
                 "Processing {} containers with inline elements",
                 potential_containers.len()
-            ),
-            location: "process_inline_elements".to_string(),
+            )
+            .into(),
+            location: "process_inline_elements".to_string().into(),
         });
     }
 
@@ -4484,12 +4684,12 @@ pub fn adjust_sizes_after_inline_layout(
     );
     let padding_top = get_container_padding_top(
         container_node_id,
-        height_calculated_rects.as_ref(),
+        &height_calculated_rects.as_borrowing_ref(),
         container_height,
     );
     let padding_bottom = get_container_padding_bottom(
         container_node_id,
-        height_calculated_rects.as_ref(),
+        &height_calculated_rects.as_borrowing_ref(),
         container_height,
     );
 
@@ -4506,26 +4706,27 @@ pub fn adjust_sizes_after_inline_layout(
             message: format!(
                 "Adjusting container size after inline layout. Original: {}x{}, New: {}x{}",
                 container_width, container_height, total_width_needed, total_height_needed
-            ),
-            location: "adjust_sizes_after_inline_layout".to_string(),
+            )
+            .into(),
+            location: "adjust_sizes_after_inline_layout".to_string().into(),
         });
     }
 
     // Expand the container if needed to fit inline content
     if total_width_needed > container_width {
-        width_calculated_rects.as_ref_mut()[container_node_id].min_inner_size_px =
+        width_calculated_rects[container_node_id].min_inner_size_px =
             content_width.max(width_calculated_rects[container_node_id].min_inner_size_px);
 
-        width_calculated_rects.as_ref_mut()[container_node_id].flex_grow_px = (total_width_needed
+        width_calculated_rects[container_node_id].flex_grow_px = (total_width_needed
             - width_calculated_rects[container_node_id].min_inner_size_px)
             .max(0.0);
     }
 
     if total_height_needed > container_height {
-        height_calculated_rects.as_ref_mut()[container_node_id].min_inner_size_px =
+        height_calculated_rects[container_node_id].min_inner_size_px =
             content_height.max(height_calculated_rects[container_node_id].min_inner_size_px);
 
-        height_calculated_rects.as_ref_mut()[container_node_id].flex_grow_px = (total_height_needed
+        height_calculated_rects[container_node_id].flex_grow_px = (total_height_needed
             - height_calculated_rects[container_node_id].min_inner_size_px)
             .max(0.0);
     }

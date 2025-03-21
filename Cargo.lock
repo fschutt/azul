@@ -224,6 +224,7 @@ dependencies = [
  "gl-context-loader",
  "hyphenation",
  "image",
+ "lazy_static",
  "lyon",
  "resvg",
  "roxmltree",

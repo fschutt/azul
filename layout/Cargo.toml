@@ -27,6 +27,7 @@ rust-fontconfig         = { version = "1.0.0", default-features = false }
 hyphenation             = { version = "0.8.3", default-features = false, features = ["embed_all"], optional = true }
 unicode-bidi            = { version = "0.3.13", default-features = false, optional = true }
 unicode-segmentation    = { version = "1.10.1", default-features = false, optional = true }
+lazy_static             = { version = "1.5.0", default-features = false, optional = true }
 unicode-normalization   = { version = "0.1.21",  default-features = false, optional = true }
 allsorts-subset-browser = { version = "0.16.0",  default-features = false, features = ["flate2_rust"], optional = true  }
 tinyvec                 = { version = "1.6.0", default-features = false, optional = true  }
@@ -45,7 +46,7 @@ gl-context-loader       = { version = "0.1.8", default-features = false, optiona
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml"]
 std = []
-text_layout = ["unicode-normalization", "allsorts-subset-browser", "tinyvec", "ttf-parser", "unicode-segmentation", "unicode-bidi", "hyphenation"]
+text_layout = ["lazy_static", "unicode-normalization", "allsorts-subset-browser", "tinyvec", "ttf-parser", "unicode-segmentation", "unicode-bidi", "hyphenation"]
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
 png = ["image/png"]

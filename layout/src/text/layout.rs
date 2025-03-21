@@ -3,18 +3,19 @@
 
 use alloc::{string::String, vec::Vec};
 
+use azul_core::ui_solver::TextJustification;
 pub use azul_core::{
     app_resources::{
         FontMetrics, GlyphIndex, IndexOfLineBreak, LayoutedGlyphs, LineBreaks, LineLength,
-        RemainingSpaceToRight, ShapedWord, ShapedWords, Word, WordIndex, WordPositions, WordType,
-        Words,
+        RemainingSpaceToRight, ShapedWord, ShapedWords, Word, WordIndex, WordPosition,
+        WordPositions, WordType, Words,
     },
     callbacks::InlineText,
     display_list::GlyphInstance,
     ui_solver::{
-        InlineTextLayout, LayoutDebugMessage, ResolvedTextLayoutOptions, ScriptType,
-        TextLayoutOptions, TextScriptInfo, DEFAULT_LETTER_SPACING, DEFAULT_LINE_HEIGHT,
-        DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
+        InlineTextLayout, InlineTextLine, LayoutDebugMessage, ResolvedTextLayoutOptions,
+        ScriptType, TextJustification, TextLayoutOptions, TextScriptInfo, DEFAULT_LETTER_SPACING,
+        DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -151,8 +152,8 @@ pub fn split_text_into_words_with_hyphenation(
     // Add debug message if enabled
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Processing text: {}", text),
-            location: "split_text_into_words_with_hyphenation".to_string(),
+            message: format!("Processing text: {}", text).into(),
+            location: "split_text_into_words_with_hyphenation".to_string().into(),
         });
     }
 
@@ -178,8 +179,9 @@ pub fn split_text_into_words_with_hyphenation(
             message: format!(
                 "Text direction detected as: {}",
                 if is_rtl { "RTL" } else { "LTR" }
-            ),
-            location: "split_text_into_words_with_hyphenation".to_string(),
+            )
+            .into(),
+            location: "split_text_into_words_with_hyphenation".to_string().into(),
         });
     }
 
@@ -280,8 +282,11 @@ pub fn split_text_into_words_with_hyphenation(
                                 message: format!(
                                     "Hyphenation points for '{}': {:?}",
                                     word_text, hyphenation_points
-                                ),
-                                location: "split_text_into_words_with_hyphenation".to_string(),
+                                )
+                                .into(),
+                                location: "split_text_into_words_with_hyphenation"
+                                    .to_string()
+                                    .into(),
                             });
                         }
 
@@ -403,7 +408,10 @@ pub fn position_words(
     // Get hyphen width from first shaped word or use default
     let hyphen_width_px = get_hyphen_width_px(
         shaped_words,
-        text_layout_options.hyphenation_character.unwrap_or('-'),
+        text_layout_options
+            .hyphenation_character
+            .into_option()
+            .unwrap_or('-'),
         text_layout_options.font_size_px,
     );
 
@@ -416,8 +424,9 @@ pub fn position_words(
                 text_layout_options.can_break,
                 text_layout_options.can_hyphenate,
                 text_layout_options.is_rtl
-            ),
-            location: "position_words_enhanced".to_string(),
+            )
+            .into(),
+            location: "position_words_enhanced".to_string().into(),
         });
     }
 
@@ -437,8 +446,10 @@ pub fn position_words(
     if !text_layout_options.can_break {
         if let Some(messages) = debug_messages {
             messages.push(LayoutDebugMessage {
-                message: "Text can't break - positioning as single line".to_string(),
-                location: "position_words_enhanced".to_string(),
+                message: "Text can't break - positioning as single line"
+                    .to_string()
+                    .into(),
+                location: "position_words_enhanced".to_string().into(),
             });
         }
 
@@ -494,8 +505,9 @@ pub fn position_words(
                         message: format!(
                             "Reached max vertical height ({}) - stopping layout",
                             max_y
-                        ),
-                        location: "position_words_enhanced".to_string(),
+                        )
+                        .into(),
+                        location: "position_words_enhanced".to_string().into(),
                     });
                 }
                 should_stop_layout = true;
@@ -567,8 +579,9 @@ pub fn position_words(
                                         message: format!(
                                             "Hyphenating word at position {}",
                                             hyphen_pos
-                                        ),
-                                        location: "position_words_enhanced".to_string(),
+                                        )
+                                        .into(),
+                                        location: "position_words_enhanced".to_string().into(),
                                     });
                                 }
 
@@ -791,12 +804,12 @@ pub fn position_words(
     }
 
     // Apply text justification if needed
-    if let Some(justify) = text_layout_options.text_justify {
+    if text_layout_options.text_justify != TextJustification::None {
         apply_text_justification(
             &mut word_positions,
             &line_breaks,
             justify,
-            text_layout_options.max_horizontal_width,
+            text_layout_options.max_horizontal_width.into(),
             word_spacing_px,
             debug_messages,
         );
@@ -873,8 +886,8 @@ fn check_line_intersection(
             WordType::WordWithHyphenation(points) if !points.is_empty() => {
                 // Find best hyphenation point that fits
                 let word_text = &words.internal_str[word.start..word.end];
-                for &point in points {
-                    let portion = point as f32 / word_text.len() as f32;
+                for point in points.as_slice().iter() {
+                    let portion = *point as f32 / word_text.len() as f32;
                     let partial_width = word_width * portion + hyphen_width;
 
                     if partial_width <= max_width {
@@ -1107,8 +1120,8 @@ fn apply_text_justification(
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Applying text justification: {:?}", justify),
-            location: "apply_text_justification".to_string(),
+            message: format!("Applying text justification: {:?}", justify).into(),
+            location: "apply_text_justification".to_string().into(),
         });
     }
 

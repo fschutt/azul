@@ -5760,6 +5760,7 @@ pub enum StyleTextAlign {
     Left,
     Center,
     Right,
+    Justify,
 }
 
 impl Default for StyleTextAlign {

@@ -87,13 +87,15 @@ use azul_core::{
     ui_solver::{InlineTextLayout, ResolvedTextLayoutOptions},
 };
 use azul_css::{FontData, FontRef};
+use hyphenation::{Language, Load, Standard};
 use layout::position_words;
 
 use self::{layout::FontMetrics, shaping::ParsedFont};
 
 // Set up a global hyphenation cache
-lazy_static! {
-    static ref HYPHENATION_CACHE: HyphenationCache = HyphenationCache::new();
+#[cfg(feature = "text_layout")]
+lazy_static::lazy_static! {
+    pub static ref HYPHENATION_CACHE: HyphenationCache = HyphenationCache::new();
 }
 
 #[derive(Debug, Clone)]
