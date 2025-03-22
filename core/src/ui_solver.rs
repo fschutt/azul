@@ -15,8 +15,8 @@ use azul_css::{
     LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutOverflow,
     LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPoint,
     LayoutPosition, LayoutRect, LayoutRectVec, LayoutRight, LayoutSize, LayoutTop, OptionF32,
-    PixelValue, StyleBoxShadow, StyleFontSize, StyleTextAlign, StyleTextColor, StyleTransform,
-    StyleTransformOrigin, StyleVerticalAlign,
+    OptionStyleTextAlign, PixelValue, StyleBoxShadow, StyleFontSize, StyleTextAlign,
+    StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
 };
 use rust_fontconfig::FcFontCache;
 

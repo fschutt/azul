@@ -85,6 +85,34 @@ impl PrintAsCssValue for StyleTextAlign {
     }
 }
 
+impl PrintAsCssValue for StyleHyphens {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleHyphens::Auto => "auto",
+            StyleHyphens::None => "none",
+        })
+    }
+}
+
+impl PrintAsCssValue for StyleDirection {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleDirection::Ltr => "ltr",
+            StyleDirection::Rtl => "rtl",
+        })
+    }
+}
+
+impl PrintAsCssValue for StyleWhiteSpace {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleWhiteSpace::Normal => "normal",
+            StyleWhiteSpace::Pre => "pre",
+            StyleWhiteSpace::Nowrap => "nowrap",
+        })
+    }
+}
+
 impl PrintAsCssValue for StyleLetterSpacing {
     fn print_as_css_value(&self) -> String {
         format!("{}", self.inner)

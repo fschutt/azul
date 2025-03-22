@@ -695,6 +695,18 @@ pub(crate) fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String 
             "CssProperty::TextShadow({})",
             print_css_property_value(p, tabs, "StyleBoxShadow")
         ),
+        CssProperty::Hyphens(p) => format!(
+            "CssProperty::Hyphens({})",
+            print_css_property_value(p, tabs, "StyleHyphens")
+        ),
+        CssProperty::Direction(p) => format!(
+            "CssProperty::Direction({})",
+            print_css_property_value(p, tabs, "Direction")
+        ),
+        CssProperty::WhiteSpace(p) => format!(
+            "CssProperty::WhiteSpace({})",
+            print_css_property_value(p, tabs, "WhiteSpace")
+        ),
     }
 }
 
@@ -914,6 +926,25 @@ impl_enum_fmt!(
     Saturation,
     Color,
     Luminosity
+);
+
+impl_enum_fmt!(
+    StyleHyphens,
+    Auto,
+    None
+);
+
+impl_enum_fmt!(
+    StyleDirection,
+    Ltr,
+    Rtl
+);
+
+impl_enum_fmt!(
+    StyleWhiteSpace,
+    Normal,
+    Pre,
+    Nowrap
 );
 
 impl_enum_fmt!(

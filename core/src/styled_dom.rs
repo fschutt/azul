@@ -5,27 +5,7 @@ use core::{
 };
 
 use azul_css::{
-    parser::CssApiWrapper, AzString, Css, CssPath, CssProperty, CssPropertyType,
-    LayoutAlignContentValue, LayoutAlignItemsValue, LayoutBorderBottomWidthValue,
-    LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderTopWidthValue,
-    LayoutBottomValue, LayoutBoxSizingValue, LayoutDisplayValue, LayoutFlexDirectionValue,
-    LayoutFlexGrowValue, LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue,
-    LayoutHeightValue, LayoutJustifyContentValue, LayoutLeftValue, LayoutMarginBottomValue,
-    LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue,
-    LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue,
-    LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue,
-    LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutTopValue, LayoutWidthValue,
-    StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
-    StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
-    StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
-    StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
-    StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
-    StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue,
-    StyleBoxShadowValue, StyleCursorValue, StyleFilterVecValue, StyleFontFamily,
-    StyleFontFamilyVec, StyleFontFamilyVecValue, StyleFontSize, StyleFontSizeValue,
-    StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
-    StylePerspectiveOriginValue, StyleTabWidthValue, StyleTextAlignValue, StyleTextColor,
-    StyleTextColorValue, StyleTransformOriginValue, StyleTransformVecValue, StyleWordSpacingValue,
+    parser::CssApiWrapper, AzString, Css, CssPath, CssProperty, CssPropertyType, LayoutAlignContentValue, LayoutAlignItemsValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue, LayoutBoxSizingValue, LayoutDisplayValue, LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutHeightValue, LayoutJustifyContentValue, LayoutLeftValue, LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutTopValue, LayoutWidthValue, StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue, StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue, StyleFontSize, StyleFontSizeValue, StyleHyphensValue, StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue, StylePerspectiveOriginValue, StyleTabWidthValue, StyleTextAlignValue, StyleTextColor, StyleTextColorValue, StyleTransformOriginValue, StyleTransformVecValue, StyleWhiteSpaceValue, StyleWordSpacingValue
 };
 
 use crate::{
@@ -738,6 +718,15 @@ impl CssPropertyCache {
         if let Some(p) = self.get_backface_visibility(&node_data, node_id, node_state) {
             s.push_str(&format!("backface-visibility: {};", p.get_css_value_fmt()));
         }
+        if let Some(p) = self.get_hyphens(&node_data, node_id, node_state) {
+            s.push_str(&format!("hyphens: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_direction(&node_data, node_id, node_state) {
+            s.push_str(&format!("direction: {};", p.get_css_value_fmt()));
+        }
+        if let Some(p) = self.get_white_space(&node_data, node_id, node_state) {
+            s.push_str(&format!("white-space: {};", p.get_css_value_fmt()));
+        }
         if let Some(p) = self.get_display(&node_data, node_id, node_state) {
             s.push_str(&format!("display: {};", p.get_css_value_fmt()));
         }
@@ -1238,6 +1227,38 @@ impl CssPropertyCache {
             &CssPropertyType::BackgroundContent,
         )
         .and_then(|p| p.as_background_content())
+    }
+    // Method for getting hyphens property
+    pub fn get_hyphens<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleHyphensValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Hyphens)
+            .and_then(|p| p.as_hyphens())
+    }
+
+    // Method for getting direction property
+    pub fn get_direction<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleDirectionValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Direction)
+            .and_then(|p| p.as_direction())
+    }
+
+    // Method for getting white-space property
+    pub fn get_white_space<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleWhiteSpaceValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::WhiteSpace)
+            .and_then(|p| p.as_white_space())
     }
     pub fn get_background_position<'a>(
         &'a self,
@@ -1965,7 +1986,7 @@ impl CssPropertyCache {
             node_state,
             &CssPropertyType::FlexDirection,
         )
-        .and_then(|p| p.as_direction())
+        .and_then(|p| p.as_flex_direction())
     }
     pub fn get_flex_wrap<'a>(
         &'a self,

@@ -26,10 +26,11 @@ use crate::{
     StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderBottomStyle,
     StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
     StyleBorderSide, StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
-    StyleBorderTopStyle, StyleBoxShadow, StyleCursor, StyleFilter, StyleFilterVec, StyleFontFamily,
-    StyleFontFamilyVec, StyleFontSize, StyleLetterSpacing, StyleLineHeight, StyleMixBlendMode,
-    StyleOpacity, StylePerspectiveOrigin, StyleTabWidth, StyleTextAlign, StyleTextColor,
-    StyleTransform, StyleTransformOrigin, StyleTransformVec, StyleWordSpacing,
+    StyleBorderTopStyle, StyleBoxShadow, StyleCursor, StyleDirection, StyleFilter, StyleFilterVec,
+    StyleFontFamily, StyleFontFamilyVec, StyleFontSize, StyleHyphens, StyleLetterSpacing,
+    StyleLineHeight, StyleMixBlendMode, StyleOpacity, StylePerspectiveOrigin, StyleTabWidth,
+    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleTransformVec,
+    StyleWhiteSpace, StyleWordSpacing,
 };
 
 pub trait FormatAsCssValue {
@@ -378,7 +379,19 @@ pub fn parse_css_property<'a>(
             TextShadow => {
                 CssProperty::TextShadow(CssPropertyValue::Exact(parse_style_box_shadow(value)?))
                     .into()
-            }
+            },
+            Hyphens => {
+                CssProperty::Hyphens(CssPropertyValue::Exact(parse_style_hyphens(value)?))
+                .into()
+            },
+            Direction => {
+                CssProperty::Direction(CssPropertyValue::Exact(parse_style_direction(value)?))
+                .into()
+            },
+            WhiteSpace => {
+                CssProperty::WhiteSpace(CssPropertyValue::Exact(parse_style_white_space(value)?))
+                .into()
+            },
         },
     })
 }
@@ -5811,4 +5824,26 @@ multi_type_parser!(
     ["left", Left],
     ["right", Right],
     ["justify", Justify]
+);
+
+multi_type_parser!(
+    parse_style_direction,
+    StyleDirection,
+    ["ltr", Ltr],
+    ["rtl", Rtl]
+);
+
+multi_type_parser!(
+    parse_style_hyphens,
+    StyleHyphens,
+    ["auto", Auto],
+    ["none", None]
+);
+
+multi_type_parser!(
+    parse_style_white_space,
+    StyleWhiteSpace,
+    ["normal", Normal],
+    ["pre", Pre],
+    ["nowrap", Nowrap]
 );

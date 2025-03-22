@@ -4226,12 +4226,11 @@ fn extract_text_layout_options(
                 // NEW: Extract text direction (RTL/LTR)
                 let direction = css_property_cache
                     .get_direction(node_data, &node_id, styled_node_state)
-                    .and_then(|d| d.get_property().copied())
-                    .unwrap_or(TextDirection::LTR);
+                    .and_then(|d| d.get_property().copied());
 
                 let is_rtl = match direction {
-                    Some(TextDirection::RTL) => ScriptType::RTL,
-                    Some(TextDirection::LTR) => ScriptType::LTR,
+                    Some(StyleDirection::Rtl) => ScriptType::RTL,
+                    Some(StyleDirection::Ltr) => ScriptType::LTR,
                     _ => ScriptType::Mixed, // Auto-detect
                 };
 
@@ -4243,13 +4242,13 @@ fn extract_text_layout_options(
                     .get_white_space(node_data, &node_id, styled_node_state)
                     .and_then(|ws| ws.get_property().copied());
 
-                let can_break = white_space == Some(LayoutWhiteSpace::Nowrap);
+                let can_break = white_space == Some(StyleWhiteSpace::Nowrap);
 
                 let hyphens = css_property_cache
                     .get_hyphens(node_data, &node_id, styled_node_state)
                     .and_then(|h| h.get_property().copied());
 
-                let can_hyphenate = hyphens != Some(Hyphens::None);
+                let can_hyphenate = hyphens.is_some() && hyphens != Some(StyleHyphens::None);
 
                 let options = ResolvedTextLayoutOptions {
                     font_size_px,
@@ -4265,7 +4264,7 @@ fn extract_text_layout_options(
                     can_hyphenate,
                     hyphenation_character: Some('-' as u32).into(),
                     is_rtl,
-                    text_justify,
+                    text_justify: text_justify.into(),
                 };
 
                 Some((node_id, options))
@@ -4339,7 +4338,7 @@ pub fn layout_inline_elements(
 
     // Handle RTL direction for the container
     let direction = get_container_direction(styled_dom, container_node_id);
-    let is_rtl = direction == TextDirection::RTL;
+    let is_rtl = direction == StyleDirection::Rtl;
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
@@ -4484,7 +4483,7 @@ fn layout_current_line(
 }
 
 // Helper function to get text direction for a container
-fn get_container_direction(styled_dom: &StyledDom, node_id: NodeId) -> TextDirection {
+fn get_container_direction(styled_dom: &StyledDom, node_id: NodeId) -> StyleDirection {
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
@@ -4495,8 +4494,8 @@ fn get_container_direction(styled_dom: &StyledDom, node_id: NodeId) -> TextDirec
         .and_then(|d| d.get_property().copied());
 
     match direction {
-        Some(TextDirection::RTL) => TextDirection::RTL,
-        _ => TextDirection::LTR, // Default to LTR
+        Some(StyleDirection::Rtl) => StyleDirection::Rtl,
+        _ => StyleDirection::Ltr, // Default to LTR
     }
 }
 

@@ -1,7 +1,8 @@
 use azul_core::{
     app_resources::{FontMetrics, WordType},
-    ui_solver::{ResolvedTextLayoutOptions, ScriptType, TextJustification},
+    ui_solver::{ResolvedTextLayoutOptions, ScriptType},
 };
+use azul_css::StyleTextAlign;
 
 use crate::text::{
     layout::{
@@ -504,15 +505,15 @@ fn test_position_words_with_justification() {
 
     // Test with different justification modes
     for justify in &[
-        TextJustification::Left,
-        TextJustification::Center,
-        TextJustification::Right,
-        TextJustification::Full,
+        StyleTextAlign::Left,
+        StyleTextAlign::Center,
+        StyleTextAlign::Right,
+        StyleTextAlign::Justify,
     ] {
         let justify_options = ResolvedTextLayoutOptions {
             font_size_px: 16.0,
             max_horizontal_width: Some(1000.0).into(), // Wide enough for content
-            text_justify: *justify,
+            text_justify: Some(*justify).into(),
             ..ResolvedTextLayoutOptions::default()
         };
 

@@ -1072,6 +1072,9 @@ pub enum CssPropertyType {
     Filter,
     BackdropFilter,
     TextShadow,
+    WhiteSpace,
+    Direction,
+    Hyphens,
 }
 
 impl CssPropertyType {
@@ -1174,6 +1177,9 @@ impl CssPropertyType {
             CssPropertyType::Filter => "filter",
             CssPropertyType::BackdropFilter => "backdrop-filter",
             CssPropertyType::TextShadow => "text-shadow",
+            CssPropertyType::WhiteSpace => "white-space",
+            CssPropertyType::Hyphens => "hyphens",
+            CssPropertyType::Direction => "direction",
         }
     }
 
@@ -1335,6 +1341,9 @@ pub enum CssProperty {
     Filter(StyleFilterVecValue),
     BackdropFilter(StyleFilterVecValue),
     TextShadow(StyleBoxShadowValue),
+    Direction(StyleDirectionValue),
+    Hyphens(StyleHyphensValue),
+    WhiteSpace(StyleWhiteSpaceValue),
 }
 
 impl_option!(
@@ -1533,6 +1542,11 @@ macro_rules! css_property_from_type {
             CssPropertyType::TextShadow => {
                 CssProperty::TextShadow(StyleBoxShadowValue::$content_type)
             }
+            CssPropertyType::WhiteSpace => {
+                CssProperty::WhiteSpace(StyleWhiteSpaceValue::$content_type)
+            }
+            CssPropertyType::Hyphens => CssProperty::Hyphens(StyleHyphensValue::$content_type),
+            CssPropertyType::Direction => CssProperty::Direction(StyleDirectionValue::$content_type),
         }
     }};
 }
@@ -1615,6 +1629,9 @@ impl CssProperty {
             Filter(c) => c.is_initial(),
             BackdropFilter(c) => c.is_initial(),
             TextShadow(c) => c.is_initial(),
+            WhiteSpace(c) => c.is_initial(),
+            Direction(c) => c.is_initial(),
+            Hyphens(c) => c.is_initial(),
         }
     }
 
@@ -2380,6 +2397,9 @@ impl CssProperty {
             CssProperty::Filter(v) => v.get_css_value_fmt(),
             CssProperty::BackdropFilter(v) => v.get_css_value_fmt(),
             CssProperty::TextShadow(v) => v.get_css_value_fmt(),
+            CssProperty::Hyphens(v) => v.get_css_value_fmt(),
+            CssProperty::Direction(v) => v.get_css_value_fmt(),
+            CssProperty::WhiteSpace(v) => v.get_css_value_fmt(),
         }
     }
 
@@ -2823,6 +2843,9 @@ macro_rules! css_property_from_type {
                 CssProperty::BackdropFilter(CssPropertyValue::$content_type)
             }
             CssPropertyType::TextShadow => CssProperty::TextShadow(CssPropertyValue::$content_type),
+            CssPropertyType::Direction => CssProperty::Direction(CssPropertyValue::$content_type),
+            CssPropertyType::Hyphens => CssProperty::Hyphens(CssPropertyValue::$content_type),
+            CssPropertyType::WhiteSpace => CssProperty::WhiteSpace(CssPropertyValue::$content_type),
         }
     }};
 }
@@ -2905,6 +2928,9 @@ impl CssProperty {
             CssProperty::Filter(_) => CssPropertyType::Filter,
             CssProperty::BackdropFilter(_) => CssPropertyType::BackdropFilter,
             CssProperty::TextShadow(_) => CssPropertyType::TextShadow,
+            CssProperty::WhiteSpace(_) => CssPropertyType::WhiteSpace,
+            CssProperty::Hyphens(_) => CssPropertyType::Hyphens,
+            CssProperty::Direction(_) => CssPropertyType::Direction,
         }
     }
 
@@ -3534,9 +3560,27 @@ impl CssProperty {
             _ => None,
         }
     }
-    pub const fn as_direction(&self) -> Option<&LayoutFlexDirectionValue> {
+    pub const fn as_flex_direction(&self) -> Option<&LayoutFlexDirectionValue> {
         match self {
             CssProperty::FlexDirection(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_direction(&self) -> Option<&StyleDirectionValue> {
+        match self {
+            CssProperty::Direction(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_hyphens(&self) -> Option<&StyleHyphensValue> {
+        match self {
+            CssProperty::Hyphens(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_white_space(&self) -> Option<&StyleWhiteSpaceValue> {
+        match self {
+            CssProperty::WhiteSpace(f) => Some(f),
             _ => None,
         }
     }
@@ -5571,14 +5615,6 @@ pub enum LayoutDisplay {
     InlineFlex,
 }
 
-// TextDirection enum (if not already defined)
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(C)]
-pub enum TextDirection {
-    LTR,
-    RTL,
-}
-
 impl Default for LayoutDisplay {
     fn default() -> Self {
         LayoutDisplay::Flex
@@ -5768,6 +5804,73 @@ impl Default for StyleTextAlign {
         StyleTextAlign::Left
     }
 }
+
+impl_option!(
+    StyleTextAlign,
+    OptionStyleTextAlign,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// Force text direction: default - `Ltr`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleDirection {
+    Ltr,
+    Rtl,
+}
+
+impl Default for StyleDirection {
+    fn default() -> Self {
+        StyleDirection::Ltr
+    }
+}
+
+impl_option!(
+    StyleDirection,
+    OptionStyleDirection,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// Force text hyphens: default - `Ltr`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleHyphens {
+    Auto,
+    None,
+}
+
+impl Default for StyleHyphens {
+    fn default() -> Self {
+        StyleHyphens::Auto
+    }
+}
+
+impl_option!(
+    StyleHyphens,
+    OptionStyleHyphens,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// Force text hyphens: default - `Ltr`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleWhiteSpace {
+    Normal,
+    Pre,
+    Nowrap,
+}
+
+impl Default for StyleWhiteSpace {
+    fn default() -> Self {
+        StyleWhiteSpace::Normal
+    }
+}
+
+impl_option!(
+    StyleWhiteSpace,
+    OptionStyleWhiteSpace,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -6024,6 +6127,10 @@ pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type ScrollbarStyleValue = CssPropertyValue<ScrollbarStyle>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
+pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
+pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
+pub type StyleWhiteSpaceValue = CssPropertyValue<StyleWhiteSpace>;
+
 impl_option!(
     LayoutDisplayValue,
     OptionLayoutDisplayValue,

@@ -3,7 +3,6 @@
 
 use alloc::{string::String, vec::Vec};
 
-use azul_core::ui_solver::TextJustification;
 pub use azul_core::{
     app_resources::{
         FontMetrics, GlyphIndex, IndexOfLineBreak, LayoutedGlyphs, LineBreaks, LineLength,
@@ -14,12 +13,12 @@ pub use azul_core::{
     display_list::GlyphInstance,
     ui_solver::{
         InlineTextLayout, InlineTextLine, LayoutDebugMessage, ResolvedTextLayoutOptions,
-        ScriptType, TextJustification, TextLayoutOptions, TextScriptInfo, DEFAULT_LETTER_SPACING,
-        DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
+        ScriptType, TextLayoutOptions, TextScriptInfo, DEFAULT_LETTER_SPACING, DEFAULT_LINE_HEIGHT,
+        DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-pub use azul_css::FontRef;
+pub use azul_css::{FontRef, StyleTextAlign};
 
 pub use super::shaping::ParsedFont;
 use super::{shaping::ShapedTextBufferUnsized, FontImpl};
@@ -805,11 +804,11 @@ pub fn position_words(
     }
 
     // Apply text justification if needed
-    if text_layout_options.text_justify != TextJustification::None {
+    if let Some(justify) = text_layout_options.text_justify.into_option() {
         apply_text_justification(
             &mut word_positions,
             &line_breaks,
-            text_layout_options.text_justify,
+            justify,
             text_layout_options.max_horizontal_width.into(),
             word_spacing_px,
             debug_messages,
@@ -1108,7 +1107,7 @@ fn position_rtl_line(
 fn apply_text_justification(
     word_positions: &mut Vec<WordPosition>,
     line_breaks: &[InlineTextLine],
-    justify: TextJustification,
+    justify: StyleTextAlign,
     max_width: Option<f32>,
     default_space_width: f32,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -1129,7 +1128,7 @@ fn apply_text_justification(
     for line in line_breaks {
         // Skip justification for the last line in full justification mode
         let is_last_line = line.word_end == word_positions.len() - 1;
-        if justify == TextJustification::Full && is_last_line {
+        if justify == StyleTextAlign::Justify && is_last_line {
             continue;
         }
 
@@ -1141,10 +1140,10 @@ fn apply_text_justification(
         }
 
         match justify {
-            TextJustification::Left => {
+            StyleTextAlign::Left => {
                 // Left justification is the default, no need to adjust
             }
-            TextJustification::Right => {
+            StyleTextAlign::Right => {
                 // Move all words in the line to the right
                 for i in line.word_start..=line.word_end {
                     if i < word_positions.len() {
@@ -1152,7 +1151,7 @@ fn apply_text_justification(
                     }
                 }
             }
-            TextJustification::Center => {
+            StyleTextAlign::Center => {
                 // Center all words in the line
                 let offset = available_space / 2.0;
                 for i in line.word_start..=line.word_end {
@@ -1161,7 +1160,7 @@ fn apply_text_justification(
                     }
                 }
             }
-            TextJustification::Full => {
+            StyleTextAlign::Justify => {
                 // Count the number of spaces in this line
                 let mut space_count = 0;
                 for i in line.word_start..=line.word_end {
@@ -1191,9 +1190,6 @@ fn apply_text_justification(
                         }
                     }
                 }
-            }
-            TextJustification::None => {
-                // No justification, leave as is
             }
         }
     }
