@@ -192,6 +192,7 @@ impl PrintAsCssValue for LayoutFloat {
         String::from(match self {
             LayoutFloat::Left => "left",
             LayoutFloat::Right => "right",
+            LayoutFloat::None => "none",
         })
     }
 }

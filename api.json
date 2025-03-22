@@ -3901,7 +3901,8 @@
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Left": {}},
-                        {"Right": {}}
+                        {"Right": {}},
+                        {"None": {}}
                     ]
                 },
                 "LayoutHeight": {

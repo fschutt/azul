@@ -5740,7 +5740,8 @@ multi_type_parser!(
     parse_layout_float,
     LayoutFloat,
     ["left", Left],
-    ["right", Right]
+    ["right", Right],
+    ["none", None]
 );
 
 multi_type_parser!(

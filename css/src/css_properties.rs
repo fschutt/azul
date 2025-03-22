@@ -5627,6 +5627,7 @@ impl Default for LayoutDisplay {
 pub enum LayoutFloat {
     Left,
     Right,
+    None,
 }
 
 impl Default for LayoutFloat {

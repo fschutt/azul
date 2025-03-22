@@ -1088,7 +1088,7 @@ impl_enum_fmt!(
     InlineFlex
 );
 
-impl_enum_fmt!(LayoutFloat, Left, Right);
+impl_enum_fmt!(LayoutFloat, Left, Right, None);
 
 impl_enum_fmt!(LayoutBoxSizing, ContentBox, BorderBox);
 

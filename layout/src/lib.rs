@@ -13,13 +13,13 @@ extern crate core;
 #[cfg(feature = "font_loading")]
 pub mod font;
 pub mod image;
-pub mod solver;
+pub mod solver2;
 #[cfg(feature = "text_layout")]
 pub mod text;
 #[cfg(feature = "xml")]
 pub mod xml;
 
-#[cfg(feature = "text_layout")]
-pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
+// #[cfg(feature = "text_layout")]
+// pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
 #[cfg(feature = "text_layout")]
 pub use text::parse_font_fn;
