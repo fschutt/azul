@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
-    app_resources::{DecodedImage, ShapedWords, Words},
+    app_resources::{DecodedImage, ShapedWords, Words, TextExclusionArea, ExclusionSide},
     dom::{NodeData, NodeType},
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyledDom},
@@ -133,7 +133,7 @@ fn layout_node_recursive(
     formatting_contexts: &NodeDataContainerRef<FormattingContext>,
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,
-    exclusion_areas: &mut BTreeMap<NodeId, Vec<ExclusionArea>>,
+    exclusion_areas: &mut BTreeMap<NodeId, Vec<TextExclusionArea>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     let formatting_context = &formatting_contexts[node_id];
@@ -250,7 +250,7 @@ fn layout_block_context(
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,
     establishes_new_context: bool,
-    exclusion_areas: &mut BTreeMap<NodeId, Vec<ExclusionArea>>,
+    exclusion_areas: &mut BTreeMap<NodeId, Vec<TextExclusionArea>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // Get and apply size constraints
@@ -399,7 +399,7 @@ fn layout_inline_context(
     formatting_contexts: &NodeDataContainerRef<FormattingContext>,
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,
-    exclusion_areas: &mut BTreeMap<NodeId, Vec<ExclusionArea>>,
+    exclusion_areas: &mut BTreeMap<NodeId, Vec<TextExclusionArea>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // Apply size constraints
@@ -651,7 +651,7 @@ fn layout_flex_context(
     formatting_contexts: &NodeDataContainerRef<FormattingContext>,
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,
-    exclusion_areas: &mut BTreeMap<NodeId, Vec<ExclusionArea>>,
+    exclusion_areas: &mut BTreeMap<NodeId, Vec<TextExclusionArea>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // For simplicity, implement a very basic flexbox layout
@@ -833,7 +833,7 @@ fn layout_float(
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,
     float_direction: LayoutFloat,
-    exclusion_areas: &mut BTreeMap<NodeId, Vec<ExclusionArea>>,
+    exclusion_areas: &mut BTreeMap<NodeId, Vec<TextExclusionArea>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // Apply size constraints
@@ -937,7 +937,7 @@ fn layout_float(
     };
 
     // Create exclusion area for this float
-    let exclusion = ExclusionArea {
+    let exclusion = TextExclusionArea {
         rect: LogicalRect::new(
             float_position,
             LogicalSize::new(constrained_size.width, final_height),
@@ -977,7 +977,7 @@ fn find_float_position(
     initial_position: LogicalPosition,
     size: LogicalSize,
     float_direction: LayoutFloat,
-    exclusion_areas: &BTreeMap<NodeId, Vec<ExclusionArea>>,
+    exclusion_areas: &BTreeMap<NodeId, Vec<TextExclusionArea>>,
     current_node_id: NodeId,
 ) -> LogicalPosition {
     let mut position = initial_position;
@@ -1324,23 +1324,6 @@ fn finalize_scrollable_areas(
     Default::default()
 }
 
-// Helper functions
-
-/// Represents an exclusion area for handling floats
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-struct ExclusionArea {
-    rect: LogicalRect,
-    side: ExclusionSide,
-}
-
-/// Side of the exclusion area
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-enum ExclusionSide {
-    Left,
-    Right,
-    None,
-}
-
 /// Update the position of an inline element
 fn update_inline_element_position(
     node_id: NodeId,
@@ -1619,47 +1602,70 @@ fn create_positioned_rectangle(
 /// Adjust a rectangle to account for floats
 fn adjust_rect_for_floats(
     rect: LogicalRect,
-    exclusion_areas: &BTreeMap<NodeId, Vec<ExclusionArea>>,
-    current_node_id: NodeId,
+    floats: &[TextTextExclusionArea],
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalRect {
+    if floats.is_empty() {
+        return rect;
+    }
+
     let mut adjusted_rect = rect;
 
-    for (node_id, areas) in exclusion_areas {
-        // Skip exclusions from the current node
-        if *node_id == current_node_id {
-            continue;
-        }
-
-        for area in areas {
-            // Check if the float affects this y range
-            if area.rect.origin.y <= adjusted_rect.origin.y + adjusted_rect.size.height
-                && area.rect.origin.y + area.rect.size.height >= adjusted_rect.origin.y
-            {
-                match area.side {
-                    ExclusionSide::Left => {
-                        // Left float - adjust x and width
-                        let float_right = area.rect.origin.x + area.rect.size.width;
-
-                        if float_right > adjusted_rect.origin.x {
-                            let new_width =
-                                adjusted_rect.size.width - (float_right - adjusted_rect.origin.x);
+    for float in floats {
+        // Check if this float affects the current line vertically
+        if float.rect.origin.y <= rect.origin.y + rect.size.height &&
+           float.rect.origin.y + float.rect.size.height >= rect.origin.y {
+            
+            match float.side {
+                ExclusionSide::Left => {
+                    // Left float - adjust left edge of line
+                    let float_right = float.rect.origin.x + float.rect.size.width;
+                    if float_right > adjusted_rect.origin.x {
+                        let new_width = adjusted_rect.size.width - (float_right - adjusted_rect.origin.x);
+                        adjusted_rect.origin.x = float_right;
+                        adjusted_rect.size.width = new_width.max(0.0);
+                    }
+                }
+                ExclusionSide::Right => {
+                    // Right float - adjust right edge of line
+                    let float_left = float.rect.origin.x;
+                    if float_left < adjusted_rect.origin.x + adjusted_rect.size.width {
+                        adjusted_rect.size.width = (float_left - adjusted_rect.origin.x).max(0.0);
+                    }
+                }
+                ExclusionSide::Both => {
+                    // Affects both sides - handle more complex cases
+                    let float_left = float.rect.origin.x;
+                    let float_right = float.rect.origin.x + float.rect.size.width;
+                    
+                    // If the float intersects the line
+                    if float_right > adjusted_rect.origin.x && 
+                       float_left < adjusted_rect.origin.x + adjusted_rect.size.width {
+                        
+                        // Calculate available space on both sides
+                        let left_space = float_left - adjusted_rect.origin.x;
+                        let right_space = adjusted_rect.origin.x + adjusted_rect.size.width - float_right;
+                        
+                        if left_space > right_space {
+                            // More space on the left
+                            adjusted_rect.size.width = left_space.max(0.0);
+                        } else {
+                            // More space on the right
                             adjusted_rect.origin.x = float_right;
-                            adjusted_rect.size.width = new_width.max(0.0);
+                            adjusted_rect.size.width = right_space.max(0.0);
                         }
                     }
-                    ExclusionSide::Right => {
-                        // Right float - adjust width
-                        let float_left = area.rect.origin.x;
-
-                        if float_left < adjusted_rect.origin.x + adjusted_rect.size.width {
-                            adjusted_rect.size.width =
-                                (float_left - adjusted_rect.origin.x).max(0.0);
-                        }
-                    }
-                    ExclusionSide::None => {}
                 }
             }
         }
+    }
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Adjusted rect for floats: original={:?}, adjusted={:?}", 
+                            rect, adjusted_rect).into(),
+            location: "adjust_rect_for_floats".to_string().into(),
+        });
     }
 
     adjusted_rect

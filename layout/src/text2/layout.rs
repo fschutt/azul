@@ -13,8 +13,9 @@ use std::collections::BTreeMap;
 
 use azul_core::{
     app_resources::{
-        LineCaretIntersection, RendererResources, RendererResourcesTrait, ShapedWord, ShapedWords,
-        Word, WordPosition, WordPositions, WordType, Words,
+        LineCaretIntersection, RendererResources, RendererResourcesTrait, 
+        ShapedWord, ShapedWords,
+        Word, WordPosition, WordPositions, WordType, Words, TextExclusionArea, ExclusionSide,
     },
     dom::{NodeData, NodeType},
     id_tree::{NodeDataContainer, NodeId},
@@ -30,7 +31,7 @@ use azul_css::*;
 
 use super::{
     shaping::{ParsedFont, ShapedTextBufferUnsized},
-    ExclusionSide, FontImpl, TextExclusionArea, TextLayoutOffsets,
+    FontImpl, TextLayoutOffsets,
 };
 use crate::solver2::{context::FormattingContext, intrinsic::IntrinsicSizes};
 
@@ -43,6 +44,7 @@ pub fn process_text_node_layout<T: RendererResourcesTrait>(
     renderer_resources: &T,
     positioned_rects: &mut azul_core::id_tree::NodeDataContainerRefMut<PositionedRectangle>,
     floats: &[TextExclusionArea],
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>
 ) -> LogicalSize {
     // Check if this is a text node
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -57,6 +59,7 @@ pub fn process_text_node_layout<T: RendererResourcesTrait>(
         formatting_context,
         available_rect,
         renderer_resources,
+        debug_messages,
     ) {
         Some(layout) => layout,
         None => return LogicalSize::zero(),
@@ -541,15 +544,15 @@ pub fn position_words(
     for (word_idx, word) in words.items.iter().enumerate() {
         // Check if we've exceeded the max vertical height
         if let Some(max_y) = text_layout_options.max_vertical_height.into_option() {
-            if line_caret_y > max_y {
+            if line_caret_y + (font_size_px + line_height_px) > max_y {
                 if let Some(messages) = debug_messages {
                     messages.push(LayoutDebugMessage {
                         message: format!(
-                            "Reached max vertical height ({}) - stopping layout",
-                            max_y
+                            "Reached max vertical height ({}) at position {} - stopping layout",
+                            max_y, line_caret_y
                         )
                         .into(),
-                        location: "position_words_enhanced".to_string().into(),
+                        location: "position_words".to_string().into(),
                     });
                 }
                 should_stop_layout = true;
@@ -708,6 +711,7 @@ pub fn position_words(
                                 &mut word_positions,
                                 &current_line_words,
                                 line_caret_x,
+                                debug_messages,
                             );
                             current_line_words.clear();
                         }
@@ -742,7 +746,7 @@ pub fn position_words(
 
                     // For RTL text, reposition words in current line
                     if is_rtl {
-                        position_rtl_line(&mut word_positions, &current_line_words, line_caret_x);
+                        position_rtl_line(&mut word_positions, &current_line_words, line_caret_x, debug_messages);
                         current_line_words.clear();
                     }
 
@@ -804,6 +808,7 @@ pub fn position_words(
                                     &mut word_positions,
                                     &current_line_words,
                                     line_caret_x,
+                                    debug_messages,
                                 );
                                 current_line_words.clear();
                             }
@@ -841,7 +846,7 @@ pub fn position_words(
 
         // For RTL text, reposition words in the last line
         if is_rtl && !current_line_words.is_empty() {
-            position_rtl_line(&mut word_positions, &current_line_words, line_caret_x);
+            position_rtl_line(&mut word_positions, &current_line_words, line_caret_x, debug_messages);
         }
     }
 
@@ -1099,9 +1104,18 @@ fn position_rtl_line(
     word_positions: &mut Vec<WordPosition>,
     line_words: &[(usize, usize, Word, f32)],
     line_width: f32,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
     if line_words.is_empty() {
         return;
+    }
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Positioning RTL line with {} words, line width: {}", 
+                            line_words.len(), line_width).into(),
+            location: "position_rtl_line".to_string().into(),
+        });
     }
 
     // Calculate total width of the line
@@ -1111,21 +1125,41 @@ fn position_rtl_line(
     let start_idx = word_positions.len() - line_words.len();
     let end_idx = word_positions.len();
 
-    // Calculate right edge position
+    // Calculate right edge position - crucial for RTL layout
     let right_edge = line_width;
+
+    // Log the calculations
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("RTL line: start_idx={}, end_idx={}, total_width={}, right_edge={}", 
+                            start_idx, end_idx, total_width, right_edge).into(),
+            location: "position_rtl_line".to_string().into(),
+        });
+    }
 
     // Reposition each word from right to left
     let mut current_right = right_edge;
-    for (i, (_, _, _, width)) in line_words.iter().enumerate() {
+
+    // For RTL, we need to reverse the order of words
+    for i in (0..line_words.len()).rev() {
+        let (_, _, _, width) = line_words[i];
         let pos_idx = start_idx + i;
+        
         if pos_idx < word_positions.len() {
-            let current_width = word_positions[pos_idx].size.width;
-
             // Update position (right-aligned)
-            word_positions[pos_idx].position.x = current_right - current_width;
-
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("RTL word {}: original pos={}, new right={}, width={}", 
+                                    i, word_positions[pos_idx].position.x, current_right, width).into(),
+                    location: "position_rtl_line".to_string().into(),
+                });
+            }
+            
+            // Set word position - for RTL we align to the right edge
+            word_positions[pos_idx].position.x = current_right - width;
+            
             // Move right edge for next word
-            current_right -= current_width;
+            current_right -= width;
         }
     }
 }
@@ -1541,12 +1575,37 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     formatting_context: &FormattingContext,
     available_rect: LogicalRect,
     renderer_resources: &T,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Option<InlineTextLayout> {
+    // Log entry point
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Beginning layout_text_node for node {}", node_id.index()).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
+
     // Get text content
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_text = match node_data.get_node_type() {
-        NodeType::Text(text_content) => text_content.as_str(),
-        _ => return None, // Not a text node
+        NodeType::Text(text_content) => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("Node {} has text: '{}'", node_id.index(), text_content.as_str()).into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            text_content.as_str()
+        },
+        _ => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("Node {} is not a text node", node_id.index()).into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            return None; // Not a text node
+        }
     };
 
     // Get CSS property cache and node state
@@ -1556,6 +1615,14 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     // Calculate padding and margins that affect text layout
     let padding = calculate_text_padding(node_id, styled_dom, available_rect);
     let margin = calculate_text_margin(node_id, styled_dom, available_rect);
+
+    // Log padding and margin values
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Padding: {:?}, Margin: {:?}", padding, margin).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
 
     // Adjust available rect for padding and margin
     let content_rect = LogicalRect::new(
@@ -1568,6 +1635,14 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
             available_rect.size.height - padding.top - padding.bottom - margin.top - margin.bottom,
         ),
     );
+
+    // Log adjusted content rect
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Content rect: {:?}", content_rect).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
 
     // Extract text styling properties
     let font_families =
@@ -1583,9 +1658,76 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
 
     // Get the font from the renderer resources
     let css_font_families_hash = StyleFontFamiliesHash::new(font_families.as_ref());
-    let css_font_family = renderer_resources.get_font_family(&css_font_families_hash)?;
-    let font_key = renderer_resources.get_font_key(&css_font_family)?;
-    let (font_ref, _) = renderer_resources.get_registered_font(&font_key)?;
+    
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Getting font family with hash: {:?}", css_font_families_hash).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
+    
+    let css_font_family = match renderer_resources.get_font_family(&css_font_families_hash) {
+        Some(f) => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: "Font family found".to_string().into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            f
+        },
+        None => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: "Font family not found".to_string().into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            return None;
+        }
+    };
+    
+    let font_key = match renderer_resources.get_font_key(css_font_family) {
+        Some(k) => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("Font key found: {:?}", k).into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            k
+        },
+        None => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: "Font key not found".to_string().into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            return None;
+        }
+    };
+    
+    let (font_ref, _) = match renderer_resources.get_registered_font(font_key) {
+        Some(fr) => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: "Font reference found".to_string().into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            fr
+        },
+        None => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: "Font reference not found".to_string().into(),
+                    location: "layout_text_node".to_string().into(),
+                });
+            }
+            return None;
+        }
+    };
 
     // Get the parsed font
     let font_data = font_ref.get_data();
@@ -1594,6 +1736,13 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     // Create resolved text layout options from CSS properties
     let text_layout_options =
         create_text_layout_options(node_id, node_data, styled_dom, content_rect, font_size);
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Created text layout options with font size: {}", text_layout_options.font_size_px).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
 
     // Process text with hyphenation
     // Using lazy_static pattern for the hyphenation cache
@@ -1606,24 +1755,46 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     };
 
     // Split text into words with possible hyphenation
-    let mut debug_messages = None;
     let words = split_text_into_words_with_hyphenation(
         node_text,
         &text_layout_options,
         hyphenation_cache,
-        &mut debug_messages,
+        debug_messages,
     );
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Split text into {} words", words.items.len()).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
 
     // Shape the words using the font
     let shaped_words = shape_words(&words, parsed_font);
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Shaped words contains {} items", shaped_words.items.len()).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
 
     // Position the words based on the layout options, considering floats
     let word_positions = position_words(
         &words,
         &shaped_words,
         &text_layout_options,
-        &mut debug_messages,
+        debug_messages,
     );
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Positioned {} words in {} lines", 
+                word_positions.word_positions.len(),
+                word_positions.line_breaks.len()).into(),
+            location: "layout_text_node".to_string().into(),
+        });
+    }
 
     // Convert word positions to line layout
     let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
@@ -1631,6 +1802,20 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     // Apply text alignment
     if text_align != StyleTextAlign::Left {
         inline_text_layout.align_children_horizontal(&content_rect.size, text_align);
+        
+        if let Some(messages) = debug_messages {
+            messages.push(LayoutDebugMessage {
+                message: format!("Applied text alignment: {:?}", text_align).into(),
+                location: "layout_text_node".to_string().into(),
+            });
+        }
+    }
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: "Text layout completed successfully".to_string().into(),
+            location: "layout_text_node".to_string().into(),
+        });
     }
 
     Some(inline_text_layout)
