@@ -219,7 +219,8 @@ mod text_layout_tests {
     use allsorts_subset_browser::tables::{HheaTable, MaxpTable};
     use azul_core::{
         app_resources::{
-            Au, DpiScaleFactor, FontInstanceKey, FontKey, FontMetrics, IdNamespace, ImageDescriptor, ImageRefHash, RendererResourcesTrait, ResolvedImage
+            Au, DpiScaleFactor, FontInstanceKey, FontKey, FontMetrics, IdNamespace,
+            ImageDescriptor, ImageRefHash, RendererResourcesTrait, ResolvedImage,
         },
         dom::{NodeData, NodeType},
         id_tree::NodeId,

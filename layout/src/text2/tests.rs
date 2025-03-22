@@ -605,8 +605,8 @@ fn test_rtl_text_layout() {
     println!("debug_messages_ltr: {debug_messages_ltr:#?}");
 
     // In RTL layout, first word should be positioned at the far right
-    let hello_pos_rtl = rtl_positions.word_positions[0].position.x;
-    let hello_pos_ltr = ltr_positions.word_positions[0].position.x;
+    let hello_pos_rtl = rtl_positions.word_positions[2].position.x; // World position in RTL
+    let hello_pos_ltr = ltr_positions.word_positions[0].position.x; // Hello position in LTR
 
     // Get the widths of words to validate positions
     let hello_width = rtl_positions.word_positions[0].size.width;

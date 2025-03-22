@@ -659,6 +659,20 @@ pub fn position_words(
                                     ),
                                 });
 
+                                // For RTL text, reposition words in the current line
+                                if is_rtl {
+                                    position_rtl_line(
+                                        &mut word_positions,
+                                        &current_line_words,
+                                        text_layout_options
+                                            .max_horizontal_width
+                                            .into_option()
+                                            .unwrap_or(line_caret_x),
+                                        debug_messages,
+                                    );
+                                    current_line_words.clear();
+                                }
+
                                 // Move to next line for second part of word
                                 last_line_start_idx = word_idx;
                                 line_caret_x = 0.0;
@@ -710,7 +724,10 @@ pub fn position_words(
                             position_rtl_line(
                                 &mut word_positions,
                                 &current_line_words,
-                                line_caret_x,
+                                text_layout_options
+                                    .max_horizontal_width
+                                    .into_option()
+                                    .unwrap_or(line_caret_x),
                                 debug_messages,
                             );
                             current_line_words.clear();
@@ -749,7 +766,10 @@ pub fn position_words(
                         position_rtl_line(
                             &mut word_positions,
                             &current_line_words,
-                            line_caret_x,
+                            text_layout_options
+                                .max_horizontal_width
+                                .into_option()
+                                .unwrap_or(line_caret_x),
                             debug_messages,
                         );
                         current_line_words.clear();
@@ -812,7 +832,10 @@ pub fn position_words(
                                 position_rtl_line(
                                     &mut word_positions,
                                     &current_line_words,
-                                    line_caret_x,
+                                    text_layout_options
+                                        .max_horizontal_width
+                                        .into_option()
+                                        .unwrap_or(line_caret_x),
                                     debug_messages,
                                 );
                                 current_line_words.clear();
@@ -854,7 +877,10 @@ pub fn position_words(
             position_rtl_line(
                 &mut word_positions,
                 &current_line_words,
-                line_caret_x,
+                text_layout_options
+                    .max_horizontal_width
+                    .into_option()
+                    .unwrap_or(line_caret_x),
                 debug_messages,
             );
         }
