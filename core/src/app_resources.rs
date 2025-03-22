@@ -603,6 +603,22 @@ pub struct ResolvedImage {
     pub descriptor: ImageDescriptor,
 }
 
+/// Represents an exclusion area for handling floats
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct TextExclusionArea {
+    pub rect: LogicalRect,
+    pub side: ExclusionSide,
+}
+
+/// Side of the exclusion area
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ExclusionSide {
+    Left,
+    Right,
+    Both,
+    None,
+}
+
 /// Trait for accessing font resources
 pub trait RendererResourcesTrait: core::fmt::Debug {
     /// Get a font family hash from a font families hash

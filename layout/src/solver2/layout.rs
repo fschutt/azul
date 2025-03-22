@@ -1600,13 +1600,20 @@ fn create_positioned_rectangle(
 }
 
 /// Adjust a rectangle to account for floats
-fn adjust_rect_for_floats(
+pub fn adjust_rect_for_floats(
     rect: LogicalRect,
-    floats: &[TextTextExclusionArea],
+    floats: &[&TextExclusionArea],
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalRect {
     if floats.is_empty() {
         return rect;
+    }
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!("Adjusting rect {:?} for {} floats", rect, floats.len()).into(),
+            location: "adjust_rect_for_floats".to_string().into(),
+        });
     }
 
     let mut adjusted_rect = rect;
@@ -1617,7 +1624,7 @@ fn adjust_rect_for_floats(
            float.rect.origin.y + float.rect.size.height >= rect.origin.y {
             
             match float.side {
-                ExclusionSide::Left => {
+                azul_core::app_resources::ExclusionSide::Left => {
                     // Left float - adjust left edge of line
                     let float_right = float.rect.origin.x + float.rect.size.width;
                     if float_right > adjusted_rect.origin.x {
@@ -1626,15 +1633,15 @@ fn adjust_rect_for_floats(
                         adjusted_rect.size.width = new_width.max(0.0);
                     }
                 }
-                ExclusionSide::Right => {
+                azul_core::app_resources::ExclusionSide::Right => {
                     // Right float - adjust right edge of line
                     let float_left = float.rect.origin.x;
                     if float_left < adjusted_rect.origin.x + adjusted_rect.size.width {
                         adjusted_rect.size.width = (float_left - adjusted_rect.origin.x).max(0.0);
                     }
                 }
-                ExclusionSide::Both => {
-                    // Affects both sides - handle more complex cases
+                azul_core::app_resources::ExclusionSide::Both => {
+                    // Affects both sides - handle as a "hole" in the content
                     let float_left = float.rect.origin.x;
                     let float_right = float.rect.origin.x + float.rect.size.width;
                     
@@ -1656,6 +1663,9 @@ fn adjust_rect_for_floats(
                         }
                     }
                 }
+                azul_core::app_resources::ExclusionSide::None => {
+                    // No effect on the line
+                }
             }
         }
     }
@@ -1669,6 +1679,25 @@ fn adjust_rect_for_floats(
     }
 
     adjusted_rect
+}
+
+/// Collects all relevant float exclusions affecting a specific vertical region
+pub fn get_relevant_floats<'a>(
+    exclusion_areas: &'a [TextExclusionArea],
+    vertical_range: (f32, f32),
+) -> Vec<&'a TextExclusionArea> {
+    let (min_y, max_y) = vertical_range;
+    
+    exclusion_areas
+        .iter()
+        .filter(|area| {
+            let area_top = area.rect.origin.y;
+            let area_bottom = area.rect.origin.y + area.rect.size.height;
+            
+            // Check if the float overlaps with the vertical range
+            (area_top <= max_y && area_bottom >= min_y)
+        })
+        .collect()
 }
 
 /// Get text alignment property

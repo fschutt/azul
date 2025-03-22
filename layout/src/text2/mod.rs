@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use azul_core::{
     app_resources::{ShapedWords, WordPosition, Words},
     ui_solver::{
-        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, ResolvedTextLayoutOptions,
+        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, LayoutDebugMessage, ResolvedTextLayoutOptions
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -19,6 +19,8 @@ pub mod script;
 pub mod shaping;
 #[cfg(test)]
 pub mod tests;
+
+use crate::solver2::layout::{adjust_rect_for_floats, get_relevant_floats};
 
 use self::layout::{position_words, word_positions_to_inline_text_layout};
 use azul_core::app_resources::{ExclusionSide, TextExclusionArea};
@@ -76,15 +78,15 @@ pub fn layout_text_with_floats(
     shaped_words: &ShapedWords,
     text_layout_options: &ResolvedTextLayoutOptions,
     exclusion_areas: &[TextExclusionArea],
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> InlineTextLayout {
     // If no exclusion areas, use standard text layout
     if exclusion_areas.is_empty() {
-        let mut debug_messages = None;
         let word_positions = position_words(
             words,
             shaped_words,
             text_layout_options,
-            &mut debug_messages,
+            debug_messages,
         );
         let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
 
@@ -110,9 +112,8 @@ pub fn layout_text_with_floats(
         .into();
 
     // Perform text layout with the modified options
-    let mut debug_messages = None;
     let word_positions =
-        position_words(words, shaped_words, &modified_options, &mut debug_messages);
+        position_words(words, shaped_words, &modified_options, debug_messages);
 
     // Create line boxes
     let mut line_boxes = Vec::new();
@@ -125,65 +126,18 @@ pub fn layout_text_with_floats(
         let line_y = line.bounds.origin.y;
         let line_height = line.bounds.size.height;
 
-        let intersecting_exclusions: Vec<&TextExclusionArea> = exclusion_areas
-            .iter()
-            .filter(|area| {
-                let area_y = area.rect.origin.y;
-                let area_height = area.rect.size.height;
+        let relevant_floats = get_relevant_floats(
+            exclusion_areas, 
+            (line_y, line_y + line_height)
+        );
 
-                // Check if this exclusion area intersects the line vertically
-                (area_y <= line_y && area_y + area_height > line_y)
-                    || (area_y >= line_y && area_y < line_y + line_height)
-            })
-            .collect();
-
-        if !intersecting_exclusions.is_empty() {
+        if !relevant_floats.is_empty() {
             // Adjust line width based on exclusions
-            for exclusion in &intersecting_exclusions {
-                match exclusion.side {
-                    ExclusionSide::Left => {
-                        // Left float - adjust left edge of line
-                        let float_right = exclusion.rect.origin.x + exclusion.rect.size.width;
-                        if float_right > adjusted_line.bounds.origin.x {
-                            let new_width = adjusted_line.bounds.size.width
-                                - (float_right - adjusted_line.bounds.origin.x);
-                            adjusted_line.bounds.origin.x = float_right;
-                            adjusted_line.bounds.size.width = new_width.max(0.0);
-                        }
-                    }
-                    ExclusionSide::Right => {
-                        // Right float - adjust right edge of line
-                        let float_left = exclusion.rect.origin.x;
-                        if float_left
-                            < adjusted_line.bounds.origin.x + adjusted_line.bounds.size.width
-                        {
-                            adjusted_line.bounds.size.width =
-                                (float_left - adjusted_line.bounds.origin.x).max(0.0);
-                        }
-                    }
-                    ExclusionSide::Both => {
-                        // Adjust both sides - may need to split the line
-                        // For simplicity, we'll just adjust both sides
-                        let float_left = exclusion.rect.origin.x;
-                        let float_right = exclusion.rect.origin.x + exclusion.rect.size.width;
-
-                        // If the float splits the line, choose the side with more space
-                        let left_space = float_left - adjusted_line.bounds.origin.x;
-                        let right_space = adjusted_line.bounds.origin.x
-                            + adjusted_line.bounds.size.width
-                            - float_right;
-
-                        if left_space > right_space {
-                            // More space on the left
-                            adjusted_line.bounds.size.width = left_space.max(0.0);
-                        } else {
-                            // More space on the right
-                            adjusted_line.bounds.origin.x = float_right;
-                            adjusted_line.bounds.size.width = right_space.max(0.0);
-                        }
-                    }
-                }
-            }
+            adjusted_line.bounds = adjust_rect_for_floats(
+                adjusted_line.bounds,
+                &relevant_floats,
+                debug_messages
+            );
         }
 
         line_boxes.push(adjusted_line);
@@ -194,7 +148,7 @@ pub fn layout_text_with_floats(
         if text_align != StyleTextAlign::Left {
             for line in &mut line_boxes {
                 // For each line, adjust word positions according to line bounds and alignment
-                adjust_line_alignment(line, &word_positions.word_positions, text_align);
+                adjust_line_alignment(line, &word_positions.word_positions, text_align, debug_messages);
             }
         }
     }
@@ -211,7 +165,8 @@ fn adjust_line_alignment(
     line: &mut InlineTextLine,
     word_positions: &[WordPosition],
     text_align: StyleTextAlign,
-) {
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> LogicalRect {
     // Only handle words that are in this line
     let line_words: Vec<&WordPosition> = word_positions
         .iter()
@@ -220,7 +175,7 @@ fn adjust_line_alignment(
         .collect();
 
     if line_words.is_empty() {
-        return;
+        return line.bounds;
     }
 
     // Calculate the current line width based on the rightmost word
@@ -238,7 +193,7 @@ fn adjust_line_alignment(
 
     // Don't adjust if there's no room
     if line_width >= available_width {
-        return;
+        return line.bounds;
     }
 
     // Calculate the offset based on alignment
@@ -258,6 +213,8 @@ fn adjust_line_alignment(
         // Update the line's horizontal position
         line.bounds.origin.x += offset;
     }
+    
+    line.bounds
 }
 
 #[cfg(test)]
@@ -589,6 +546,7 @@ mod text_layout_tests {
             &shaped_words,
             &text_layout_options,
             &[], // No floats
+            &mut debug_messages,
         );
     
         // Now get text layout with float
@@ -597,6 +555,7 @@ mod text_layout_tests {
             &shaped_words,
             &text_layout_options,
             &[float_exclusion],
+            &mut debug_messages,
         );
     
         // Verify float layout
