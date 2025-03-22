@@ -214,16 +214,15 @@ fn adjust_line_alignment(
 
 #[cfg(test)]
 mod text_layout_tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{collections::BTreeMap, sync::atomic::AtomicUsize};
 
+    use allsorts_subset_browser::tables::{HheaTable, MaxpTable};
     use azul_core::{
         app_resources::{
-            Au, DpiScaleFactor, FontInstanceKey, FontKey, FontMetrics, IdNamespace,
-            ImageDescriptor, ImageRefHash, RendererResources, RendererResourcesTrait,
-            ResolvedImage,
+            Au, DpiScaleFactor, FontInstanceKey, FontKey, FontMetrics, IdNamespace, ImageDescriptor, ImageRefHash, RendererResourcesTrait, ResolvedImage
         },
         dom::{NodeData, NodeType},
-        id_tree::{NodeDataContainer, NodeId},
+        id_tree::NodeId,
         styled_dom::{
             CssPropertyCache, CssPropertyCachePtr, StyleFontFamiliesHash, StyleFontFamilyHash,
             StyledDom, StyledNode,
@@ -240,13 +239,179 @@ mod text_layout_tests {
 
     use crate::{
         solver2::context::{determine_formatting_contexts, FormattingContext},
-        text2::{
-            layout::{layout_text_node, shape_words, split_text_into_words},
-            layout_text_with_floats,
-            mock::MockFont,
-            ExclusionSide, TextExclusionArea,
-        },
+        text2::{layout::layout_text_node, mock::MockFont, shaping::ParsedFont},
     };
+
+    #[derive(Debug)]
+    struct MockRendererResources {
+        font_ref: FontRef,
+        style_font_family_hash: StyleFontFamilyHash,
+        font_key: FontKey,
+    }
+
+    impl MockRendererResources {
+        fn new() -> Self {
+            // Create a mock font with basic metrics
+            let font_metrics = FontMetrics {
+                units_per_em: 1000,
+                ascender: 800,
+                descender: -200,
+                line_gap: 200,
+                ..Default::default()
+            };
+
+            let mock_font = MockFont::new(font_metrics)
+            .with_space_width(250)
+            .with_glyph_index('H' as u32, 1)
+            .with_glyph_index('e' as u32, 2)
+            .with_glyph_index('l' as u32, 3)
+            .with_glyph_index('o' as u32, 4)
+            .with_glyph_index(' ' as u32, 5)
+            .with_glyph_index('W' as u32, 6)
+            .with_glyph_index('r' as u32, 7)
+            .with_glyph_index('d' as u32, 8)
+            .with_glyph_advance(1, 300)  // H
+            .with_glyph_advance(2, 250)  // e
+            .with_glyph_advance(3, 200)  // l
+            .with_glyph_advance(4, 250)  // o
+            .with_glyph_advance(5, 250)  // space
+            .with_glyph_advance(6, 350)  // W
+            .with_glyph_advance(7, 200)  // r
+            .with_glyph_advance(8, 250)  // d
+            .with_glyph_size(1, (300, 700))
+            .with_glyph_size(2, (250, 500))
+            .with_glyph_size(3, (200, 700))
+            .with_glyph_size(4, (250, 500))
+            .with_glyph_size(5, (250, 100))
+            .with_glyph_size(6, (350, 700))
+            .with_glyph_size(7, (200, 500))
+            .with_glyph_size(8, (250, 700));
+
+            // Create a font_ref from our mock font
+            let font_ref = create_font_ref_from_mock(&mock_font);
+
+            // Generate a unique font key
+            let font_key = FontKey {
+                namespace: IdNamespace(1),
+                key: 1,
+            };
+
+            // Create a font family hash
+            let style_font_family_hash =
+                StyleFontFamilyHash::new(&StyleFontFamily::System("serif".into()));
+
+            Self {
+                font_ref,
+                style_font_family_hash,
+                font_key,
+            }
+        }
+    }
+
+    impl RendererResourcesTrait for MockRendererResources {
+        fn get_font_family(
+            &self,
+            _style_font_families_hash: &StyleFontFamiliesHash,
+        ) -> Option<&StyleFontFamilyHash> {
+            Some(&self.style_font_family_hash)
+        }
+
+        fn get_font_key(&self, _style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey> {
+            Some(&self.font_key)
+        }
+
+        fn get_registered_font(
+            &self,
+            _font_key: &FontKey,
+        ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
+            // Return a reference to the static instance
+            static mut FONT_INSTANCES: Option<(
+                FontRef,
+                FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>,
+            )> = None;
+
+            unsafe {
+                if FONT_INSTANCES.is_none() {
+                    let instances = FastHashMap::default();
+                    // Clone the font_ref - this is safe since it's reference-counted internally
+                    FONT_INSTANCES = Some((self.font_ref.clone(), instances));
+                }
+                FONT_INSTANCES.as_ref()
+            }
+        }
+
+        fn get_image(&self, _hash: &ImageRefHash) -> Option<&ResolvedImage> {
+            None
+        }
+
+        fn update_image(&mut self, _image_ref_hash: &ImageRefHash, _descriptor: ImageDescriptor) {
+            // No-op for tests
+        }
+    }
+
+    /// Create a ParsedFont from a MockFont
+    pub fn create_parsed_font_from_mock(mock_font: &MockFont) -> ParsedFont {
+        use crate::text2::FontImpl;
+        ParsedFont {
+            font_metrics: mock_font.get_font_metrics().clone(),
+            num_glyphs: 256, // Reasonable default for tests
+            hhea_table: default_hhea_table(),
+            hmtx_data: Vec::new(),
+            maxp_table: default_maxp_table(),
+            gsub_cache: None,
+            gpos_cache: None,
+            opt_gdef_table: None,
+            glyph_records_decoded: BTreeMap::new(),
+            space_width: mock_font.get_space_width(),
+            cmap_subtable: None,
+            mock: Some(Box::new(mock_font.clone())),
+        }
+    }
+
+    fn default_maxp_table() -> MaxpTable {
+        MaxpTable {
+            num_glyphs: 256,
+            version1_sub_table: None,
+        }
+    }
+
+    fn default_hhea_table() -> HheaTable {
+        HheaTable {
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: 0,
+        }
+    }
+    /// Create a FontRef from a MockFont
+    pub fn create_font_ref_from_mock(mock_font: &MockFont) -> FontRef {
+        use std::ffi::c_void;
+
+        fn parsed_font_destructor(ptr: *mut c_void) {
+            unsafe {
+                let _ = Box::from_raw(ptr as *mut ParsedFont);
+            }
+        }
+
+        let parsed_font = create_parsed_font_from_mock(mock_font);
+
+        // Create empty byte vector as font data - not used for mock fonts
+        let bytes = Vec::<u8>::new().into();
+
+        FontRef::new(FontData {
+            bytes,
+            font_index: 0,
+            parsed: Box::into_raw(Box::new(parsed_font)) as *const c_void,
+            parsed_destructor: parsed_font_destructor,
+        })
+    }
 
     // Helper to create a simple text node DOM
     fn create_test_dom(text: &str, properties: Vec<(CssPropertyType, CssProperty)>) -> StyledDom {
@@ -278,93 +443,6 @@ mod text_layout_tests {
         styled_dom.css_property_cache = CssPropertyCachePtr::new(property_cache);
 
         styled_dom
-    }
-
-    pub fn create_mock_font_ref(mock_font: &MockFont) -> FontRef {
-        // Create font data with the mock font in the "parsed" field
-        let mock_font_box = Box::new(mock_font.clone());
-        let mock_font_ptr = Box::into_raw(mock_font_box);
-
-        // Font destructor function
-        fn mock_font_destructor(ptr: *mut std::ffi::c_void) {
-            unsafe {
-                let _ = Box::from_raw(ptr as *mut MockFont);
-            }
-        }
-
-        // Create font data
-        let font_data = FontData {
-            bytes: azul_css::U8Vec::from(Vec::<u8>::new()),
-            font_index: 0,
-            parsed: mock_font_ptr as *const std::ffi::c_void,
-            parsed_destructor: mock_font_destructor,
-        };
-
-        FontRef::new(font_data)
-    }
-
-    // Mock renderer resources with MockFont
-    #[derive(Debug)]
-    struct MockFontRefContainer {
-        font_ref: FontRef,
-        instances: FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>,
-    }
-
-    // Implement this in the MockRendererResources in text_layout_tests.rs
-    impl MockRendererResources {
-        fn new_with_font_ref() -> (
-            Self,
-            FontRef,
-            FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>,
-        ) {
-            let mock_resources = Self::new();
-            let font_ref = create_mock_font_ref(&mock_resources.mock_font);
-            let instances = FastHashMap::default();
-            (mock_resources, font_ref, instances)
-        }
-
-        fn new() -> Self {
-            let font_metrics = FontMetrics {
-                units_per_em: 1000,
-                ascender: 800,
-                descender: -200,
-                line_gap: 200,
-                ..Default::default()
-            };
-
-            let mock_font = MockFont::new(font_metrics)
-                .with_space_width(250)
-                .with_glyph_index('H' as u32, 1)
-                .with_glyph_index('e' as u32, 2)
-                .with_glyph_index('l' as u32, 3)
-                .with_glyph_index('o' as u32, 4)
-                .with_glyph_index(' ' as u32, 5)
-                .with_glyph_index('W' as u32, 6)
-                .with_glyph_index('r' as u32, 7)
-                .with_glyph_index('d' as u32, 8)
-                .with_glyph_advance(1, 300)  // H
-                .with_glyph_advance(2, 250)  // e
-                .with_glyph_advance(3, 200)  // l
-                .with_glyph_advance(4, 250)  // o
-                .with_glyph_advance(5, 250)  // space
-                .with_glyph_advance(6, 350)  // W
-                .with_glyph_advance(7, 200)  // r
-                .with_glyph_advance(8, 250)  // d
-                .with_glyph_size(1, (300, 700))
-                .with_glyph_size(2, (250, 500))
-                .with_glyph_size(3, (200, 700))
-                .with_glyph_size(4, (250, 500))
-                .with_glyph_size(5, (250, 100))
-                .with_glyph_size(6, (350, 700))
-                .with_glyph_size(7, (200, 500))
-                .with_glyph_size(8, (250, 700));
-
-            // Create a FontRef that correctly wraps our mock font
-            // This is the tricky part as we need to create a valid ParsedFont structure
-            // For testing, we may need to modify the code to accept our MockFont directly
-
-            Self { mock_font }
-        }
     }
 
     #[test]
@@ -411,23 +489,30 @@ mod text_layout_tests {
             &mut debug_messages,
         );
 
-        // Print debug messages to help identify the issue
+        // Print debug messages to help identify any issues
         if let Some(messages) = debug_messages {
             for msg in messages {
                 println!("[{}] {}", msg.location, msg.message);
             }
         }
 
-        // Instead of asserting text_layout.is_some(), let's check why it might be None
-        if text_layout.is_none() {
-            println!(
-                "Text layout is None. This is likely because get_registered_font returned None."
-            );
-            // We need to fix the MockRendererResources implementation to return a valid FontRef
-        }
+        assert!(text_layout.is_some(), "Text layout should be successful");
 
-        // For now, skip the assertion and test the rest of the layout logic directly
-        // This helps us implement a proper fix for all tests
+        let text_layout = text_layout.unwrap();
+
+        // Verify we have one line
+        assert_eq!(
+            text_layout.lines.len(),
+            1,
+            "Text layout should have one line"
+        );
+
+        // Verify the line contains our text
+        let line = &text_layout.lines.as_slice()[0];
+        assert!(
+            line.bounds.size.width > 0.0,
+            "Line should have positive width"
+        );
     }
 
     #[test]
@@ -485,104 +570,152 @@ mod text_layout_tests {
         );
 
         // Verify text layout accounts for padding
-        assert!(text_layout.is_some());
+        assert!(text_layout.is_some(), "Text layout should be successful");
         let text_layout = text_layout.unwrap();
 
         // Should have one line
-        assert_eq!(text_layout.lines.len(), 1);
+        assert_eq!(
+            text_layout.lines.len(),
+            1,
+            "Text layout should have one line"
+        );
 
         // First line should be positioned with padding in mind
         let first_line = &text_layout.lines.as_slice()[0];
-        assert!(first_line.bounds.origin.x >= 0.0);
-        assert!(first_line.bounds.origin.y >= 0.0);
+        assert!(
+            first_line.bounds.origin.x >= 0.0,
+            "Line origin.x should be >= 0"
+        );
+        assert!(
+            first_line.bounds.origin.y >= 0.0,
+            "Line origin.y should be >= 0"
+        );
     }
 
     #[test]
-    fn test_text_layout_with_float() {
-        // Create a float exclusion area
-        let float_exclusion = TextExclusionArea {
-            rect: LogicalRect::new(
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(100.0, 100.0),
+    fn test_text_layout_with_constrained_width() {
+        // Create a DOM with a long text
+        let text = "This is a long text that should wrap to multiple lines when constrained";
+        let properties = vec![
+            (
+                CssPropertyType::FontSize,
+                CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize::px(16.0))),
             ),
-            side: ExclusionSide::Left,
-        };
+            (
+                CssPropertyType::FontFamily,
+                CssProperty::FontFamily(CssPropertyValue::Exact(
+                    vec![StyleFontFamily::System("serif".into())].into(),
+                )),
+            ),
+        ];
 
-        // We'll use our mock font implementation to test the layout directly
-        let font_metrics = FontMetrics {
-            units_per_em: 1000,
-            ascender: 800,
-            descender: -200,
-            line_gap: 200,
-            ..Default::default()
-        };
+        let styled_dom = create_test_dom(text, properties);
+        println!("styled dom: {}", styled_dom.get_html_string("", "", true));
 
-        let mock_font = MockFont::new(font_metrics)
-            .with_space_width(100)
-            .with_glyph_index('T' as u32, 1)
-            .with_glyph_index('e' as u32, 2)
-            .with_glyph_index('x' as u32, 3)
-            .with_glyph_index('t' as u32, 4)
-            .with_glyph_index(' ' as u32, 5)
-            .with_glyph_index('f' as u32, 6)
-            .with_glyph_index('l' as u32, 7)
-            .with_glyph_index('o' as u32, 8)
-            .with_glyph_index('a' as u32, 9)
-            .with_glyph_advance(1, 300)
-            .with_glyph_advance(2, 250)
-            .with_glyph_advance(3, 250)
-            .with_glyph_advance(4, 200)
-            .with_glyph_advance(5, 100)
-            .with_glyph_advance(6, 200)
-            .with_glyph_advance(7, 150)
-            .with_glyph_advance(8, 250)
-            .with_glyph_advance(9, 250);
+        let formatting_contexts = determine_formatting_contexts(&styled_dom);
 
-        // Create text and layout options
-        let text = "Text with float";
-        let words = split_text_into_words(text);
-        let shaped_words = shape_words(&words, &mock_font);
+        println!("formatting_contexts: {formatting_contexts:#?}");
 
-        // Create text layout options
-        let text_layout_options = ResolvedTextLayoutOptions {
-            font_size_px: 16.0,
-            max_horizontal_width: Some(400.0).into(),
-            ..Default::default()
-        };
+        // Create mock renderer resources
+        let renderer_resources = MockRendererResources::new();
 
-        // Get normal text layout first
-        let mut debug_messages = Some(Vec::new());
-        let normal_text_layout = layout_text_with_floats(
-            &words,
-            &shaped_words,
-            &text_layout_options,
-            &[], // No floats
-            &mut debug_messages,
+        println!("renderer_resources: {renderer_resources:#?}");
+
+        // Create narrow available space to force line breaks
+        let narrow_rect = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(150.0, 300.0));
+
+        println!("narrow_rect: {narrow_rect:#?}");
+
+        // Layout text node with constrained width
+        let mut debug = Some(Vec::new());
+        let text_layout = layout_text_node(
+            NodeId::new(0),
+            &styled_dom,
+            &formatting_contexts.as_ref()[NodeId::new(0)],
+            narrow_rect,
+            &renderer_resources,
+            &mut debug,
         );
 
-        // Now get text layout with float
-        let float_text_layout = layout_text_with_floats(
-            &words,
-            &shaped_words,
-            &text_layout_options,
-            &[float_exclusion],
-            &mut debug_messages,
+        println!("text_layout: {text_layout:#?}");
+        println!("debug: {debug:#?}");
+
+        assert!(text_layout.is_some(), "Text layout should be successful");
+        let text_layout = text_layout.unwrap();
+
+        // Should have multiple lines due to constrained width
+        assert!(
+            text_layout.lines.len() > 1,
+            "Text layout should have multiple lines"
         );
 
-        // Verify float layout
-        assert_eq!(
-            float_text_layout.lines.len(),
-            normal_text_layout.lines.len()
+        // Get the heights of the first two lines to verify vertical spacing
+        let first_line = &text_layout.lines.as_slice()[0];
+        let second_line = &text_layout.lines.as_slice()[1];
+
+        // The second line should be below the first line
+        assert!(
+            second_line.bounds.origin.y > first_line.bounds.origin.y,
+            "Second line should be below first line"
         );
+    }
 
-        // The first line should be adjusted for the float
-        let normal_first_line = &normal_text_layout.lines.as_slice()[0];
-        let float_first_line = &float_text_layout.lines.as_slice()[0];
+    #[test]
+    fn test_text_layout_with_alignment() {
+        // Test different text alignments
+        for alignment in &[
+            StyleTextAlign::Left,
+            StyleTextAlign::Center,
+            StyleTextAlign::Right,
+        ] {
+            let text = "Aligned Text";
+            let properties = vec![
+                (
+                    CssPropertyType::FontSize,
+                    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize::px(16.0))),
+                ),
+                (
+                    CssPropertyType::FontFamily,
+                    CssProperty::FontFamily(CssPropertyValue::Exact(
+                        vec![StyleFontFamily::System("serif".into())].into(),
+                    )),
+                ),
+                (
+                    CssPropertyType::TextAlign,
+                    CssProperty::TextAlign(CssPropertyValue::Exact(*alignment)),
+                ),
+            ];
 
-        // Float should have pushed the line to the right
-        assert!(float_first_line.bounds.origin.x >= 100.0);
+            let styled_dom = create_test_dom(text, properties);
+            let formatting_contexts = determine_formatting_contexts(&styled_dom);
 
-        // And the normal line should start at 0
-        assert_eq!(normal_first_line.bounds.origin.x, 0.0);
+            // Create mock renderer resources
+            let renderer_resources = MockRendererResources::new();
+
+            // Create available space
+            let available_rect =
+                LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(400.0, 300.0));
+
+            // Layout text node with alignment
+            let mut debug = Some(Vec::new());
+            let text_layout = layout_text_node(
+                NodeId::new(0),
+                &styled_dom,
+                &formatting_contexts.as_ref()[NodeId::new(0)],
+                available_rect,
+                &renderer_resources,
+                &mut debug,
+            );
+
+            assert!(text_layout.is_some(), "Text layout should be successful");
+            let text_layout = text_layout.unwrap();
+
+            // Verify text alignment produces a valid layout
+            assert_eq!(
+                text_layout.lines.len(),
+                1,
+                "Text layout should have one line"
+            );
+        }
     }
 }

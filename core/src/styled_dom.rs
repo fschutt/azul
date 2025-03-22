@@ -868,7 +868,7 @@ impl ::core::fmt::Debug for StyleFontFamilyHash {
 }
 
 impl StyleFontFamilyHash {
-    pub(crate) fn new(family: &StyleFontFamily) -> Self {
+    pub fn new(family: &StyleFontFamily) -> Self {
         use highway::{HighwayHash, HighwayHasher, Key};
         let mut hasher = HighwayHasher::new(Key([0; 4]));
         family.hash(&mut hasher);

@@ -525,6 +525,8 @@ fn test_rtl_text_layout() {
     let mut words = split_text_into_words(text);
     words.is_rtl = true; // Force RTL
 
+    println!("words: {words:#?}");
+
     let font_metrics = FontMetrics {
         units_per_em: 1000,
         ascender: 800,
@@ -532,6 +534,8 @@ fn test_rtl_text_layout() {
         line_gap: 200,
         ..Default::default()
     };
+
+    println!("font_metrics: {font_metrics:#?}");
 
     // Create a mock font
     let mock_font = MockFont::new(font_metrics)
@@ -554,6 +558,8 @@ fn test_rtl_text_layout() {
         .with_glyph_advance(8, 250);
 
     let shaped_words = shape_words(&words, &mock_font);
+
+    println!("shaped_words: {shaped_words:#?}");
 
     // Create a layout context with a fixed width to properly test RTL layout
     let container_width = 2000.0; // Wide enough to hold all text
@@ -582,6 +588,9 @@ fn test_rtl_text_layout() {
     let rtl_positions =
         position_words(&words, &shaped_words, &rtl_options, &mut debug_messages_rtl);
 
+    println!("rtl_positions: {rtl_positions:#?}");
+    println!("debug_messages_rtl: {debug_messages_rtl:#?}");
+
     // We need to create a new words object for LTR to avoid issues with the is_rtl flag
     let mut ltr_words = split_text_into_words(text);
     ltr_words.is_rtl = false;
@@ -591,6 +600,9 @@ fn test_rtl_text_layout() {
         &ltr_options,
         &mut debug_messages_ltr,
     );
+
+    println!("ltr_positions: {ltr_positions:#?}");
+    println!("debug_messages_ltr: {debug_messages_ltr:#?}");
 
     // In RTL layout, first word should be positioned at the far right
     let hello_pos_rtl = rtl_positions.word_positions[0].position.x;
