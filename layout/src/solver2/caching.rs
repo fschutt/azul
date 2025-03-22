@@ -68,9 +68,42 @@ pub fn propagate_layout_changes(
 ) -> BTreeSet<NodeId> {
     let mut all_affected_nodes = affected_nodes.clone();
 
+    // Propagate to descendants
+    let mut descendants = BTreeSet::new();
+    for node_id in &all_affected_nodes {
+        // Get all children recursively
+        styled_dom
+            .get_subtree(*node_id)
+            .into_iter()
+            .for_each(|child_id| {
+                if let Some(messages) = debug_messages {
+                    messages.push(LayoutDebugMessage {
+                        message: format!(
+                            "Layout changes: inserting node {child_id:?} to be affected as \
+                             descendant of node {child_id:?}",
+                        )
+                        .into(),
+                        location: "propagate_layout_changes".to_string().into(),
+                    });
+                }
+
+                descendants.insert(child_id);
+            });
+    }
+    all_affected_nodes.extend(descendants);
+
     // Propagate to ancestors
     for node_id in affected_nodes {
         let mut current_id = Some(*node_id);
+
+        if let Some(messages) = debug_messages {
+            messages.push(LayoutDebugMessage {
+                message: format!("Propagating layout changes to all parents of {current_id:?}",)
+                    .into(),
+                location: "propagate_layout_changes".to_string().into(),
+            });
+        }
+
         while let Some(id) = current_id {
             if let Some(parent_id) = styled_dom.node_hierarchy.as_container()[id].parent_id() {
                 all_affected_nodes.insert(parent_id);
@@ -80,19 +113,6 @@ pub fn propagate_layout_changes(
             }
         }
     }
-
-    // Propagate to descendants
-    let mut descendants = BTreeSet::new();
-    for node_id in &all_affected_nodes {
-        // Get all children recursively
-        styled_dom
-            .get_subtree(*node_id)
-            .into_iter()
-            .for_each(|child_id| {
-                descendants.insert(child_id);
-            });
-    }
-    all_affected_nodes.extend(descendants);
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
@@ -466,8 +486,8 @@ mod tests {
         let all_affected =
             propagate_layout_changes(&styled_dom, &affected_nodes, &mut debug_messages);
 
-        println!("all_affected: {all_affected:?}");
-        println!("debug_messages: {:?}", debug_messages.unwrap_or_default());
+        println!("all_affected: {all_affected:#?}");
+        println!("debug_messages: {:#?}", debug_messages.unwrap_or_default());
 
         // Node 0 (parent) should be affected
         assert!(all_affected.contains(&NodeId::ZERO));
@@ -483,8 +503,15 @@ mod tests {
         let mut affected_nodes = BTreeSet::new();
         affected_nodes.insert(NodeId::new(2));
 
+        let mut debug_messages = Some(Vec::new());
         let all_affected =
             propagate_layout_changes(&styled_dom, &affected_nodes, &mut debug_messages);
+
+        println!("all_affected (2): {all_affected:#?}");
+        println!(
+            "debug_messages (2): {:#?}",
+            debug_messages.unwrap_or_default()
+        );
 
         // Node 0 (parent) should be affected
         assert!(all_affected.contains(&NodeId::ZERO));
