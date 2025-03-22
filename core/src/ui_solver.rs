@@ -70,6 +70,22 @@ pub struct InlineTextLayout {
     pub content_size: LogicalSize,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct InlineTextLayoutRustInternal {
+    pub lines: Vec<InlineTextLine>,
+    pub content_size: LogicalSize,
+}
+
+impl From<InlineTextLayoutRustInternal> for InlineTextLayout {
+    fn from(s: InlineTextLayoutRustInternal) -> Self {
+        Self {
+            lines: s.lines.into(),
+            content_size: s.content_size,
+        }
+    }
+}
+
 impl_vec!(
     InlineTextLayout,
     InlineTextLayoutVec,
