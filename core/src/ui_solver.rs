@@ -11,12 +11,13 @@ use core::{
 use azul_css::{
     AzString, ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth,
     LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom,
-    LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutLeft,
-    LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutOverflow,
-    LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPoint,
-    LayoutPosition, LayoutRect, LayoutRectVec, LayoutRight, LayoutSize, LayoutTop, OptionF32,
-    OptionStyleTextAlign, PixelValue, StyleBoxShadow, StyleFontSize, StyleTextAlign,
-    StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
+    LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat, LayoutHeight,
+    LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
+    LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
+    LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+    LayoutPoint, LayoutPosition, LayoutRect, LayoutRectVec, LayoutRight, LayoutSize, LayoutTop,
+    LayoutWidth, OptionF32, OptionStyleTextAlign, PixelValue, StyleBoxShadow, StyleFontSize,
+    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -622,86 +623,224 @@ pub struct HorizontalSolvedPosition(pub f32);
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct VerticalSolvedPosition(pub f32);
 
+/// Represents the CSS formatting context for an element
+#[derive(Debug, Clone, PartialEq)]
+pub enum FormattingContext {
+    /// Block-level formatting context
+    Block {
+        /// Whether this element establishes a new block formatting context
+        establishes_new_context: bool,
+    },
+    /// Inline-level formatting context
+    Inline,
+    /// Inline-block (participates in an IFC but creates a BFC)
+    InlineBlock,
+    /// Flex formatting context
+    Flex,
+    /// Float (left or right)
+    Float(LayoutFloat),
+    /// Absolutely positioned (out of flow)
+    OutOfFlow(LayoutPosition),
+    /// No formatting context (display: none)
+    None,
+}
+
+/// Represents the intrinsic sizing information for an element
+#[derive(Debug, Clone, Default)]
+pub struct IntrinsicSizes {
+    pub min_content_width: f32,
+    pub max_content_width: f32,
+    pub preferred_width: Option<f32>,
+    pub min_content_height: f32,
+    pub max_content_height: f32,
+    pub preferred_height: Option<f32>,
+}
+
+impl IntrinsicSizes {
+    /// Creates a new IntrinsicSizes with all values set to zero
+    pub fn zero() -> Self {
+        Self::default()
+    }
+
+    /// Creates a new IntrinsicSizes with specific width values
+    pub fn with_widths(min_width: f32, max_width: f32, preferred_width: Option<f32>) -> Self {
+        Self {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            preferred_width,
+            ..Self::default()
+        }
+    }
+
+    /// Creates a new IntrinsicSizes with specific height values
+    pub fn with_heights(min_height: f32, max_height: f32, preferred_height: Option<f32>) -> Self {
+        Self {
+            min_content_height: min_height,
+            max_content_height: max_height,
+            preferred_height,
+            ..Self::default()
+        }
+    }
+
+    /// Creates a new IntrinsicSizes with specific width and height values
+    pub fn new(
+        min_width: f32,
+        max_width: f32,
+        preferred_width: Option<f32>,
+        min_height: f32,
+        max_height: f32,
+        preferred_height: Option<f32>,
+    ) -> Self {
+        Self {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            preferred_width,
+            min_content_height: min_height,
+            max_content_height: max_height,
+            preferred_height,
+        }
+    }
+
+    /// Apply sizing constraints from CSS properties
+    pub fn apply_constraints(
+        &mut self,
+        width: Option<&CssPropertyValue<LayoutWidth>>,
+        min_width: Option<&CssPropertyValue<LayoutMinWidth>>,
+        max_width: Option<&CssPropertyValue<LayoutMaxWidth>>,
+        height: Option<&CssPropertyValue<LayoutHeight>>,
+        min_height: Option<&CssPropertyValue<LayoutMinHeight>>,
+        max_height: Option<&CssPropertyValue<LayoutMaxHeight>>,
+        container_size: LogicalSize,
+    ) {
+        // Apply width constraint
+        if let Some(CssPropertyValue::Exact(width_val)) = width {
+            let width_px = width_val.inner.to_pixels(container_size.width);
+            self.preferred_width = Some(width_px);
+            self.min_content_width = width_px;
+            self.max_content_width = width_px;
+        }
+
+        // Apply min-width constraint
+        if let Some(CssPropertyValue::Exact(min_width_val)) = min_width {
+            let min_width_px = min_width_val.inner.to_pixels(container_size.width);
+            self.min_content_width = self.min_content_width.max(min_width_px);
+            self.max_content_width = self.max_content_width.max(min_width_px);
+            if let Some(preferred_width) = &mut self.preferred_width {
+                *preferred_width = (*preferred_width).max(min_width_px);
+            }
+        }
+
+        // Apply max-width constraint
+        if let Some(CssPropertyValue::Exact(max_width_val)) = max_width {
+            let max_width_px = max_width_val.inner.to_pixels(container_size.width);
+            self.max_content_width = self.max_content_width.min(max_width_px);
+            self.min_content_width = self.min_content_width.min(max_width_px);
+            if let Some(preferred_width) = &mut self.preferred_width {
+                *preferred_width = (*preferred_width).min(max_width_px);
+            }
+        }
+
+        // Apply height constraint
+        if let Some(CssPropertyValue::Exact(height_val)) = height {
+            let height_px = height_val.inner.to_pixels(container_size.height);
+            self.preferred_height = Some(height_px);
+            self.min_content_height = height_px;
+            self.max_content_height = height_px;
+        }
+
+        // Apply min-height constraint
+        if let Some(CssPropertyValue::Exact(min_height_val)) = min_height {
+            let min_height_px = min_height_val.inner.to_pixels(container_size.height);
+            self.min_content_height = self.min_content_height.max(min_height_px);
+            self.max_content_height = self.max_content_height.max(min_height_px);
+            if let Some(preferred_height) = &mut self.preferred_height {
+                *preferred_height = (*preferred_height).max(min_height_px);
+            }
+        }
+
+        // Apply max-height constraint
+        if let Some(CssPropertyValue::Exact(max_height_val)) = max_height {
+            let max_height_px = max_height_val.inner.to_pixels(container_size.height);
+            self.max_content_height = self.max_content_height.min(max_height_px);
+            self.min_content_height = self.min_content_height.min(max_height_px);
+            if let Some(preferred_height) = &mut self.preferred_height {
+                *preferred_height = (*preferred_height).min(max_height_px);
+            }
+        }
+    }
+}
+
 pub struct LayoutResult {
     pub dom_id: DomId,
     pub parent_dom_id: Option<DomId>,
     pub styled_dom: StyledDom,
     pub root_size: LayoutSize,
     pub root_position: LayoutPoint,
-    pub preferred_widths: NodeDataContainer<Option<f32>>,
-    pub preferred_heights: NodeDataContainer<Option<f32>>,
-    pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>, /* TODO: warning: large
-                                                                         * struct */
-    pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>, /* TODO: warning:
-                                                                           * large struct */
-    pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
-    pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
-    pub layout_flex_grows: NodeDataContainer<f32>,
-    pub layout_displays: NodeDataContainer<CssPropertyValue<LayoutDisplay>>,
-    pub layout_positions: NodeDataContainer<LayoutPosition>,
-    pub layout_flex_directions: NodeDataContainer<LayoutFlexDirection>,
-    pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,
-    pub rects: NodeDataContainer<PositionedRectangle>, // TODO: warning: large struct
+    pub rects: NodeDataContainer<PositionedRectangle>,
+    pub scrollable_nodes: ScrolledNodes,
+    pub iframe_mapping: BTreeMap<NodeId, DomId>,
     pub words_cache: BTreeMap<NodeId, Words>,
     pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
     pub positioned_words_cache: BTreeMap<NodeId, WordPositions>,
-    pub scrollable_nodes: ScrolledNodes,
-    pub iframe_mapping: BTreeMap<NodeId, DomId>,
     pub gpu_value_cache: GpuValueCache,
+    pub formatting_contexts: NodeDataContainer<FormattingContext>,
+    pub intrinsic_sizes: NodeDataContainer<IntrinsicSizes>,
+}
+
+impl LayoutResult {
+    // New method to create a default LayoutResult with essential fields
+    pub fn new_minimal(
+        dom_id: DomId,
+        parent_dom_id: Option<DomId>,
+        styled_dom: StyledDom,
+        root_size: LayoutSize,
+        root_position: LayoutPoint,
+        rects: NodeDataContainer<PositionedRectangle>,
+        formatting_contexts: NodeDataContainer<FormattingContext>,
+        intrinsic_sizes: NodeDataContainer<IntrinsicSizes>,
+    ) -> Self {
+        LayoutResult {
+            dom_id,
+            parent_dom_id,
+            styled_dom,
+            root_size,
+            root_position,
+            rects,
+            formatting_contexts,
+            intrinsic_sizes,
+            scrollable_nodes: Default::default(),
+            iframe_mapping: BTreeMap::new(),
+            words_cache: BTreeMap::new(),
+            shaped_words_cache: BTreeMap::new(),
+            positioned_words_cache: BTreeMap::new(),
+            gpu_value_cache: Default::default(),
+        }
+    }
 }
 
 impl fmt::Debug for LayoutResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "LayoutResult {{
-            dom_id: {},
-            bounds: {:?} @ {:?},
-            styled_dom (len = {}): {:#?},
-            preferred_widths(len = {}),
-            preferred_heights(len = {}),
-            width_calculated_rects(len = {}),
-            height_calculated_rects(len = {}),
-            solved_pos_x(len = {}),
-            solved_pos_y(len = {}),
-            layout_flex_grows(len = {}),
-            layout_displays(len = {}),
-            layout_positions(len = {}),
-            layout_flex_directions(len = {}),
-            layout_justify_contents(len = {}),
-            rects(len = {}),
-            words_cache(len = {}),
-            shaped_words_cache(len = {}),
-            positioned_words_cache(len = {}),
-            scrollable_nodes: {:#?},
-            iframe_mapping(len = {}): {:#?},
-            gpu_value_cache: {:#?},
-        }}",
-            self.dom_id.inner,
-            self.root_size,
-            self.root_position,
-            self.styled_dom.node_hierarchy.len(),
-            self.styled_dom,
-            self.preferred_widths.len(),
-            self.preferred_heights.len(),
-            self.width_calculated_rects.len(),
-            self.height_calculated_rects.len(),
-            self.solved_pos_x.len(),
-            self.solved_pos_y.len(),
-            self.layout_flex_grows.len(),
-            self.layout_displays.len(),
-            self.layout_positions.len(),
-            self.layout_flex_directions.len(),
-            self.layout_justify_contents.len(),
-            self.rects.len(),
-            self.words_cache.len(),
-            self.shaped_words_cache.len(),
-            self.positioned_words_cache.len(),
-            self.scrollable_nodes,
-            self.iframe_mapping.len(),
-            self.iframe_mapping,
-            self.gpu_value_cache,
-        )
+        f.debug_struct("LayoutResult")
+            .field("dom_id", &self.dom_id)
+            .field("parent_dom_id", &self.parent_dom_id)
+            .field("root_size", &self.root_size)
+            .field("root_position", &self.root_position)
+            .field("styled_dom_len", &self.styled_dom.node_hierarchy.len())
+            .field("styled_dom", &self.styled_dom.get_html_string("", "", true))
+            .field("formatting_contexts", &self.formatting_contexts)
+            .field("intrinsic_sizes", &self.intrinsic_sizes)
+            .field("rects", &self.rects)
+            .field("gpu_value_cache", &self.gpu_value_cache)
+            .field("words", &self.words_cache.keys().collect::<Vec<_>>())
+            .field(
+                "shaped_words",
+                &self.shaped_words_cache.keys().collect::<Vec<_>>(),
+            )
+            .field(
+                "positioned_words",
+                &self.positioned_words_cache.keys().collect::<Vec<_>>(),
+            )
+            .finish()
     }
 }
 
@@ -748,11 +887,7 @@ impl LayoutResult {
             image_cache,
         };
 
-        let root_width =
-            layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
-        let root_height =
-            layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
-        let root_size = LogicalSize::new(root_width, root_height);
+        let root_size = layout_result.rects.as_ref()[NodeId::ZERO].size;
 
         let mut root_content = displaylist_handle_rect(
             rects_in_rendering_order.root.into_crate_internal().unwrap(),

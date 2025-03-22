@@ -9,23 +9,23 @@ use azul_core::{
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyleFontFamiliesHash, StyledDom},
     ui_solver::{
-        InlineTextLayout, InlineTextLayoutRustInternal, LayoutDebugMessage, LayoutResult,
-        PositionInfo, PositionInfoInner, PositionedRectangle, ResolvedOffsets,
-        ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING,
+        FormattingContext, InlineTextLayout, InlineTextLayoutRustInternal, IntrinsicSizes,
+        LayoutDebugMessage, LayoutResult, PositionInfo, PositionInfoInner, PositionedRectangle,
+        ResolvedOffsets, ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::*;
 
-use super::{context::FormattingContext, intrinsic::IntrinsicSizes};
 use crate::text2::layout::{position_words, shape_words, split_text_into_words, HyphenationCache};
 
 /// Main layout calculation function
 pub fn calculate_layout(
     dom_id: DomId,
     styled_dom: &StyledDom,
-    formatting_contexts: &NodeDataContainer<FormattingContext>,
-    intrinsic_sizes: &NodeDataContainer<IntrinsicSizes>,
+    // TODO: optimize this clone() here
+    formatting_contexts: NodeDataContainer<FormattingContext>,
+    intrinsic_sizes: NodeDataContainer<IntrinsicSizes>,
     root_bounds: LogicalRect,
     renderer_resources: &impl RendererResourcesTrait,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -126,19 +126,9 @@ pub fn calculate_layout(
         words_cache,
         shaped_words_cache,
         positioned_words_cache,
-        // The following fields would need to be filled in for a complete implementation
-        preferred_widths: NodeDataContainer::default(),
-        preferred_heights: NodeDataContainer::default(),
-        width_calculated_rects: NodeDataContainer::default(),
-        height_calculated_rects: NodeDataContainer::default(),
-        solved_pos_x: NodeDataContainer::default(),
-        solved_pos_y: NodeDataContainer::default(),
-        layout_displays: NodeDataContainer::default(),
-        layout_flex_grows: NodeDataContainer::default(),
-        layout_positions: NodeDataContainer::default(),
-        layout_flex_directions: NodeDataContainer::default(),
-        layout_justify_contents: NodeDataContainer::default(),
         gpu_value_cache: Default::default(),
+        formatting_contexts,
+        intrinsic_sizes,
     }
 }
 

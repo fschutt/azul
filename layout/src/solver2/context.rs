@@ -1,29 +1,7 @@
 //! Determines the CSS formatting context for each item
 
-use azul_core::{id_tree::NodeDataContainer, styled_dom::StyledDom};
+use azul_core::{id_tree::NodeDataContainer, styled_dom::StyledDom, ui_solver::FormattingContext};
 use azul_css::{CssProperty, LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition};
-
-/// Represents the CSS formatting context for an element
-#[derive(Debug, Clone, PartialEq)]
-pub enum FormattingContext {
-    /// Block-level formatting context
-    Block {
-        /// Whether this element establishes a new block formatting context
-        establishes_new_context: bool,
-    },
-    /// Inline-level formatting context
-    Inline,
-    /// Inline-block (participates in an IFC but creates a BFC)
-    InlineBlock,
-    /// Flex formatting context
-    Flex,
-    /// Float (left or right)
-    Float(LayoutFloat),
-    /// Absolutely positioned (out of flow)
-    OutOfFlow(LayoutPosition),
-    /// No formatting context (display: none)
-    None,
-}
 
 /// Determines the formatting context for each node in the DOM
 pub fn determine_formatting_contexts(

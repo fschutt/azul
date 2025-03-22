@@ -228,7 +228,7 @@ mod text_layout_tests {
             CssPropertyCache, CssPropertyCachePtr, StyleFontFamiliesHash, StyleFontFamilyHash,
             StyledDom, StyledNode,
         },
-        ui_solver::ResolvedTextLayoutOptions,
+        ui_solver::{FormattingContext, ResolvedTextLayoutOptions},
         window::{LogicalPosition, LogicalRect, LogicalSize},
         FastHashMap,
     };
@@ -239,7 +239,7 @@ mod text_layout_tests {
     };
 
     use crate::{
-        solver2::context::{determine_formatting_contexts, FormattingContext},
+        solver2::context::determine_formatting_contexts,
         text2::{layout::layout_text_node, mock::MockFont, shaping::ParsedFont},
     };
 

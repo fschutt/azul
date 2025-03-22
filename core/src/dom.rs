@@ -1519,6 +1519,14 @@ impl Dom {
         }
     }
     #[inline(always)]
+    pub fn from_data(node_data: NodeData) -> Self {
+        Self {
+            root: node_data,
+            children: Vec::new().into(),
+            estimated_total_children: 0,
+        }
+    }
+    #[inline(always)]
     pub fn div() -> Self {
         Self::new(NodeType::Div)
     }

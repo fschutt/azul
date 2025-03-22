@@ -21,9 +21,10 @@ use azul_core::{
     id_tree::{NodeDataContainer, NodeId},
     styled_dom::{StyleFontFamiliesHash, StyledDom},
     ui_solver::{
-        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, LayoutDebugMessage,
-        PositionInfo, PositionInfoInner, PositionedRectangle, ResolvedTextLayoutOptions,
-        ScriptType, DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH, DEFAULT_WORD_SPACING,
+        FormattingContext, InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine,
+        IntrinsicSizes, LayoutDebugMessage, PositionInfo, PositionInfoInner, PositionedRectangle,
+        ResolvedTextLayoutOptions, ScriptType, DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH,
+        DEFAULT_WORD_SPACING,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -33,7 +34,6 @@ use super::{
     shaping::{ParsedFont, ShapedTextBufferUnsized},
     FontImpl, TextLayoutOffsets,
 };
-use crate::solver2::{context::FormattingContext, intrinsic::IntrinsicSizes};
 
 /// Process a text node during layout
 pub fn process_text_node_layout<T: RendererResourcesTrait>(

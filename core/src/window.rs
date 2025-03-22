@@ -1144,10 +1144,8 @@ impl WindowInternal {
             Some(s) => s,
             None => return LogicalSize::zero(),
         };
-        let root_width =
-            layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
-        let root_height =
-            layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+        let root_width = layout_result.rects.as_ref()[NodeId::ZERO].get_margin_box_width();
+        let root_height = layout_result.rects.as_ref()[NodeId::ZERO].get_margin_box_height();
         LogicalSize::new(root_width, root_height)
     }
 

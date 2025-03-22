@@ -3,136 +3,10 @@ use azul_core::{
     dom::NodeType,
     id_tree::{NodeDataContainer, NodeDataContainerRef},
     styled_dom::StyledDom,
+    ui_solver::{FormattingContext, IntrinsicSizes},
     window::LogicalSize,
 };
 use azul_css::*;
-
-use super::context::FormattingContext;
-
-/// Represents the intrinsic sizing information for an element
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicSizes {
-    pub min_content_width: f32,
-    pub max_content_width: f32,
-    pub preferred_width: Option<f32>,
-    pub min_content_height: f32,
-    pub max_content_height: f32,
-    pub preferred_height: Option<f32>,
-}
-
-impl IntrinsicSizes {
-    /// Creates a new IntrinsicSizes with all values set to zero
-    pub fn zero() -> Self {
-        Self::default()
-    }
-
-    /// Creates a new IntrinsicSizes with specific width values
-    pub fn with_widths(min_width: f32, max_width: f32, preferred_width: Option<f32>) -> Self {
-        Self {
-            min_content_width: min_width,
-            max_content_width: max_width,
-            preferred_width,
-            ..Self::default()
-        }
-    }
-
-    /// Creates a new IntrinsicSizes with specific height values
-    pub fn with_heights(min_height: f32, max_height: f32, preferred_height: Option<f32>) -> Self {
-        Self {
-            min_content_height: min_height,
-            max_content_height: max_height,
-            preferred_height,
-            ..Self::default()
-        }
-    }
-
-    /// Creates a new IntrinsicSizes with specific width and height values
-    pub fn new(
-        min_width: f32,
-        max_width: f32,
-        preferred_width: Option<f32>,
-        min_height: f32,
-        max_height: f32,
-        preferred_height: Option<f32>,
-    ) -> Self {
-        Self {
-            min_content_width: min_width,
-            max_content_width: max_width,
-            preferred_width,
-            min_content_height: min_height,
-            max_content_height: max_height,
-            preferred_height,
-        }
-    }
-
-    /// Apply sizing constraints from CSS properties
-    pub fn apply_constraints(
-        &mut self,
-        width: Option<&CssPropertyValue<LayoutWidth>>,
-        min_width: Option<&CssPropertyValue<LayoutMinWidth>>,
-        max_width: Option<&CssPropertyValue<LayoutMaxWidth>>,
-        height: Option<&CssPropertyValue<LayoutHeight>>,
-        min_height: Option<&CssPropertyValue<LayoutMinHeight>>,
-        max_height: Option<&CssPropertyValue<LayoutMaxHeight>>,
-        container_size: LogicalSize,
-    ) {
-        // Apply width constraint
-        if let Some(CssPropertyValue::Exact(width_val)) = width {
-            let width_px = width_val.inner.to_pixels(container_size.width);
-            self.preferred_width = Some(width_px);
-            self.min_content_width = width_px;
-            self.max_content_width = width_px;
-        }
-
-        // Apply min-width constraint
-        if let Some(CssPropertyValue::Exact(min_width_val)) = min_width {
-            let min_width_px = min_width_val.inner.to_pixels(container_size.width);
-            self.min_content_width = self.min_content_width.max(min_width_px);
-            self.max_content_width = self.max_content_width.max(min_width_px);
-            if let Some(preferred_width) = &mut self.preferred_width {
-                *preferred_width = (*preferred_width).max(min_width_px);
-            }
-        }
-
-        // Apply max-width constraint
-        if let Some(CssPropertyValue::Exact(max_width_val)) = max_width {
-            let max_width_px = max_width_val.inner.to_pixels(container_size.width);
-            self.max_content_width = self.max_content_width.min(max_width_px);
-            self.min_content_width = self.min_content_width.min(max_width_px);
-            if let Some(preferred_width) = &mut self.preferred_width {
-                *preferred_width = (*preferred_width).min(max_width_px);
-            }
-        }
-
-        // Apply height constraint
-        if let Some(CssPropertyValue::Exact(height_val)) = height {
-            let height_px = height_val.inner.to_pixels(container_size.height);
-            self.preferred_height = Some(height_px);
-            self.min_content_height = height_px;
-            self.max_content_height = height_px;
-        }
-
-        // Apply min-height constraint
-        if let Some(CssPropertyValue::Exact(min_height_val)) = min_height {
-            let min_height_px = min_height_val.inner.to_pixels(container_size.height);
-            self.min_content_height = self.min_content_height.max(min_height_px);
-            self.max_content_height = self.max_content_height.max(min_height_px);
-            if let Some(preferred_height) = &mut self.preferred_height {
-                *preferred_height = (*preferred_height).max(min_height_px);
-            }
-        }
-
-        // Apply max-height constraint
-        if let Some(CssPropertyValue::Exact(max_height_val)) = max_height {
-            let max_height_px = max_height_val.inner.to_pixels(container_size.height);
-            self.max_content_height = self.max_content_height.min(max_height_px);
-            self.min_content_height = self.min_content_height.min(max_height_px);
-            if let Some(preferred_height) = &mut self.preferred_height {
-                *preferred_height = (*preferred_height).min(max_height_px);
-            }
-        }
-    }
-}
 
 /// Calculate the intrinsic sizes for all elements in the DOM
 pub fn calculate_intrinsic_sizes(
@@ -333,7 +207,7 @@ fn calculate_parent_intrinsic_sizes(
     styled_dom: &StyledDom,
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
 ) -> IntrinsicSizes {
-    use super::context::FormattingContext::*;
+    use azul_core::ui_solver::FormattingContext::*;
 
     let node_hierarchy = styled_dom.node_hierarchy.as_container();
 

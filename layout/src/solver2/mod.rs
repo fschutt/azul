@@ -1,3 +1,4 @@
+pub mod caching;
 pub mod context;
 pub mod intrinsic;
 pub mod layout;
@@ -18,8 +19,8 @@ use azul_core::{
         StyledDom,
     },
     ui_solver::{
-        LayoutDebugMessage, LayoutResult, OverflowingScrollNode, PositionedRectangle,
-        RelayoutChanges,
+        FormattingContext, IntrinsicSizes, LayoutDebugMessage, LayoutResult, OverflowingScrollNode,
+        PositionedRectangle, RelayoutChanges,
     },
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -27,8 +28,8 @@ use azul_css::{AzString, CssProperty, CssPropertyType, LayoutPoint, LayoutRect, 
 use rust_fontconfig::FcFontCache;
 
 use self::{
-    context::{determine_formatting_contexts, FormattingContext},
-    intrinsic::{calculate_intrinsic_sizes, IntrinsicSizes},
+    context::determine_formatting_contexts,
+    intrinsic::calculate_intrinsic_sizes,
     layout::{calculate_constrained_size, calculate_layout},
 };
 
@@ -291,8 +292,8 @@ pub fn do_the_layout_internal(
     let mut layout_result = calculate_layout(
         dom_id,
         &styled_dom,
-        &formatting_contexts,
-        &intrinsic_sizes,
+        formatting_contexts,
+        intrinsic_sizes,
         bounds,
         renderer_resources,
         debug_messages,
@@ -326,277 +327,18 @@ pub fn do_the_relayout(
     words_to_relayout: Option<&BTreeMap<NodeId, AzString>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> RelayoutChanges {
-    // Early return if nothing needs to be recomputed
-    let root_size = root_bounds.size;
-    let root_size_changed = root_bounds != layout_result.get_bounds();
-
-    if !root_size_changed && nodes_to_relayout.is_none() && words_to_relayout.is_none() {
-        return RelayoutChanges::empty();
-    }
-
-    // Filter CSS properties that can trigger relayout
-    let mut nodes_to_relayout = nodes_to_relayout.map(|n| {
-        n.iter()
-            .filter_map(|(node_id, changed_properties)| {
-                let mut relayout_properties = BTreeMap::new();
-
-                for prop in changed_properties.iter() {
-                    let prop_type = prop.previous_prop.get_type();
-                    if prop_type.can_trigger_relayout() {
-                        relayout_properties.insert(prop_type, prop.clone());
-                    }
-                }
-
-                if relayout_properties.is_empty() {
-                    None
-                } else {
-                    Some((*node_id, relayout_properties))
-                }
-            })
-            .collect::<BTreeMap<NodeId, BTreeMap<CssPropertyType, ChangedCssProperty>>>()
-    });
-
-    // If after filtering there's nothing to relayout, just update GPU cache
-    if !root_size_changed && nodes_to_relayout.is_none() && words_to_relayout.is_none() {
-        let resized_nodes = Vec::new();
-        let gpu_key_changes = layout_result
-            .gpu_value_cache
-            .synchronize(&layout_result.rects.as_ref(), &layout_result.styled_dom);
-
-        return RelayoutChanges {
-            resized_nodes,
-            gpu_key_changes,
-        };
-    }
-
-    if let Some(messages) = debug_messages {
-        messages.push(LayoutDebugMessage {
-            message: format!(
-                "Starting relayout: root_size_changed={}, nodes_changed={}, words_changed={}",
-                root_size_changed,
-                nodes_to_relayout.as_ref().map_or(0, |m| m.len()),
-                words_to_relayout.as_ref().map_or(0, |m| m.len())
-            )
-            .into(),
-            location: "do_the_relayout".to_string().into(),
-        });
-    }
-
-    // Determine which nodes need to be re-processed
-    let mut nodes_needing_format_context_update = BTreeSet::new();
-    let mut nodes_needing_intrinsic_size_update = BTreeSet::new();
-    let mut nodes_needing_layout_update = BTreeSet::new();
-    let mut parents_of_changed_nodes = BTreeSet::new();
-
-    // Track changes to display property - requires full reprocessing
-    let mut display_changed = false;
-
-    // Process changed properties to determine what needs updating
-    if let Some(changed_nodes) = &nodes_to_relayout {
-        for (node_id, properties) in changed_nodes {
-            // Track changes that affect formatting context
-            if properties.contains_key(&CssPropertyType::Display)
-                || properties.contains_key(&CssPropertyType::Position)
-                || properties.contains_key(&CssPropertyType::Float)
-            {
-                nodes_needing_format_context_update.insert(*node_id);
-                display_changed = true;
-            }
-
-            // Track changes that affect intrinsic size
-            if properties.contains_key(&CssPropertyType::Width)
-                || properties.contains_key(&CssPropertyType::MinWidth)
-                || properties.contains_key(&CssPropertyType::MaxWidth)
-                || properties.contains_key(&CssPropertyType::Height)
-                || properties.contains_key(&CssPropertyType::MinHeight)
-                || properties.contains_key(&CssPropertyType::MaxHeight)
-                || properties.contains_key(&CssPropertyType::PaddingLeft)
-                || properties.contains_key(&CssPropertyType::PaddingRight)
-                || properties.contains_key(&CssPropertyType::PaddingTop)
-                || properties.contains_key(&CssPropertyType::PaddingBottom)
-                || properties.contains_key(&CssPropertyType::FontSize)
-            {
-                nodes_needing_intrinsic_size_update.insert(*node_id);
-            }
-
-            // Any change means we need to update layout
-            nodes_needing_layout_update.insert(*node_id);
-
-            // Track parent for bubbling up layout changes
-            if let Some(parent_id) =
-                layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id()
-            {
-                parents_of_changed_nodes.insert(parent_id);
-            }
-        }
-    }
-
-    // Root size change requires recalculating everything
-    if root_size_changed {
-        let root_id = layout_result
-            .styled_dom
-            .root
-            .into_crate_internal()
-            .unwrap_or(NodeId::ZERO);
-        nodes_needing_layout_update.insert(root_id);
-
-        // Update the root size in the layout result
-        layout_result.root_size = root_size;
-    }
-
-    // Handle text content changes
-    if let Some(words_map) = words_to_relayout {
-        for (node_id, _) in words_map {
-            nodes_needing_intrinsic_size_update.insert(*node_id);
-            nodes_needing_layout_update.insert(*node_id);
-
-            // Add parents for layout recalculation
-            if let Some(parent_id) =
-                layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id()
-            {
-                parents_of_changed_nodes.insert(parent_id);
-            }
-        }
-    }
-
-    // Propagate layout updates to parents and their descendants
-    for parent_id in parents_of_changed_nodes {
-        nodes_needing_layout_update.insert(parent_id);
-
-        // Add all descendants of affected parents
-        let subtree = layout_result.styled_dom.get_subtree_parents(parent_id);
-        nodes_needing_layout_update.extend(subtree);
-    }
-
-    // Update formatting contexts if needed
-    let mut updated_formatting_contexts = None;
-    if display_changed || !nodes_needing_format_context_update.is_empty() {
-        updated_formatting_contexts =
-            Some(determine_formatting_contexts(&layout_result.styled_dom));
-
-        if let Some(messages) = debug_messages {
-            messages.push(LayoutDebugMessage {
-                message: "Re-determined formatting contexts".into(),
-                location: "do_the_relayout".to_string().into(),
-            });
-        }
-    }
-
-    // Update intrinsic sizes for affected nodes
-    let mut updated_intrinsic_sizes = None;
-    if !nodes_needing_intrinsic_size_update.is_empty() {
-        // We need the formatting contexts for intrinsic size calculation
-        let formatting_contexts = if let Some(updated) = &updated_formatting_contexts {
-            updated
-        } else {
-            updated_formatting_contexts =
-                Some(determine_formatting_contexts(&layout_result.styled_dom));
-            updated_formatting_contexts.as_ref().unwrap()
-        };
-
-        // For now, recalculate all intrinsic sizes (optimization opportunity)
-        updated_intrinsic_sizes = Some(calculate_intrinsic_sizes(
-            &layout_result.styled_dom,
-            formatting_contexts,
-            renderer_resources,
-        ));
-
-        if let Some(messages) = debug_messages {
-            messages.push(LayoutDebugMessage {
-                message: "Re-calculated intrinsic sizes".into(),
-                location: "do_the_relayout".to_string().into(),
-            });
-        }
-    }
-
-    // Perform partial layout for affected nodes
-    let mut all_nodes_to_update = BTreeSet::new();
-    all_nodes_to_update.extend(nodes_needing_layout_update);
-
-    // Convert root_bounds to LogicalRect
-    let logical_bounds = LogicalRect::new(
-        LogicalPosition::new(root_bounds.origin.x as f32, root_bounds.origin.y as f32),
-        LogicalSize::new(
-            root_bounds.size.width as f32,
-            root_bounds.size.height as f32,
-        ),
-    );
-
-    // Store the original positioned rectangles for diffing
-    let original_rects: BTreeMap<NodeId, PositionedRectangle> = all_nodes_to_update
-        .iter()
-        .filter_map(|node_id| {
-            layout_result
-                .rects
-                .as_ref()
-                .get(*node_id)
-                .map(|rect| (*node_id, rect.clone()))
-        })
-        .collect();
-
-    // Perform the layout update
-    // Use existing formatting contexts and intrinsic sizes where possible
-    let formatting_contexts = updated_formatting_contexts
-        .as_ref()
-        .unwrap_or(&determine_formatting_contexts(&layout_result.styled_dom));
-
-    let intrinsic_sizes = if let Some(updated) = &updated_intrinsic_sizes {
-        updated
-    } else {
-        updated_intrinsic_sizes = Some(calculate_intrinsic_sizes(
-            &layout_result.styled_dom,
-            formatting_contexts,
-            renderer_resources,
-        ));
-        updated_intrinsic_sizes.as_ref().unwrap()
-    };
-
-    // TODO: Optimize this to only update affected nodes
-    // For now, we'll perform a full layout - a more targeted relayout would be an optimization
-    let updated_layout_result = calculate_layout(
+    // Use the new cached layout system
+    self::caching::do_the_incremental_relayout(
         dom_id,
-        &layout_result.styled_dom,
-        formatting_contexts,
-        intrinsic_sizes,
-        logical_bounds,
+        root_bounds,
+        layout_result,
+        image_cache,
         renderer_resources,
+        document_id,
+        nodes_to_relayout,
+        words_to_relayout,
         debug_messages,
-    );
-
-    // Track which nodes have changed size
-    let mut resized_nodes = Vec::new();
-    for node_id in &all_nodes_to_update {
-        if let (Some(original), Some(updated)) = (
-            original_rects.get(node_id),
-            updated_layout_result.rects.as_ref().get(*node_id),
-        ) {
-            if original.size != updated.size || original.position != updated.position {
-                resized_nodes.push(*node_id);
-            }
-        }
-    }
-
-    // Update layout_result with new values
-    *layout_result = updated_layout_result;
-    layout_result.root_size = root_size;
-    layout_result.root_position = root_bounds.origin;
-
-    // Update GPU cache
-    let gpu_key_changes = layout_result
-        .gpu_value_cache
-        .synchronize(&layout_result.rects.as_ref(), &layout_result.styled_dom);
-
-    if let Some(messages) = debug_messages {
-        messages.push(LayoutDebugMessage {
-            message: format!("Relayout completed, {} nodes resized", resized_nodes.len()).into(),
-            location: "do_the_relayout".to_string().into(),
-        });
-    }
-
-    RelayoutChanges {
-        resized_nodes,
-        gpu_key_changes,
-    }
+    )
 }
 
 struct NewIframeScrollState {
