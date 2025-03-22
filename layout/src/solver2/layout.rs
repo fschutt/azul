@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
-    app_resources::{DecodedImage, ShapedWords, Words, TextExclusionArea, ExclusionSide},
+    app_resources::{DecodedImage, ExclusionSide, ShapedWords, TextExclusionArea, Words},
     dom::{NodeData, NodeType},
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyledDom},
@@ -331,8 +331,13 @@ fn layout_block_context(
 
         // Adjust for floats if not establishing a new BFC
         if !establishes_new_context {
+            let exclusion_refs: Vec<&TextExclusionArea> = local_exclusion_areas
+                .values()
+                .flat_map(|v| v.iter())
+                .collect();
+
             adjusted_content_rect =
-                adjust_rect_for_floats(adjusted_content_rect, &local_exclusion_areas, node_id);
+                adjust_rect_for_floats(adjusted_content_rect, &exclusion_refs, debug_messages);
         }
 
         // Calculate child layout based on formatting context
@@ -492,14 +497,19 @@ fn layout_inline_context(
     let mut available_content_width = content_box.size.width;
 
     for (child_id, width, height, is_inline) in inline_elements {
+        let exclusion_refs = exclusion_areas
+            .values()
+            .flat_map(|v| v.iter())
+            .collect::<Vec<_>>();
+
         // Adjust the available width for floats at the current y position
         let adjusted_rect = adjust_rect_for_floats(
             LogicalRect::new(
                 LogicalPosition::new(content_box.origin.x, current_y),
                 LogicalSize::new(content_box.size.width, 1.0), // Height doesn't matter here
             ),
-            exclusion_areas,
-            node_id,
+            &exclusion_refs,
+            debug_messages,
         );
 
         available_content_width = adjusted_rect.size.width;
@@ -521,8 +531,8 @@ fn layout_inline_context(
                     LogicalPosition::new(content_box.origin.x, current_y),
                     LogicalSize::new(content_box.size.width, 1.0),
                 ),
-                exclusion_areas,
-                node_id,
+                &exclusion_refs,
+                debug_messages,
             );
 
             available_content_width = adjusted_rect.size.width;
@@ -544,14 +554,19 @@ fn layout_inline_context(
     for (line, y_position, height) in line_boxes {
         let mut current_x = content_box.origin.x;
 
+        let exclusion_refs = exclusion_areas
+            .values()
+            .flat_map(|v| v.iter())
+            .collect::<Vec<_>>();
+
         // Adjust starting position for floats
         let adjusted_rect = adjust_rect_for_floats(
             LogicalRect::new(
                 LogicalPosition::new(content_box.origin.x, y_position),
                 LogicalSize::new(content_box.size.width, height),
             ),
-            exclusion_areas,
-            node_id,
+            &exclusion_refs,
+            debug_messages,
         );
 
         current_x = adjusted_rect.origin.x;
@@ -1620,15 +1635,16 @@ pub fn adjust_rect_for_floats(
 
     for float in floats {
         // Check if this float affects the current line vertically
-        if float.rect.origin.y <= rect.origin.y + rect.size.height &&
-           float.rect.origin.y + float.rect.size.height >= rect.origin.y {
-            
+        if float.rect.origin.y <= rect.origin.y + rect.size.height
+            && float.rect.origin.y + float.rect.size.height >= rect.origin.y
+        {
             match float.side {
                 azul_core::app_resources::ExclusionSide::Left => {
                     // Left float - adjust left edge of line
                     let float_right = float.rect.origin.x + float.rect.size.width;
                     if float_right > adjusted_rect.origin.x {
-                        let new_width = adjusted_rect.size.width - (float_right - adjusted_rect.origin.x);
+                        let new_width =
+                            adjusted_rect.size.width - (float_right - adjusted_rect.origin.x);
                         adjusted_rect.origin.x = float_right;
                         adjusted_rect.size.width = new_width.max(0.0);
                     }
@@ -1644,15 +1660,16 @@ pub fn adjust_rect_for_floats(
                     // Affects both sides - handle as a "hole" in the content
                     let float_left = float.rect.origin.x;
                     let float_right = float.rect.origin.x + float.rect.size.width;
-                    
+
                     // If the float intersects the line
-                    if float_right > adjusted_rect.origin.x && 
-                       float_left < adjusted_rect.origin.x + adjusted_rect.size.width {
-                        
+                    if float_right > adjusted_rect.origin.x
+                        && float_left < adjusted_rect.origin.x + adjusted_rect.size.width
+                    {
                         // Calculate available space on both sides
                         let left_space = float_left - adjusted_rect.origin.x;
-                        let right_space = adjusted_rect.origin.x + adjusted_rect.size.width - float_right;
-                        
+                        let right_space =
+                            adjusted_rect.origin.x + adjusted_rect.size.width - float_right;
+
                         if left_space > right_space {
                             // More space on the left
                             adjusted_rect.size.width = left_space.max(0.0);
@@ -1672,8 +1689,11 @@ pub fn adjust_rect_for_floats(
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Adjusted rect for floats: original={:?}, adjusted={:?}", 
-                            rect, adjusted_rect).into(),
+            message: format!(
+                "Adjusted rect for floats: original={:?}, adjusted={:?}",
+                rect, adjusted_rect
+            )
+            .into(),
             location: "adjust_rect_for_floats".to_string().into(),
         });
     }
@@ -1687,13 +1707,13 @@ pub fn get_relevant_floats<'a>(
     vertical_range: (f32, f32),
 ) -> Vec<&'a TextExclusionArea> {
     let (min_y, max_y) = vertical_range;
-    
+
     exclusion_areas
         .iter()
         .filter(|area| {
             let area_top = area.rect.origin.y;
             let area_bottom = area.rect.origin.y + area.rect.size.height;
-            
+
             // Check if the float overlaps with the vertical range
             (area_top <= max_y && area_bottom >= min_y)
         })

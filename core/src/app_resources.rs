@@ -622,40 +622,60 @@ pub enum ExclusionSide {
 /// Trait for accessing font resources
 pub trait RendererResourcesTrait: core::fmt::Debug {
     /// Get a font family hash from a font families hash
-    fn get_font_family(&self, style_font_families_hash: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash>;
-    
+    fn get_font_family(
+        &self,
+        style_font_families_hash: &StyleFontFamiliesHash,
+    ) -> Option<&StyleFontFamilyHash>;
+
     /// Get a font key from a font family hash
     fn get_font_key(&self, style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey>;
-    
+
     /// Get a registered font and its instances from a font key
-    fn get_registered_font(&self, font_key: &FontKey) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>;
-    
+    fn get_registered_font(
+        &self,
+        font_key: &FontKey,
+    ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>;
+
     /// Get image information from an image hash
     fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage>;
-    
+
     /// Update an image descriptor for an existing image hash
-    fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: crate::app_resources::ImageDescriptor);
+    fn update_image(
+        &mut self,
+        image_ref_hash: &ImageRefHash,
+        descriptor: crate::app_resources::ImageDescriptor,
+    );
 }
 
 // Implementation for the original RendererResources struct
 impl RendererResourcesTrait for RendererResources {
-    fn get_font_family(&self, style_font_families_hash: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash> {
+    fn get_font_family(
+        &self,
+        style_font_families_hash: &StyleFontFamiliesHash,
+    ) -> Option<&StyleFontFamilyHash> {
         self.font_families_map.get(style_font_families_hash)
     }
-    
+
     fn get_font_key(&self, style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey> {
         self.font_id_map.get(style_font_family_hash)
     }
-    
-    fn get_registered_font(&self, font_key: &FontKey) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
+
+    fn get_registered_font(
+        &self,
+        font_key: &FontKey,
+    ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
         self.currently_registered_fonts.get(font_key)
     }
-    
+
     fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage> {
         self.currently_registered_images.get(hash)
     }
-    
-    fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: crate::app_resources::ImageDescriptor) {
+
+    fn update_image(
+        &mut self,
+        image_ref_hash: &ImageRefHash,
+        descriptor: crate::app_resources::ImageDescriptor,
+    ) {
         if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
             s.descriptor = descriptor;
         }

@@ -17,7 +17,7 @@ use azul_core::app_resources::{
 };
 use tinyvec::tiny_vec;
 
-use super::FontImpl;
+use super::{mock::MockFont, FontImpl};
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     #[derive(Default)]
@@ -212,6 +212,7 @@ pub struct ParsedFont {
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
     pub cmap_subtable: Option<OwnedCmapSubtable>,
+    pub mock: Option<Box<MockFont>>,
 }
 
 impl FontImpl for ParsedFont {
@@ -507,6 +508,7 @@ impl ParsedFont {
             cmap_subtable,
             glyph_records_decoded,
             space_width: None,
+            mock: None,
         };
 
         let space_width = font.get_space_width_internal();
@@ -516,6 +518,9 @@ impl ParsedFont {
     }
 
     fn get_space_width_internal(&mut self) -> Option<usize> {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.get_space_width();
+        }
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
         allsorts_subset_browser::glyph_info::advance(
             &self.maxp_table,
@@ -530,10 +535,16 @@ impl ParsedFont {
     /// Returns the width of the space " " character
     #[inline]
     pub const fn get_space_width(&self) -> Option<usize> {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.space_width;
+        }
         self.space_width
     }
 
     pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.get_horizontal_advance(glyph_index);
+        }
         self.glyph_records_decoded
             .get(&glyph_index)
             .map(|gi| gi.horz_advance)
@@ -542,6 +553,9 @@ impl ParsedFont {
 
     // get the x and y size of a glyph in unscaled units
     pub fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.get_glyph_size(glyph_index);
+        }
         let g = self.glyph_records_decoded.get(&glyph_index)?;
         let glyph_width = g.bounding_box.max_x as i32 - g.bounding_box.min_x as i32; // width
         let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32; // height
@@ -549,10 +563,16 @@ impl ParsedFont {
     }
 
     pub fn shape(&self, text: &[u32], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.shape(text, script, lang);
+        }
         shape(self, text, script, lang).unwrap_or_default()
     }
 
     pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.lookup_glyph_index(c);
+        }
         match self
             .cmap_subtable
             .as_ref()

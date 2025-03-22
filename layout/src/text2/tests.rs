@@ -557,7 +557,7 @@ fn test_rtl_text_layout() {
 
     // Create a layout context with a fixed width to properly test RTL layout
     let container_width = 2000.0; // Wide enough to hold all text
-    
+
     // RTL layout options
     let rtl_options = ResolvedTextLayoutOptions {
         font_size_px: 16.0,
@@ -565,7 +565,7 @@ fn test_rtl_text_layout() {
         max_horizontal_width: Some(container_width).into(),
         ..Default::default()
     };
-    
+
     // LTR layout options with the same parameters except direction
     let ltr_options = ResolvedTextLayoutOptions {
         font_size_px: 16.0,
@@ -579,35 +579,43 @@ fn test_rtl_text_layout() {
     let mut debug_messages_ltr = Some(Vec::new());
 
     // Position words in both directions
-    let rtl_positions = position_words(&words, &shaped_words, &rtl_options, &mut debug_messages_rtl);
-    
+    let rtl_positions =
+        position_words(&words, &shaped_words, &rtl_options, &mut debug_messages_rtl);
+
     // We need to create a new words object for LTR to avoid issues with the is_rtl flag
     let mut ltr_words = split_text_into_words(text);
     ltr_words.is_rtl = false;
-    let ltr_positions = position_words(&ltr_words, &shaped_words, &ltr_options, &mut debug_messages_ltr);
+    let ltr_positions = position_words(
+        &ltr_words,
+        &shaped_words,
+        &ltr_options,
+        &mut debug_messages_ltr,
+    );
 
     // In RTL layout, first word should be positioned at the far right
     let hello_pos_rtl = rtl_positions.word_positions[0].position.x;
     let hello_pos_ltr = ltr_positions.word_positions[0].position.x;
-    
+
     // Get the widths of words to validate positions
     let hello_width = rtl_positions.word_positions[0].size.width;
     let space_width = rtl_positions.word_positions[1].size.width;
     let world_width = rtl_positions.word_positions[2].size.width;
-    
+
     // The total width of the text
     let total_width = hello_width + space_width + world_width;
-    
+
     // In a proper RTL layout:
     // 1. The first word should be positioned at (container_width - hello_width)
     // 2. In LTR layout, it should be at position 0 or a small offset
-    
+
     // Skip the strict assertion and just print the values to see what's happening
     println!("RTL container width: {}", container_width);
-    println!("Hello width: {}, Hello RTL pos: {}, Hello LTR pos: {}", 
-             hello_width, hello_pos_rtl, hello_pos_ltr);
+    println!(
+        "Hello width: {}, Hello RTL pos: {}, Hello LTR pos: {}",
+        hello_width, hello_pos_rtl, hello_pos_ltr
+    );
     println!("Total width: {}", total_width);
-    
+
     // For the test to pass, RTL should position at container_width - total_width or similar
     assert!(hello_pos_rtl > hello_pos_ltr);
 }

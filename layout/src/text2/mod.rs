@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use azul_core::{
     app_resources::{ShapedWords, WordPosition, Words},
     ui_solver::{
-        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, LayoutDebugMessage, ResolvedTextLayoutOptions
+        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, LayoutDebugMessage,
+        ResolvedTextLayoutOptions,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -20,10 +21,10 @@ pub mod shaping;
 #[cfg(test)]
 pub mod tests;
 
-use crate::solver2::layout::{adjust_rect_for_floats, get_relevant_floats};
+use azul_core::app_resources::{ExclusionSide, TextExclusionArea};
 
 use self::layout::{position_words, word_positions_to_inline_text_layout};
-use azul_core::app_resources::{ExclusionSide, TextExclusionArea};
+use crate::solver2::layout::{adjust_rect_for_floats, get_relevant_floats};
 
 /// Data structure representing padding for text layout
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -82,12 +83,8 @@ pub fn layout_text_with_floats(
 ) -> InlineTextLayout {
     // If no exclusion areas, use standard text layout
     if exclusion_areas.is_empty() {
-        let word_positions = position_words(
-            words,
-            shaped_words,
-            text_layout_options,
-            debug_messages,
-        );
+        let word_positions =
+            position_words(words, shaped_words, text_layout_options, debug_messages);
         let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
 
         // Apply text alignment if needed
@@ -112,8 +109,7 @@ pub fn layout_text_with_floats(
         .into();
 
     // Perform text layout with the modified options
-    let word_positions =
-        position_words(words, shaped_words, &modified_options, debug_messages);
+    let word_positions = position_words(words, shaped_words, &modified_options, debug_messages);
 
     // Create line boxes
     let mut line_boxes = Vec::new();
@@ -126,18 +122,12 @@ pub fn layout_text_with_floats(
         let line_y = line.bounds.origin.y;
         let line_height = line.bounds.size.height;
 
-        let relevant_floats = get_relevant_floats(
-            exclusion_areas, 
-            (line_y, line_y + line_height)
-        );
+        let relevant_floats = get_relevant_floats(exclusion_areas, (line_y, line_y + line_height));
 
         if !relevant_floats.is_empty() {
             // Adjust line width based on exclusions
-            adjusted_line.bounds = adjust_rect_for_floats(
-                adjusted_line.bounds,
-                &relevant_floats,
-                debug_messages
-            );
+            adjusted_line.bounds =
+                adjust_rect_for_floats(adjusted_line.bounds, &relevant_floats, debug_messages);
         }
 
         line_boxes.push(adjusted_line);
@@ -148,7 +138,12 @@ pub fn layout_text_with_floats(
         if text_align != StyleTextAlign::Left {
             for line in &mut line_boxes {
                 // For each line, adjust word positions according to line bounds and alignment
-                adjust_line_alignment(line, &word_positions.word_positions, text_align, debug_messages);
+                adjust_line_alignment(
+                    line,
+                    &word_positions.word_positions,
+                    text_align,
+                    debug_messages,
+                );
             }
         }
     }
@@ -213,7 +208,7 @@ fn adjust_line_alignment(
         // Update the line's horizontal position
         line.bounds.origin.x += offset;
     }
-    
+
     line.bounds
 }
 
@@ -226,20 +221,30 @@ mod text_layout_tests {
             Au, DpiScaleFactor, FontInstanceKey, FontKey, FontMetrics, IdNamespace,
             ImageDescriptor, ImageRefHash, RendererResources, RendererResourcesTrait,
             ResolvedImage,
-        }, dom::{NodeData, NodeType}, id_tree::{NodeDataContainer, NodeId}, styled_dom::{
+        },
+        dom::{NodeData, NodeType},
+        id_tree::{NodeDataContainer, NodeId},
+        styled_dom::{
             CssPropertyCache, CssPropertyCachePtr, StyleFontFamiliesHash, StyleFontFamilyHash,
             StyledDom, StyledNode,
-        }, ui_solver::ResolvedTextLayoutOptions, window::{LogicalPosition, LogicalRect, LogicalSize}, FastHashMap
+        },
+        ui_solver::ResolvedTextLayoutOptions,
+        window::{LogicalPosition, LogicalRect, LogicalSize},
+        FastHashMap,
     };
     use azul_css::{
-        AzString, CssProperty, CssPropertyType, CssPropertyValue, FontData, FontRef, LayoutBoxSizing, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, StyleFontFamily, StyleFontSize, StyleTextAlign
+        AzString, CssProperty, CssPropertyType, CssPropertyValue, FontData, FontRef,
+        LayoutBoxSizing, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+        LayoutPaddingTop, StyleFontFamily, StyleFontSize, StyleTextAlign,
     };
 
     use crate::{
         solver2::context::{determine_formatting_contexts, FormattingContext},
         text2::{
-            layout::{layout_text_node, shape_words, split_text_into_words}, layout_text_with_floats, mock::MockFont, ExclusionSide,
-            TextExclusionArea,
+            layout::{layout_text_node, shape_words, split_text_into_words},
+            layout_text_with_floats,
+            mock::MockFont,
+            ExclusionSide, TextExclusionArea,
         },
     };
 
@@ -279,14 +284,14 @@ mod text_layout_tests {
         // Create font data with the mock font in the "parsed" field
         let mock_font_box = Box::new(mock_font.clone());
         let mock_font_ptr = Box::into_raw(mock_font_box);
-    
+
         // Font destructor function
         fn mock_font_destructor(ptr: *mut std::ffi::c_void) {
             unsafe {
                 let _ = Box::from_raw(ptr as *mut MockFont);
             }
         }
-    
+
         // Create font data
         let font_data = FontData {
             bytes: azul_css::U8Vec::from(Vec::<u8>::new()),
@@ -294,7 +299,7 @@ mod text_layout_tests {
             parsed: mock_font_ptr as *const std::ffi::c_void,
             parsed_destructor: mock_font_destructor,
         };
-    
+
         FontRef::new(font_data)
     }
 
@@ -307,13 +312,17 @@ mod text_layout_tests {
 
     // Implement this in the MockRendererResources in text_layout_tests.rs
     impl MockRendererResources {
-        fn new_with_font_ref() -> (Self, FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>) {
+        fn new_with_font_ref() -> (
+            Self,
+            FontRef,
+            FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>,
+        ) {
             let mock_resources = Self::new();
             let font_ref = create_mock_font_ref(&mock_resources.mock_font);
             let instances = FastHashMap::default();
             (mock_resources, font_ref, instances)
         }
-        
+
         fn new() -> Self {
             let font_metrics = FontMetrics {
                 units_per_em: 1000,
@@ -322,7 +331,7 @@ mod text_layout_tests {
                 line_gap: 200,
                 ..Default::default()
             };
-    
+
             let mock_font = MockFont::new(font_metrics)
                 .with_space_width(250)
                 .with_glyph_index('H' as u32, 1)
@@ -349,11 +358,11 @@ mod text_layout_tests {
                 .with_glyph_size(6, (350, 700))
                 .with_glyph_size(7, (200, 500))
                 .with_glyph_size(8, (250, 700));
-    
+
             // Create a FontRef that correctly wraps our mock font
             // This is the tricky part as we need to create a valid ParsedFont structure
             // For testing, we may need to modify the code to accept our MockFont directly
-            
+
             Self { mock_font }
         }
     }
@@ -378,20 +387,20 @@ mod text_layout_tests {
                 CssProperty::TextAlign(CssPropertyValue::Exact(StyleTextAlign::Left)),
             ),
         ];
-    
+
         let styled_dom = create_test_dom(text, properties);
         let formatting_contexts = determine_formatting_contexts(&styled_dom);
-    
+
         // Create mock renderer resources
         let renderer_resources = MockRendererResources::new();
-    
+
         // Create available space
         let available_rect =
             LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(400.0, 300.0));
-    
+
         // Add debug messages container
         let mut debug_messages = Some(Vec::new());
-    
+
         // Layout text node
         let text_layout = layout_text_node(
             NodeId::new(0),
@@ -401,24 +410,26 @@ mod text_layout_tests {
             &renderer_resources,
             &mut debug_messages,
         );
-    
+
         // Print debug messages to help identify the issue
         if let Some(messages) = debug_messages {
             for msg in messages {
                 println!("[{}] {}", msg.location, msg.message);
             }
         }
-    
+
         // Instead of asserting text_layout.is_some(), let's check why it might be None
         if text_layout.is_none() {
-            println!("Text layout is None. This is likely because get_registered_font returned None.");
+            println!(
+                "Text layout is None. This is likely because get_registered_font returned None."
+            );
             // We need to fix the MockRendererResources implementation to return a valid FontRef
         }
-        
+
         // For now, skip the assertion and test the rest of the layout logic directly
         // This helps us implement a proper fix for all tests
     }
-    
+
     #[test]
     fn test_text_layout_with_padding() {
         // Create text DOM with padding
@@ -496,7 +507,7 @@ mod text_layout_tests {
             ),
             side: ExclusionSide::Left,
         };
-    
+
         // We'll use our mock font implementation to test the layout directly
         let font_metrics = FontMetrics {
             units_per_em: 1000,
@@ -505,7 +516,7 @@ mod text_layout_tests {
             line_gap: 200,
             ..Default::default()
         };
-    
+
         let mock_font = MockFont::new(font_metrics)
             .with_space_width(100)
             .with_glyph_index('T' as u32, 1)
@@ -526,19 +537,19 @@ mod text_layout_tests {
             .with_glyph_advance(7, 150)
             .with_glyph_advance(8, 250)
             .with_glyph_advance(9, 250);
-    
+
         // Create text and layout options
         let text = "Text with float";
         let words = split_text_into_words(text);
         let shaped_words = shape_words(&words, &mock_font);
-    
+
         // Create text layout options
         let text_layout_options = ResolvedTextLayoutOptions {
             font_size_px: 16.0,
             max_horizontal_width: Some(400.0).into(),
             ..Default::default()
         };
-    
+
         // Get normal text layout first
         let mut debug_messages = Some(Vec::new());
         let normal_text_layout = layout_text_with_floats(
@@ -548,7 +559,7 @@ mod text_layout_tests {
             &[], // No floats
             &mut debug_messages,
         );
-    
+
         // Now get text layout with float
         let float_text_layout = layout_text_with_floats(
             &words,
@@ -557,21 +568,21 @@ mod text_layout_tests {
             &[float_exclusion],
             &mut debug_messages,
         );
-    
+
         // Verify float layout
         assert_eq!(
             float_text_layout.lines.len(),
             normal_text_layout.lines.len()
         );
-    
+
         // The first line should be adjusted for the float
         let normal_first_line = &normal_text_layout.lines.as_slice()[0];
         let float_first_line = &float_text_layout.lines.as_slice()[0];
-        
+
         // Float should have pushed the line to the right
         assert!(float_first_line.bounds.origin.x >= 100.0);
-        
+
         // And the normal line should start at 0
         assert_eq!(normal_first_line.bounds.origin.x, 0.0);
-    }    
+    }
 }
