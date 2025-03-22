@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
-    app_resources::{DecodedImage, ExclusionSide, ShapedWords, TextExclusionArea, Words},
+    app_resources::{
+        DecodedImage, ExclusionSide, RendererResourcesTrait, ShapedWords, TextExclusionArea,
+        WordPositions, Words,
+    },
     dom::{NodeData, NodeType},
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
-    styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyledDom},
+    styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyleFontFamiliesHash, StyledDom},
     ui_solver::{
         InlineTextLayout, InlineTextLayoutRustInternal, LayoutDebugMessage, LayoutResult,
         PositionInfo, PositionInfoInner, PositionedRectangle, ResolvedOffsets,
@@ -15,7 +18,7 @@ use azul_core::{
 use azul_css::*;
 
 use super::{context::FormattingContext, intrinsic::IntrinsicSizes};
-use crate::text2::layout::{position_words, shape_words, split_text_into_words};
+use crate::text2::layout::{position_words, shape_words, split_text_into_words, HyphenationCache};
 
 /// Main layout calculation function
 pub fn calculate_layout(
@@ -24,6 +27,7 @@ pub fn calculate_layout(
     formatting_contexts: &NodeDataContainer<FormattingContext>,
     intrinsic_sizes: &NodeDataContainer<IntrinsicSizes>,
     root_bounds: LogicalRect,
+    renderer_resources: &impl RendererResourcesTrait,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LayoutResult {
     // Create container for positioned rectangles
@@ -63,11 +67,16 @@ pub fn calculate_layout(
         debug_messages,
     );
 
-    // Process text layout and inline elements
+    // Collect all float exclusion areas
+    let float_exclusions = collect_float_exclusions(&exclusion_areas);
+
+    // Process text layout and inline elements with float awareness
     process_text_layout(
         &mut positioned_rects.as_ref_mut(),
         styled_dom,
         &formatting_contexts.as_ref(),
+        renderer_resources,
+        &float_exclusions,
         debug_messages,
     );
 
@@ -90,6 +99,14 @@ pub fn calculate_layout(
         });
     }
 
+    // Process and cache word and text layout information
+    let (words_cache, shaped_words_cache, positioned_words_cache) = build_text_caches(
+        styled_dom,
+        &positioned_rects.as_ref(),
+        renderer_resources,
+        debug_messages,
+    );
+
     // Create the final LayoutResult
     LayoutResult {
         dom_id,
@@ -106,6 +123,9 @@ pub fn calculate_layout(
         rects: positioned_rects,
         scrollable_nodes,
         iframe_mapping: BTreeMap::new(), // Would need additional processing for iframes
+        words_cache,
+        shaped_words_cache,
+        positioned_words_cache,
         // The following fields would need to be filled in for a complete implementation
         preferred_widths: NodeDataContainer::default(),
         preferred_heights: NodeDataContainer::default(),
@@ -118,11 +138,119 @@ pub fn calculate_layout(
         layout_positions: NodeDataContainer::default(),
         layout_flex_directions: NodeDataContainer::default(),
         layout_justify_contents: NodeDataContainer::default(),
-        words_cache: BTreeMap::new(),
-        shaped_words_cache: BTreeMap::new(),
-        positioned_words_cache: BTreeMap::new(),
         gpu_value_cache: Default::default(),
     }
+}
+
+/// Collect all float exclusion areas from the map into a flat list
+fn collect_float_exclusions(
+    exclusion_areas: &BTreeMap<NodeId, Vec<TextExclusionArea>>,
+) -> Vec<TextExclusionArea> {
+    let mut result = Vec::new();
+
+    for areas in exclusion_areas.values() {
+        result.extend(areas.iter().cloned());
+    }
+
+    result
+}
+
+/// Build caches for words, shaped words, and positioned words that are
+/// needed for the final LayoutResult
+fn build_text_caches(
+    styled_dom: &StyledDom,
+    positioned_rects: &NodeDataContainerRef<PositionedRectangle>,
+    renderer_resources: &impl RendererResourcesTrait,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> (
+    BTreeMap<NodeId, Words>,
+    BTreeMap<NodeId, ShapedWords>,
+    BTreeMap<NodeId, WordPositions>,
+) {
+    use crate::text2::shaping::ParsedFont;
+
+    let mut words_cache = BTreeMap::new();
+    let mut shaped_words_cache = BTreeMap::new();
+    let mut positioned_words_cache = BTreeMap::new();
+
+    // Find text nodes with layout info
+    for (i, node_data) in styled_dom.node_data.as_container().iter().enumerate() {
+        let node_id = NodeId::new(i);
+
+        // Skip non-text nodes
+        if !matches!(node_data.get_node_type(), NodeType::Text(_)) {
+            continue;
+        }
+
+        // Skip nodes without resolved text layout
+        let rect = &positioned_rects[node_id];
+        if rect.resolved_text_layout_options.is_none() {
+            continue;
+        }
+
+        // Get text content
+        let text = match node_data.get_node_type() {
+            NodeType::Text(text_content) => text_content.as_str(),
+            _ => continue,
+        };
+
+        let (text_layout_options, inline_text_layout) =
+            rect.resolved_text_layout_options.as_ref().unwrap();
+
+        // Get font information
+        let css_property_cache = styled_dom.get_css_property_cache();
+        let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+        let font_families =
+            css_property_cache.get_font_id_or_default(node_data, &node_id, styled_node_state);
+        let css_font_families_hash = StyleFontFamiliesHash::new(font_families.as_ref());
+
+        // Try to get font
+        if let Some(css_font_family) = renderer_resources.get_font_family(&css_font_families_hash) {
+            if let Some(font_key) = renderer_resources.get_font_key(css_font_family) {
+                if let Some((font_ref, _)) = renderer_resources.get_registered_font(font_key) {
+                    // Get the parsed font
+                    let font_data = font_ref.get_data();
+                    let parsed_font = unsafe { &*(font_data.parsed as *const ParsedFont) };
+
+                    // Recreate the text layout data
+                    static mut HYPHENATION_CACHE: Option<HyphenationCache> = None;
+                    let hyphenation_cache = unsafe {
+                        if HYPHENATION_CACHE.is_none() {
+                            HYPHENATION_CACHE = Some(HyphenationCache::new());
+                        }
+                        HYPHENATION_CACHE.as_ref().unwrap()
+                    };
+
+                    // Split text into words
+                    let words = crate::text2::layout::split_text_into_words_with_hyphenation(
+                        text,
+                        text_layout_options,
+                        hyphenation_cache,
+                        debug_messages,
+                    );
+
+                    // Shape the words using the font
+                    let shaped_words = crate::text2::layout::shape_words(&words, parsed_font);
+
+                    // Get word positions
+                    let word_positions = crate::text2::layout::position_words(
+                        &words,
+                        &shaped_words,
+                        text_layout_options,
+                        debug_messages,
+                    );
+
+                    // Store in caches
+                    words_cache.insert(node_id, words);
+                    shaped_words_cache.insert(node_id, shaped_words);
+                    positioned_words_cache.insert(node_id, word_positions);
+                }
+            }
+        }
+    }
+
+    (words_cache, shaped_words_cache, positioned_words_cache)
 }
 
 /// Calculate layout for a single node and its descendants
@@ -1022,39 +1150,49 @@ fn process_text_layout(
     positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
     styled_dom: &StyledDom,
     formatting_contexts: &NodeDataContainerRef<FormattingContext>,
+    renderer_resources: &impl RendererResourcesTrait,
+    exclusion_areas: &[TextExclusionArea],
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
-    // Identify containers with inline formatting context
-    let mut inline_containers = Vec::new();
+    // Find all text nodes
+    let mut text_nodes = Vec::new();
 
-    for (i, fc) in formatting_contexts.internal.iter().enumerate() {
-        if matches!(fc, FormattingContext::Inline) {
-            inline_containers.push(NodeId::new(i));
+    for (i, node_data) in styled_dom.node_data.as_container().iter().enumerate() {
+        if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+            text_nodes.push(NodeId::new(i));
         }
     }
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!(
-                "Processing text layout for {} inline containers",
-                inline_containers.len()
-            )
-            .into(),
+            message: format!("Processing text layout for {} text nodes", text_nodes.len()).into(),
             location: "process_text_layout".to_string().into(),
         });
     }
 
-    // Process each container with inline formatting context
-    for container_id in inline_containers {
-        let node_data = &styled_dom.node_data.as_container()[container_id];
+    // Process each text node
+    for node_id in text_nodes {
+        let rect = &positioned_rects[node_id];
 
-        // Skip if the node is not a text node
-        if !matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        // Skip nodes with zero width or height
+        if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
             continue;
         }
 
-        // Process text node
-        process_text_node(container_id, positioned_rects, styled_dom, debug_messages);
+        // Create available rect for text layout
+        let available_rect = LogicalRect::new(rect.position.get_static_offset(), rect.size);
+
+        // Process the text node
+        process_text_node(
+            node_id,
+            positioned_rects,
+            styled_dom,
+            formatting_contexts,
+            available_rect,
+            renderer_resources,
+            exclusion_areas,
+            debug_messages,
+        );
     }
 }
 
@@ -1063,69 +1201,309 @@ fn process_text_node(
     node_id: NodeId,
     positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
     styled_dom: &StyledDom,
+    formatting_contexts: &NodeDataContainerRef<FormattingContext>,
+    available_rect: LogicalRect,
+    renderer_resources: &impl RendererResourcesTrait,
+    exclusion_areas: &[TextExclusionArea],
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
+    use azul_core::ui_solver::ScriptType;
 
-    // Get text content
-    let text = match node_data.get_node_type() {
-        NodeType::Text(t) => t.as_str(),
-        _ => return,
+    use crate::text2::{
+        layout::{
+            layout_text_node as text2_layout_text_node, position_words, shape_words,
+            split_text_into_words_with_hyphenation, HyphenationCache,
+        },
+        shaping::ParsedFont,
     };
 
-    // Extract text layout options
-    let text_layout_options = extract_text_layout_options(node_id, styled_dom);
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    // Get text content from node
+    let text = match node_data.get_node_type() {
+        NodeType::Text(text_content) => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!(
+                        "Processing text node {}: '{}'",
+                        node_id.index(),
+                        if text_content.len() > 30 {
+                            &text_content.as_str()[0..30]
+                        } else {
+                            text_content.as_str()
+                        }
+                    )
+                    .into(),
+                    location: "process_text_node".to_string().into(),
+                });
+            }
+            text_content.as_str()
+        }
+        _ => return, // Not a text node
+    };
+
+    // Get CSS property cache and node state
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+    // Calculate padding and margins
+    let padding = calculate_padding_and_border(node_id, styled_dom, available_rect);
+    let margin = calculate_margin(node_id, styled_dom, available_rect);
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Processing text node {}: \"{}\"",
+                "Text node {} padding: {:?}, margin: {:?}",
                 node_id.index(),
-                if text.len() > 30 { &text[0..30] } else { text }
+                padding,
+                margin
             )
             .into(),
             location: "process_text_node".to_string().into(),
         });
     }
 
-    // Get the node's positioned rectangle
-    let rect = &positioned_rects[node_id];
+    // Adjust available rect for padding and margin
+    let content_rect = LogicalRect::new(
+        LogicalPosition::new(
+            available_rect.origin.x + margin.left + padding.left,
+            available_rect.origin.y + margin.top + padding.top,
+        ),
+        LogicalSize::new(
+            available_rect.size.width - padding.left - padding.right - margin.left - margin.right,
+            available_rect.size.height - padding.top - padding.bottom - margin.top - margin.bottom,
+        ),
+    );
 
-    // Create the text layout
-    // Note: In a real implementation, this would involve font loading, text shaping, etc.
-    // For now, we'll just create a placeholder
+    // Extract text styling properties
+    let font_families =
+        css_property_cache.get_font_id_or_default(node_data, &node_id, styled_node_state);
+    let font_size =
+        css_property_cache.get_font_size_or_default(node_data, &node_id, styled_node_state);
 
-    let max_width = rect.size.width;
-    let text_layout_options = ResolvedTextLayoutOptions {
-        font_size_px: text_layout_options.font_size_px,
-        line_height: text_layout_options.line_height,
-        letter_spacing: text_layout_options.letter_spacing,
-        word_spacing: text_layout_options.word_spacing,
-        tab_width: text_layout_options.tab_width,
-        max_horizontal_width: Some(max_width).into(),
-        leading: text_layout_options.leading,
-        holes: Vec::new().into(),
-        max_vertical_height: None.into(),
-        can_break: true,
-        can_hyphenate: false,
-        hyphenation_character: None.into(),
-        is_rtl: azul_core::ui_solver::ScriptType::LTR,
-        text_justify: None.into(),
+    // Get text direction
+    let direction = css_property_cache
+        .get_direction(node_data, &node_id, styled_node_state)
+        .and_then(|dir| dir.get_property().copied())
+        .unwrap_or_default();
+
+    let is_rtl = if direction == StyleDirection::Rtl {
+        ScriptType::RTL
+    } else {
+        ScriptType::LTR
     };
 
-    let text_layout = InlineTextLayoutRustInternal::default();
+    // Get text alignment
+    let text_align = css_property_cache
+        .get_text_align(node_data, &node_id, styled_node_state)
+        .and_then(|ta| ta.get_property().copied())
+        .unwrap_or(StyleTextAlign::Left);
 
-    // In a real implementation, we would:
-    // 1. Parse the text into words
-    // 2. Shape the words using the font
-    // 3. Position the words according to the layout options
-    // 4. Update the positioned rectangle with the text layout
+    // Get the font from the renderer resources
+    let css_font_families_hash = StyleFontFamiliesHash::new(font_families.as_ref());
+    let css_font_family = match renderer_resources.get_font_family(&css_font_families_hash) {
+        Some(f) => f,
+        None => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("Font family not found for node {}", node_id.index()).into(),
+                    location: "process_text_node".to_string().into(),
+                });
+            }
+            return;
+        }
+    };
 
-    // For this implementation, we'll just update the positioned rectangle
-    // with placeholder text layout options
+    let font_key = match renderer_resources.get_font_key(css_font_family) {
+        Some(k) => k,
+        None => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("Font key not found for node {}", node_id.index()).into(),
+                    location: "process_text_node".to_string().into(),
+                });
+            }
+            return;
+        }
+    };
+
+    let (font_ref, _) = match renderer_resources.get_registered_font(font_key) {
+        Some(fr) => fr,
+        None => {
+            if let Some(messages) = debug_messages {
+                messages.push(LayoutDebugMessage {
+                    message: format!("Font reference not found for node {}", node_id.index())
+                        .into(),
+                    location: "process_text_node".to_string().into(),
+                });
+            }
+            return;
+        }
+    };
+
+    // Get the parsed font
+    let font_data = font_ref.get_data();
+    let parsed_font = unsafe { &*(font_data.parsed as *const ParsedFont) };
+
+    // Create text layout options
+    let line_height = css_property_cache
+        .get_line_height(node_data, &node_id, styled_node_state)
+        .and_then(|lh| Some(lh.get_property()?.inner.get()));
+
+    let letter_spacing = css_property_cache
+        .get_letter_spacing(node_data, &node_id, styled_node_state)
+        .and_then(|ls| {
+            Some(
+                ls.get_property()?
+                    .inner
+                    .to_pixels(font_size.inner.to_pixels(100.0)),
+            )
+        });
+
+    let word_spacing = css_property_cache
+        .get_word_spacing(node_data, &node_id, styled_node_state)
+        .and_then(|ws| {
+            Some(
+                ws.get_property()?
+                    .inner
+                    .to_pixels(font_size.inner.to_pixels(100.0)),
+            )
+        });
+
+    let tab_width = css_property_cache
+        .get_tab_width(node_data, &node_id, styled_node_state)
+        .and_then(|tw| Some(tw.get_property()?.inner.get()));
+
+    // Create resolved text layout options
+    let text_layout_options = ResolvedTextLayoutOptions {
+        font_size_px: font_size.inner.to_pixels(100.0), // 100.0 is reference size for percentage
+        line_height: line_height.into(),
+        letter_spacing: letter_spacing.into(),
+        word_spacing: word_spacing.into(),
+        tab_width: tab_width.into(),
+        max_horizontal_width: Some(content_rect.size.width).into(),
+        max_vertical_height: Some(content_rect.size.height).into(),
+        leading: None.into(),
+        holes: Vec::new().into(),
+        can_break: true,
+        can_hyphenate: true,
+        hyphenation_character: Some('-' as u32).into(),
+        is_rtl,
+        text_justify: Some(text_align).into(),
+    };
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Created text layout options for node {}: font_size={}, is_rtl={:?}",
+                node_id.index(),
+                text_layout_options.font_size_px,
+                text_layout_options.is_rtl,
+            )
+            .into(),
+            location: "process_text_node".to_string().into(),
+        });
+    }
+
+    // Process text with hyphenation
+    // Use a static HyphenationCache to avoid recreating it for each text node
+    static mut HYPHENATION_CACHE: Option<HyphenationCache> = None;
+    let hyphenation_cache = unsafe {
+        if HYPHENATION_CACHE.is_none() {
+            HYPHENATION_CACHE = Some(HyphenationCache::new());
+        }
+        HYPHENATION_CACHE.as_ref().unwrap()
+    };
+
+    // Split text into words, with hyphenation if enabled
+    let words = split_text_into_words_with_hyphenation(
+        text,
+        &text_layout_options,
+        hyphenation_cache,
+        debug_messages,
+    );
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Split text into {} words for node {}",
+                words.items.len(),
+                node_id.index(),
+            )
+            .into(),
+            location: "process_text_node".to_string().into(),
+        });
+    }
+
+    // Shape the words using the font
+    let shaped_words = shape_words(&words, parsed_font);
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Shaped text for node {}: {} shaped words",
+                node_id.index(),
+                shaped_words.items.len(),
+            )
+            .into(),
+            location: "process_text_node".to_string().into(),
+        });
+    }
+
+    // Process the layout for text with exclusion areas (floats)
+    let relevant_exclusions = get_relevant_exclusions_for_text(exclusion_areas, content_rect);
+
+    // Position the words based on the layout options and exclusions
+    let word_positions =
+        position_words(&words, &shaped_words, &text_layout_options, debug_messages);
+
+    // Convert word positions to inline text layout
+    let mut inline_text_layout =
+        crate::text2::layout::word_positions_to_inline_text_layout(&word_positions);
+
+    // Apply text alignment if needed and not already handled by position_words
+    if text_align != StyleTextAlign::Left {
+        inline_text_layout.align_children_horizontal(&content_rect.size, text_align);
+    }
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Text layout for node {} complete: {} lines, content size: {:?}",
+                node_id.index(),
+                inline_text_layout.lines.len(),
+                inline_text_layout.content_size,
+            )
+            .into(),
+            location: "process_text_node".to_string().into(),
+        });
+    }
+
+    // Update the positioned rectangle with the text layout
     let mut rect_mut = positioned_rects[node_id].clone();
-    rect_mut.resolved_text_layout_options = Some((text_layout_options, text_layout.into()));
+    rect_mut.resolved_text_layout_options = Some((text_layout_options, inline_text_layout.into()));
     positioned_rects[node_id] = rect_mut;
+}
+
+/// Get exclusion areas relevant for text layout
+fn get_relevant_exclusions_for_text<'a>(
+    exclusion_areas: &'a [TextExclusionArea],
+    text_rect: LogicalRect,
+) -> Vec<&'a TextExclusionArea> {
+    // Filter exclusion areas that could affect this text node
+    exclusion_areas
+        .iter()
+        .filter(|area| {
+            // Check if the exclusion area overlaps vertically with the text rectangle
+            let area_top = area.rect.origin.y;
+            let area_bottom = area.rect.origin.y + area.rect.size.height;
+            let text_top = text_rect.origin.y;
+            let text_bottom = text_rect.origin.y + text_rect.size.height;
+
+            // Exclusion affects text if there's any vertical overlap
+            (area_top <= text_bottom && area_bottom >= text_top)
+        })
+        .collect()
 }
 
 /// Position absolutely positioned elements
@@ -1197,10 +1575,13 @@ fn find_positioned_ancestor(
     let mut current_id = node_hierarchy[node_id].parent_id();
 
     while let Some(parent_id) = current_id {
-        if matches!(
-            positioned_rects[parent_id].position,
-            PositionInfo::Relative(_) | PositionInfo::Absolute(_) | PositionInfo::Fixed(_)
-        ) {
+        // Check if this parent has a positioned formatting context
+        let is_positioned = match &positioned_rects[parent_id].position {
+            PositionInfo::Relative(_) | PositionInfo::Absolute(_) | PositionInfo::Fixed(_) => true,
+            PositionInfo::Static(_) => false,
+        };
+
+        if is_positioned {
             // Found a positioned ancestor
             return LogicalRect::new(
                 positioned_rects[parent_id].position.get_static_offset(),
@@ -1208,10 +1589,11 @@ fn find_positioned_ancestor(
             );
         }
 
+        // Move up to the next parent
         current_id = node_hierarchy[parent_id].parent_id();
     }
 
-    // If no positioned ancestor was found, use the root
+    // If no positioned ancestor was found, use the root bounds
     root_bounds
 }
 
@@ -1228,10 +1610,10 @@ fn position_absolute_element(
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
 
-    // Get the element's size
+    // Get the element's current size (calculated during regular layout)
     let element_size = positioned_rects[node_id].size;
 
-    // Get position properties
+    // Get CSS positioning properties (left, right, top, bottom)
     let left = css_property_cache
         .get_left(node_data, &node_id, styled_node_state)
         .and_then(|l| {
@@ -1275,7 +1657,7 @@ fn position_absolute_element(
     // Calculate the position
     let mut position = LogicalPosition::new(containing_block.origin.x, containing_block.origin.y);
 
-    // Apply left/right positioning
+    // Apply horizontal positioning (left/right)
     if let Some(left_value) = left {
         position.x += left_value;
     } else if let Some(right_value) = right {
@@ -1284,7 +1666,7 @@ fn position_absolute_element(
             - right_value;
     }
 
-    // Apply top/bottom positioning
+    // Apply vertical positioning (top/bottom)
     if let Some(top_value) = top {
         position.y += top_value;
     } else if let Some(bottom_value) = bottom {
@@ -1296,10 +1678,11 @@ fn position_absolute_element(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Positioned absolute element {}: position={:?}, size={:?}",
+                "Positioned absolute element {}: position={:?}, size={:?}, type={:?}",
                 node_id.index(),
                 position,
-                element_size
+                element_size,
+                position_type
             )
             .into(),
             location: "position_absolute_element".to_string().into(),

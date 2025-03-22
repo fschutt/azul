@@ -1638,7 +1638,7 @@ impl CallbackInfo {
         Some(crate::app_resources::get_inline_text(
             &words,
             &shaped_words,
-            &word_positions.0,
+            &word_positions,
             &inline_text_layout,
         ))
     }
@@ -2109,7 +2109,7 @@ pub struct RenderImageCallbackInfo {
     node_hierarchy: *const NodeHierarchyItemVec,
     words_cache: *const BTreeMap<NodeId, Words>,
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
-    positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    positioned_words_cache: *const BTreeMap<NodeId, WordPositions>,
     positioned_rects: *const NodeDataContainer<PositionedRectangle>,
     /// Extension for future ABI stability (referenced data)
     _abi_ref: *const c_void,
@@ -2146,7 +2146,7 @@ impl RenderImageCallbackInfo {
         node_hierarchy: &'a NodeHierarchyItemVec,
         words_cache: &'a BTreeMap<NodeId, Words>,
         shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
-        positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+        positioned_words_cache: &'a BTreeMap<NodeId, WordPositions>,
         positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
         bounds: HidpiAdjustedBounds,
         callback_node_id: DomNodeId,
@@ -2160,7 +2160,7 @@ impl RenderImageCallbackInfo {
             words_cache: words_cache as *const BTreeMap<NodeId, Words>,
             shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
             positioned_words_cache: positioned_words_cache
-                as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+                as *const BTreeMap<NodeId, WordPositions>,
             positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
             bounds,
             _abi_ref: core::ptr::null(),
@@ -2189,9 +2189,7 @@ impl RenderImageCallbackInfo {
     fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> {
         unsafe { &*self.shaped_words_cache }
     }
-    fn internal_get_positioned_words_cache<'a>(
-        &'a self,
-    ) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
+    fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, WordPositions> {
         unsafe { &*self.positioned_words_cache }
     }
     fn internal_get_positioned_rectangles<'a>(
@@ -2233,7 +2231,7 @@ impl RenderImageCallbackInfo {
         Some(crate::app_resources::get_inline_text(
             &words,
             &shaped_words,
-            &word_positions.0,
+            &word_positions,
             &inline_text_layout,
         ))
     }

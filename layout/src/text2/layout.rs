@@ -194,43 +194,6 @@ fn calculate_text_margin(
     }
 }
 
-/// Collect float areas for text layout
-pub fn collect_float_exclusions(
-    positioned_rects: &azul_core::id_tree::NodeDataContainerRef<PositionedRectangle>,
-    styled_dom: &StyledDom,
-    formatting_contexts: &azul_core::id_tree::NodeDataContainerRef<FormattingContext>,
-) -> Vec<TextExclusionArea> {
-    let mut exclusions = Vec::new();
-
-    // Iterate through all nodes
-    for node_id_idx in 0..styled_dom.node_data.len() {
-        let node_id = NodeId::new(node_id_idx);
-
-        // Check if this is a float
-        if let FormattingContext::Float(float_direction) = &formatting_contexts[node_id] {
-            // Get the positioned rectangle for this float
-            let rect = &positioned_rects[node_id];
-
-            // Determine float side
-            let side = match float_direction {
-                azul_css::LayoutFloat::Left => ExclusionSide::Left,
-                azul_css::LayoutFloat::Right => ExclusionSide::Right,
-                azul_css::LayoutFloat::None => continue, // Not actually a float
-            };
-
-            // Create exclusion area
-            let exclusion = TextExclusionArea {
-                rect: LogicalRect::new(rect.position.get_static_offset(), rect.size),
-                side,
-            };
-
-            exclusions.push(exclusion);
-        }
-    }
-
-    exclusions
-}
-
 /// Creates text layout options from CSS properties
 fn create_text_layout_options(
     node_id: NodeId,

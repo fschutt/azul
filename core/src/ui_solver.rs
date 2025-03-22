@@ -644,7 +644,7 @@ pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>, // TODO: warning: large struct
     pub words_cache: BTreeMap<NodeId, Words>,
     pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
-    pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    pub positioned_words_cache: BTreeMap<NodeId, WordPositions>,
     pub scrollable_nodes: ScrolledNodes,
     pub iframe_mapping: BTreeMap<NodeId, DomId>,
     pub gpu_value_cache: GpuValueCache,

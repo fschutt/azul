@@ -1203,12 +1203,8 @@ pub fn displaylist_handle_rect<'a>(
                 layout_result.positioned_words_cache.get(&rect_idx),
                 positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
-                let inline_text = get_inline_text(
-                    &words,
-                    &shaped_words,
-                    &word_positions.0,
-                    &inline_text_layout,
-                );
+                let inline_text =
+                    get_inline_text(&words, &shaped_words, &word_positions, &inline_text_layout);
                 let layouted_glyphs = inline_text.get_layouted_glyphs();
 
                 if !layouted_glyphs.glyphs.is_empty() {
