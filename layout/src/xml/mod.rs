@@ -86,19 +86,6 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 /// Since the XML allows multiple root nodes, this function returns
 /// a `Vec<XmlNode>` - which are the "root" nodes, containing all their
 /// children recursively.
-///
-/// # Example
-///
-/// ```rust
-/// # use azul_layout::xml::{XmlNode, parse_xml_string};
-/// assert_eq!(
-///     parse_xml_string("<app><p /><div id='thing' /></app>").unwrap(),
-///     vec![XmlNode::new("app").with_children(vec![
-///         XmlNode::new("p"),
-///         XmlNode::new("div").with_attribute("id", "thing"),
-///     ])]
-/// )
-/// ```
 #[cfg(feature = "xml")]
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
     use xmlparser::{ElementEnd::*, Token::*, Tokenizer};

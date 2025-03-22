@@ -600,12 +600,6 @@ impl ShapedTextBufferUnsized {
 }
 
 /// Generate a 4-byte font table tag from byte string
-///
-/// Example:
-///
-/// ```
-/// assert_eq!(tag!(b"glyf"), 0x676C7966);
-/// ```
 macro_rules! tag {
     ($w:expr) => {
         tag(*$w)

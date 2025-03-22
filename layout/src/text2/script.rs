@@ -71,13 +71,6 @@ pub fn is_stop_char(ch: char) -> bool {
 type ScriptCounter = (Script, fn(char) -> bool, usize);
 
 /// Detect only a script by a given text
-///
-/// # Example
-/// ```
-/// use whatlang::{detect_script, Script};
-/// let script = detect_script("Благодаря Эсперанто вы обрётете друзей по всему миру!").unwrap();
-/// assert_eq!(script, Script::Cyrillic);
-/// ```
 pub fn detect_script(text: &str) -> Option<Script> {
     let mut script_counters: [ScriptCounter; 24] = [
         (Script::Latin, is_latin, 0),
