@@ -1851,7 +1851,7 @@ fn calculate_margin(
 }
 
 /// Calculate intrinsic size with constraints
-fn calculate_constrained_size(
+pub fn calculate_constrained_size(
     node_id: NodeId,
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,

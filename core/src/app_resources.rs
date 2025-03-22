@@ -24,7 +24,8 @@ use crate::{
     gl::{OptionGlContextPtr, Texture},
     id_tree::NodeId,
     styled_dom::{
-        CssPropertyCache, DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState
+        CssPropertyCache, DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash,
+        StyledDom, StyledNodeState,
     },
     task::ExternalSystemCallbacks,
     ui_solver::{
@@ -780,26 +781,25 @@ impl RendererResources {
         dpi_scale: f32,
     ) -> Option<FontInstanceKey> {
         // Convert font size to StyleFontSize
-        let font_size = StyleFontSize { 
-            inner: azul_css::PixelValue::const_px(font_size_px as isize) 
+        let font_size = StyleFontSize {
+            inner: azul_css::PixelValue::const_px(font_size_px as isize),
         };
-        
+
         // Convert to application units
         let font_size_au = font_size_to_au(font_size);
-        
+
         // Create DPI scale factor
-        let dpi_scale_factor = DpiScaleFactor { inner: FloatValue::new(dpi_scale) };
-        
+        let dpi_scale_factor = DpiScaleFactor {
+            inner: FloatValue::new(dpi_scale),
+        };
+
         // Get font family
-        let font_family = css_property_cache.get_font_id_or_default(
-            node_data,
-            node_id,
-            styled_node_state
-        );
-        
+        let font_family =
+            css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
+
         // Calculate hash and lookup font instance key
         let font_families_hash = StyleFontFamiliesHash::new(font_family.as_ref());
-        
+
         self.get_font_instance_key(&font_families_hash, font_size_au, dpi_scale_factor)
     }
 
@@ -807,7 +807,7 @@ impl RendererResources {
         &self,
         font_families_hash: &StyleFontFamiliesHash,
         font_size_au: Au,
-        dpi_scale: DpiScaleFactor
+        dpi_scale: DpiScaleFactor,
     ) -> Option<FontInstanceKey> {
         let font_family_hash = self.get_font_family(font_families_hash)?;
         let font_key = self.get_font_key(font_family_hash)?;
