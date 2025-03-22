@@ -7270,7 +7270,7 @@ pub extern "C" fn AzFontRef_getBytes(fontref: &AzFontRef) -> AzU8Vec {
 /// Returns the font metrics of the parsed font
 #[no_mangle]
 pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics {
-    azul_layout::text::get_font_metrics_fontref(fontref)
+    azul_layout::text2::get_font_metrics_fontref(fontref)
 }
 /// Returns the text layout of the shaped text
 #[no_mangle]

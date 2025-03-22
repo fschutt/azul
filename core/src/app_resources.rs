@@ -20,11 +20,11 @@ use crate::{
         UpdateImageType,
     },
     display_list::{GlStoreImageFn, GlyphInstance, RenderCallbacks},
-    dom::NodeType,
+    dom::{NodeData, NodeType},
     gl::{OptionGlContextPtr, Texture},
     id_tree::NodeId,
     styled_dom::{
-        DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
+        CssPropertyCache, DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState
     },
     task::ExternalSystemCallbacks,
     ui_solver::{
@@ -768,6 +768,51 @@ impl RendererResources {
         if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
             s.descriptor = descriptor; // key stays the same, only descriptor changes
         }
+    }
+
+    pub fn get_font_instance_key_for_text(
+        &self,
+        font_size_px: f32,
+        css_property_cache: &CssPropertyCache,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        dpi_scale: f32,
+    ) -> Option<FontInstanceKey> {
+        // Convert font size to StyleFontSize
+        let font_size = StyleFontSize { 
+            inner: azul_css::PixelValue::const_px(font_size_px as isize) 
+        };
+        
+        // Convert to application units
+        let font_size_au = font_size_to_au(font_size);
+        
+        // Create DPI scale factor
+        let dpi_scale_factor = DpiScaleFactor { inner: FloatValue::new(dpi_scale) };
+        
+        // Get font family
+        let font_family = css_property_cache.get_font_id_or_default(
+            node_data,
+            node_id,
+            styled_node_state
+        );
+        
+        // Calculate hash and lookup font instance key
+        let font_families_hash = StyleFontFamiliesHash::new(font_family.as_ref());
+        
+        self.get_font_instance_key(&font_families_hash, font_size_au, dpi_scale_factor)
+    }
+
+    pub fn get_font_instance_key(
+        &self,
+        font_families_hash: &StyleFontFamiliesHash,
+        font_size_au: Au,
+        dpi_scale: DpiScaleFactor
+    ) -> Option<FontInstanceKey> {
+        let font_family_hash = self.get_font_family(font_families_hash)?;
+        let font_key = self.get_font_key(font_family_hash)?;
+        let (_, instances) = self.get_registered_font(font_key)?;
+        instances.get(&(font_size_au, dpi_scale)).copied()
     }
 
     /// Updates the internal cache, adds `ResourceUpdate::Remove()`

@@ -1207,8 +1207,24 @@ pub fn displaylist_handle_rect<'a>(
                     get_inline_text(&words, &shaped_words, &word_positions, &inline_text_layout);
                 let layouted_glyphs = inline_text.get_layouted_glyphs();
 
-                if !layouted_glyphs.glyphs.is_empty() {
-                    let font_instance_key = word_positions.1;
+                // In display_list.rs - inside the displaylist_handle_rect function
+                let fik = if layouted_glyphs.glyphs.is_empty() {
+                    None 
+                } else {
+                    // Calculate font instance key, given the font size
+                    referenced_content.renderer_resources
+                    .get_font_instance_key_for_text(
+                        inline_text.font_size_px, 
+                        layout_result.styled_dom.get_css_property_cache(), 
+                        &html_node, 
+                        &rect_idx,
+                        &layout_result.styled_dom.get_styled_node_state(&rect_idx), 
+                        referenced_content.full_window_state.size.get_hidpi_factor(), 
+                    )
+                };
+
+                if let Some(font_instance_key) = fik {
+
                     let text_color = layout_result
                         .styled_dom
                         .get_css_property_cache()
