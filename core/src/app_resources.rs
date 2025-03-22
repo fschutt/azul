@@ -603,6 +603,49 @@ pub struct ResolvedImage {
     pub descriptor: ImageDescriptor,
 }
 
+/// Trait for accessing font resources
+pub trait RendererResourcesTrait: core::fmt::Debug {
+    /// Get a font family hash from a font families hash
+    fn get_font_family(&self, style_font_families_hash: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash>;
+    
+    /// Get a font key from a font family hash
+    fn get_font_key(&self, style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey>;
+    
+    /// Get a registered font and its instances from a font key
+    fn get_registered_font(&self, font_key: &FontKey) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>;
+    
+    /// Get image information from an image hash
+    fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage>;
+    
+    /// Update an image descriptor for an existing image hash
+    fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: crate::app_resources::ImageDescriptor);
+}
+
+// Implementation for the original RendererResources struct
+impl RendererResourcesTrait for RendererResources {
+    fn get_font_family(&self, style_font_families_hash: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash> {
+        self.font_families_map.get(style_font_families_hash)
+    }
+    
+    fn get_font_key(&self, style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey> {
+        self.font_id_map.get(style_font_family_hash)
+    }
+    
+    fn get_registered_font(&self, font_key: &FontKey) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
+        self.currently_registered_fonts.get(font_key)
+    }
+    
+    fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage> {
+        self.currently_registered_images.get(hash)
+    }
+    
+    fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: crate::app_resources::ImageDescriptor) {
+        if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
+            s.descriptor = descriptor;
+        }
+    }
+}
+
 /// Renderer resources that manage font, image and font instance keys.
 /// RendererResources are local to each renderer / window, since the
 /// keys are not shared across renderers
@@ -2017,6 +2060,53 @@ impl_vec_eq!(Word, WordVec);
 impl_vec_ord!(Word, WordVec);
 impl_vec_partialord!(Word, WordVec);
 impl_vec_hash!(Word, WordVec);
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub enum LineCaretIntersection {
+    /// In order to not intersect with any holes, the caret needs to
+    /// be advanced to the position x, but can stay on the same line.
+    NoLineBreak { new_x: f32, new_y: f32 },
+    /// Caret needs to advance X number of lines and be positioned
+    /// with a leading of x
+    LineBreak { new_x: f32, new_y: f32 },
+}
+
+impl LineCaretIntersection {
+    #[inline]
+    pub fn new(
+        current_x: f32,
+        word_width: f32,
+        current_y: f32,
+        line_height: f32,
+        max_width: Option<f32>,
+    ) -> Self {
+        match max_width {
+            None => LineCaretIntersection::NoLineBreak {
+                new_x: current_x + word_width,
+                new_y: current_y,
+            },
+            Some(max) => {
+                // window smaller than minimum word content: don't break line
+                if current_x == 0.0 && max < word_width {
+                    LineCaretIntersection::NoLineBreak {
+                        new_x: current_x + word_width,
+                        new_y: current_y,
+                    }
+                } else if (current_x + word_width) > max {
+                    LineCaretIntersection::LineBreak {
+                        new_x: 0.0,
+                        new_y: current_y + line_height,
+                    }
+                } else {
+                    LineCaretIntersection::NoLineBreak {
+                        new_x: current_x + word_width,
+                        new_y: current_y,
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// Either a white-space delimited word, tab or return character
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

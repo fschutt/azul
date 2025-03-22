@@ -2814,16 +2814,16 @@ impl LogicalRect {
         if self.max_x() <= other.min_x() || other.max_x() <= self.min_x() {
             return false;
         }
-        
+
         // Check if one rectangle is above the other
         if self.max_y() <= other.min_y() || other.max_y() <= self.min_y() {
             return false;
         }
-        
+
         // If we got here, the rectangles must intersect
         true
     }
-    
+
     /// Faster union for a Vec<LayoutRect>
     #[inline]
     pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {

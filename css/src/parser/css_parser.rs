@@ -379,19 +379,18 @@ pub fn parse_css_property<'a>(
             TextShadow => {
                 CssProperty::TextShadow(CssPropertyValue::Exact(parse_style_box_shadow(value)?))
                     .into()
-            },
+            }
             Hyphens => {
-                CssProperty::Hyphens(CssPropertyValue::Exact(parse_style_hyphens(value)?))
-                .into()
-            },
+                CssProperty::Hyphens(CssPropertyValue::Exact(parse_style_hyphens(value)?)).into()
+            }
             Direction => {
                 CssProperty::Direction(CssPropertyValue::Exact(parse_style_direction(value)?))
-                .into()
-            },
+                    .into()
+            }
             WhiteSpace => {
                 CssProperty::WhiteSpace(CssPropertyValue::Exact(parse_style_white_space(value)?))
-                .into()
-            },
+                    .into()
+            }
         },
     })
 }

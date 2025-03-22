@@ -602,7 +602,7 @@ const fn tag(chars: [u8; 4]) -> u32 {
 /// Estimate the language and the script from the text (uses trigrams)
 #[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
-    use crate::text::script::Script; // whatlang::Script
+    use crate::text2::script::Script; // whatlang::Script
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
 
@@ -786,7 +786,7 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 
     // let lang = tag_mod::from_string(&lang.code().to_string().to_uppercase()).unwrap();
 
-    let script = match crate::text::script::detect_script(text).unwrap_or(Script::Latin) {
+    let script = match crate::text2::script::detect_script(text).unwrap_or(Script::Latin) {
         Script::Arabic => TAG_ARAB,
         Script::Bengali => TAG_BENG,
         Script::Cyrillic => TAG_CYRL,

@@ -928,24 +928,11 @@ impl_enum_fmt!(
     Luminosity
 );
 
-impl_enum_fmt!(
-    StyleHyphens,
-    Auto,
-    None
-);
+impl_enum_fmt!(StyleHyphens, Auto, None);
 
-impl_enum_fmt!(
-    StyleDirection,
-    Ltr,
-    Rtl
-);
+impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 
-impl_enum_fmt!(
-    StyleWhiteSpace,
-    Normal,
-    Pre,
-    Nowrap
-);
+impl_enum_fmt!(StyleWhiteSpace, Normal, Pre, Nowrap);
 
 impl_enum_fmt!(
     StyleCursor,

@@ -1546,7 +1546,9 @@ macro_rules! css_property_from_type {
                 CssProperty::WhiteSpace(StyleWhiteSpaceValue::$content_type)
             }
             CssPropertyType::Hyphens => CssProperty::Hyphens(StyleHyphensValue::$content_type),
-            CssPropertyType::Direction => CssProperty::Direction(StyleDirectionValue::$content_type),
+            CssPropertyType::Direction => {
+                CssProperty::Direction(StyleDirectionValue::$content_type)
+            }
         }
     }};
 }

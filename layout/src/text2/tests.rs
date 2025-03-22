@@ -4,11 +4,10 @@ use azul_core::{
 };
 use azul_css::StyleTextAlign;
 
-use crate::text::{
+use crate::text2::{
     layout::{
         detect_text_direction, find_hyphenation_points, position_words, shape_words,
-        split_by_direction, split_text_into_words, split_text_into_words_with_hyphenation,
-        HyphenationCache,
+        split_text_into_words, split_text_into_words_with_hyphenation, HyphenationCache,
     },
     mock::MockFont,
 };
@@ -282,17 +281,6 @@ fn test_detect_text_direction() {
 
     // Skip RTL test if RTL script detection is not implemented in test environment
     // In a real environment, this would detect RTL for Arabic or Hebrew text
-}
-
-#[test]
-fn test_split_by_direction() {
-    // Simple LTR text
-    let spans = split_by_direction("Hello world");
-    assert_eq!(spans.len(), 1);
-    assert_eq!(spans[0].script, ScriptType::LTR);
-
-    // Mixed text would have multiple spans in a real environment
-    // Not testing with actual RTL text as it may not be properly handled in test environment
 }
 
 #[test]
