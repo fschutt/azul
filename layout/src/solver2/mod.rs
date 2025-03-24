@@ -277,6 +277,14 @@ pub fn do_the_layout_internal(
             message: "Phase 1: Determined formatting contexts".into(),
             location: "do_the_layout_internal".to_string().into(),
         });
+        let r = formatting_contexts.as_ref();
+        for fc in r.linear_iter() {
+            let f = &r[fc];
+            messages.push(LayoutDebugMessage {
+                message: format!("Determined formatting context for node {fc}: {f:?}").into(),
+                location: "do_the_layout_internal".to_string().into(),
+            });
+        }
     }
 
     // Phase 2: Calculate intrinsic sizes
@@ -288,6 +296,14 @@ pub fn do_the_layout_internal(
             message: "Phase 2: Calculated intrinsic sizes".into(),
             location: "do_the_layout_internal".to_string().into(),
         });
+        let r = formatting_contexts.as_ref();
+        for fc in r.linear_iter() {
+            let f = &r[fc];
+            messages.push(LayoutDebugMessage {
+                message: format!("Determined formatting context for node {fc}: {f:?}").into(),
+                location: "do_the_layout_internal".to_string().into(),
+            });
+        }
     }
 
     // Phase 3: Perform main layout calculation

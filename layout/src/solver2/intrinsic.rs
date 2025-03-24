@@ -25,10 +25,8 @@ pub fn calculate_intrinsic_sizes(
     };
 
     // Process leaf nodes first
-    for node_id in 0..node_data.len() {
-        let node_id = azul_core::id_tree::NodeId::new(node_id);
+    for node_id in node_data.linear_iter() {
         let node_data_ref = &node_data[node_id];
-
         match node_data_ref.get_node_type() {
             NodeType::Text(text) => {
                 // Calculate text dimensions
@@ -38,6 +36,10 @@ pub fn calculate_intrinsic_sizes(
                     styled_dom,
                     renderer_resources,
                 ) {
+                    println!(
+                        "calculated intrinsic text size for node {}: {text_sizes:?}",
+                        node_id.index()
+                    );
                     intrinsic_sizes.as_ref_mut()[node_id] = text_sizes;
                 }
             }
@@ -46,6 +48,10 @@ pub fn calculate_intrinsic_sizes(
                 if let Some(image_sizes) =
                     calculate_image_intrinsic_sizes(image, styled_dom, renderer_resources)
                 {
+                    println!(
+                        "calculated intrinsic image dimensions for node {}: {image_sizes:?}",
+                        node_id.index()
+                    );
                     intrinsic_sizes.as_ref_mut()[node_id] = image_sizes;
                 }
             }

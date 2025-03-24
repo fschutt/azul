@@ -1372,7 +1372,7 @@ fn process_text_node(
         word_spacing: word_spacing.into(),
         tab_width: tab_width.into(),
         max_horizontal_width: Some(content_rect.size.width).into(),
-        max_vertical_height: Some(content_rect.size.height).into(),
+        max_vertical_height: None.into(), // Some(content_rect.size.height).into(),
         leading: None.into(),
         holes: Vec::new().into(),
         can_break: true,

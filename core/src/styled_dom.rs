@@ -3651,11 +3651,18 @@ impl StyledDom {
 
         if !test_mode {
             format!(
-                include_str!("./default.html"),
-                custom_head = custom_head,
-                output = output,
-                custom_body = custom_body
+                "
+                <html>
+                    <head>
+                    {custom_head}
+                    </head>
+                {output}
+                {custom_body}
+                </html>
+            "
             )
+            .trim()
+            .to_string()
         } else {
             output
         }

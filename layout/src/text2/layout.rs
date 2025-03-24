@@ -1485,8 +1485,12 @@ pub fn split_text_into_words_with_hyphenation(
 
             for word in words {
                 if word.word_type == WordType::Word {
-                    let word_text = &normalized_string[word.start..word.end];
-                    let hyphenation_points = find_hyphenation_points(word_text, hyphenator);
+                    let word_text = normalized_string
+                        .chars()
+                        .skip(word.start)
+                        .take(word.end.saturating_sub(word.start))
+                        .collect::<String>();
+                    let hyphenation_points = find_hyphenation_points(&word_text, hyphenator);
 
                     if !hyphenation_points.is_empty() && word_text.len() > 4 {
                         if let Some(messages) = debug_messages {
