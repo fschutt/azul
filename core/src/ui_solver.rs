@@ -859,6 +859,144 @@ impl LayoutResult {
             gpu_value_cache: Default::default(),
         }
     }
+
+    pub fn print_layout_rects(&self, use_static_offset: bool) -> String {
+        let mut output = String::new();
+
+        // Start with the root node
+        let root_node_id = self
+            .styled_dom
+            .root
+            .into_crate_internal()
+            .unwrap_or(NodeId::ZERO);
+        self.print_rect_recursive(root_node_id, use_static_offset, 0, &mut output);
+
+        output
+    }
+
+    fn print_rect_recursive(
+        &self,
+        node_id: NodeId,
+        use_static_offset: bool,
+        indent: usize,
+        output: &mut String,
+    ) {
+        let indent_str = " ".repeat(indent);
+        let rect = &self.rects.as_ref()[node_id];
+        let node_hierarchy = self.styled_dom.node_hierarchy.as_container();
+
+        // Get position
+        let position = if use_static_offset {
+            rect.get_logical_static_offset()
+        } else {
+            rect.get_logical_relative_offset()
+        };
+
+        // Print basic rect info
+        output.push_str(&format!(
+            "{}[ {}: {}x{} @ ({},{})",
+            indent_str,
+            node_id.index(),
+            rect.size.width as i32,
+            rect.size.height as i32,
+            position.x as i32,
+            position.y as i32
+        ));
+
+        // Print margin if non-zero
+        if rect.margin.top != 0.0
+            || rect.margin.right != 0.0
+            || rect.margin.bottom != 0.0
+            || rect.margin.left != 0.0
+        {
+            output.push_str(&format!(
+                " (margin {}px {}px {}px {}px)",
+                rect.margin.top as i32,
+                rect.margin.right as i32,
+                rect.margin.bottom as i32,
+                rect.margin.left as i32
+            ));
+        }
+
+        // Print padding if non-zero
+        if rect.padding.top != 0.0
+            || rect.padding.right != 0.0
+            || rect.padding.bottom != 0.0
+            || rect.padding.left != 0.0
+        {
+            output.push_str(&format!(
+                " (padding {}px {}px {}px {}px)",
+                rect.padding.top as i32,
+                rect.padding.right as i32,
+                rect.padding.bottom as i32,
+                rect.padding.left as i32
+            ));
+        }
+
+        // Print border if non-zero
+        if rect.border_widths.top != 0.0
+            || rect.border_widths.right != 0.0
+            || rect.border_widths.bottom != 0.0
+            || rect.border_widths.left != 0.0
+        {
+            output.push_str(&format!(
+                " (border {}px {}px {}px {}px)",
+                rect.border_widths.top as i32,
+                rect.border_widths.right as i32,
+                rect.border_widths.bottom as i32,
+                rect.border_widths.left as i32
+            ));
+        }
+
+        // Print text lines if present
+        if let Some((_, ref inline_text_layout)) = rect.resolved_text_layout_options {
+            output.push('\n');
+
+            for (i, line) in inline_text_layout.lines.as_ref().iter().enumerate() {
+                // Try to get text content for this line
+                let line_text = if let Some(words) = self.words_cache.get(&node_id) {
+                    if line.word_start <= line.word_end
+                        && line.word_end < words.internal_str.as_str().len()
+                    {
+                        let line_words = (line.word_start..=line.word_end)
+                            .filter_map(|i| words.items.get(i))
+                            .map(|w| {
+                                (w.start..w.end)
+                                    .filter_map(|s| words.internal_chars.get(s))
+                                    .filter_map(|c| char::from_u32(*c))
+                                    .collect::<String>()
+                            })
+                            .collect::<Vec<_>>();
+
+                        format!("'{}' ", line_words.join(" "))
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
+                output.push_str(&format!(
+                    "{}   [ Line {}: {}{}x{} @ ({},{})]",
+                    indent_str,
+                    i,
+                    line_text,
+                    line.bounds.size.width as i32,
+                    line.bounds.size.height as i32,
+                    line.bounds.origin.x as i32,
+                    line.bounds.origin.y as i32
+                ));
+                output.push_str("\n");
+            }
+        } else {
+            output.push_str("\n");
+        }
+
+        // Recurse for all children
+        for child_id in node_id.az_children(&node_hierarchy) {
+            self.print_rect_recursive(child_id, use_static_offset, indent + 3, output);
+        }
+    }
 }
 
 impl fmt::Debug for LayoutResult {

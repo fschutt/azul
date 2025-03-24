@@ -131,7 +131,6 @@ pub fn calculate_layout(
         intrinsic_sizes,
     };
 
-
     fix_node_positions(&mut layout_result);
 
     layout_result
@@ -1972,8 +1971,8 @@ fn create_positioned_rectangle(
 
     // Calculate position
     let position = PositionInfo::Static(PositionInfoInner {
-        x_offset: 0.0,  // Will be calculated later in fix_node_positions
-        y_offset: 0.0,  // Will be calculated later in fix_node_positions
+        x_offset: 0.0, // Will be calculated later in fix_node_positions
+        y_offset: 0.0, // Will be calculated later in fix_node_positions
         static_x_offset: available_space.origin.x,
         static_y_offset: available_space.origin.y,
     });
@@ -2173,16 +2172,18 @@ fn extract_text_layout_options(
 }
 
 /// Fixes position offsets after layout is complete.
-/// 
+///
 /// The static_x_offset and static_y_offset are absolute coordinates (relative to root)
 /// The x_offset and y_offset are relative to the parent's content box
-/// 
+///
 /// This function recalculates all relative offsets based on the absolute positions
-pub fn fix_node_positions(
-    layout_result: &mut LayoutResult,
-) {
-    let root_id = layout_result.styled_dom.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-    
+pub fn fix_node_positions(layout_result: &mut LayoutResult) {
+    let root_id = layout_result
+        .styled_dom
+        .root
+        .into_crate_internal()
+        .unwrap_or(NodeId::ZERO);
+
     // Traverse from root to calculate correct relative offsets
     fix_node_position_recursive(
         root_id,
@@ -2199,7 +2200,7 @@ fn fix_node_position_recursive(
     node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
 ) {
     let rect = &mut positioned_rects[node_id];
-    
+
     // Get the static position (absolute coordinates)
     let (static_x, static_y) = match rect.position {
         PositionInfo::Static(ref mut pos) => {
@@ -2214,7 +2215,7 @@ fn fix_node_position_recursive(
                 pos.y_offset = pos.static_y_offset;
             }
             (pos.static_x_offset, pos.static_y_offset)
-        },
+        }
         PositionInfo::Relative(ref mut pos) => {
             // For relative positioning, update relative offsets
             if let Some((parent_content_x, parent_content_y)) = parent_content_box {
@@ -2222,26 +2223,23 @@ fn fix_node_position_recursive(
                 pos.y_offset = pos.static_y_offset - parent_content_y;
             }
             (pos.static_x_offset, pos.static_y_offset)
-        },
+        }
         PositionInfo::Absolute(ref mut pos) => {
             // Absolute positioning is relative to nearest positioned ancestor
             // Keep static offsets as is since they were computed during layout
             (pos.static_x_offset, pos.static_y_offset)
-        },
+        }
         PositionInfo::Fixed(ref mut pos) => {
             // Fixed positioning is relative to viewport
             // Keep static offsets as is since they were computed during layout
             (pos.static_x_offset, pos.static_y_offset)
-        },
+        }
     };
-    
+
     // Calculate the content box origin for this node's children
     // Add padding to get content box origin (border is included in padding)
-    let content_box_origin = (
-        static_x + rect.padding.left,
-        static_y + rect.padding.top
-    );
-    
+    let content_box_origin = (static_x + rect.padding.left, static_y + rect.padding.top);
+
     // Process children
     for child_id in node_id.az_children(node_hierarchy) {
         fix_node_position_recursive(
