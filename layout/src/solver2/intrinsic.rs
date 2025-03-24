@@ -36,10 +36,6 @@ pub fn calculate_intrinsic_sizes(
                     styled_dom,
                     renderer_resources,
                 ) {
-                    println!(
-                        "calculated intrinsic text size for node {}: {text_sizes:?}",
-                        node_id.index()
-                    );
                     intrinsic_sizes.as_ref_mut()[node_id] = text_sizes;
                 }
             }
@@ -48,10 +44,6 @@ pub fn calculate_intrinsic_sizes(
                 if let Some(image_sizes) =
                     calculate_image_intrinsic_sizes(image, styled_dom, renderer_resources)
                 {
-                    println!(
-                        "calculated intrinsic image dimensions for node {}: {image_sizes:?}",
-                        node_id.index()
-                    );
                     intrinsic_sizes.as_ref_mut()[node_id] = image_sizes;
                 }
             }

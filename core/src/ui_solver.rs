@@ -624,7 +624,7 @@ pub struct HorizontalSolvedPosition(pub f32);
 pub struct VerticalSolvedPosition(pub f32);
 
 /// Represents the CSS formatting context for an element
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum FormattingContext {
     /// Block-level formatting context
     Block {
@@ -645,8 +645,22 @@ pub enum FormattingContext {
     None,
 }
 
+impl fmt::Debug for FormattingContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FormattingContext::Block { establishes_new_context } => write!(f, "Block {{ establishes_new_context: {establishes_new_context:?} }}"),
+            FormattingContext::Inline => write!(f, "Inline"),
+            FormattingContext::InlineBlock => write!(f, "InlineBlock"),
+            FormattingContext::Flex => write!(f, "Flex"),
+            FormattingContext::Float(layout_float) => write!(f, "Float({layout_float:?})"),
+            FormattingContext::OutOfFlow(layout_position) => write!(f, "OutOfFlow({layout_position:?})"),
+            FormattingContext::None => write!(f, "None"),
+        }
+    }
+}
+
 /// Represents the intrinsic sizing information for an element
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct IntrinsicSizes {
     pub min_content_width: f32,
     pub max_content_width: f32,
@@ -654,6 +668,22 @@ pub struct IntrinsicSizes {
     pub min_content_height: f32,
     pub max_content_height: f32,
     pub preferred_height: Option<f32>,
+}
+
+impl fmt::Debug for IntrinsicSizes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let q = |r: Option<f32>| -> String {
+            match r {
+                None => "None".to_string(),
+                Some(s) => s.to_string(),
+            }
+        };
+        write!(f, 
+            "IntrinsicSizes {{ width: {{ min: {}, max: {}, preferred: {} }}, height: {{ min: {}, max: {}, preferred: {} }} }}",
+            self.min_content_width, self.max_content_width, q(self.preferred_width),
+            self.min_content_height, self.max_content_height, q(self.preferred_height),
+        )
+    }
 }
 
 impl IntrinsicSizes {
