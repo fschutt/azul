@@ -1063,7 +1063,10 @@ pub extern "C" fn AzFocusTargetPath_delete(object: &mut AzFocusTargetPath) {
 
 /// Re-export of rust-allocated (stack based) `ResolvedTextLayoutOptions` struct
 pub use azul_core::ui_solver::ResolvedTextLayoutOptions as AzResolvedTextLayoutOptionsTT;
+/// Re-export of rust-allocated (stack based) `ScriptType` struct
+pub use azul_core::ui_solver::ScriptType as AzScriptTypeTT;
 pub use AzResolvedTextLayoutOptionsTT as AzResolvedTextLayoutOptions;
+pub use AzScriptTypeTT as AzScriptType;
 /// Creates a new `ResolvedTextLayoutOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `ResolvedTextLayoutOptions::default()` constructor.
 #[no_mangle]
@@ -9960,9 +9963,12 @@ pub use azul_core::dom::NodeDataVecDestructor as AzNodeDataVecDestructorTT;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionStyleTextAlign` struct
+pub use azul_css::OptionStyleTextAlign as AzOptionStyleTextAlignTT;
 /// Re-export of rust-allocated (stack based) `OptionSvgPoint` struct
 pub use azul_css::OptionSvgPoint as AzOptionSvgPointTT;
 pub use AzOptionListViewOnRowClickTT as AzOptionListViewOnRowClick;
+pub use AzOptionStyleTextAlignTT as AzOptionStyleTextAlign;
 pub use AzOptionSvgPointTT as AzOptionSvgPoint;
 
 /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
@@ -11998,6 +12004,14 @@ mod test_sizes {
         pub y_offset: f32,
         pub static_x_offset: f32,
         pub static_y_offset: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ScriptType` struct
+    #[repr(C)]
+    pub enum AzScriptType {
+        Mixed,
+        LTR,
+        RTL,
     }
 
     /// How should an animation repeat (loop, ping-pong, etc.)
@@ -16460,6 +16474,13 @@ mod test_sizes {
         Some(AzSvgPoint),
     }
 
+    /// Re-export of rust-allocated (stack based) `OptionStyleTextAlign` struct
+    #[repr(C, u8)]
+    pub enum AzOptionStyleTextAlign {
+        None,
+        Some(AzStyleTextAlign),
+    }
+
     /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
     #[repr(C, u8)]
     pub enum AzOptionListViewOnRowClick {
@@ -17009,6 +17030,12 @@ mod test_sizes {
         pub max_horizontal_width: AzOptionF32,
         pub leading: AzOptionF32,
         pub holes: AzLogicalRectVec,
+        pub max_vertical_height: AzOptionF32,
+        pub can_break: bool,
+        pub can_hyphenate: bool,
+        pub hyphenation_character: AzOptionChar,
+        pub is_rtl: AzScriptType,
+        pub text_justify: AzOptionStyleTextAlign,
     }
 
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
@@ -19326,6 +19353,13 @@ mod test_sizes {
                 "AzPositionInfoInner"
             ),
             (Layout::new::<AzPositionInfoInner>(), "AzPositionInfoInner")
+        );
+        assert_eq!(
+            (
+                Layout::new::<azul_core::ui_solver::ScriptType>(),
+                "AzScriptType"
+            ),
+            (Layout::new::<AzScriptType>(), "AzScriptType")
         );
         assert_eq!(
             (
@@ -23103,6 +23137,16 @@ mod test_sizes {
                 "AzOptionSvgPoint"
             ),
             (Layout::new::<AzOptionSvgPoint>(), "AzOptionSvgPoint")
+        );
+        assert_eq!(
+            (
+                Layout::new::<azul_css::OptionStyleTextAlign>(),
+                "AzOptionStyleTextAlign"
+            ),
+            (
+                Layout::new::<AzOptionStyleTextAlign>(),
+                "AzOptionStyleTextAlign"
+            )
         );
         assert_eq!(
             (

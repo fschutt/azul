@@ -1777,17 +1777,31 @@
                         {"css_path": {"type": "CssPath"}}
                     ]
                 },
+                "ScriptType": {
+                    "external": "azul_core::ui_solver::ScriptType",
+                    "enum_fields": [
+                        {"Mixed": {"doc": "Auto-determine script type based on text content"}},
+                        {"LTR": {"doc": "Force left-to-right layout"}},
+                        {"RTL": {"doc": "Force right-to-left layout"}}
+                    ]
+                },
                 "ResolvedTextLayoutOptions": {
                     "external": "azul_core::ui_solver::ResolvedTextLayoutOptions",
                     "struct_fields": [
-                        {"font_size_px": {"type": "f32"}},
-                        {"line_height": {"type": "OptionF32"}},
-                        {"letter_spacing": {"type": "OptionF32"}},
-                        {"word_spacing": {"type": "OptionF32"}},
-                        {"tab_width": {"type": "OptionF32"}},
-                        {"max_horizontal_width": {"type": "OptionF32"}},
-                        {"leading": {"type": "OptionF32"}},
-                        {"holes": {"type": "LogicalRectVec"}}
+                        {"font_size_px": {"type": "f32", "doc": "Font size (in pixels) that this text has been laid out with"}},
+                        {"line_height": {"type": "OptionF32", "doc": "Multiplier for the line height, default to 1.0"}},
+                        {"letter_spacing": {"type": "OptionF32", "doc": "Additional spacing between glyphs (in pixels)"}},
+                        {"word_spacing": {"type": "OptionF32", "doc": "Additional spacing between words (in pixels)"}},
+                        {"tab_width": {"type": "OptionF32", "doc": "How many spaces should a tab character emulate (multiplying value, i.e. `4.0` = one tab = 4 spaces)"}},
+                        {"max_horizontal_width": {"type": "OptionF32", "doc": " Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this to None"}},
+                        {"leading": {"type": "OptionF32", "doc": "How many pixels of leading does the first line have? Note that this added onto to the holes, so for effects like `:first-letter`, use a hole instead of a leading"}},
+                        {"holes": {"type": "LogicalRectVec", "doc": "This is more important for inline text layout where items can punch 'holes' into the text flow, for example text that flows around an image"}},
+                        {"max_vertical_height": {"type": "OptionF32", "doc": "Stop layouting text after y coordinate is reached, useful for limiting long text blocks"}},
+                        {"can_break": {"type": "bool", "doc": "Whether text can break lines (white-space: wrap | pre | nowrap), default: true (wrap)"}},
+                        {"can_hyphenate": {"type": "bool", "doc": "Whether text is hyphenated (hyphens: auto), default: true"}},
+                        {"hyphenation_character": {"type": "OptionChar", "doc": "Custom hyphenation character, necessary to calculate breaking in hyphenated texts, default '-'"}},
+                        {"is_rtl": {"type": "ScriptType", "doc": "Force RTL or LTR (Mixed = auto-detect)"}},
+                        {"text_justify": {"type": "OptionStyleTextAlign", "doc": "Text justification mode (none = aligned depending on LTR / RTL)"}}
                     ],
                     "constructors": {
                         "default": {
@@ -15669,6 +15683,13 @@
                     "enum_fields": [
                         {"None": {}},
                         {"Some": {"type": "SvgPoint"}}
+                    ]
+                },
+                "OptionStyleTextAlign": {
+                    "external": "azul_css::OptionStyleTextAlign",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "StyleTextAlign"}}
                     ]
                 },
                 "OptionListViewOnRowClick": {

@@ -937,6 +937,13 @@ struct AzPositionInfoInner {
 };
 typedef struct AzPositionInfoInner AzPositionInfoInner;
 
+enum AzScriptType {
+   AzScriptType_Mixed,
+   AzScriptType_LTR,
+   AzScriptType_RTL,
+};
+typedef enum AzScriptType AzScriptType;
+
 enum AzAnimationRepeat {
    AzAnimationRepeat_NoRepeat,
    AzAnimationRepeat_Loop,
@@ -6903,6 +6910,22 @@ union AzOptionSvgPoint {
 };
 typedef union AzOptionSvgPoint AzOptionSvgPoint;
 
+enum AzOptionStyleTextAlignTag {
+   AzOptionStyleTextAlignTag_None,
+   AzOptionStyleTextAlignTag_Some,
+};
+typedef enum AzOptionStyleTextAlignTag AzOptionStyleTextAlignTag;
+
+struct AzOptionStyleTextAlignVariant_None { AzOptionStyleTextAlignTag tag; };
+typedef struct AzOptionStyleTextAlignVariant_None AzOptionStyleTextAlignVariant_None;
+struct AzOptionStyleTextAlignVariant_Some { AzOptionStyleTextAlignTag tag; AzStyleTextAlign payload; };
+typedef struct AzOptionStyleTextAlignVariant_Some AzOptionStyleTextAlignVariant_Some;
+union AzOptionStyleTextAlign {
+    AzOptionStyleTextAlignVariant_None None;
+    AzOptionStyleTextAlignVariant_Some Some;
+};
+typedef union AzOptionStyleTextAlign AzOptionStyleTextAlign;
+
 enum AzOptionListViewOnRowClickTag {
    AzOptionListViewOnRowClickTag_None,
    AzOptionListViewOnRowClickTag_Some,
@@ -7972,6 +7995,12 @@ struct AzResolvedTextLayoutOptions {
     AzOptionF32 max_horizontal_width;
     AzOptionF32 leading;
     AzLogicalRectVec holes;
+    AzOptionF32 max_vertical_height;
+    bool  can_break;
+    bool  can_hyphenate;
+    AzOptionChar hyphenation_character;
+    AzScriptType is_rtl;
+    AzOptionStyleTextAlign text_justify;
 };
 typedef struct AzResolvedTextLayoutOptions AzResolvedTextLayoutOptions;
 
@@ -11711,6 +11740,8 @@ typedef struct AzCss AzCss;
 #define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
 #define AzOptionSvgPoint_None { .None = { .tag = AzOptionSvgPointTag_None } }
 #define AzOptionSvgPoint_Some(v) { .Some = { .tag = AzOptionSvgPointTag_Some, .payload = v } }
+#define AzOptionStyleTextAlign_None { .None = { .tag = AzOptionStyleTextAlignTag_None } }
+#define AzOptionStyleTextAlign_Some(v) { .Some = { .tag = AzOptionStyleTextAlignTag_Some, .payload = v } }
 #define AzOptionListViewOnRowClick_None { .None = { .tag = AzOptionListViewOnRowClickTag_None } }
 #define AzOptionListViewOnRowClick_Some(v) { .Some = { .tag = AzOptionListViewOnRowClickTag_Some, .payload = v } }
 #define AzOptionListViewOnColumnClick_None { .None = { .tag = AzOptionListViewOnColumnClickTag_None } }
@@ -20019,6 +20050,20 @@ bool AzOptionSvgPoint_matchRefSome(const AzOptionSvgPoint* value, const AzSvgPoi
 bool AzOptionSvgPoint_matchMutSome(AzOptionSvgPoint* restrict value, AzSvgPoint* restrict * restrict out) {
     AzOptionSvgPointVariant_Some* restrict casted = (AzOptionSvgPointVariant_Some* restrict)value;
     bool valid = casted->tag == AzOptionSvgPointTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionStyleTextAlign_matchRefSome(const AzOptionStyleTextAlign* value, const AzStyleTextAlign** restrict out) {
+    const AzOptionStyleTextAlignVariant_Some* casted = (const AzOptionStyleTextAlignVariant_Some*)value;
+    bool valid = casted->tag == AzOptionStyleTextAlignTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionStyleTextAlign_matchMutSome(AzOptionStyleTextAlign* restrict value, AzStyleTextAlign* restrict * restrict out) {
+    AzOptionStyleTextAlignVariant_Some* restrict casted = (AzOptionStyleTextAlignVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionStyleTextAlignTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

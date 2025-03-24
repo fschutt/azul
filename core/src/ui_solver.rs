@@ -1509,10 +1509,10 @@ pub struct TextScriptInfo {
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(C)]
 pub enum ScriptType {
-    LTR,
-    RTL,
     #[default]
     Mixed,
+    LTR,
+    RTL,
 }
 
 impl_option!(

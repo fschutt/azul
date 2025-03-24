@@ -1307,6 +1307,14 @@ pub struct AzPositionInfoInner {
     pub static_y_offset: f32,
 }
 
+/// Re-export of rust-allocated (stack based) `ScriptType` struct
+#[repr(C)]
+pub enum AzScriptType {
+    Mixed,
+    LTR,
+    RTL,
+}
+
 /// How should an animation repeat (loop, ping-pong, etc.)
 #[repr(C)]
 pub enum AzAnimationRepeat {
@@ -5709,6 +5717,13 @@ pub enum AzOptionSvgPoint {
     Some(AzSvgPoint),
 }
 
+/// Re-export of rust-allocated (stack based) `OptionStyleTextAlign` struct
+#[repr(C, u8)]
+pub enum AzOptionStyleTextAlign {
+    None,
+    Some(AzStyleTextAlign),
+}
+
 /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
 #[repr(C, u8)]
 pub enum AzOptionListViewOnRowClick {
@@ -6255,6 +6270,12 @@ pub struct AzResolvedTextLayoutOptions {
     pub max_horizontal_width: AzOptionF32EnumWrapper,
     pub leading: AzOptionF32EnumWrapper,
     pub holes: AzLogicalRectVec,
+    pub max_vertical_height: AzOptionF32EnumWrapper,
+    pub can_break: bool,
+    pub can_hyphenate: bool,
+    pub hyphenation_character: AzOptionCharEnumWrapper,
+    pub is_rtl: AzScriptTypeEnumWrapper,
+    pub text_justify: AzOptionStyleTextAlignEnumWrapper,
 }
 
 /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
@@ -8383,6 +8404,12 @@ pub struct AzUpdateEnumWrapper {
     pub inner: AzUpdate,
 }
 
+/// `AzScriptTypeEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzScriptTypeEnumWrapper {
+    pub inner: AzScriptType,
+}
+
 /// `AzAnimationRepeatEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzAnimationRepeatEnumWrapper {
@@ -9667,6 +9694,12 @@ pub struct AzOptionSvgPointEnumWrapper {
     pub inner: AzOptionSvgPoint,
 }
 
+/// `AzOptionStyleTextAlignEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionStyleTextAlignEnumWrapper {
+    pub inner: AzOptionStyleTextAlign,
+}
+
 /// `AzOptionListViewOnRowClickEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionListViewOnRowClickEnumWrapper {
@@ -10775,6 +10808,12 @@ impl Clone for AzDomId {
 impl Clone for AzPositionInfoInner {
     fn clone(&self) -> Self {
         let r: &azul_core::ui_solver::PositionInfoInner = unsafe { mem::transmute(self) };
+        unsafe { mem::transmute(r.clone()) }
+    }
+}
+impl Clone for AzScriptTypeEnumWrapper {
+    fn clone(&self) -> Self {
+        let r: &azul_core::ui_solver::ScriptType = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -13609,6 +13648,12 @@ impl Clone for AzParentWithNodeDepthVec {
 impl Clone for AzOptionSvgPointEnumWrapper {
     fn clone(&self) -> Self {
         let r: &azul_css::OptionSvgPoint = unsafe { mem::transmute(self) };
+        unsafe { mem::transmute(r.clone()) }
+    }
+}
+impl Clone for AzOptionStyleTextAlignEnumWrapper {
+    fn clone(&self) -> Self {
+        let r: &azul_css::OptionStyleTextAlign = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -20359,6 +20404,66 @@ impl PyObjectProtocol for AzFocusTargetPath {
     fn __repr__(&self) -> Result<String, PyErr> {
         let m: &azul_core::callbacks::FocusTargetPath = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzScriptTypeEnumWrapper {
+    #[classattr]
+    fn Mixed() -> AzScriptTypeEnumWrapper {
+        AzScriptTypeEnumWrapper {
+            inner: AzScriptType::Mixed,
+        }
+    }
+    #[classattr]
+    fn LTR() -> AzScriptTypeEnumWrapper {
+        AzScriptTypeEnumWrapper {
+            inner: AzScriptType::LTR,
+        }
+    }
+    #[classattr]
+    fn RTL() -> AzScriptTypeEnumWrapper {
+        AzScriptTypeEnumWrapper {
+            inner: AzScriptType::RTL,
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzScriptTypeEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> {
+        let m: &azul_core::ui_solver::ScriptType = unsafe { mem::transmute(&self.inner) };
+        Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> {
+        let m: &azul_core::ui_solver::ScriptType = unsafe { mem::transmute(&self.inner) };
+        Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(
+        &self,
+        other: AzScriptTypeEnumWrapper,
+        op: pyo3::class::basic::CompareOp,
+    ) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => {
+                Ok((self.clone().inner as usize) < (other.clone().inner as usize))
+            }
+            pyo3::class::basic::CompareOp::Le => {
+                Ok((self.clone().inner as usize) <= (other.clone().inner as usize))
+            }
+            pyo3::class::basic::CompareOp::Eq => {
+                Ok((self.clone().inner as usize) == (other.clone().inner as usize))
+            }
+            pyo3::class::basic::CompareOp::Ne => {
+                Ok((self.clone().inner as usize) != (other.clone().inner as usize))
+            }
+            pyo3::class::basic::CompareOp::Gt => {
+                Ok((self.clone().inner as usize) > (other.clone().inner as usize))
+            }
+            pyo3::class::basic::CompareOp::Ge => {
+                Ok((self.clone().inner as usize) >= (other.clone().inner as usize))
+            }
+        }
     }
 }
 
@@ -53125,6 +53230,53 @@ impl PyObjectProtocol for AzOptionSvgPointEnumWrapper {
 }
 
 #[pymethods]
+impl AzOptionStyleTextAlignEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionStyleTextAlignEnumWrapper {
+        AzOptionStyleTextAlignEnumWrapper {
+            inner: AzOptionStyleTextAlign::None,
+        }
+    }
+    #[staticmethod]
+    fn Some(v: AzStyleTextAlignEnumWrapper) -> AzOptionStyleTextAlignEnumWrapper {
+        AzOptionStyleTextAlignEnumWrapper {
+            inner: AzOptionStyleTextAlign::Some(unsafe { mem::transmute(v) }),
+        }
+    }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use pyo3::conversion::IntoPy;
+
+        use crate::python::AzOptionStyleTextAlign;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionStyleTextAlign::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionStyleTextAlign::Some(v) => Ok(vec![
+                "Some".into_py(py),
+                {
+                    let m: &AzStyleTextAlignEnumWrapper = unsafe { mem::transmute(v) };
+                    m.clone()
+                }
+                .into_py(py),
+            ]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionStyleTextAlignEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> {
+        let m: &azul_css::OptionStyleTextAlign = unsafe { mem::transmute(&self.inner) };
+        Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> {
+        let m: &azul_css::OptionStyleTextAlign = unsafe { mem::transmute(&self.inner) };
+        Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzOptionListViewOnRowClickEnumWrapper {
     #[classattr]
     fn None() -> AzOptionListViewOnRowClickEnumWrapper {
@@ -57972,6 +58124,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzInlineTextHit>()?;
     m.add_class::<AzFocusTargetEnumWrapper>()?;
     m.add_class::<AzFocusTargetPath>()?;
+    m.add_class::<AzScriptTypeEnumWrapper>()?;
     m.add_class::<AzResolvedTextLayoutOptions>()?;
     m.add_class::<AzAnimation>()?;
     m.add_class::<AzAnimationRepeatEnumWrapper>()?;
@@ -58589,6 +58742,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
     m.add_class::<AzOptionSvgPointEnumWrapper>()?;
+    m.add_class::<AzOptionStyleTextAlignEnumWrapper>()?;
     m.add_class::<AzOptionListViewOnRowClickEnumWrapper>()?;
     m.add_class::<AzOptionListViewOnColumnClickEnumWrapper>()?;
     m.add_class::<AzOptionListViewOnLazyLoadScrollEnumWrapper>()?;

@@ -819,6 +819,12 @@ namespace dll {
         PositionInfoInner() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    enum class ScriptType {
+       Mixed,
+       LTR,
+       RTL,
+    };
+    
     enum class AnimationRepeat {
        NoRepeat,
        Loop,
@@ -6365,6 +6371,19 @@ namespace dll {
     };
     
     
+    enum class OptionStyleTextAlignTag {
+       None,
+       Some,
+    };
+    
+    struct OptionStyleTextAlignVariant_None { OptionStyleTextAlignTag tag; };
+    struct OptionStyleTextAlignVariant_Some { OptionStyleTextAlignTag tag; StyleTextAlign payload; };
+    union OptionStyleTextAlign {
+        OptionStyleTextAlignVariant_None None;
+        OptionStyleTextAlignVariant_Some Some;
+    };
+    
+    
     enum class OptionListViewOnRowClickTag {
        None,
        Some,
@@ -7277,6 +7296,12 @@ namespace dll {
         OptionF32 max_horizontal_width;
         OptionF32 leading;
         LogicalRectVec holes;
+        OptionF32 max_vertical_height;
+        bool  can_break;
+        bool  can_hyphenate;
+        OptionChar hyphenation_character;
+        ScriptType is_rtl;
+        OptionStyleTextAlign text_justify;
         ResolvedTextLayoutOptions& operator=(const ResolvedTextLayoutOptions&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         ResolvedTextLayoutOptions(const ResolvedTextLayoutOptions&) = delete; /* disable copy constructor, use explicit .clone() */
         ResolvedTextLayoutOptions() = delete; /* disable default constructor, use C++20 designated initializer instead */

@@ -1734,6 +1734,15 @@ mod dll {
             pub static_y_offset: f32,
         }
 
+        /// Re-export of rust-allocated (stack based) `ScriptType` struct
+        #[repr(C)]
+        #[derive(Debug, Clone, PartialEq, PartialOrd)]
+        pub enum AzScriptType {
+            Mixed,
+            LTR,
+            RTL,
+        }
+
         /// How should an animation repeat (loop, ping-pong, etc.)
         #[repr(C)]
         #[derive(Debug, Clone, PartialEq, PartialOrd, Copy)]
@@ -6647,6 +6656,14 @@ mod dll {
             Some(AzSvgPoint),
         }
 
+        /// Re-export of rust-allocated (stack based) `OptionStyleTextAlign` struct
+        #[repr(C, u8)]
+        #[derive(Debug, Clone, PartialEq, PartialOrd)]
+        pub enum AzOptionStyleTextAlign {
+            None,
+            Some(AzStyleTextAlign),
+        }
+
         /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
         #[repr(C, u8)]
         #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -7273,6 +7290,12 @@ mod dll {
             pub max_horizontal_width: AzOptionF32,
             pub leading: AzOptionF32,
             pub holes: AzLogicalRectVec,
+            pub max_vertical_height: AzOptionF32,
+            pub can_break: bool,
+            pub can_hyphenate: bool,
+            pub hyphenation_character: AzOptionChar,
+            pub is_rtl: AzScriptType,
+            pub text_justify: AzOptionStyleTextAlign,
         }
 
         /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
@@ -19282,6 +19305,10 @@ pub mod callbacks {
 
     #[doc(inline)]
     pub use crate::dll::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
+    /// `ScriptType` struct
+
+    #[doc(inline)]
+    pub use crate::dll::AzScriptType as ScriptType;
     impl ResolvedTextLayoutOptions {
         /// Creates a new `ResolvedTextLayoutOptions` instance.
         pub fn default() -> Self {
@@ -31006,6 +31033,11 @@ pub mod option {
         [Debug, Copy, Clone]
     );
     impl_option!(AzSvgPoint, AzOptionSvgPoint, [Debug, Copy, Clone]);
+    impl_option!(
+        AzStyleTextAlign,
+        AzOptionStyleTextAlign,
+        [Debug, Copy, Clone]
+    );
     /// `OptionAngleValue` struct
 
     #[doc(inline)]
@@ -31246,6 +31278,10 @@ pub mod option {
 
     #[doc(inline)]
     pub use crate::dll::AzOptionStringVec as OptionStringVec;
+    /// `OptionStyleTextAlign` struct
+
+    #[doc(inline)]
+    pub use crate::dll::AzOptionStyleTextAlign as OptionStyleTextAlign;
     /// `OptionSvgDashPattern` struct
 
     #[doc(inline)]
