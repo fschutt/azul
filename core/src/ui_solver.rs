@@ -648,12 +648,19 @@ pub enum FormattingContext {
 impl fmt::Debug for FormattingContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FormattingContext::Block { establishes_new_context } => write!(f, "Block {{ establishes_new_context: {establishes_new_context:?} }}"),
+            FormattingContext::Block {
+                establishes_new_context,
+            } => write!(
+                f,
+                "Block {{ establishes_new_context: {establishes_new_context:?} }}"
+            ),
             FormattingContext::Inline => write!(f, "Inline"),
             FormattingContext::InlineBlock => write!(f, "InlineBlock"),
             FormattingContext::Flex => write!(f, "Flex"),
             FormattingContext::Float(layout_float) => write!(f, "Float({layout_float:?})"),
-            FormattingContext::OutOfFlow(layout_position) => write!(f, "OutOfFlow({layout_position:?})"),
+            FormattingContext::OutOfFlow(layout_position) => {
+                write!(f, "OutOfFlow({layout_position:?})")
+            }
             FormattingContext::None => write!(f, "None"),
         }
     }
@@ -678,10 +685,16 @@ impl fmt::Debug for IntrinsicSizes {
                 Some(s) => s.to_string(),
             }
         };
-        write!(f, 
-            "IntrinsicSizes {{ width: {{ min: {}, max: {}, preferred: {} }}, height: {{ min: {}, max: {}, preferred: {} }} }}",
-            self.min_content_width, self.max_content_width, q(self.preferred_width),
-            self.min_content_height, self.max_content_height, q(self.preferred_height),
+        write!(
+            f,
+            "IntrinsicSizes {{ width: {{ min: {}, max: {}, preferred: {} }}, height: {{ min: {}, \
+             max: {}, preferred: {} }} }}",
+            self.min_content_width,
+            self.max_content_width,
+            q(self.preferred_width),
+            self.min_content_height,
+            self.max_content_height,
+            q(self.preferred_height),
         )
     }
 }

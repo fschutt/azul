@@ -2220,7 +2220,7 @@ mod background {
             .stops
             .iter()
             .map(|gradient_pre| WrGradientStop {
-                offset: gradient_pre.offset.get() / 100.0,
+                offset: gradient_pre.offset.normalized(),
                 color: wr_translate_color_u(gradient_pre.color).into(),
             })
             .collect();

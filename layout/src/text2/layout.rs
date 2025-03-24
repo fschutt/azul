@@ -1655,7 +1655,13 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     // Log padding and margin values
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Padding: {:?}, Margin: {:?}", padding, margin).into(),
+            message: format!(
+                "Text layout for node ID {} Padding: {:?}, Margin: {:?}",
+                node_id.index(),
+                padding,
+                margin
+            )
+            .into(),
             location: "layout_text_node".to_string().into(),
         });
     }
@@ -1675,7 +1681,12 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     // Log adjusted content rect
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Content rect: {:?}", content_rect).into(),
+            message: format!(
+                "Text layout for node ID {}: Content rect: {:?}",
+                node_id.index(),
+                content_rect
+            )
+            .into(),
             location: "layout_text_node".to_string().into(),
         });
     }
@@ -1698,7 +1709,8 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Getting font family with hash: {:?}",
+                "Text layout for node ID {}: Getting font family with hash: {:?}",
+                node_id.index(),
                 css_font_families_hash
             )
             .into(),
@@ -1710,7 +1722,11 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
         Some(f) => {
             if let Some(messages) = debug_messages {
                 messages.push(LayoutDebugMessage {
-                    message: "Font family found".to_string().into(),
+                    message: format!(
+                        "Text layout for node ID {}: Font family found",
+                        node_id.index()
+                    )
+                    .into(),
                     location: "layout_text_node".to_string().into(),
                 });
             }
@@ -1719,7 +1735,11 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
         None => {
             if let Some(messages) = debug_messages {
                 messages.push(LayoutDebugMessage {
-                    message: "Font family not found".to_string().into(),
+                    message: format!(
+                        "Text layout for node ID {}: Font family not found",
+                        node_id.index()
+                    )
+                    .into(),
                     location: "layout_text_node".to_string().into(),
                 });
             }
@@ -1731,7 +1751,12 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
         Some(k) => {
             if let Some(messages) = debug_messages {
                 messages.push(LayoutDebugMessage {
-                    message: format!("Font key found: {:?}", k).into(),
+                    message: format!(
+                        "Text layout for node ID {}: Font key found: {:?}",
+                        node_id.index(),
+                        k
+                    )
+                    .into(),
                     location: "layout_text_node".to_string().into(),
                 });
             }
@@ -1740,7 +1765,11 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
         None => {
             if let Some(messages) = debug_messages {
                 messages.push(LayoutDebugMessage {
-                    message: "Font key not found".to_string().into(),
+                    message: format!(
+                        "Text layout for node ID {}: Font key not found",
+                        node_id.index()
+                    )
+                    .into(),
                     location: "layout_text_node".to_string().into(),
                 });
             }
@@ -1752,7 +1781,11 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
         Some(fr) => {
             if let Some(messages) = debug_messages {
                 messages.push(LayoutDebugMessage {
-                    message: "Font reference found".to_string().into(),
+                    message: format!(
+                        "Text layout for node ID {}: Font reference found",
+                        node_id.index()
+                    )
+                    .into(),
                     location: "layout_text_node".to_string().into(),
                 });
             }
@@ -1761,7 +1794,11 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
         None => {
             if let Some(messages) = debug_messages {
                 messages.push(LayoutDebugMessage {
-                    message: "Font reference not found".to_string().into(),
+                    message: format!(
+                        "Text layout for node ID {}: Font reference not found",
+                        node_id.index()
+                    )
+                    .into(),
                     location: "layout_text_node".to_string().into(),
                 });
             }
@@ -1780,7 +1817,8 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Created text layout options with font size: {}",
+                "Text layout for node ID {}: Created text layout options with font size: {}",
+                node_id.index(),
                 text_layout_options.font_size_px
             )
             .into(),
@@ -1808,7 +1846,12 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Split text into {} words", words.items.len()).into(),
+            message: format!(
+                "Text layout for node ID {}: Split text into {} words",
+                node_id.index(),
+                words.items.len()
+            )
+            .into(),
             location: "layout_text_node".to_string().into(),
         });
     }
@@ -1818,7 +1861,12 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: format!("Shaped words contains {} items", shaped_words.items.len()).into(),
+            message: format!(
+                "Text layout for node ID {}: Shaped words contains {} items",
+                node_id.index(),
+                shaped_words.items.len()
+            )
+            .into(),
             location: "layout_text_node".to_string().into(),
         });
     }
@@ -1830,7 +1878,8 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Positioned {} words in {} lines",
+                "Text layout for node ID {}: Positioned {} words in {} lines",
+                node_id.index(),
                 word_positions.word_positions.len(),
                 word_positions.line_breaks.len()
             )
@@ -1848,7 +1897,12 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
 
         if let Some(messages) = debug_messages {
             messages.push(LayoutDebugMessage {
-                message: format!("Applied text alignment: {:?}", text_align).into(),
+                message: format!(
+                    "Text layout for node ID {}: Applied text alignment: {:?}",
+                    node_id.index(),
+                    text_align
+                )
+                .into(),
                 location: "layout_text_node".to_string().into(),
             });
         }
@@ -1856,7 +1910,11 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
-            message: "Text layout completed successfully".to_string().into(),
+            message: format!(
+                "Text layout for node ID {} completed successfully",
+                node_id.index()
+            )
+            .into(),
             location: "layout_text_node".to_string().into(),
         });
     }
