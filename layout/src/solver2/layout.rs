@@ -1338,7 +1338,7 @@ fn process_text_node(
     // Create text layout options
     let line_height = css_property_cache
         .get_line_height(node_data, &node_id, styled_node_state)
-        .and_then(|lh| Some(lh.get_property()?.inner.get()));
+        .and_then(|lh| Some(lh.get_property()?.inner.normalized()));
 
     let letter_spacing = css_property_cache
         .get_letter_spacing(node_data, &node_id, styled_node_state)
@@ -1362,7 +1362,7 @@ fn process_text_node(
 
     let tab_width = css_property_cache
         .get_tab_width(node_data, &node_id, styled_node_state)
-        .and_then(|tw| Some(tw.get_property()?.inner.get()));
+        .and_then(|tw| Some(tw.get_property()?.inner.normalized()));
 
     // Create resolved text layout options
     let text_layout_options = ResolvedTextLayoutOptions {
@@ -2127,7 +2127,7 @@ fn extract_text_layout_options(
     // Get line height
     let line_height = css_property_cache
         .get_line_height(node_data, &node_id, styled_node_state)
-        .and_then(|lh| Some(lh.get_property()?.inner.get()))
+        .and_then(|lh| Some(lh.get_property()?.inner.normalized()))
         .into();
 
     // Get letter spacing
@@ -2145,7 +2145,7 @@ fn extract_text_layout_options(
     // Get tab width
     let tab_width = css_property_cache
         .get_tab_width(node_data, &node_id, styled_node_state)
-        .and_then(|tw| Some(tw.get_property()?.inner.get()))
+        .and_then(|tw| Some(tw.get_property()?.inner.normalized()))
         .into();
 
     // Create and return ResolvedTextLayoutOptions

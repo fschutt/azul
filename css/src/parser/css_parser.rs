@@ -2070,7 +2070,7 @@ pub fn parse_color_hsl_components<'a>(
         let parsed_percent =
             parse_percentage(c).map_err(|e| CssColorParseError::InvalidPercentage(e))?;
 
-        Ok(parsed_percent.get())
+        Ok(parsed_percent.normalized() * 100.0)
     }
 
     /// Adapted from [https://en.wikipedia.org/wiki/HSL_and_HSV#Converting_to_RGB]

@@ -775,7 +775,7 @@ fn format_float_value(f: &FloatValue) -> String {
 fn format_percentage_value(f: &PercentageValue) -> String {
     format!(
         "PercentageValue::const_new({})",
-        libm::roundf(f.get()) as isize
+        libm::roundf(f.normalized() * 100.0) as isize
     )
 }
 

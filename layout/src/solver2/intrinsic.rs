@@ -166,7 +166,7 @@ fn calculate_text_intrinsic_sizes(
     // Calculate height based on line height
     let line_height = css_property_cache
         .get_line_height(node_data, &node_id, styled_node_state)
-        .and_then(|lh| Some(lh.get_property()?.inner.get()))
+        .and_then(|lh| Some(lh.get_property()?.inner.normalized()))
         .unwrap_or(1.2); // Default line height multiplier
 
     let content_height = font_size_px * line_height;

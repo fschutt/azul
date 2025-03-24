@@ -229,7 +229,7 @@ fn create_text_layout_options(
     // Line height
     let line_height = css_property_cache
         .get_line_height(node_data, &node_id, styled_node_state)
-        .and_then(|lh| Some(lh.get_property()?.inner.get()))
+        .and_then(|lh| Some(lh.get_property()?.inner.normalized()))
         .into();
 
     // Letter spacing
@@ -247,7 +247,7 @@ fn create_text_layout_options(
     // Tab width
     let tab_width = css_property_cache
         .get_tab_width(node_data, &node_id, styled_node_state)
-        .and_then(|tw| Some(tw.get_property()?.inner.get()))
+        .and_then(|tw| Some(tw.get_property()?.inner.normalized()))
         .into();
 
     // Text direction

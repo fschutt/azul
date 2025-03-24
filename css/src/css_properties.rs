@@ -825,13 +825,13 @@ macro_rules! impl_percentage_value {
     ($struct:ident) => {
         impl ::core::fmt::Display for $struct {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}%", self.inner.get())
+                write!(f, "{}%", self.inner.normalized() * 100.0)
             }
         }
 
         impl ::core::fmt::Debug for $struct {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}%", self.inner.get())
+                write!(f, "{}%", self.inner.normalized() * 100.0)
             }
         }
 
@@ -4064,7 +4064,7 @@ impl_option!(
 
 impl fmt::Display for PercentageValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}%", self.get())
+        write!(f, "{}%", self.normalized() * 100.0)
     }
 }
 
@@ -4085,14 +4085,11 @@ impl PercentageValue {
         }
     }
 
-    #[inline]
-    pub fn get(&self) -> f32 {
-        self.number.get()
-    }
+    // NOTE: no get() function, to avoid confusion with "150%"
 
     #[inline]
     pub fn normalized(&self) -> f32 {
-        self.get() / 100.0
+        self.number.get() / 100.0
     }
 
     #[inline]
@@ -4811,9 +4808,9 @@ impl LinearColorStop {
 
         for (stop_id, stop) in self_stops.iter().enumerate() {
             if let Some(s) = stop.offset.into_option() {
-                let current_stop_val = s.get();
+                let current_stop_val = s.normalized() * 100.0;
                 if stops_to_distribute != 0 {
-                    let last_stop_val = stops[(stop_id - stops_to_distribute)].offset.get();
+                    let last_stop_val = stops[(stop_id - stops_to_distribute)].offset.normalized() * 100.0;
                     let value_to_add_per_stop = (current_stop_val.max(last_stop_val)
                         - last_stop_val)
                         / (stops_to_distribute - 1) as f32;
@@ -4836,7 +4833,7 @@ impl LinearColorStop {
         if stops_to_distribute != 0 {
             let last_stop_val = last_stop
                 .unwrap_or(PercentageValue::new(MIN_STOP_DEGREE))
-                .get();
+                .normalized() * 100.0;
             let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val)
                 / (stops_to_distribute - 1) as f32;
             for (s_id, s) in stops[(stops_len - stops_to_distribute)..]
