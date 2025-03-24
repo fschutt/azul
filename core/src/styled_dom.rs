@@ -3661,8 +3661,6 @@ impl StyledDom {
                 </html>
             "
             )
-            .trim()
-            .to_string()
         } else {
             output
         }

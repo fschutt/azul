@@ -1141,7 +1141,7 @@ impl NodeData {
     /// Shorthand for `NodeData::new(NodeType::Br)`.
     #[inline(always)]
     pub const fn br() -> Self {
-        Self::new(NodeType::Div)
+        Self::new(NodeType::Br)
     }
 
     /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`

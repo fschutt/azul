@@ -826,7 +826,14 @@ impl fmt::Debug for LayoutResult {
             .field("root_size", &self.root_size)
             .field("root_position", &self.root_position)
             .field("styled_dom_len", &self.styled_dom.node_hierarchy.len())
-            .field("styled_dom", &self.styled_dom.get_html_string("", "", true).lines().collect::<Vec<_>>())
+            .field(
+                "styled_dom",
+                &self
+                    .styled_dom
+                    .get_html_string("", "", true)
+                    .lines()
+                    .collect::<Vec<_>>(),
+            )
             .field("formatting_contexts", &self.formatting_contexts)
             .field("intrinsic_sizes", &self.intrinsic_sizes)
             .field("rects", &self.rects)

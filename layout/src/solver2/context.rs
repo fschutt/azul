@@ -1,6 +1,8 @@
 //! Determines the CSS formatting context for each item
 
-use azul_core::{id_tree::NodeDataContainer, styled_dom::StyledDom, ui_solver::FormattingContext};
+use azul_core::{
+    dom::NodeType, id_tree::NodeDataContainer, styled_dom::StyledDom, ui_solver::FormattingContext,
+};
 use azul_css::{CssProperty, LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition};
 
 /// Determines the formatting context for each node in the DOM
@@ -15,12 +17,19 @@ pub fn determine_formatting_contexts(
     node_data_container.transform_singlethread(|node_data, node_id| {
         let styled_node_state = &styled_nodes[node_id].state;
 
+        // Default display based on node type
+        let default_display = match node_data.get_node_type() {
+            NodeType::Text(_) | NodeType::Image(_) | NodeType::Br => LayoutDisplay::Inline,
+            NodeType::Div | NodeType::Body | NodeType::IFrame(_) => LayoutDisplay::Block,
+        };
+
         // Get relevant CSS properties
         let display = css_property_cache
             .get_display(node_data, &node_id, styled_node_state)
             .and_then(|p| p.get_property().copied())
-            .unwrap_or(LayoutDisplay::Block);
+            .unwrap_or(default_display); // Use node-specific default
 
+        // Rest of the function remains the same
         let position = css_property_cache
             .get_position(node_data, &node_id, styled_node_state)
             .and_then(|p| p.get_property().copied())
@@ -85,7 +94,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use azul_core::{
-        dom::{Node, NodeData, NodeId},
+        app_resources::ImageRef,
+        dom::{Node, NodeData, NodeDataInlineCssProperty, NodeId},
         styled_dom::{
             CssPropertyCache, CssPropertyCachePtr, NodeHierarchyItem, StyledDom, StyledNode,
             StyledNodeState,
@@ -171,6 +181,7 @@ mod tests {
 
         styled_dom
     }
+
     #[test]
     fn test_display_block() {
         // Create a DOM with a block element
@@ -504,6 +515,107 @@ mod tests {
             FormattingContext::Block {
                 establishes_new_context: true
             }
+        );
+    }
+
+    use azul_core::dom::{Dom, NodeType};
+    use azul_css::{parser::CssApiWrapper, CssProperty};
+
+    #[test]
+    fn test_node_default_formatting_contexts() {
+        // Create a DOM with different types of nodes
+        let styled_dom = Dom::new(NodeType::Body)
+            .with_children(
+                vec![
+                    // Text node - should be inline by default
+                    Dom::from_data(NodeData::text("Hello world")),
+                    // Div node - should be block by default
+                    Dom::from_data(NodeData::div()),
+                    // Image node - should be inline by default
+                    Dom::from_data(NodeData::image(ImageRef::null_image(
+                        10,
+                        10,
+                        azul_core::app_resources::RawImageFormat::BGR8,
+                        Vec::new(),
+                    ))),
+                    // Br node - should be inline by default
+                    Dom::from_data(NodeData::br()),
+                ]
+                .into(),
+            )
+            .style(CssApiWrapper::empty());
+
+        // Determine formatting contexts
+        let formatting_contexts = determine_formatting_contexts(&styled_dom);
+
+        // Check formatting contexts
+        assert_eq!(
+            formatting_contexts.as_ref()[NodeId::new(1)],
+            FormattingContext::Inline,
+            "Text nodes should have an Inline formatting context by default"
+        );
+
+        assert_eq!(
+            formatting_contexts.as_ref()[NodeId::new(2)],
+            FormattingContext::Block {
+                establishes_new_context: false
+            },
+            "Div nodes should have a Block formatting context by default"
+        );
+
+        assert_eq!(
+            formatting_contexts.as_ref()[NodeId::new(3)],
+            FormattingContext::Inline,
+            "Image nodes should have an Inline formatting context by default"
+        );
+
+        assert_eq!(
+            formatting_contexts.as_ref()[NodeId::new(4)],
+            FormattingContext::Inline,
+            "Br nodes should have an Inline formatting context by default"
+        );
+    }
+
+    #[test]
+    fn test_css_overrides_default_formatting() {
+        // Create a DOM with CSS overrides
+        let styled_dom = Dom::new(NodeType::Body)
+            .with_children(
+                vec![
+                    // Make text display as block
+                    Dom::from_data(NodeData::text("Hello world")).with_inline_css_props(
+                        vec![NodeDataInlineCssProperty::Normal(CssProperty::Display(
+                            CssPropertyValue::Exact(LayoutDisplay::Block),
+                        ))]
+                        .into(),
+                    ),
+                    Dom::from_data(NodeData::div()).with_inline_css_props(
+                        vec![NodeDataInlineCssProperty::Normal(CssProperty::Display(
+                            CssPropertyValue::Exact(LayoutDisplay::Inline),
+                        ))]
+                        .into(),
+                    ),
+                ]
+                .into(),
+            )
+            .style(CssApiWrapper::empty());
+
+        // Determine formatting contexts
+        let formatting_contexts = determine_formatting_contexts(&styled_dom);
+
+        // CSS should override default formatting
+        assert_eq!(
+            formatting_contexts.as_ref()[NodeId::new(1)],
+            FormattingContext::Block {
+                establishes_new_context: false
+            },
+            "Text nodes with display: block should have a Block formatting context"
+        );
+
+        assert_eq!(
+            formatting_contexts.as_ref()[NodeId::new(2)],
+            FormattingContext::Inline,
+            "Div nodes with display: inline should have an Inline formatting context"
         );
     }
 }

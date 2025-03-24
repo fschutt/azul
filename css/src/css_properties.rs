@@ -4810,7 +4810,8 @@ impl LinearColorStop {
             if let Some(s) = stop.offset.into_option() {
                 let current_stop_val = s.normalized() * 100.0;
                 if stops_to_distribute != 0 {
-                    let last_stop_val = stops[(stop_id - stops_to_distribute)].offset.normalized() * 100.0;
+                    let last_stop_val =
+                        stops[(stop_id - stops_to_distribute)].offset.normalized() * 100.0;
                     let value_to_add_per_stop = (current_stop_val.max(last_stop_val)
                         - last_stop_val)
                         / (stops_to_distribute - 1) as f32;
@@ -4833,7 +4834,8 @@ impl LinearColorStop {
         if stops_to_distribute != 0 {
             let last_stop_val = last_stop
                 .unwrap_or(PercentageValue::new(MIN_STOP_DEGREE))
-                .normalized() * 100.0;
+                .normalized()
+                * 100.0;
             let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val)
                 / (stops_to_distribute - 1) as f32;
             for (s_id, s) in stops[(stops_len - stops_to_distribute)..]
