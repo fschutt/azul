@@ -11802,7 +11802,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "FontMetrics"},
-                            "fn_body": "azul_layout::text::get_font_metrics_fontref(fontref)"
+                            "fn_body": "azul_layout::text2::get_font_metrics_fontref(fontref)"
                         },
                         "shape_text": {
                             "doc": "Returns the text layout of the shaped text",
@@ -11812,7 +11812,7 @@
                                 {"options": "ResolvedTextLayoutOptions"}
                             ],
                             "returns": {"type": "InlineText"},
-                            "fn_body": "azul_layout::text::layout::shape_text(fontref, text.as_str(), &options)"
+                            "fn_body": "azul_layout::text2::layout::shape_text(fontref, text.as_str(), &options)"
                         },
                         "get_hash": {
                             "doc": "Returns the hash of the FontRef (fast)",

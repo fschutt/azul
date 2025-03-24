@@ -1294,6 +1294,7 @@ namespace dll {
     enum class LayoutFloat {
        Left,
        Right,
+       None,
     };
     
     enum class LayoutJustifyContent {
@@ -1428,6 +1429,7 @@ namespace dll {
        Left,
        Center,
        Right,
+       Justify,
     };
     
     struct Ribbon {

@@ -1833,6 +1833,7 @@ pub enum AzLayoutDisplay {
 pub enum AzLayoutFloat {
     Left,
     Right,
+    None,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutJustifyContent` struct
@@ -1995,6 +1996,7 @@ pub enum AzStyleTextAlign {
     Left,
     Center,
     Right,
+    Justify,
 }
 
 /// Re-export of rust-allocated (stack based) `Ribbon` struct
@@ -26236,6 +26238,12 @@ impl AzLayoutFloatEnumWrapper {
             inner: AzLayoutFloat::Right,
         }
     }
+    #[classattr]
+    fn None() -> AzLayoutFloatEnumWrapper {
+        AzLayoutFloatEnumWrapper {
+            inner: AzLayoutFloat::None,
+        }
+    }
 }
 
 #[pyproto]
@@ -29149,6 +29157,12 @@ impl AzStyleTextAlignEnumWrapper {
     fn Right() -> AzStyleTextAlignEnumWrapper {
         AzStyleTextAlignEnumWrapper {
             inner: AzStyleTextAlign::Right,
+        }
+    }
+    #[classattr]
+    fn Justify() -> AzStyleTextAlignEnumWrapper {
+        AzStyleTextAlignEnumWrapper {
+            inner: AzStyleTextAlign::Justify,
         }
     }
 }

@@ -2298,6 +2298,7 @@ mod dll {
         pub enum AzLayoutFloat {
             Left,
             Right,
+            None,
         }
 
         /// Re-export of rust-allocated (stack based) `LayoutJustifyContent` struct
@@ -2482,6 +2483,7 @@ mod dll {
             Left,
             Center,
             Right,
+            Justify,
         }
 
         /// Re-export of rust-allocated (stack based) `Ribbon` struct

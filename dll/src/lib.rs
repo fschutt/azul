@@ -7279,7 +7279,7 @@ pub extern "C" fn AzFontRef_shapeText(
     text: AzRefstr,
     options: AzResolvedTextLayoutOptions,
 ) -> AzInlineText {
-    azul_layout::text::layout::shape_text(fontref, text.as_str(), &options)
+    azul_layout::text2::layout::shape_text(fontref, text.as_str(), &options)
 }
 /// Returns the hash of the FontRef (fast)
 #[no_mangle]
@@ -12531,6 +12531,7 @@ mod test_sizes {
     pub enum AzLayoutFloat {
         Left,
         Right,
+        None,
     }
 
     /// Re-export of rust-allocated (stack based) `LayoutJustifyContent` struct
@@ -12700,6 +12701,7 @@ mod test_sizes {
         Left,
         Center,
         Right,
+        Justify,
     }
 
     /// Re-export of rust-allocated (stack based) `Ribbon` struct

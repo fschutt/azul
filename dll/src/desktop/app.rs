@@ -14,7 +14,7 @@ use rust_fontconfig::FcFontCache;
 
 pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
     insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
-    layout_fn: azul_layout::do_the_layout,
+    layout_fn: azul_layout::solver2::do_the_layout,
     load_font_fn: azul_layout::font::loading::font_source_get_bytes,
     parse_font_fn: azul_layout::parse_font_fn,
 };

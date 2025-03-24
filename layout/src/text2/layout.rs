@@ -17,12 +17,13 @@ use azul_core::{
         ShapedWord, ShapedWords, TextExclusionArea, Word, WordPosition, WordPositions, WordType,
         Words,
     },
+    callbacks::InlineText,
     dom::{NodeData, NodeType},
     id_tree::{NodeDataContainer, NodeId},
     styled_dom::{StyleFontFamiliesHash, StyledDom},
     ui_solver::{
         FormattingContext, InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine,
-        IntrinsicSizes, LayoutDebugMessage, PositionInfo, PositionInfoInner, PositionedRectangle,
+        IntrinsicSizes, PositionInfo, PositionInfoInner, PositionedRectangle,
         ResolvedTextLayoutOptions, ScriptType, DEFAULT_LINE_HEIGHT, DEFAULT_TAB_WIDTH,
         DEFAULT_WORD_SPACING,
     },
@@ -34,6 +35,23 @@ use super::{
     shaping::{ParsedFont, ShapedTextBufferUnsized},
     FontImpl, TextLayoutOffsets,
 };
+
+pub fn shape_text(font: &FontRef, text: &str, options: &ResolvedTextLayoutOptions) -> InlineText {
+    let font_data = font.get_data();
+    let parsed_font_downcasted = unsafe { &*(font_data.parsed as *const ParsedFont) };
+
+    let words = split_text_into_words(text);
+    let shaped_words = shape_words(&words, parsed_font_downcasted);
+    let word_positions = position_words(&words, &shaped_words, options, &mut None);
+    let inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
+
+    azul_core::app_resources::get_inline_text(
+        &words,
+        &shaped_words,
+        &word_positions,
+        &inline_text_layout,
+    )
+}
 
 /// Process a text node during layout
 pub fn process_text_node_layout<T: RendererResourcesTrait>(

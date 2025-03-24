@@ -1430,6 +1430,7 @@ typedef enum AzLayoutDisplay AzLayoutDisplay;
 enum AzLayoutFloat {
    AzLayoutFloat_Left,
    AzLayoutFloat_Right,
+   AzLayoutFloat_None,
 };
 typedef enum AzLayoutFloat AzLayoutFloat;
 
@@ -1577,6 +1578,7 @@ enum AzStyleTextAlign {
    AzStyleTextAlign_Left,
    AzStyleTextAlign_Center,
    AzStyleTextAlign_Right,
+   AzStyleTextAlign_Justify,
 };
 typedef enum AzStyleTextAlign AzStyleTextAlign;
 

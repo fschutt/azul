@@ -14,8 +14,8 @@ use core::{
 };
 
 use azul_css::{
-    AzString, ColorU, CssPath, CssProperty, FloatValue, LayoutPoint, LayoutRect, LayoutSize,
-    OptionAzString, OptionF32, OptionI32, U8Vec,
+    AzString, ColorU, CssPath, CssProperty, FloatValue, LayoutDebugMessage, LayoutPoint,
+    LayoutRect, LayoutSize, OptionAzString, OptionF32, OptionI32, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -871,6 +871,7 @@ impl WindowInternal {
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
         hit_test_func: F,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Self
     where
         F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest,
@@ -926,6 +927,7 @@ impl WindowInternal {
             DpiScaleFactor {
                 inner: FloatValue::new(init.window_create_options.state.size.get_hidpi_factor()),
             },
+            debug_messages,
         );
 
         let scroll_states = ScrollStates::default();
@@ -996,6 +998,7 @@ impl WindowInternal {
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
         mut hit_test_func: F,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) where
         F: FnMut(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest,
     {
@@ -1045,6 +1048,7 @@ impl WindowInternal {
             callbacks,
             &mut self.renderer_resources,
             current_window_dpi,
+            debug_messages,
         );
 
         // apply the changes for the first frame

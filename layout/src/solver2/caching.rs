@@ -6,12 +6,12 @@ use azul_core::{
     dom::NodeId,
     styled_dom::{ChangedCssProperty, DomId, StyledDom},
     ui_solver::{
-        FormattingContext, GpuEventChanges, IntrinsicSizes, LayoutDebugMessage, LayoutResult,
-        PositionedRectangle, RelayoutChanges,
+        FormattingContext, GpuEventChanges, IntrinsicSizes, LayoutResult, PositionedRectangle,
+        RelayoutChanges,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{AzString, CssProperty, CssPropertyType, LayoutRect};
+use azul_css::{AzString, CssProperty, CssPropertyType, LayoutDebugMessage, LayoutRect};
 
 use super::{
     context::determine_formatting_contexts, intrinsic::calculate_intrinsic_sizes,

@@ -968,8 +968,9 @@ impl LayoutResult {
                     image_cache,
                     renderer_resources,
                     &document_id,
-                    None, // no new nodes to relayout
-                    None, // no text changes
+                    None,      // no new nodes to relayout
+                    None,      // no text changes
+                    &mut None, // no debug messages
                 );
 
                 rsn.insert(*dom_id, resized_nodes.resized_nodes.clone());
@@ -1493,14 +1494,6 @@ impl Default for ResolvedTextLayoutOptions {
             text_justify: None.into(),
         }
     }
-}
-
-// Define a struct for debug messages
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct LayoutDebugMessage {
-    pub message: AzString,
-    pub location: AzString,
 }
 
 // Struct to hold script information for text spans

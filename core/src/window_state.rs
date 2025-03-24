@@ -71,7 +71,7 @@ use alloc::{
     vec::Vec,
 };
 
-use azul_css::{AzString, CssProperty, LayoutPoint, LayoutRect, LayoutSize};
+use azul_css::{AzString, CssProperty, LayoutDebugMessage, LayoutPoint, LayoutRect, LayoutSize};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
@@ -375,6 +375,7 @@ pub type RelayoutFn = fn(
     &DocumentId,
     Option<&RelayoutNodes>,
     Option<&RelayoutWords>,
+    &mut Option<Vec<LayoutDebugMessage>>,
 ) -> RelayoutChanges;
 
 impl StyleAndLayoutChanges {
@@ -580,6 +581,7 @@ impl StyleAndLayoutChanges {
                     document_id,
                     layout_changes,
                     word_changes,
+                    &mut None, // no debug messages
                 );
 
                 if !gpu_key_changes.is_empty() {

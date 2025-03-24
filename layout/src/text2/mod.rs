@@ -7,12 +7,11 @@ use std::collections::BTreeMap;
 use azul_core::{
     app_resources::{ShapedWords, WordPosition, Words},
     ui_solver::{
-        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, LayoutDebugMessage,
-        ResolvedTextLayoutOptions,
+        InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, ResolvedTextLayoutOptions,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::StyleTextAlign;
+use azul_css::{LayoutDebugMessage, StyleTextAlign};
 
 pub mod layout;
 pub mod mock;
@@ -210,6 +209,11 @@ fn adjust_line_alignment(
     }
 
     line.bounds
+}
+
+pub fn get_font_metrics_fontref(font_ref: &azul_css::FontRef) -> azul_css::FontMetrics {
+    let parsed_font = unsafe { &*(font_ref.get_data().parsed as *const shaping::ParsedFont) };
+    parsed_font.font_metrics.clone()
 }
 
 #[cfg(test)]

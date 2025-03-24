@@ -3,13 +3,13 @@ use core::fmt;
 
 use azul_css::{
     BoxShadowClipMode, ColorU, ConicGradient, CssPropertyValue, LayoutBorderBottomWidth,
-    LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutPoint, LayoutRect,
-    LayoutSize, LinearGradient, RadialGradient, StyleBackgroundPosition, StyleBackgroundRepeat,
-    StyleBackgroundSize, StyleBorderBottomColor, StyleBorderBottomLeftRadius,
-    StyleBorderBottomRightRadius, StyleBorderBottomStyle, StyleBorderLeftColor,
-    StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
-    StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleBoxShadow,
-    StyleMixBlendMode,
+    LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutDebugMessage,
+    LayoutPoint, LayoutRect, LayoutSize, LinearGradient, RadialGradient, StyleBackgroundPosition,
+    StyleBackgroundRepeat, StyleBackgroundSize, StyleBorderBottomColor,
+    StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderBottomStyle,
+    StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
+    StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle,
+    StyleBoxShadow, StyleMixBlendMode,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -807,7 +807,9 @@ pub type LayoutFn = fn(
     Epoch,
     &RenderCallbacks,
     &FullWindowState,
+    &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<LayoutResult>;
+
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Debug, Default)]
@@ -837,6 +839,7 @@ impl SolvedLayout {
         callbacks: &RenderCallbacks,
         renderer_resources: &mut RendererResources,
         current_window_dpi: DpiScaleFactor,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Self {
         Self {
             layout_results: (callbacks.layout_fn)(
@@ -851,6 +854,7 @@ impl SolvedLayout {
                 epoch,
                 callbacks,
                 &full_window_state,
+                debug_messages,
             ),
         }
     }

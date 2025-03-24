@@ -19,12 +19,14 @@ use azul_core::{
         StyledDom,
     },
     ui_solver::{
-        FormattingContext, IntrinsicSizes, LayoutDebugMessage, LayoutResult, OverflowingScrollNode,
+        FormattingContext, IntrinsicSizes, LayoutResult, OverflowingScrollNode,
         PositionedRectangle, RelayoutChanges,
     },
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{AzString, CssProperty, CssPropertyType, LayoutPoint, LayoutRect, LayoutSize};
+use azul_css::{
+    AzString, CssProperty, CssPropertyType, LayoutDebugMessage, LayoutPoint, LayoutRect, LayoutSize,
+};
 use rust_fontconfig::FcFontCache;
 
 use self::{

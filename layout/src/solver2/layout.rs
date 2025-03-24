@@ -10,8 +10,8 @@ use azul_core::{
     styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyleFontFamiliesHash, StyledDom},
     ui_solver::{
         FormattingContext, InlineTextLayout, InlineTextLayoutRustInternal, IntrinsicSizes,
-        LayoutDebugMessage, LayoutResult, PositionInfo, PositionInfoInner, PositionedRectangle,
-        ResolvedOffsets, ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING,
+        LayoutResult, PositionInfo, PositionInfoInner, PositionedRectangle, ResolvedOffsets,
+        ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING,
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };

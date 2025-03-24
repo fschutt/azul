@@ -49,3 +49,18 @@ pub fn parse_font_fn(
         })
     })
 }
+
+#[cfg(feature = "text_layout")]
+pub fn callback_info_shape_text(
+    callbackinfo: &azul_core::callbacks::CallbackInfo,
+    node_id: azul_core::callbacks::DomNodeId,
+    text: azul_css::AzString,
+) -> Option<azul_core::callbacks::InlineText> {
+    let font_ref = callbackinfo.get_font_ref(node_id)?;
+    let text_layout_options = callbackinfo.get_text_layout_options(node_id)?;
+    Some(crate::text2::layout::shape_text(
+        &font_ref,
+        text.as_str(),
+        &text_layout_options,
+    ))
+}

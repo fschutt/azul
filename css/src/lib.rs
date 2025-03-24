@@ -877,6 +877,14 @@ macro_rules! impl_result {
     );
 }
 
+// Define a struct for debug messages
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct LayoutDebugMessage {
+    pub message: AzString,
+    pub location: AzString,
+}
+
 #[repr(C)]
 pub struct AzString {
     pub vec: U8Vec,
