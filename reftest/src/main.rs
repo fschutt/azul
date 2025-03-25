@@ -2,7 +2,7 @@ use std::{
     env,
     error::Error,
     fs::{self, File},
-    io::{Read, Write},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
@@ -21,6 +21,7 @@ use azul_core::{
     ui_solver::LayoutResult,
     window::{FullWindowState, LogicalSize},
 };
+use azul_css::FloatValue;
 use image::{ImageBuffer, RgbaImage};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ struct TestResults {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/xhtml1");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/working");
     let test_dir = PathBuf::from(path);
     let output_dir = PathBuf::from("reftest_output");
 
@@ -76,8 +77,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Process tests in parallel
-    test_files.par_iter().for_each(|test_file| {
+    // Process tests
+    test_files.iter().for_each(|test_file| {
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
         println!("Processing test: {}", test_name);
 
@@ -99,8 +100,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("  Using existing Chrome reference for {}", test_name);
         }
 
+        let (chrome_w, chrome_h) = match image::image_dimensions(&chrome_png) {
+            Ok(o) => o,
+            Err(e) => {
+                println!("  Failed to generate Chrome screenshot: {}", e);
+                return;
+            }
+        };
+
+        let dpi_factor = (chrome_w as f32 / WIDTH as f32).max((chrome_h as f32 / HEIGHT as f32));
+
         // Generate Azul rendering
-        match generate_azul_rendering(test_file, &azul_png) {
+        match generate_azul_rendering(test_file, &azul_png, dpi_factor) {
             Ok(_) => println!("  Azul rendering generated successfully"),
             Err(e) => {
                 println!("  Failed to generate Azul rendering: {}", e);
@@ -267,7 +278,11 @@ fn generate_chrome_screenshot(
     Ok(())
 }
 
-fn generate_azul_rendering(test_file: &Path, output_file: &Path) -> Result<(), Box<dyn Error>> {
+fn generate_azul_rendering(
+    test_file: &Path,
+    output_file: &Path,
+    dpi_factor: f32,
+) -> Result<(), Box<dyn Error>> {
     // Read XML content
     let xml_content = fs::read_to_string(test_file)?;
 
@@ -278,7 +293,13 @@ fn generate_azul_rendering(test_file: &Path, output_file: &Path) -> Result<(), B
     );
 
     // Generate and save PNG
-    styled_dom_to_png(&styled_dom.parsed_dom, output_file, WIDTH, HEIGHT)
+    styled_dom_to_png(
+        &styled_dom.parsed_dom,
+        output_file,
+        WIDTH,
+        HEIGHT,
+        dpi_factor,
+    )
 }
 
 fn styled_dom_to_png(
@@ -286,6 +307,7 @@ fn styled_dom_to_png(
     output_file: &Path,
     width: u32,
     height: u32,
+    dpi_factor: f32,
 ) -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
     println!("  Rendering display list to PNG");
@@ -303,6 +325,7 @@ fn styled_dom_to_png(
         width: width as f32,
         height: height as f32,
     };
+    fake_window_state.size.dpi = (96.0 * dpi_factor) as u32;
 
     // Create resources for layout
     let mut renderer_resources = azul_core::app_resources::RendererResources::default();
@@ -327,6 +350,8 @@ fn styled_dom_to_png(
         &mut renderer_resources,
     )?;
 
+    println!("{}", layout_result.print_layout_rects(false));
+
     // Get the cached display list
     println!("  Getting cached display list");
     let dom_id = DomId { inner: 0 };
@@ -342,7 +367,11 @@ fn styled_dom_to_png(
     );
 
     // Create a pixmap with a white background
-    let mut pixmap = Pixmap::new(width, height).ok_or_else(|| format!("cannot create pixmap"))?;
+    let mut pixmap = Pixmap::new(
+        (width as f32 * dpi_factor) as u32,
+        (height as f32 * dpi_factor) as u32,
+    )
+    .ok_or_else(|| format!("cannot create pixmap"))?;
     pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
 
     // Render the display list to the pixmap
@@ -377,7 +406,6 @@ fn solve_layout(
     let mut resource_updates = Vec::new();
     let mut debug = Some(Vec::new());
     let id_namespace = IdNamespace(0);
-    let dpi_scale = DpiScaleFactor::new(1.0);
 
     let mut solved_layout = SolvedLayout::new(
         styled_dom,
@@ -390,7 +418,9 @@ fn solve_layout(
         &fc_cache,
         &callbacks,
         renderer_resources,
-        dpi_scale,
+        DpiScaleFactor {
+            inner: FloatValue::new(fake_window_state.size.get_hidpi_factor()),
+        },
         &mut debug,
     );
 
@@ -1008,26 +1038,8 @@ fn compare_images(
     );
 
     // Load images
-    let chrome_img = image::open(chrome_png)?.to_rgba8();
-    let azul_img = image::open(azul_png)?.to_rgba8();
-
-    let width = chrome_img.width() as usize;
-    let height = chrome_img.height() as usize;
-
-    // Check image dimensions
-    if width != azul_img.width() as usize || height != azul_img.height() as usize {
-        return Err(format!(
-            "Image dimensions don't match: Chrome: {}x{}, Azul: {}x{}",
-            width,
-            height,
-            azul_img.width(),
-            azul_img.height()
-        )
-        .into());
-    }
-
-    // Create diff image buffer
-    let mut diff_img: RgbaImage = ImageBuffer::new(width as u32, height as u32);
+    let chrome_img = std::fs::read(chrome_png)?;
+    let azul_img = std::fs::read(chrome_png)?;
 
     // Use pixelmatch to compare the images
     let options = pixelmatch::Options {
@@ -1040,18 +1052,13 @@ fn compare_images(
         diff_mask: false,
     };
 
+    let mut diff_img = Cursor::new(Vec::new());
+
     // Compare images
-    let diff_count = pixelmatch::pixelmatch(
-        &chrome_img.as_raw()[..],
-        &azul_img.as_raw()[..],
-        Some(&mut diff_img.as_mut()),
-        Some(width as u32),
-        Some(height as u32),
-        Some(options),
-    )?;
+    let diff_count = pixelmatch::pixelmatch(&chrome_img, &azul_img, &mut diff_img, Some(options))?;
 
     // Save the diff image
-    diff_img.save(diff_png)?;
+    std::fs::write(diff_png, diff_img.into_inner())?;
 
     Ok(diff_count)
 }
@@ -1206,4 +1213,374 @@ fn generate_json_results(
     println!("JSON results saved to {}", json_path.display());
 
     Ok(())
+}
+
+mod pixelmatch {
+
+    // modified from https://github.com/dfrankland/pixelmatch-rs
+    //
+    // MIT License
+    //
+    // Copyright (c) 2021 Dylan Frankland
+    //
+    // Permission is hereby granted, free of charge, to any person obtaining a copy
+    // of this software and associated documentation files (the "Software"), to deal
+    // in the Software without restriction, including without limitation the rights
+    // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    // copies of the Software, and to permit persons to whom the Software is
+    // furnished to do so, subject to the following conditions:
+    //
+    // The above copyright notice and this permission notice shall be included in all
+    // copies or substantial portions of the Software.
+    //
+    // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    // SOFTWARE.
+
+    use core::f64;
+    use std::io::{BufRead, Cursor, Read, Seek, Write};
+
+    use image::{
+        codecs::png::PngDecoder, save_buffer, DynamicImage, GenericImage, GenericImageView,
+        ImageFormat, Rgba,
+    };
+
+    pub struct Options {
+        /// matching threshold (0 to 1); smaller is more sensitive
+        pub threshold: f64,
+        /// whether to skip anti-aliasing detection
+        pub include_aa: bool,
+        /// opacity of original image in diff output
+        pub alpha: f64,
+        /// color of anti-aliased pixels in diff output
+        pub aa_color: [u8; 4],
+        /// color of different pixels in diff output
+        pub diff_color: [u8; 4],
+        /// whether to detect dark on light differences between img1 and img2 and set an
+        /// alternative color to differentiate between the two
+        pub diff_color_alt: Option<[u8; 4]>,
+        /// draw the diff over a transparent background (a mask)
+        pub diff_mask: bool,
+    }
+
+    impl Default for Options {
+        fn default() -> Self {
+            Options {
+                threshold: 0.1,
+                include_aa: false,
+                alpha: 0.1,
+                aa_color: [255, 255, 0, 255],
+                diff_color: [255, 0, 0, 255],
+                diff_color_alt: None,
+                diff_mask: false,
+            }
+        }
+    }
+
+    pub fn pixelmatch(
+        img1: &[u8],
+        img2: &[u8],
+        output: &mut Cursor<Vec<u8>>,
+        options: Option<Options>,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let img1 = image::load_from_memory(img1)?;
+        let img2 = image::load_from_memory(img2)?;
+
+        let img1_dimensions = img1.dimensions();
+        if img1.dimensions() != img2.dimensions() {
+            return Err(<Box<dyn std::error::Error>>::from(
+                "Image sizes do not match.",
+            ));
+        }
+
+        let options = options.unwrap_or_default();
+        let mut img_out = DynamicImage::new_rgba8(img1_dimensions.0, img1_dimensions.1);
+
+        // check if images are identical
+        let mut identical = true;
+        for (pixel1, pixel2) in img1.pixels().zip(img2.pixels()) {
+            if pixel1 != pixel2 {
+                identical = false;
+                break;
+            }
+        }
+
+        // fast path if identical
+        if identical {
+            if !options.diff_mask {
+                for pixel in img1.pixels() {
+                    draw_gray_pixel(&pixel, options.alpha, &mut img_out)?;
+                }
+            }
+
+            img_out.write_to(output, ImageFormat::Png)?;
+            return Ok(0);
+        }
+
+        // maximum acceptable square distance between two colors;
+        // 35215 is the maximum possible value for the YIQ difference metric
+        let max_delta = 35215_f64 * options.threshold * options.threshold;
+        let mut diff: usize = 0;
+
+        for (pixel1, pixel2) in img1.pixels().zip(img2.pixels()) {
+            let delta = color_delta(&pixel1.2, &pixel2.2, false);
+
+            if delta.abs() > max_delta {
+                // check it's a real rendering difference or just anti-aliasing
+                if !options.include_aa
+                    && (antialiased(
+                        &img1,
+                        pixel1.0,
+                        pixel1.1,
+                        img1_dimensions.0,
+                        img1_dimensions.1,
+                        &img2,
+                    ) || antialiased(
+                        &img2,
+                        pixel1.0,
+                        pixel1.1,
+                        img1_dimensions.0,
+                        img1_dimensions.1,
+                        &img1,
+                    ))
+                {
+                    // one of the pixels is anti-aliasing; draw as yellow and do not count as
+                    // difference note that we do not include such pixels in a
+                    // mask
+                    if let (img_out, false) = (&mut img_out, options.diff_mask) {
+                        img_out.put_pixel(pixel1.0, pixel1.1, Rgba(options.aa_color));
+                    }
+                } else {
+                    // found substantial difference not caused by anti-aliasing; draw it as such
+                    let color = if delta < 0.0 {
+                        options.diff_color_alt.unwrap_or(options.diff_color)
+                    } else {
+                        options.diff_color
+                    };
+                    img_out.put_pixel(pixel1.0, pixel1.1, Rgba(color));
+                    diff += 1;
+                }
+            } else if let (img_out, false) = (&mut img_out, options.diff_mask) {
+                // pixels are similar; draw background as grayscale image blended with white
+                draw_gray_pixel(&pixel1, options.alpha, img_out)?;
+            }
+        }
+
+        img_out.write_to(output, ImageFormat::Png)?;
+
+        Ok(diff)
+    }
+
+    // check if a pixel is likely a part of anti-aliasing;
+    // based on "Anti-aliased Pixel and Intensity Slope Detector" paper by V. Vysniauskas, 2009
+    fn antialiased(
+        img1: &DynamicImage,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        img2: &DynamicImage,
+    ) -> bool {
+        let mut zeroes: u8 = if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
+            1
+        } else {
+            0
+        };
+
+        let mut min = 0.0;
+        let mut max = 0.0;
+
+        let mut min_x = 0;
+        let mut min_y = 0;
+        let mut max_x = 0;
+        let mut max_y = 0;
+
+        let center_rgba = img1.get_pixel(x, y);
+
+        for adjacent_x in (if x > 0 { x - 1 } else { x })..=(if x < width - 1 { x + 1 } else { x })
+        {
+            for adjacent_y in
+                (if y > 0 { y - 1 } else { y })..=(if y < height - 1 { y + 1 } else { y })
+            {
+                if adjacent_x == x && adjacent_y == y {
+                    continue;
+                }
+
+                // brightness delta between the center pixel and adjacent one
+                let rgba = img1.get_pixel(adjacent_x, adjacent_y);
+                let delta = color_delta(&center_rgba, &rgba, true);
+
+                // count the number of equal, darker and brighter adjacent pixels
+                if delta == 0.0 {
+                    zeroes += 1;
+
+                    // if found more than 2 equal siblings, it's definitely not anti-aliasing
+                    if zeroes > 2 {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                // remember the darkest pixel
+                if delta < min {
+                    min = delta;
+                    min_x = adjacent_x;
+                    min_y = adjacent_y;
+
+                    continue;
+                }
+
+                // remember the brightest pixel
+                if delta > max {
+                    max = delta;
+                    max_x = adjacent_x;
+                    max_y = adjacent_y;
+                }
+            }
+        }
+
+        // if there are no both darker and brighter pixels among siblings, it's not anti-aliasing
+        if min == 0.0 || max == 0.0 {
+            return false;
+        }
+
+        // if either the darkest or the brightest pixel has 3+ equal siblings in both images
+        // (definitely not anti-aliased), this pixel is anti-aliased
+        (has_many_siblings(img1, min_x, min_y, width, height)
+            && has_many_siblings(img2, min_x, min_y, width, height))
+            || (has_many_siblings(img1, max_x, max_y, width, height)
+                && has_many_siblings(img2, max_x, max_y, width, height))
+    }
+
+    // check if a pixel has 3+ adjacent pixels of the same color.
+    fn has_many_siblings(img: &DynamicImage, x: u32, y: u32, width: u32, height: u32) -> bool {
+        let mut zeroes: u8 = if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
+            1
+        } else {
+            0
+        };
+
+        let center_rgba = img.get_pixel(x, y);
+
+        for adjacent_x in (if x > 0 { x - 1 } else { x })..=(if x < width - 1 { x + 1 } else { x })
+        {
+            for adjacent_y in
+                (if y > 0 { y - 1 } else { y })..=(if y < height - 1 { y + 1 } else { y })
+            {
+                if adjacent_x == x && adjacent_y == y {
+                    continue;
+                }
+
+                let rgba = img.get_pixel(adjacent_x, adjacent_y);
+
+                if center_rgba == rgba {
+                    zeroes += 1;
+                }
+
+                if zeroes > 2 {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    // calculate color difference according to the paper "Measuring perceived color difference
+    // using YIQ NTSC transmission color space in mobile applications" by Y. Kotsarenko and F. Ramos
+    fn color_delta(rgba1: &Rgba<u8>, rgba2: &Rgba<u8>, y_only: bool) -> f64 {
+        let mut r1 = rgba1[0] as f64;
+        let mut g1 = rgba1[1] as f64;
+        let mut b1 = rgba1[2] as f64;
+        let mut a1 = rgba1[3] as f64;
+
+        let mut r2 = rgba2[0] as f64;
+        let mut g2 = rgba2[1] as f64;
+        let mut b2 = rgba2[2] as f64;
+        let mut a2 = rgba2[3] as f64;
+
+        if (a1 - a2).abs() < f64::EPSILON
+            && (r1 - r2).abs() < f64::EPSILON
+            && (g1 - g2).abs() < f64::EPSILON
+            && (b1 - b2).abs() < f64::EPSILON
+        {
+            return 0.0;
+        }
+
+        if a1 < 255.0 {
+            a1 /= 255.0;
+            r1 = blend(r1, a1);
+            g1 = blend(g1, a1);
+            b1 = blend(b1, a1);
+        }
+
+        if a2 < 255.0 {
+            a2 /= 255.0;
+            r2 = blend(r2, a2);
+            g2 = blend(g2, a2);
+            b2 = blend(b2, a2);
+        }
+
+        let y1 = rgb2y(r1, g1, b1);
+        let y2 = rgb2y(r2, g2, b2);
+        let y = y1 - y2;
+
+        // brightness difference only
+        if y_only {
+            return y;
+        }
+
+        let i = rgb2i(r1, g1, b1) - rgb2i(r2, g2, b2);
+        let q = rgb2q(r1, g1, b1) - rgb2q(r2, g2, b2);
+
+        let delta = 0.5053 * y * y + 0.299 * i * i + 0.1957 * q * q;
+
+        // encode whether the pixel lightens or darkens in the sign
+        if y1 > y2 {
+            -delta
+        } else {
+            delta
+        }
+    }
+
+    fn draw_gray_pixel(
+        (x, y, rgba): &(u32, u32, Rgba<u8>),
+        alpha: f64,
+        output: &mut DynamicImage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !output.in_bounds(*x, *y) {
+            return Err(<Box<dyn std::error::Error>>::from(
+                "Pixel is not in bounds of output.",
+            ));
+        }
+
+        let val = blend(
+            rgb2y(rgba[0], rgba[1], rgba[2]),
+            (alpha * rgba[3] as f64) / 255.0,
+        ) as u8;
+        let gray_rgba = Rgba([val, val, val, val]);
+        output.put_pixel(*x, *y, gray_rgba);
+
+        Ok(())
+    }
+
+    // blend semi-transparent color with white
+    fn blend<T: Into<f64>>(c: T, a: T) -> f64 {
+        255.0 + (c.into() - 255.0) * a.into()
+    }
+
+    fn rgb2y<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
+        r.into() * 0.29889531 + g.into() * 0.58662247 + b.into() * 0.11448223
+    }
+    fn rgb2i<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
+        r.into() * 0.59597799 - g.into() * 0.27417610 - b.into() * 0.32180189
+    }
+    fn rgb2q<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
+        r.into() * 0.21147017 - g.into() * 0.52261711 + b.into() * 0.31114694
+    }
 }
