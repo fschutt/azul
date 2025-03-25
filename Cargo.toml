@@ -8,5 +8,6 @@ members = [
     "core",
     "layout",
     "examples/rust",
-    "examples/rust/ios"
+    "examples/rust/ios",
+    "reftest"
 ]

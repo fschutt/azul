@@ -1,0 +1,25 @@
+[package]
+name = "azul-reftest"
+version = "0.0.5"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Runs azul reftests against chrome"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
+categories = ["gui"]
+repository = "https://github.com/fschutt/azul"
+readme = "../README.md"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", default-features = false }
+serde_derive = { version = "1", default-features = false }
+serde_json = { version = "1", default-features = false, features = ["std"]}
+azul-layout = { version = "0.0.5", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading"]}
+azul-core = { version = "0.0.5", path = "../core", default-features = false }
+azul-css = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"]}
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd", "png-format"]}
+rayon = { version = "1", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png"] }
+pixelmatch = { version = "0.1.0", default-features = false }

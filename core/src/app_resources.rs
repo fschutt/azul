@@ -41,6 +41,14 @@ pub struct DpiScaleFactor {
     pub inner: FloatValue,
 }
 
+impl DpiScaleFactor {
+    pub fn new(f: f32) -> Self {
+        Self {
+            inner: FloatValue::new(f),
+        }
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
