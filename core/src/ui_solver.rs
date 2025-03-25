@@ -894,7 +894,7 @@ impl LayoutResult {
 
         // Print basic rect info
         output.push_str(&format!(
-            "{}[ {}: {}x{} @ ({},{})",
+            "{}- {}: {}x{} @ ({},{})",
             indent_str,
             node_id.index(),
             rect.size.width as i32,
@@ -977,7 +977,7 @@ impl LayoutResult {
                 };
 
                 output.push_str(&format!(
-                    "{}   [ Line {}: {}{}x{} @ ({},{})]",
+                    "{}   - line {}: {}{}x{} @ ({},{})",
                     indent_str,
                     i,
                     line_text,

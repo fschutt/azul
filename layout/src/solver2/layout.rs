@@ -330,6 +330,7 @@ fn layout_node_recursive(
             // Still layout children for proper size calculation
             let padding_and_border =
                 calculate_padding_and_border(node_id, styled_dom, available_space);
+
             let inner_space = LogicalRect::new(
                 LogicalPosition::new(
                     available_space.origin.x + padding_and_border.left,
@@ -363,7 +364,7 @@ fn layout_node_recursive(
     }
 }
 
-/// Handles layout for block formatting context
+/// Layout a block context, ensuring proper box model handling
 fn layout_block_context(
     node_id: NodeId,
     positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
@@ -375,33 +376,66 @@ fn layout_block_context(
     exclusion_areas: &mut BTreeMap<NodeId, Vec<TextExclusionArea>>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
-    // Get and apply size constraints
-    let constrained_size =
-        calculate_constrained_size(node_id, intrinsic_sizes, available_space, styled_dom);
+    // Get and apply size constraints for the content area
+    let content_size = calculate_constrained_size(
+        node_id,
+        intrinsic_sizes,
+        available_space,
+        styled_dom,
+        formatting_contexts,
+    );
 
-    // Calculate padding, border, and margin
-    let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
+    // Calculate padding, border, and margin separately
+    let padding = calculate_padding(node_id, styled_dom, available_space);
+    let border = calculate_border(node_id, styled_dom, available_space);
     let margin = calculate_margin(node_id, styled_dom, available_space);
 
-    // Calculate the content box position and size
-    let content_box = LogicalRect::new(
-        LogicalPosition::new(
-            available_space.origin.x + margin.left + padding_and_border.left,
-            available_space.origin.y + margin.top + padding_and_border.top,
-        ),
-        LogicalSize::new(
-            constrained_size.width - padding_and_border.left - padding_and_border.right,
-            constrained_size.height - padding_and_border.top - padding_and_border.bottom,
-        ),
+    // Create positioned rectangle
+    let positioned_rect = create_positioned_rectangle(
+        node_id,
+        styled_dom,
+        available_space,
+        content_size,
+        formatting_contexts,
+        debug_messages,
     );
+
+    // Extract total size and update positioned_rects
+    let total_size = positioned_rect.size;
+    positioned_rects[node_id] = positioned_rect;
+
+    // Calculate the content box position and size for child layout
+    let content_box = match positioned_rect.box_sizing {
+        LayoutBoxSizing::ContentBox => LogicalRect::new(
+            LogicalPosition::new(
+                available_space.origin.x + margin.left + border.left + padding.left,
+                available_space.origin.y + margin.top + border.top + padding.top,
+            ),
+            content_size,
+        ),
+        LayoutBoxSizing::BorderBox => {
+            // In border-box, the content area is the specified size minus padding and border
+            LogicalRect::new(
+                LogicalPosition::new(
+                    available_space.origin.x + margin.left + border.left + padding.left,
+                    available_space.origin.y + margin.top + border.top + padding.top,
+                ),
+                LogicalSize::new(
+                    total_size.width - padding.left - padding.right - border.left - border.right,
+                    total_size.height - padding.top - padding.bottom - border.top - border.bottom,
+                ),
+            )
+        }
+    };
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Block layout for node {}: available={:?}, content_box={:?}",
+                "Block layout for node {}: available={:?}, content_box={:?}, total_size={:?}",
                 node_id.index(),
                 available_space,
-                content_box
+                content_box,
+                total_size
             )
             .into(),
             location: "layout_block_context".to_string().into(),
@@ -513,8 +547,8 @@ fn layout_block_context(
 
     // Return the total size including margin
     LogicalSize::new(
-        constrained_size.width + margin.left + margin.right,
-        final_height + margin.top + margin.bottom,
+        total_size.width + margin.left + margin.right,
+        total_size.height + margin.top + margin.bottom,
     )
 }
 
@@ -530,8 +564,13 @@ fn layout_inline_context(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // Apply size constraints
-    let constrained_size =
-        calculate_constrained_size(node_id, intrinsic_sizes, available_space, styled_dom);
+    let constrained_size = calculate_constrained_size(
+        node_id,
+        intrinsic_sizes,
+        available_space,
+        styled_dom,
+        formatting_contexts,
+    );
 
     // Calculate padding, border, and margin
     let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
@@ -795,8 +834,13 @@ fn layout_flex_context(
     // In a real implementation, this would be much more complex
 
     // Apply size constraints
-    let constrained_size =
-        calculate_constrained_size(node_id, intrinsic_sizes, available_space, styled_dom);
+    let constrained_size = calculate_constrained_size(
+        node_id,
+        intrinsic_sizes,
+        available_space,
+        styled_dom,
+        formatting_contexts,
+    );
 
     // Calculate padding, border, and margin
     let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
@@ -974,8 +1018,13 @@ fn layout_float(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // Apply size constraints
-    let constrained_size =
-        calculate_constrained_size(node_id, intrinsic_sizes, available_space, styled_dom);
+    let constrained_size = calculate_constrained_size(
+        node_id,
+        intrinsic_sizes,
+        available_space,
+        styled_dom,
+        formatting_contexts,
+    );
 
     // Calculate padding, border, and margin
     let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
@@ -1739,8 +1788,8 @@ fn update_inline_element_position(
     positioned_rects[node_id] = element_rect;
 }
 
-/// Calculate padding and border for a node
-fn calculate_padding_and_border(
+/// Calculate padding for a node
+fn calculate_padding(
     node_id: NodeId,
     styled_dom: &StyledDom,
     available_space: LogicalRect,
@@ -1773,6 +1822,27 @@ fn calculate_padding_and_border(
         .and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_height)))
         .unwrap_or(0.0);
 
+    ResolvedOffsets {
+        left: padding_left,
+        right: padding_right,
+        top: padding_top,
+        bottom: padding_bottom,
+    }
+}
+
+/// Calculate border for a node
+fn calculate_border(
+    node_id: NodeId,
+    styled_dom: &StyledDom,
+    available_space: LogicalRect,
+) -> ResolvedOffsets {
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+    let parent_width = available_space.size.width;
+    let parent_height = available_space.size.height;
+
     // Get border
     let border_left = css_property_cache
         .get_border_left_width(node_data, &node_id, styled_node_state)
@@ -1795,10 +1865,10 @@ fn calculate_padding_and_border(
         .unwrap_or(0.0);
 
     ResolvedOffsets {
-        left: padding_left + border_left,
-        right: padding_right + border_right,
-        top: padding_top + border_top,
-        bottom: padding_bottom + border_bottom,
+        left: border_left,
+        right: border_right,
+        top: border_top,
+        bottom: border_bottom,
     }
 }
 
@@ -1844,19 +1914,96 @@ fn calculate_margin(
     }
 }
 
-/// Calculate intrinsic size with constraints
+/// Calculate line height for text content
+fn calculate_line_height(node_id: NodeId, styled_dom: &StyledDom, font_size: f32) -> f32 {
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+    // Get line height as a multiplier or absolute value
+    let line_height_factor = css_property_cache
+        .get_line_height(node_data, &node_id, styled_node_state)
+        .and_then(|lh| Some(lh.get_property()?.inner.normalized()))
+        .unwrap_or(DEFAULT_LINE_HEIGHT);
+
+    // Calculate actual line height in pixels
+    font_size * line_height_factor
+}
+
+/// Calculate font metrics for a node
+fn calculate_font_metrics(node_id: NodeId, styled_dom: &StyledDom) -> (f32, f32) {
+    use azul_core::ui_solver::DEFAULT_FONT_SIZE_PX;
+
+    let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+    // Get font size
+    let font_size = css_property_cache
+        .get_font_size(node_data, &node_id, styled_node_state)
+        .and_then(|fs| fs.get_property().copied())
+        .map_or(DEFAULT_FONT_SIZE_PX as f32, |fs| {
+            fs.inner
+                .to_pixels(100.0 /* reference size for percentage */)
+        });
+
+    // Calculate line height
+    let line_height = calculate_line_height(node_id, styled_dom, font_size);
+
+    (font_size, line_height)
+}
+
+/// Calculate text content size, taking into account line height
+fn calculate_text_content_size(
+    node_id: NodeId,
+    styled_dom: &StyledDom,
+    intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
+    available_space: LogicalRect,
+) -> LogicalSize {
+    // Get intrinsic content width
+    let intrinsic_size = &intrinsic_sizes[node_id];
+    let content_width = intrinsic_size.preferred_width.unwrap_or(
+        intrinsic_size
+            .max_content_width
+            .min(available_space.size.width),
+    );
+
+    // For text nodes, use line height for content height
+    let (font_size, line_height) = calculate_font_metrics(node_id, styled_dom);
+
+    // Content height should be at least the line height
+    let content_height = intrinsic_size
+        .preferred_height
+        .unwrap_or(line_height.max(intrinsic_size.max_content_height));
+
+    LogicalSize::new(content_width, content_height)
+}
+
+/// Calculate constrained size while applying box-sizing model correctly
 pub fn calculate_constrained_size(
     node_id: NodeId,
     intrinsic_sizes: &NodeDataContainerRef<IntrinsicSizes>,
     available_space: LogicalRect,
     styled_dom: &StyledDom,
+    formatting_contexts: &NodeDataContainerRef<FormattingContext>,
 ) -> LogicalSize {
+    use azul_core::dom::NodeType;
+
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
 
     let parent_width = available_space.size.width;
     let parent_height = available_space.size.height;
+
+    // Check if this is a text node
+    let is_text_node = matches!(node_data.get_node_type(), NodeType::Text(_));
+
+    // Get box-sizing
+    let box_sizing = css_property_cache
+        .get_box_sizing(node_data, &node_id, styled_node_state)
+        .and_then(|bs| bs.get_property().copied())
+        .unwrap_or_default();
 
     // Get width constraints
     let width = css_property_cache
@@ -1888,35 +2035,78 @@ pub fn calculate_constrained_size(
         .and_then(|h| Some(h.get_property()?.inner.to_pixels(parent_height)))
         .unwrap_or(f32::MAX);
 
-    // Get intrinsic sizes
-    let intrinsic_size = &intrinsic_sizes[node_id];
+    // Check if this is a block element
+    let format_context = &formatting_contexts[node_id];
+    let is_block = matches!(format_context, FormattingContext::Block { .. });
 
-    // Calculate final width
-    let final_width = match width {
-        Some(w) => w.max(min_width).min(max_width),
-        None => match intrinsic_size.preferred_width {
-            Some(preferred) => preferred.max(min_width).min(max_width),
-            None => intrinsic_size
-                .max_content_width
-                .max(min_width)
-                .min(max_width)
-                .min(parent_width),
-        },
+    // Calculate padding and border
+    let padding = calculate_padding(node_id, styled_dom, available_space);
+    let border = calculate_border(node_id, styled_dom, available_space);
+    let padding_border_width = padding.left + padding.right + border.left + border.right;
+    let padding_border_height = padding.top + padding.bottom + border.top + border.bottom;
+
+    // Special handling for text nodes to use text_content_size
+    let intrinsic_size = if is_text_node {
+        calculate_text_content_size(node_id, styled_dom, intrinsic_sizes, available_space)
+    } else {
+        // Get intrinsic sizes
+        let size = &intrinsic_sizes[node_id];
+
+        // For width, use preferred width or max content width
+        let content_width = size.preferred_width.unwrap_or_else(|| {
+            if is_block {
+                // Block elements expand to fill container width
+                parent_width - padding_border_width
+            } else {
+                size.max_content_width
+                    .min(parent_width - padding_border_width)
+            }
+        });
+
+        // For height, use preferred height or max content height
+        let content_height = size.preferred_height.unwrap_or(size.max_content_height);
+
+        LogicalSize::new(content_width, content_height)
     };
 
-    // Calculate final height
-    let final_height = match height {
-        Some(h) => h.max(min_height).min(max_height),
-        None => match intrinsic_size.preferred_height {
-            Some(preferred) => preferred.max(min_height).min(max_height),
-            None => intrinsic_size
-                .max_content_height
-                .max(min_height)
-                .min(max_height),
-        },
-    };
+    // Start with intrinsic size
+    let mut content_width = intrinsic_size.width;
+    let mut content_height = intrinsic_size.height;
 
-    LogicalSize::new(final_width, final_height)
+    // Apply explicit width/height if specified
+    if let Some(w) = width {
+        // Apply box-sizing rules for explicit width
+        content_width = match box_sizing {
+            LayoutBoxSizing::ContentBox => w,
+            LayoutBoxSizing::BorderBox => (w - padding_border_width).max(0.0),
+        };
+    } else if is_block {
+        // Block elements with no explicit width expand to container width
+        content_width = parent_width
+            - match box_sizing {
+                LayoutBoxSizing::ContentBox => padding_border_width,
+                LayoutBoxSizing::BorderBox => 0.0,
+            };
+    }
+
+    if let Some(h) = height {
+        // Apply box-sizing rules for explicit height
+        content_height = match box_sizing {
+            LayoutBoxSizing::ContentBox => h,
+            LayoutBoxSizing::BorderBox => (h - padding_border_height).max(0.0),
+        };
+    }
+
+    // Min size should include the minimum intrinsic size
+    let min_intrinsic_width = intrinsic_size.min_content_width.max(min_width);
+    let min_intrinsic_height = intrinsic_size.min_content_height.max(min_height);
+
+    // Apply min/max constraints
+    content_width = content_width.max(min_intrinsic_width).min(max_width);
+    content_height = content_height.max(min_intrinsic_height).min(max_height);
+
+    // Return content size (padding and border will be added later if box-sizing is content-box)
+    LogicalSize::new(content_width, content_height)
 }
 
 /// Calculate intrinsic size without applying constraints
@@ -1939,24 +2129,58 @@ fn calculate_intrinsic_size(
     LogicalSize::new(width, height)
 }
 
-/// Create a positioned rectangle
+/// Create a positioned rectangle with correct handling of padding and borders
 fn create_positioned_rectangle(
     node_id: NodeId,
     styled_dom: &StyledDom,
     available_space: LogicalRect,
-    size: LogicalSize,
-    padding_and_border: ResolvedOffsets,
-    margin: ResolvedOffsets,
+    content_size: LogicalSize,
+    formatting_contexts: &NodeDataContainerRef<FormattingContext>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> PositionedRectangle {
+    use azul_core::dom::NodeType;
+
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+
+    // Check if this is a text node
+    let is_text_node = matches!(node_data.get_node_type(), NodeType::Text(_));
 
     // Get box sizing mode
     let box_sizing = css_property_cache
         .get_box_sizing(node_data, &node_id, styled_node_state)
         .and_then(|bs| bs.get_property().copied())
         .unwrap_or_default();
+
+    // Calculate padding, border, and margin separately
+    let padding = calculate_padding(node_id, styled_dom, available_space);
+    let border = calculate_border(node_id, styled_dom, available_space);
+    let margin = calculate_margin(node_id, styled_dom, available_space);
+
+    // For text nodes, adjust sizing based on line height
+    let adjusted_content_size = if is_text_node {
+        let (font_size, line_height) = calculate_font_metrics(node_id, styled_dom);
+
+        if let Some(messages) = debug_messages {
+            messages.push(LayoutDebugMessage {
+                message: format!(
+                    "Text node {}: font_size={}, line_height={}, content_size={:?}",
+                    node_id.index(),
+                    font_size,
+                    line_height,
+                    content_size
+                )
+                .into(),
+                location: "create_positioned_rectangle".to_string().into(),
+            });
+        }
+
+        // Ensure content height is at least line height
+        LogicalSize::new(content_size.width, content_size.height.max(line_height))
+    } else {
+        content_size
+    };
 
     // Get overflow
     let overflow_x = css_property_cache
@@ -1969,20 +2193,60 @@ fn create_positioned_rectangle(
         .and_then(|o| o.get_property().copied())
         .unwrap_or_default();
 
-    // Calculate position
+    // Calculate position (will be updated later in fix_node_positions)
     let position = PositionInfo::Static(PositionInfoInner {
-        x_offset: 0.0, // Will be calculated later in fix_node_positions
-        y_offset: 0.0, // Will be calculated later in fix_node_positions
+        x_offset: 0.0,
+        y_offset: 0.0,
         static_x_offset: available_space.origin.x,
         static_y_offset: available_space.origin.y,
     });
 
+    // Calculate total size based on box-sizing
+    let total_size = match box_sizing {
+        LayoutBoxSizing::ContentBox => {
+            // Add padding and border to content size
+            LogicalSize::new(
+                adjusted_content_size.width
+                    + padding.left
+                    + padding.right
+                    + border.left
+                    + border.right,
+                adjusted_content_size.height
+                    + padding.top
+                    + padding.bottom
+                    + border.top
+                    + border.bottom,
+            )
+        }
+        LayoutBoxSizing::BorderBox => {
+            // Content size already includes padding and border
+            adjusted_content_size
+        }
+    };
+
+    if let Some(messages) = debug_messages {
+        messages.push(LayoutDebugMessage {
+            message: format!(
+                "Node {}: box_sizing={:?}, content_size={:?}, total_size={:?}, padding={:?}, \
+                 border={:?}",
+                node_id.index(),
+                box_sizing,
+                adjusted_content_size,
+                total_size,
+                padding,
+                border
+            )
+            .into(),
+            location: "create_positioned_rectangle".to_string().into(),
+        });
+    }
+
     PositionedRectangle {
-        size,
+        size: total_size,
         position,
-        padding: padding_and_border,
+        padding,
         margin,
-        border_widths: ResolvedOffsets::default(), // Would need to extract from padding_and_border
+        border_widths: border,
         box_shadow: Default::default(),
         box_sizing,
         resolved_text_layout_options: None,
