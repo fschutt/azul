@@ -2123,9 +2123,12 @@ pub fn calculate_constrained_size(
         };
     }
 
+    // Get original intrinsic sizes for min constraints
+    let original_intrinsic_sizes = &intrinsic_sizes[node_id];
+
     // Min size should include the minimum intrinsic size
-    let min_intrinsic_width = intrinsic_size.min_content_width.max(min_width);
-    let min_intrinsic_height = intrinsic_size.min_content_height.max(min_height);
+    let min_intrinsic_width = original_intrinsic_sizes.min_content_width.max(min_width);
+    let min_intrinsic_height = original_intrinsic_sizes.min_content_height.max(min_height);
 
     // Apply min/max constraints
     content_width = content_width.max(min_intrinsic_width).min(max_width);
