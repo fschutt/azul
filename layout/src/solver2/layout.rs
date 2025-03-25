@@ -328,8 +328,9 @@ fn layout_node_recursive(
                 calculate_intrinsic_size(node_id, intrinsic_sizes, available_space, styled_dom);
 
             // Still layout children for proper size calculation
-            let padding_and_border =
-                calculate_padding_and_border(node_id, styled_dom, available_space);
+            let padding = calculate_padding(node_id, styled_dom, available_space);
+            let border = calculate_border(node_id, styled_dom, available_space);
+            let padding_and_border = calculate_padding_and_border(&padding, &border);
 
             let inner_space = LogicalRect::new(
                 LogicalPosition::new(
@@ -377,7 +378,7 @@ fn layout_block_context(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LogicalSize {
     // Get and apply size constraints for the content area
-    let content_size = calculate_constrained_size(
+    let constrained_size = calculate_constrained_size(
         node_id,
         intrinsic_sizes,
         available_space,
@@ -389,21 +390,21 @@ fn layout_block_context(
     let padding = calculate_padding(node_id, styled_dom, available_space);
     let border = calculate_border(node_id, styled_dom, available_space);
     let margin = calculate_margin(node_id, styled_dom, available_space);
+    let padding_and_border = calculate_padding_and_border(&padding, &border);
 
     // Create positioned rectangle
     let positioned_rect = create_positioned_rectangle(
         node_id,
         styled_dom,
         available_space,
-        content_size,
-        formatting_contexts,
+        constrained_size,
+        padding_and_border,
+        margin,
         debug_messages,
     );
 
     // Extract total size and update positioned_rects
     let total_size = positioned_rect.size;
-    positioned_rects[node_id] = positioned_rect;
-
     // Calculate the content box position and size for child layout
     let content_box = match positioned_rect.box_sizing {
         LayoutBoxSizing::ContentBox => LogicalRect::new(
@@ -411,7 +412,7 @@ fn layout_block_context(
                 available_space.origin.x + margin.left + border.left + padding.left,
                 available_space.origin.y + margin.top + border.top + padding.top,
             ),
-            content_size,
+            constrained_size,
         ),
         LayoutBoxSizing::BorderBox => {
             // In border-box, the content area is the specified size minus padding and border
@@ -427,6 +428,7 @@ fn layout_block_context(
             )
         }
     };
+    positioned_rects[node_id] = positioned_rect;
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
@@ -536,6 +538,7 @@ fn layout_block_context(
         LogicalSize::new(constrained_size.width, final_height),
         padding_and_border,
         margin,
+        debug_messages,
     );
 
     // If this establishes a new BFC, merge the local exclusion areas
@@ -573,8 +576,10 @@ fn layout_inline_context(
     );
 
     // Calculate padding, border, and margin
-    let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
+    let padding = calculate_padding(node_id, styled_dom, available_space);
+    let border = calculate_border(node_id, styled_dom, available_space);
     let margin = calculate_margin(node_id, styled_dom, available_space);
+    let padding_and_border = calculate_padding_and_border(&padding, &border);
 
     // Calculate the content box
     let content_box = LogicalRect::new(
@@ -810,6 +815,7 @@ fn layout_inline_context(
         LogicalSize::new(constrained_size.width, final_height),
         padding_and_border,
         margin,
+        debug_messages,
     );
 
     // Return the total size including margin
@@ -843,8 +849,10 @@ fn layout_flex_context(
     );
 
     // Calculate padding, border, and margin
-    let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
+    let padding = calculate_padding(node_id, styled_dom, available_space);
+    let border = calculate_border(node_id, styled_dom, available_space);
     let margin = calculate_margin(node_id, styled_dom, available_space);
+    let padding_and_border = calculate_padding_and_border(&padding, &border);
 
     // Calculate the content box
     let content_box = LogicalRect::new(
@@ -996,6 +1004,7 @@ fn layout_flex_context(
         LogicalSize::new(constrained_size.width, constrained_size.height),
         padding_and_border,
         margin,
+        debug_messages,
     );
 
     // Return the total size including margin
@@ -1027,8 +1036,10 @@ fn layout_float(
     );
 
     // Calculate padding, border, and margin
-    let padding_and_border = calculate_padding_and_border(node_id, styled_dom, available_space);
+    let padding = calculate_padding(node_id, styled_dom, available_space);
+    let border = calculate_border(node_id, styled_dom, available_space);
     let margin = calculate_margin(node_id, styled_dom, available_space);
+    let padding_and_border = calculate_padding_and_border(&padding, &border);
 
     // Calculate the float's position
     let mut float_position = LogicalPosition::new(
@@ -1149,6 +1160,7 @@ fn layout_float(
         LogicalSize::new(constrained_size.width, final_height),
         padding_and_border,
         margin,
+        debug_messages,
     );
 
     // Return the total size including margin
@@ -1290,8 +1302,10 @@ fn process_text_node(
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
 
     // Calculate padding and margins
-    let padding = calculate_padding_and_border(node_id, styled_dom, available_rect);
+    let padding = calculate_padding(node_id, styled_dom, available_rect);
+    let border = calculate_border(node_id, styled_dom, available_rect);
     let margin = calculate_margin(node_id, styled_dom, available_rect);
+    let padding = calculate_padding_and_border(&padding, &border);
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
@@ -1872,6 +1886,18 @@ fn calculate_border(
     }
 }
 
+fn calculate_padding_and_border(
+    padding: &ResolvedOffsets,
+    border: &ResolvedOffsets,
+) -> ResolvedOffsets {
+    ResolvedOffsets {
+        left: padding.left + border.left,
+        right: padding.right + border.right,
+        top: padding.top + border.top,
+        bottom: padding.bottom + border.bottom,
+    }
+}
+
 /// Calculate margin for a node
 fn calculate_margin(
     node_id: NodeId,
@@ -1924,7 +1950,7 @@ fn calculate_line_height(node_id: NodeId, styled_dom: &StyledDom, font_size: f32
     let line_height_factor = css_property_cache
         .get_line_height(node_data, &node_id, styled_node_state)
         .and_then(|lh| Some(lh.get_property()?.inner.normalized()))
-        .unwrap_or(DEFAULT_LINE_HEIGHT);
+        .unwrap_or(azul_core::ui_solver::DEFAULT_LINE_HEIGHT);
 
     // Calculate actual line height in pixels
     font_size * line_height_factor
@@ -2135,7 +2161,8 @@ fn create_positioned_rectangle(
     styled_dom: &StyledDom,
     available_space: LogicalRect,
     content_size: LogicalSize,
-    formatting_contexts: &NodeDataContainerRef<FormattingContext>,
+    padding_and_border: ResolvedOffsets,
+    margin: ResolvedOffsets,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> PositionedRectangle {
     use azul_core::dom::NodeType;
@@ -2152,11 +2179,6 @@ fn create_positioned_rectangle(
         .get_box_sizing(node_data, &node_id, styled_node_state)
         .and_then(|bs| bs.get_property().copied())
         .unwrap_or_default();
-
-    // Calculate padding, border, and margin separately
-    let padding = calculate_padding(node_id, styled_dom, available_space);
-    let border = calculate_border(node_id, styled_dom, available_space);
-    let margin = calculate_margin(node_id, styled_dom, available_space);
 
     // For text nodes, adjust sizing based on line height
     let adjusted_content_size = if is_text_node {
@@ -2206,16 +2228,8 @@ fn create_positioned_rectangle(
         LayoutBoxSizing::ContentBox => {
             // Add padding and border to content size
             LogicalSize::new(
-                adjusted_content_size.width
-                    + padding.left
-                    + padding.right
-                    + border.left
-                    + border.right,
-                adjusted_content_size.height
-                    + padding.top
-                    + padding.bottom
-                    + border.top
-                    + border.bottom,
+                adjusted_content_size.width + padding_and_border.left + padding_and_border.right,
+                adjusted_content_size.height + padding_and_border.top + padding_and_border.bottom,
             )
         }
         LayoutBoxSizing::BorderBox => {
@@ -2227,26 +2241,41 @@ fn create_positioned_rectangle(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Node {}: box_sizing={:?}, content_size={:?}, total_size={:?}, padding={:?}, \
-                 border={:?}",
+                "Node {}: box_sizing={:?}, content_size={:?}, total_size={:?}, \
+                 padding_and_border={:?}, margin={:?}",
                 node_id.index(),
                 box_sizing,
                 adjusted_content_size,
                 total_size,
-                padding,
-                border
+                padding_and_border,
+                margin
             )
             .into(),
             location: "create_positioned_rectangle".to_string().into(),
         });
     }
 
+    // Separate padding_and_border into padding and border
+    let padding = ResolvedOffsets {
+        left: calculate_padding(node_id, styled_dom, available_space).left,
+        right: calculate_padding(node_id, styled_dom, available_space).right,
+        top: calculate_padding(node_id, styled_dom, available_space).top,
+        bottom: calculate_padding(node_id, styled_dom, available_space).bottom,
+    };
+
+    let border_widths = ResolvedOffsets {
+        left: calculate_border(node_id, styled_dom, available_space).left,
+        right: calculate_border(node_id, styled_dom, available_space).right,
+        top: calculate_border(node_id, styled_dom, available_space).top,
+        bottom: calculate_border(node_id, styled_dom, available_space).bottom,
+    };
+
     PositionedRectangle {
         size: total_size,
         position,
         padding,
         margin,
-        border_widths: border,
+        border_widths,
         box_shadow: Default::default(),
         box_sizing,
         resolved_text_layout_options: None,
