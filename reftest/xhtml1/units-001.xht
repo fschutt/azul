@@ -1,0 +1,41 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+ <head>
+  <title>CSS Test: Units: Equivalence</title>
+  <link rel="author" title="Ian Hickson" href="mailto:ian@hixie.ch"/>
+  <link rel="alternate" href="http://www.hixie.ch/tests/adhoc/css/units/001.html" type="text/html"/>
+  <link rel="help" href="http://www.w3.org/TR/CSS21/syndata.html#length-units" />
+  <meta name="flags" content="ahem"/>
+  <style type="text/css">
+   .control { display: inline; font: 1em/1 Ahem, sans-serif; background: red; color: white; }
+   table { font: 16px/1 Ahem; }
+   td { padding: 0; background: red; }
+   div { background: green; height: 1.5625em; }
+   .px { width: 200px; }
+   .em { width: 12.5em; }
+   .ex { width: 15.625ex; }
+   .in { width: 2.08333in; }
+   .cm { width: 5.29166cm; }
+   .mm { width: 52.9166mm; }
+   .pt { width: 150pt; }
+   .pc { width: 12.5pc; }
+  </style>
+ </head>
+ <body>
+  <p>There should be a perfect green square below and no red.</p>
+  <table>
+   <tr>
+    <td>
+     <div class="px"></div>
+     <div class="em"></div>
+     <div class="ex"></div>
+     <div class="in"></div>
+     <div class="cm"></div>
+     <div class="mm"></div>
+     <div class="pt"></div>
+     <div class="pc"></div>
+    </td>
+   </tr>
+  </table>
+ </body>
+</html>

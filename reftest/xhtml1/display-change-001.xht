@@ -1,0 +1,28 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"
+                      "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <title>CSS Test: Updating layout on display changes</title>
+    <link rel="author" title="Boris Zbarsky" href="mailto:bzbarsky@mit.edu"/>
+    <link rel="help"
+          href="http://www.w3.org/TR/CSS21/visuren.html#display-prop" />
+    <meta name="flags" content="ahem dom" />
+    <meta http-equiv="Content-Script-Type" content="text/javascript"/>
+    <script type="text/javascript">
+      function test() {
+        document.getElementById('float').style.display = 'none';
+      }
+    </script>
+    <style type="text/css">
+      #float { width: 100%; float:left; }
+      div { background: red; color: green; width: 1em; font-family: Ahem; line-height: 1; }
+    </style>
+  </head>
+  <body onload="test()">
+    <p>There should be no red below, only green.</p>
+    <div id="float">X</div>
+    <div>
+      X
+    </div>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>CSS Test: CSS Block Box Model: overconstrained horizontal box model and minimum widths</title>
+  <link rel="author" title="Ian Hickson" href="mailto:ian@hixie.ch"/>
+  <link rel="alternate" href="http://www.hixie.ch/tests/adhoc/css/box/block/003.html" type="text/html"/>
+  <link rel="help" href="http://www.w3.org/TR/CSS21/visudet.html#the-width-property"/>
+  <style type="text/css">
+   .container { width: 3em; }
+   .test { margin-left: 2em; border-left: none; padding-left: 0; width: auto; padding-right: 0; border-right: none; margin-right: 2em; }
+   .control { padding-left: 2em; }
+   div { font-size: xx-large; }
+  </style>
+ </head>
+ <body>
+  <p>The following two vertical bars should be at the same horizontal position.</p>
+  <div class="container">
+    <div class="test"><span>|</span></div>
+  </div>
+  <div class="control"><span>|</span></div>
+ 
+
+</body>
+</html>

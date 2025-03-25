@@ -1,0 +1,23 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+ <head>
+  <title>CSS Test: Units: ex</title>
+  <link rel="author" title="Ian Hickson" href="mailto:ian@hixie.ch"/>
+  <link rel="alternate" href="http://www.hixie.ch/tests/adhoc/css/units/004.html" type="text/html"/>
+  <link rel="help" href="http://www.w3.org/TR/CSS21/syndata.html#length-units" />
+  <meta name="flags" content="ahem"/>
+  <style type="text/css">
+   .control { display: inline; font: 1em/1 Ahem, sans-serif; background: red; color: white; }
+   .test { font: 12px/1 Ahem; min-width: 200px; min-height: 200px; background: red; float: left; }
+   .em { width: 16.6667em; height: 8.33333em; background: green; }
+   .ex { width: 20.8333ex; height: 10.41667ex; background: green; }
+  </style>
+ </head>
+ <body>
+  <p>There should be a perfect green square below and no red.</p>
+  <div class="test">
+   <div class="em"></div>
+   <div class="ex"></div>
+  </div>
+ </body>
+</html>
