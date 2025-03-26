@@ -330,7 +330,18 @@ fn layout_node_recursive(
             // Still layout children for proper size calculation
             let padding = calculate_padding(node_id, styled_dom, available_space);
             let border = calculate_border(node_id, styled_dom, available_space);
+            let margin = calculate_margin(node_id, styled_dom, available_space);
             let padding_and_border = calculate_padding_and_border(&padding, &border);
+
+            positioned_rects[node_id] = create_positioned_rectangle(
+                node_id,
+                styled_dom,
+                available_space,
+                size,
+                padding_and_border,
+                margin,
+                debug_messages,
+            );
 
             let inner_space = LogicalRect::new(
                 LogicalPosition::new(

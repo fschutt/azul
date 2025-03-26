@@ -2425,8 +2425,8 @@ const DEFAULT_BORDER_COLOR: ColorU = ColorU {
     b: 0,
     a: 255,
 };
-// Default border thickness on the web seems to be 3px
-const DEFAULT_BORDER_THICKNESS: PixelValue = PixelValue::const_px(3);
+// Default border thickness on the web seems to be 1px
+const DEFAULT_BORDER_THICKNESS: PixelValue = PixelValue::const_px(1);
 
 use core::str::CharIndices;
 

@@ -10,7 +10,7 @@ use std::{
 };
 
 use azul_core::{
-    app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache},
+    app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, RendererResources},
     callbacks::DocumentId,
     display_list::{
         CachedDisplayList, DisplayListFrame, DisplayListMsg, DisplayListScrollFrame,
@@ -21,7 +21,8 @@ use azul_core::{
     ui_solver::LayoutResult,
     window::{FullWindowState, LogicalSize},
 };
-use azul_css::FloatValue;
+use azul_css::{BorderStyle, ColorU, FloatValue};
+use azul_layout::text2::shaping::{GlyphOutlineOperation, ParsedFont};
 use image::{ImageBuffer, RgbaImage};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -357,7 +358,7 @@ fn styled_dom_to_png(
     // Get the cached display list
     println!("  Getting cached display list");
     let dom_id = DomId { inner: 0 };
-    let cached_display_list = LayoutResult::get_cached_display_list(
+    let mut cached_display_list = LayoutResult::get_cached_display_list(
         &document_id,
         dom_id,
         epoch,
@@ -367,6 +368,8 @@ fn styled_dom_to_png(
         &renderer_resources,
         &image_cache,
     );
+
+    cached_display_list.scale_for_dpi(dpi_factor);
 
     // Create a pixmap with a white background
     let mut pixmap = Pixmap::new(
@@ -378,7 +381,7 @@ fn styled_dom_to_png(
 
     // Render the display list to the pixmap
     println!("  Rendering display list");
-    render_display_list(&cached_display_list, &mut pixmap)?;
+    render_display_list(&cached_display_list, &mut pixmap, &renderer_resources)?;
 
     // Save the pixmap to a PNG file
     pixmap.save_png(output_file)?;
@@ -437,19 +440,20 @@ fn solve_layout(
 fn render_display_list(
     display_list: &CachedDisplayList,
     pixmap: &mut Pixmap,
+    renderer_resources: &RendererResources,
 ) -> Result<(), Box<dyn Error>> {
     // Start with root position and identity transform
     let transform = Transform::identity();
 
     match &display_list.root {
         DisplayListMsg::Frame(frame) => {
-            render_frame(frame, pixmap, transform, None)?;
+            render_frame(frame, pixmap, transform, None, renderer_resources)?;
         }
         DisplayListMsg::ScrollFrame(scroll_frame) => {
-            render_scroll_frame(scroll_frame, pixmap, transform)?;
+            render_scroll_frame(scroll_frame, pixmap, transform, renderer_resources)?;
         }
         DisplayListMsg::IFrame(_, _, _, cached_dl) => {
-            render_display_list(cached_dl, pixmap)?;
+            render_display_list(cached_dl, pixmap, renderer_resources)?;
         }
     }
 
@@ -461,6 +465,7 @@ fn render_frame(
     pixmap: &mut Pixmap,
     transform: Transform,
     clip_rect: Option<Rect>,
+    renderer_resources: &RendererResources,
 ) -> Result<(), Box<dyn Error>> {
     // Calculate the frame rectangle
     let frame_rect = match Rect::from_xywh(0.0, 0.0, frame.size.width, frame.size.height) {
@@ -470,7 +475,14 @@ fn render_frame(
 
     // Render the frame content
     for content in &frame.content {
-        render_content(content, pixmap, frame_rect, transform, clip_rect)?;
+        render_content(
+            content,
+            pixmap,
+            frame_rect,
+            transform,
+            clip_rect,
+            renderer_resources,
+        )?;
     }
 
     // Handle box shadow if any
@@ -490,10 +502,16 @@ fn render_frame(
 
         match child {
             DisplayListMsg::Frame(child_frame) => {
-                render_frame(child_frame, pixmap, child_transform, clip_rect)?;
+                render_frame(
+                    child_frame,
+                    pixmap,
+                    child_transform,
+                    clip_rect,
+                    renderer_resources,
+                )?;
             }
             DisplayListMsg::ScrollFrame(scroll_frame) => {
-                render_scroll_frame(scroll_frame, pixmap, child_transform)?;
+                render_scroll_frame(scroll_frame, pixmap, child_transform, renderer_resources)?;
             }
             DisplayListMsg::IFrame(_, iframe_size, _, cached_dl) => {
                 // Create a clip rect for the iframe
@@ -508,7 +526,7 @@ fn render_frame(
                 };
 
                 // Recursively render the iframe with clipping
-                render_display_list(cached_dl, pixmap)?;
+                render_display_list(cached_dl, pixmap, renderer_resources)?;
             }
         }
     }
@@ -520,6 +538,7 @@ fn render_scroll_frame(
     scroll_frame: &DisplayListScrollFrame,
     pixmap: &mut Pixmap,
     transform: Transform,
+    renderer_resources: &RendererResources,
 ) -> Result<(), Box<dyn Error>> {
     // Calculate scroll frame clip rectangle
     let clip_rect = match Rect::from_xywh(
@@ -544,6 +563,7 @@ fn render_scroll_frame(
         pixmap,
         scroll_transform,
         Some(clip_rect),
+        renderer_resources,
     )?;
 
     Ok(())
@@ -555,6 +575,7 @@ fn render_content(
     rect: Rect,
     transform: Transform,
     clip_rect: Option<Rect>,
+    renderer_resources: &RendererResources,
 ) -> Result<(), Box<dyn Error>> {
     match content {
         LayoutRectContent::Background {
@@ -592,6 +613,7 @@ fn render_content(
                 rect,
                 transform,
                 clip_rect,
+                renderer_resources,
             )?;
         }
         LayoutRectContent::Image {
@@ -727,6 +749,28 @@ fn calculate_background_rect(
     )
 }
 
+/// Translates a CSS border style to a StrokeDash pattern
+fn translate_dash(style: &BorderStyle) -> Option<Vec<f32>> {
+    match style {
+        BorderStyle::None | BorderStyle::Hidden => None,
+        BorderStyle::Solid => None, // No dash pattern for solid lines
+        BorderStyle::Dotted => {
+            // Dotted pattern: small on, small off
+            Some(vec![1.0, 1.0])
+        }
+        BorderStyle::Dashed => {
+            // Dashed pattern: longer on, small off
+            Some(vec![3.0, 3.0])
+        }
+        // For these complex styles, we'll use solid lines as a fallback
+        BorderStyle::Double
+        | BorderStyle::Groove
+        | BorderStyle::Ridge
+        | BorderStyle::Inset
+        | BorderStyle::Outset => None,
+    }
+}
+
 fn render_border(
     widths: StyleBorderWidths,
     colors: StyleBorderColors,
@@ -734,96 +778,228 @@ fn render_border(
     pixmap: &mut Pixmap,
     rect: Rect,
     transform: Transform,
-    clip_rect: Option<Rect>,
+    _clip_rect: Option<Rect>,
 ) -> Result<(), Box<dyn Error>> {
-    // Simplified border rendering - just draws rectangles for each border side
-    let mut paint = Paint::default();
-
-    // Top border
-    if let Some(top_width) = widths.top.and_then(|w| w.get_property().cloned()) {
-        if let Some(top_color) = colors.top.and_then(|c| c.get_property().cloned()) {
-            let border_width = top_width.inner.to_pixels(rect.height());
-            if border_width > 0.0 {
-                paint.set_color_rgba8(
-                    top_color.inner.r,
-                    top_color.inner.g,
-                    top_color.inner.b,
-                    top_color.inner.a,
-                );
-                if let Some(top_rect) =
-                    Rect::from_xywh(rect.x(), rect.y(), rect.width(), border_width)
-                {
-                    draw_rect_with_clip(pixmap, top_rect, &paint, transform, clip_rect)?;
-                }
-            }
+    // Helper function to create a rounded corner path
+    fn add_rounded_corner(
+        pb: &mut PathBuilder,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        start_angle: f32,
+        sweep_angle: f32,
+    ) {
+        if radius <= 0.0 {
+            pb.line_to(cx, cy);
+            return;
         }
+
+        // Convert angles to radians
+        let start_rad = start_angle * std::f32::consts::PI / 180.0;
+        let end_rad = (start_angle + sweep_angle) * std::f32::consts::PI / 180.0;
+
+        // Approximate a quarter circle with a cubic Bezier curve
+        let kappa = 0.5522847498; // Magic constant for approximating a circle with cubics
+        let control_dist = radius * kappa;
+
+        let start_x = cx + radius * start_rad.cos();
+        let start_y = cy + radius * start_rad.sin();
+
+        let end_x = cx + radius * end_rad.cos();
+        let end_y = cy + radius * end_rad.sin();
+
+        // Calculate control points
+        let ctrl1_x = start_x - control_dist * start_rad.sin();
+        let ctrl1_y = start_y + control_dist * start_rad.cos();
+
+        let ctrl2_x = end_x + control_dist * end_rad.sin();
+        let ctrl2_y = end_y - control_dist * end_rad.cos();
+
+        pb.line_to(start_x, start_y);
+        pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
     }
+
+    // Helper function to render a border segment
+    fn render_border_segment(
+        width: f32,
+        color: ColorU,
+        style: BorderStyle,
+        start_x: f32,
+        start_y: f32,
+        end_x: f32,
+        end_y: f32,
+        pixmap: &mut Pixmap,
+        transform: Transform,
+    ) -> Result<(), Box<dyn Error>> {
+        if width <= 0.0 {
+            return Ok(());
+        }
+
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+
+        let mut pb = PathBuilder::new();
+        pb.move_to(start_x, start_y);
+        pb.line_to(end_x, end_y);
+
+        if let Some(path) = pb.finish() {
+            let transformed_path = path
+                .transform(transform)
+                .ok_or_else(|| "Failed to transform path".to_string())?;
+
+            // Create stroke options with or without dash pattern
+            let dash = translate_dash(&style);
+
+            let stroke = tiny_skia::Stroke {
+                width,
+                miter_limit: 4.0,
+                line_cap: tiny_skia::LineCap::Butt,
+                line_join: tiny_skia::LineJoin::Miter,
+                dash: dash.and_then(|sd| tiny_skia::StrokeDash::new(sd, 0.0)),
+            };
+
+            pixmap.stroke_path(
+                &transformed_path,
+                &paint,
+                &stroke,
+                Transform::identity(),
+                None,
+            );
+        }
+
+        Ok(())
+    }
+
+    // Helper to get border radius for a corner (top-left, top-right, etc.)
+    // We should extract this from CSS properties, but for this example we'll use a simple approach
+    let border_radius = 0.0; // Default to no radius
+
+    // Get border widths
+    let top_width = widths
+        .top
+        .and_then(|w| w.get_property().cloned())
+        .map(|w| w.inner.to_pixels(rect.height()))
+        .unwrap_or(0.0);
+
+    let right_width = widths
+        .right
+        .and_then(|w| w.get_property().cloned())
+        .map(|w| w.inner.to_pixels(rect.width()))
+        .unwrap_or(0.0);
+
+    let bottom_width = widths
+        .bottom
+        .and_then(|w| w.get_property().cloned())
+        .map(|w| w.inner.to_pixels(rect.height()))
+        .unwrap_or(0.0);
+
+    let left_width = widths
+        .left
+        .and_then(|w| w.get_property().cloned())
+        .map(|w| w.inner.to_pixels(rect.width()))
+        .unwrap_or(0.0);
+
+    // Get border styles
+    let top_style = styles
+        .top
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
+
+    let right_style = styles
+        .right
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
+
+    let bottom_style = styles
+        .bottom
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
+
+    let left_style = styles
+        .left
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
+
+    let top_color = colors
+        .top
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+
+    let left_color = colors
+        .left
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+
+    let right_color = colors
+        .right
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+
+    let bottom_color = colors
+        .bottom
+        .and_then(|s| s.get_property().cloned())
+        .map(|s| s.inner)
+        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+
+    // Render all four borders using our helper function
+    // Top border
+    render_border_segment(
+        top_width,
+        top_color,
+        top_style,
+        rect.x() + border_radius,
+        rect.y() + top_width / 2.0,
+        rect.x() + rect.width() - border_radius,
+        rect.y() + top_width / 2.0,
+        pixmap,
+        transform,
+    )?;
 
     // Right border
-    if let Some(right_width) = widths.right.and_then(|w| w.get_property().cloned()) {
-        if let Some(right_color) = colors.right.and_then(|c| c.get_property().cloned()) {
-            let border_width = right_width.inner.to_pixels(rect.width());
-            if border_width > 0.0 {
-                paint.set_color_rgba8(
-                    right_color.inner.r,
-                    right_color.inner.g,
-                    right_color.inner.b,
-                    right_color.inner.a,
-                );
-                if let Some(right_rect) = Rect::from_xywh(
-                    rect.x() + rect.width() - border_width,
-                    rect.y(),
-                    border_width,
-                    rect.height(),
-                ) {
-                    draw_rect_with_clip(pixmap, right_rect, &paint, transform, clip_rect)?;
-                }
-            }
-        }
-    }
+    render_border_segment(
+        right_width,
+        right_color,
+        right_style,
+        rect.x() + rect.width() - right_width / 2.0,
+        rect.y() + border_radius,
+        rect.x() + rect.width() - right_width / 2.0,
+        rect.y() + rect.height() - border_radius,
+        pixmap,
+        transform,
+    )?;
 
     // Bottom border
-    if let Some(bottom_width) = widths.bottom.and_then(|w| w.get_property().cloned()) {
-        if let Some(bottom_color) = colors.bottom.and_then(|c| c.get_property().cloned()) {
-            let border_width = bottom_width.inner.to_pixels(rect.height());
-            if border_width > 0.0 {
-                paint.set_color_rgba8(
-                    bottom_color.inner.r,
-                    bottom_color.inner.g,
-                    bottom_color.inner.b,
-                    bottom_color.inner.a,
-                );
-                if let Some(bottom_rect) = Rect::from_xywh(
-                    rect.x(),
-                    rect.y() + rect.height() - border_width,
-                    rect.width(),
-                    border_width,
-                ) {
-                    draw_rect_with_clip(pixmap, bottom_rect, &paint, transform, clip_rect)?;
-                }
-            }
-        }
-    }
+    render_border_segment(
+        bottom_width,
+        bottom_color,
+        bottom_style,
+        rect.x() + rect.width() - border_radius,
+        rect.y() + rect.height() - bottom_width / 2.0,
+        rect.x() + border_radius,
+        rect.y() + rect.height() - bottom_width / 2.0,
+        pixmap,
+        transform,
+    )?;
 
     // Left border
-    if let Some(left_width) = widths.left.and_then(|w| w.get_property().cloned()) {
-        if let Some(left_color) = colors.left.and_then(|c| c.get_property().cloned()) {
-            let border_width = left_width.inner.to_pixels(rect.width());
-            if border_width > 0.0 {
-                paint.set_color_rgba8(
-                    left_color.inner.r,
-                    left_color.inner.g,
-                    left_color.inner.b,
-                    left_color.inner.a,
-                );
-                if let Some(left_rect) =
-                    Rect::from_xywh(rect.x(), rect.y(), border_width, rect.height())
-                {
-                    draw_rect_with_clip(pixmap, left_rect, &paint, transform, clip_rect)?;
-                }
-            }
-        }
-    }
+    render_border_segment(
+        left_width,
+        left_color,
+        left_style,
+        rect.x() + left_width / 2.0,
+        rect.y() + rect.height() - border_radius,
+        rect.x() + left_width / 2.0,
+        rect.y() + border_radius,
+        pixmap,
+        transform,
+    )?;
 
     Ok(())
 }
@@ -835,19 +1011,160 @@ fn render_text(
     pixmap: &mut Pixmap,
     rect: Rect,
     transform: Transform,
-    clip_rect: Option<Rect>,
+    _clip_rect: Option<Rect>,
+    renderer_resources: &RendererResources,
 ) -> Result<(), Box<dyn Error>> {
-    // Simplified text rendering - this is a placeholder that draws a colored rectangle
-    // In a real implementation, you'd use a font rendering library to draw each glyph
-
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
 
-    // Draw a thin line where the text baseline would be
-    if let Some(text_rect) =
-        Rect::from_xywh(rect.x(), rect.y() + rect.height() * 0.75, rect.width(), 1.0)
-    {
-        draw_rect_with_clip(pixmap, text_rect, &paint, transform, clip_rect)?;
+    // Find the font and font size from the font_instance_key
+    let font_instance = renderer_resources.get_renderable_font_data(&font_instance_key);
+
+    if let Some((font_ref, au, dpi)) = font_instance {
+        // Get the parsed font data
+        let font_data = font_ref.get_data();
+        let parsed_font = unsafe { &*(font_data.parsed as *const ParsedFont) };
+        let units_per_em = parsed_font.font_metrics.units_per_em as f32;
+
+        // Calculate font scale factor
+        let font_size_px = au.into_px() * dpi.inner.get();
+        let scale_factor = font_size_px / units_per_em;
+
+        // Calculate baseline position (normally this would come from the font metrics)
+        let baseline_y = rect.y() + parsed_font.font_metrics.ascender as f32 * scale_factor;
+
+        // Draw each glyph
+        for glyph in glyphs {
+            let glyph_index = glyph.index as u16;
+
+            // Find the glyph outline in the parsed font
+            if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
+                if let Some(outline) = &glyph_data.outline {
+                    // Create path from outline
+                    let mut pb = PathBuilder::new();
+                    let mut is_first = true;
+
+                    for op in outline.operations.as_ref() {
+                        match op {
+                            GlyphOutlineOperation::MoveTo(pt) => {
+                                // Scale and position the point
+                                let x = rect.x() + glyph.point.x + pt.x * scale_factor;
+                                let y = baseline_y - pt.y * scale_factor;
+
+                                if is_first {
+                                    pb.move_to(x, y);
+                                    is_first = false;
+                                } else {
+                                    pb.move_to(x, y);
+                                }
+                            }
+                            GlyphOutlineOperation::LineTo(pt) => {
+                                let x = rect.x() + glyph.point.x + pt.x * scale_factor;
+                                let y = baseline_y - pt.y * scale_factor;
+                                pb.line_to(x, y);
+                            }
+                            GlyphOutlineOperation::QuadraticCurveTo(qt) => {
+                                let ctrl_x = rect.x() + glyph.point.x + qt.ctrl_1_x * scale_factor;
+                                let ctrl_y = baseline_y - qt.ctrl_1_y * scale_factor;
+                                let end_x = rect.x() + glyph.point.x + qt.end_x * scale_factor;
+                                let end_y = baseline_y - qt.end_y * scale_factor;
+                                pb.quad_to(ctrl_x, ctrl_y, end_x, end_y);
+                            }
+                            GlyphOutlineOperation::CubicCurveTo(ct) => {
+                                let ctrl1_x = rect.x() + glyph.point.x + ct.ctrl_1_x * scale_factor;
+                                let ctrl1_y = baseline_y - ct.ctrl_1_y * scale_factor;
+                                let ctrl2_x = rect.x() + glyph.point.x + ct.ctrl_2_x * scale_factor;
+                                let ctrl2_y = baseline_y - ct.ctrl_2_y * scale_factor;
+                                let end_x = rect.x() + glyph.point.x + ct.end_x * scale_factor;
+                                let end_y = baseline_y - ct.end_y * scale_factor;
+                                pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
+                            }
+                            GlyphOutlineOperation::ClosePath => {
+                                pb.close();
+                            }
+                        }
+                    }
+
+                    if let Some(path) = pb.finish() {
+                        let transformed_path = path
+                            .transform(transform)
+                            .ok_or_else(|| "Failed to transform text path".to_string())?;
+                        pixmap.fill_path(
+                            &transformed_path,
+                            &paint,
+                            tiny_skia::FillRule::Winding,
+                            Transform::identity(),
+                            None,
+                        );
+                    }
+                } else {
+                    // No outline data, use a fallback rectangle for the glyph
+                    let width = glyph_data.horz_advance as f32 * scale_factor;
+                    let height = (parsed_font.font_metrics.ascender
+                        - parsed_font.font_metrics.descender)
+                        as f32
+                        * scale_factor;
+
+                    if let Some(glyph_rect) = Rect::from_xywh(
+                        rect.x() + glyph.point.x,
+                        baseline_y - parsed_font.font_metrics.ascender as f32 * scale_factor,
+                        width,
+                        height,
+                    ) {
+                        let mut pb = PathBuilder::new();
+                        let rect = Rect::from_xywh(
+                            glyph_rect.x(),
+                            glyph_rect.y(),
+                            glyph_rect.width(),
+                            glyph_rect.height(),
+                        );
+                        if let Some(r) = rect {
+                            pb.push_rect(r);
+                        }
+                        if let Some(path) = pb.finish() {
+                            let transformed_path = path
+                                .transform(transform)
+                                .ok_or_else(|| "Failed to transform text path".to_string())?;
+                            pixmap.fill_path(
+                                &transformed_path,
+                                &paint,
+                                tiny_skia::FillRule::Winding,
+                                Transform::identity(),
+                                None,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Fallback: just draw a simple line for text baseline
+        if let Some(text_rect) =
+            Rect::from_xywh(rect.x(), rect.y() + rect.height() * 0.75, rect.width(), 1.0)
+        {
+            let mut pb = PathBuilder::new();
+            if let Some(text_rect2) = Rect::from_xywh(
+                text_rect.x(),
+                text_rect.y(),
+                text_rect.width(),
+                text_rect.height(),
+            ) {
+                pb.push_rect(text_rect2);
+            }
+
+            if let Some(path) = pb.finish() {
+                let transformed_path = path
+                    .transform(transform)
+                    .ok_or_else(|| "Failed to transform text path".to_string())?;
+                pixmap.fill_path(
+                    &transformed_path,
+                    &paint,
+                    tiny_skia::FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
+        }
     }
 
     Ok(())

@@ -751,6 +751,23 @@ impl Default for RendererResources {
 }
 
 impl RendererResources {
+    pub fn get_renderable_font_data(
+        &self,
+        font_instance_key: &FontInstanceKey,
+    ) -> Option<(&FontRef, Au, DpiScaleFactor)> {
+        self.currently_registered_fonts
+            .iter()
+            .find_map(|(font_key, (font_ref, instances))| {
+                instances.iter().find_map(|((au, dpi), instance_key)| {
+                    if *instance_key == *font_instance_key {
+                        Some((font_ref, *au, *dpi))
+                    } else {
+                        None
+                    }
+                })
+            })
+    }
+
     pub fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage> {
         self.currently_registered_images.get(hash)
     }
