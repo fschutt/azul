@@ -1686,14 +1686,26 @@ fn position_absolute_element(
         // Get CSS width and height directly
         let width = css_property_cache
             .get_width(node_data, &node_id, styled_node_state)
-            .and_then(|w| Some(w.get_property()?.inner.to_pixels(containing_block.size.width)))
+            .and_then(|w| {
+                Some(
+                    w.get_property()?
+                        .inner
+                        .to_pixels(containing_block.size.width),
+                )
+            })
             .unwrap_or(element_size.width);
-            
+
         let height = css_property_cache
             .get_height(node_data, &node_id, styled_node_state)
-            .and_then(|h| Some(h.get_property()?.inner.to_pixels(containing_block.size.height)))
+            .and_then(|h| {
+                Some(
+                    h.get_property()?
+                        .inner
+                        .to_pixels(containing_block.size.height),
+                )
+            })
             .unwrap_or(element_size.height);
-            
+
         // Update size with the CSS values - ensure fixed elements get their size
         element_size = LogicalSize::new(width, height);
     }
@@ -1767,7 +1779,8 @@ fn position_absolute_element(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Positioned absolute element {}: position={:?}, size={:?}, type={:?}, static_pos={:?}",
+                "Positioned absolute element {}: position={:?}, size={:?}, type={:?}, \
+                 static_pos={:?}",
                 node_id.index(),
                 position,
                 element_size,
@@ -1781,10 +1794,10 @@ fn position_absolute_element(
 
     // Update the positioned rectangle
     let mut rect = positioned_rects[node_id].clone();
-    
+
     // Update the size - crucial for fixed elements
     rect.size = element_size;
-    
+
     // Update the position
     rect.position = match position_type {
         LayoutPosition::Absolute => PositionInfo::Absolute(PositionInfoInner {

@@ -31,8 +31,6 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
         }
     };
 
-    println!("xml nodes: {parsed:#?}");
-
     let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
         Ok(o) => o,
         Err(e) => {

@@ -22,4 +22,5 @@ azul-css = { version = "0.0.5", path = "../css", default-features = false, featu
 tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd", "png-format"]}
 rayon = { version = "1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
-# pixelmatch = { version = "0.1.0", default-features = false }
+chrono = "0.4.40"
+open = "5.3.2"

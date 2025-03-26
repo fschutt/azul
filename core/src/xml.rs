@@ -1291,8 +1291,6 @@ pub fn str_to_dom<'a>(
     let mut global_style = None;
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        println!("head node present!");
-
         // parse all dynamic XML components from the head node
         for node in head_node.children.as_ref() {
             match DynamicXmlComponent::new(node) {
@@ -1313,14 +1311,11 @@ pub fn str_to_dom<'a>(
         // parse the <style></style> tag contents, if present
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                println!("found css: {text}");
                 let parsed_css = CssApiWrapper::from_string(text.clone().into());
                 global_style = Some(parsed_css);
             }
         }
     }
-
-    println!("rendering body node");
 
     render_dom_from_body_node(&body_node, global_style, component_map, max_width)
         .map_err(|e| e.into())

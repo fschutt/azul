@@ -203,8 +203,6 @@ fn test_it() {
     ";
 
     let css = azul_css::parser::new_from_str(s);
-    println!("warnings: {:#?}", css.1);
-    println!("css: {:#?}", css.0);
     let dom = Dom::body()
         .with_children(
             vec![Dom::div()
@@ -269,8 +267,6 @@ impl CssPropertyCache {
         use azul_css::{CssDeclaration, CssPathPseudoSelector::*, LayoutDisplay};
 
         let css_is_empty = css.is_empty();
-
-        println!("css: {css:#?}");
 
         if !css_is_empty {
             css.sort_by_specificity();
