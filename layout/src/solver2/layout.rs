@@ -1678,8 +1678,25 @@ fn position_absolute_element(
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
 
-    // Get the element's current size (calculated during regular layout)
-    let element_size = positioned_rects[node_id].size;
+    // Get the element's current size from positioned_rects
+    let mut element_size = positioned_rects[node_id].size;
+
+    // For fixed elements, ensure we get the correct size from CSS properties
+    if position_type == LayoutPosition::Fixed {
+        // Get CSS width and height directly
+        let width = css_property_cache
+            .get_width(node_data, &node_id, styled_node_state)
+            .and_then(|w| Some(w.get_property()?.inner.to_pixels(containing_block.size.width)))
+            .unwrap_or(element_size.width);
+            
+        let height = css_property_cache
+            .get_height(node_data, &node_id, styled_node_state)
+            .and_then(|h| Some(h.get_property()?.inner.to_pixels(containing_block.size.height)))
+            .unwrap_or(element_size.height);
+            
+        // Update size with the CSS values - ensure fixed elements get their size
+        element_size = LogicalSize::new(width, height);
+    }
 
     // Get CSS positioning properties (left, right, top, bottom)
     let left = css_property_cache
@@ -1722,12 +1739,16 @@ fn position_absolute_element(
             )
         });
 
+    // Get the static position - where the element would be in normal flow
+    // This is important for fixed elements without explicit positioning
+    let static_position = positioned_rects[node_id].position.get_static_offset();
+
     // Calculate the position
-    let mut position = LogicalPosition::new(containing_block.origin.x, containing_block.origin.y);
+    let mut position = LogicalPosition::new(static_position.x, static_position.y);
 
     // Apply horizontal positioning (left/right)
     if let Some(left_value) = left {
-        position.x += left_value;
+        position.x = containing_block.origin.x + left_value;
     } else if let Some(right_value) = right {
         position.x = containing_block.origin.x + containing_block.size.width
             - element_size.width
@@ -1736,7 +1757,7 @@ fn position_absolute_element(
 
     // Apply vertical positioning (top/bottom)
     if let Some(top_value) = top {
-        position.y += top_value;
+        position.y = containing_block.origin.y + top_value;
     } else if let Some(bottom_value) = bottom {
         position.y = containing_block.origin.y + containing_block.size.height
             - element_size.height
@@ -1746,11 +1767,12 @@ fn position_absolute_element(
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
-                "Positioned absolute element {}: position={:?}, size={:?}, type={:?}",
+                "Positioned absolute element {}: position={:?}, size={:?}, type={:?}, static_pos={:?}",
                 node_id.index(),
                 position,
                 element_size,
-                position_type
+                position_type,
+                static_position
             )
             .into(),
             location: "position_absolute_element".to_string().into(),
@@ -1759,6 +1781,11 @@ fn position_absolute_element(
 
     // Update the positioned rectangle
     let mut rect = positioned_rects[node_id].clone();
+    
+    // Update the size - crucial for fixed elements
+    rect.size = element_size;
+    
+    // Update the position
     rect.position = match position_type {
         LayoutPosition::Absolute => PositionInfo::Absolute(PositionInfoInner {
             x_offset: position.x - containing_block.origin.x,
