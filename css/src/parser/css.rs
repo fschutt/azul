@@ -710,15 +710,15 @@ impl UnparsedCssRuleBlockOwned {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseWarnMsg<'a> {
-    warning: CssParseWarnMsgInner<'a>,
-    location: (ErrorLocation, ErrorLocation),
+    pub warning: CssParseWarnMsgInner<'a>,
+    pub location: (ErrorLocation, ErrorLocation),
 }
 
 /// Owned version of CssParseWarnMsg, where warning is the owned type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseWarnMsgOwned {
-    warning: CssParseWarnMsgInnerOwned,
-    location: (ErrorLocation, ErrorLocation),
+    pub warning: CssParseWarnMsgInnerOwned,
+    pub location: (ErrorLocation, ErrorLocation),
 }
 
 impl<'a> CssParseWarnMsg<'a> {

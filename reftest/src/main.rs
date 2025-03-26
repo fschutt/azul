@@ -19,10 +19,10 @@ use azul_core::{
     },
     styled_dom::{DomId, StyledDom},
     ui_solver::LayoutResult,
-    window::{FullWindowState, LogicalSize},
+    window::{FullWindowState, LogicalSize, StringPairVec}, xml::{get_html_node, DomXml, XmlComponentMap, XmlNode},
 };
-use azul_css::{BorderStyle, ColorU, FloatValue};
-use azul_layout::text2::shaping::{GlyphOutlineOperation, ParsedFont};
+use azul_css::{parser::{CssApiWrapper, CssParseWarnMsgOwned}, BorderStyle, ColorU, Css, CssDeclaration, CssProperty, FloatValue};
+use azul_layout::{text2::shaping::{GlyphOutlineOperation, ParsedFont}, xml::{domxml_from_str, parse_xml_string}};
 use image::{ImageBuffer, RgbaImage};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -147,11 +147,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the final results
     let final_results = results.lock().unwrap();
     let passed_tests = final_results.iter().filter(|r| r.passed).count();
+    let total_tests = final_results.len();
 
     // Generate HTML report
     println!("Generating HTML report");
-    generate_html_report(&output_dir, &final_results)?;
-
+    // Enhance test results with metadata and debug info
+    let enhanced_results = enhance_test_results(&final_results, &test_dir);
+    
+    // Generate enhanced HTML report
+    generate_enhanced_html_report(&output_dir, &enhanced_results, total_tests, passed_tests)?;
+    
     // Generate JSON results
     println!("Generating JSON results");
     generate_json_results(&output_dir, &final_results, passed_tests)?;
@@ -353,7 +358,7 @@ fn styled_dom_to_png(
         &mut renderer_resources,
     )?;
 
-    println!("{}", layout_result.print_layout_rects(false));
+    // println!("{}", layout_result.print_layout_rects(false));
 
     // Get the cached display list
     println!("  Getting cached display list");
@@ -371,6 +376,8 @@ fn styled_dom_to_png(
 
     cached_display_list.scale_for_dpi(dpi_factor);
 
+    println!("{:?}", cached_display_list);
+    
     // Create a pixmap with a white background
     let mut pixmap = Pixmap::new(
         (width as f32 * dpi_factor) as u32,
@@ -1902,4 +1909,943 @@ mod pixelmatch {
     fn rgb2q<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
         r.into() * 0.21147017 - g.into() * 0.52261711 + b.into() * 0.31114694
     }
+}
+
+/// Metadata extracted from a test file
+#[derive(Debug, Clone, Default)]
+pub struct TestMetadata {
+    pub title: String,
+    pub assert_content: String, 
+    pub help_link: String,
+    pub flags: String,
+    pub author: String,
+}
+
+/// Enhanced XML parser that extracts metadata from test files
+pub struct EnhancedXmlParser;
+
+impl EnhancedXmlParser {
+    /// Parse an XHTML file and extract both the DOM and metadata
+    pub fn parse_test_file(file_path: &Path) -> Result<(DomXml, TestMetadata), String> {
+        // Read file content
+        let xml_content = match fs::read_to_string(file_path) {
+            Ok(content) => content,
+            Err(e) => return Err(format!("Error reading file: {}", e)),
+        };
+        
+        // Parse XML
+        let parsed_xml = match parse_xml_string(&xml_content) {
+            Ok(nodes) => nodes,
+            Err(e) => return Err(format!("XML parse error: {}", e)),
+        };
+        
+        // Extract metadata
+        let metadata = Self::extract_metadata(&parsed_xml);
+        
+        // Parse to DOM
+        let dom = domxml_from_str(&xml_content, &mut XmlComponentMap::default());
+        
+        Ok((dom, metadata))
+    }
+    
+    /// Extract metadata from parsed XML nodes
+    pub fn extract_metadata(nodes: &[XmlNode]) -> TestMetadata {
+        let mut metadata = TestMetadata::default();
+        
+        // Find the <html> node
+        if let Ok(html_node) = get_html_node(nodes) {
+            // Look for <head> node
+            for child in html_node.children.as_ref() {
+                if child.node_type.as_str().to_lowercase() == "head" {
+                    Self::extract_head_metadata(child, &mut metadata);
+                }
+            }
+        }
+        
+        metadata
+    }
+    
+    /// Extract metadata from the <head> node
+    fn extract_head_metadata(head_node: &XmlNode, metadata: &mut TestMetadata) {
+        for child in head_node.children.as_ref() {
+            match child.node_type.as_str().to_lowercase().as_str() {
+                "title" => {
+                    if let Some(text) = &child.text.into_option() {
+                        metadata.title = text.as_str().to_string();
+                    }
+                },
+                "meta" => {
+                    // Handle meta tags
+                    let name = Self::get_attribute_value(&child.attributes, "name");
+                    let content = Self::get_attribute_value(&child.attributes, "content");
+                    
+                    if let (Some(name), Some(content)) = (name, content) {
+                        match name.as_str() {
+                            "assert" => metadata.assert_content = content,
+                            "flags" => metadata.flags = content,
+                            _ => {} // Ignore other meta tags
+                        }
+                    }
+                },
+                "link" => {
+                    // Handle link tags
+                    let rel = Self::get_attribute_value(&child.attributes, "rel");
+                    
+                    if let Some(rel) = rel {
+                        match rel.as_str() {
+                            "help" => {
+                                if let Some(href) = Self::get_attribute_value(&child.attributes, "href") {
+                                    metadata.help_link = href;
+                                }
+                            },
+                            "author" => {
+                                if let Some(title) = Self::get_attribute_value(&child.attributes, "title") {
+                                    metadata.author = title;
+                                }
+                            },
+                            _ => {} // Ignore other link types
+                        }
+                    }
+                },
+                _ => {} // Ignore other head elements
+            }
+        }
+    }
+    
+    /// Get attribute value by name from attributes list
+    fn get_attribute_value(attributes: &StringPairVec, name: &str) -> Option<String> {
+        for attr in attributes.as_ref() {
+            if attr.key.as_str() == name {
+                return Some(attr.value.as_str().to_string());
+            }
+        }
+        None
+    }
+    
+    /// Format XML node for debugging display
+    pub fn format_xml_for_display(node: &XmlNode, indent: usize) -> String {
+        let indent_str = " ".repeat(indent);
+        let mut output = format!("{}{}:\n", indent_str, node.node_type.as_str());
+        
+        // Add attributes
+        if !node.attributes.is_empty() {
+            output.push_str(&format!("{}  Attributes:\n", indent_str));
+            for attr in node.attributes.as_ref() {
+                output.push_str(&format!("{}    {} = \"{}\"\n", 
+                    indent_str, attr.key.as_str(), attr.value.as_str()));
+            }
+        }
+        
+        // Add text content
+        if let Some(text) = &node.text.into_option() {
+            if !text.as_str().trim().is_empty() {
+                output.push_str(&format!("{}  Text: \"{}\"\n", indent_str, text.as_str().trim()));
+            }
+        }
+        
+        // Add children
+        if !node.children.is_empty() {
+            output.push_str(&format!("{}  Children:\n", indent_str));
+            for child in node.children.as_ref() {
+                output.push_str(&Self::format_xml_for_display(child, indent + 4));
+            }
+        }
+        
+        output
+    }
+}
+
+/// CSS Warning types
+#[derive(Debug, Clone)]
+pub enum CssWarningType {
+    /// Parse error
+    ParseError(CssParseWarnMsgOwned),
+    /// Property not supported
+    UnsupportedProperty(String),
+    /// Value out of range
+    ValueOutOfRange(String, String),
+    /// Unknown selector
+    UnknownSelector(String),
+    /// Potentially invalid rule
+    InvalidRule(String),
+}
+
+impl std::fmt::Display for CssWarningType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CssWarningType::ParseError(err) => write!(f, "Parse error at {:?}..{:?}: {}", err.location.0, err.location.1, err.warning.to_shared()),
+            CssWarningType::UnsupportedProperty(prop) => write!(f, "Unsupported property: {}", prop),
+            CssWarningType::ValueOutOfRange(prop, val) => write!(f, "Value out of range for {}: {}", prop, val),
+            CssWarningType::UnknownSelector(sel) => write!(f, "Unknown selector: {}", sel),
+            CssWarningType::InvalidRule(rule) => write!(f, "Potentially invalid rule: {}", rule),
+        }
+    }
+}
+
+/// Collects CSS warnings during parsing and validation
+pub struct CssWarningCollector {
+    pub warnings: Vec<CssWarningType>,
+}
+
+impl CssWarningCollector {
+    /// Create a new CSS warning collector
+    pub fn new() -> Self {
+        Self {
+            warnings: Vec::new(),
+        }
+    }
+    
+    /// Parse CSS and collect warnings
+    pub fn parse_css(&mut self, css_text: &str) -> Css {
+        // Parse CSS using the wrapper
+        let (api_wrapper, warnings) = CssApiWrapper::from_string_with_warnings(css_text.to_string().into());
+        
+        // Check for parse errors
+        for w in warnings {
+            self.warnings.push(CssWarningType::ParseError(w));
+        }
+                
+        // Validate the CSS properties
+        self.validate_css(&api_wrapper.css);
+        
+        // Get the parsed CSS
+        api_wrapper.css
+    }
+    
+    /// Validate CSS properties and collect warnings
+    fn validate_css(&mut self, css: &Css) {
+        for stylesheet in css.stylesheets.as_ref() {
+            for rule in stylesheet.rules.as_ref() {
+                // Check selector validity
+                self.validate_selector(&rule.path.to_string());
+                
+                // Check property validity
+                for decl in rule.declarations.as_ref() {
+                    match decl {
+                        CssDeclaration::Static(prop) => {
+                            self.validate_property(prop);
+                        },
+                        CssDeclaration::Dynamic(dynamic) => {
+                            self.validate_property(&dynamic.default_value);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Validate a CSS selector
+    fn validate_selector(&mut self, selector: &str) {
+        // Check for potential selector issues
+        if selector.contains(">>") {
+            self.warnings.push(CssWarningType::UnknownSelector(
+                format!("Non-standard selector syntax: {}", selector)
+            ));
+        }
+        
+        // Check for potentially unsupported pseudo-selectors
+        let problematic_pseudos = [":has(", ":is(", ":where(", "::part(", "::slotted("];
+        for pseudo in problematic_pseudos {
+            if selector.contains(pseudo) {
+                self.warnings.push(CssWarningType::UnknownSelector(
+                    format!("Potentially unsupported pseudo-selector: {}", pseudo)
+                ));
+            }
+        }
+    }
+    
+    /// Validate a CSS property
+    fn validate_property(&mut self, property: &CssProperty) {
+        // Example validations - add more as needed
+        match property {
+            CssProperty::Display(val) => {
+                // Check for display values
+                if val.is_none() {
+                    self.warnings.push(CssWarningType::ValueOutOfRange(
+                        "display".to_string(),
+                        format!("{:?}", val)
+                    ));
+                }
+            },
+            CssProperty::MarginLeft(val) => {
+                // Check for negative margins that might cause issues
+                if let Some(margin) = val.get_property() {
+                    if margin.inner.number.get().is_sign_negative() {
+                        self.warnings.push(CssWarningType::ValueOutOfRange(
+                            format!("{:?}", property),
+                            format!("{:?}", margin)
+                        ));
+                    }
+                }
+            },
+            CssProperty::MarginRight(val) => {
+                // Check for negative margins that might cause issues
+                if let Some(margin) = val.get_property() {
+                    if margin.inner.number.get().is_sign_negative() {
+                        self.warnings.push(CssWarningType::ValueOutOfRange(
+                            format!("{:?}", property),
+                            format!("{:?}", margin)
+                        ));
+                    }
+                }
+            },
+            CssProperty::MarginTop(val) => {
+                // Check for negative margins that might cause issues
+                if let Some(margin) = val.get_property() {
+                    if margin.inner.number.get().is_sign_negative() {
+                        self.warnings.push(CssWarningType::ValueOutOfRange(
+                            format!("{:?}", property),
+                            format!("{:?}", margin)
+                        ));
+                    }
+                }
+            },
+            CssProperty::MarginBottom(val) => {
+                // Check for negative margins that might cause issues
+                if let Some(margin) = val.get_property() {
+                    if margin.inner.number.get().is_sign_negative() {
+                        self.warnings.push(CssWarningType::ValueOutOfRange(
+                            format!("{:?}", property),
+                            format!("{:?}", margin)
+                        ));
+                    }
+                }
+            },
+            // Add more property validations as needed
+            _ => {}
+        }
+    }
+    
+    /// Format the warnings as a string for display
+    pub fn format_warnings(&self) -> String {
+        use std::fmt::Write;
+        if self.warnings.is_empty() {
+            return "No CSS warnings detected.".to_string();
+        }
+        
+        let mut output = String::new();
+        writeln!(output, "CSS Warnings ({})", self.warnings.len()).unwrap();
+        writeln!(output, "===================").unwrap();
+        
+        for (i, warning) in self.warnings.iter().enumerate() {
+            writeln!(output, "{}. {}", i + 1, warning).unwrap();
+        }
+        
+        output
+    }
+    
+    /// Check if there are any warnings
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
+    }
+    
+    /// Return the number of warnings
+    pub fn warning_count(&self) -> usize {
+        self.warnings.len()
+    }
+}
+
+/// Simple struct for capturing CSS statistics
+pub struct CssStats {
+    pub rule_count: usize,
+    pub declaration_count: usize,
+    pub selectors: Vec<String>,
+    pub properties: Vec<String>,
+}
+
+impl CssStats {
+    /// Analyze CSS and return statistics
+    pub fn analyze(css: &Css) -> Self {
+        let mut stats = Self {
+            rule_count: 0,
+            declaration_count: 0,
+            selectors: Vec::new(),
+            properties: Vec::new(),
+        };
+        
+        for stylesheet in css.stylesheets.as_ref() {
+            for rule in stylesheet.rules.as_ref() {
+                stats.rule_count += 1;
+                stats.selectors.push(rule.path.to_string());
+                
+                for decl in rule.declarations.as_ref() {
+                    stats.declaration_count += 1;
+                    match decl {
+                        CssDeclaration::Static(prop) => {
+                            stats.properties.push(format!("{:?}", prop));
+                        },
+                        CssDeclaration::Dynamic(dynamic) => {
+                            stats.properties.push(format!("{:?}", dynamic.default_value));
+                        }
+                    }
+                }
+            }
+        }
+        
+        stats
+    }
+    
+    /// Format CSS statistics as a string
+    pub fn format(&self) -> String {
+        use std::fmt::Write;
+        let mut output = String::new();
+        
+        writeln!(output, "CSS Statistics").unwrap();
+        writeln!(output, "==============").unwrap();
+        writeln!(output, "Rules: {}", self.rule_count).unwrap();
+        writeln!(output, "Declarations: {}", self.declaration_count).unwrap();
+        
+        if !self.selectors.is_empty() {
+            writeln!(output, "\nSelectors:").unwrap();
+            for (i, sel) in self.selectors.iter().enumerate() {
+                if i < 10 { // Limit number of selectors shown
+                    writeln!(output, "- {}", sel).unwrap();
+                }
+            }
+            
+            if self.selectors.len() > 10 {
+                writeln!(output, "... ({} more)", self.selectors.len() - 10).unwrap();
+            }
+        }
+        
+        // Count property types
+        let mut property_types = std::collections::HashMap::new();
+        for prop in &self.properties {
+            let property_type = if let Some(idx) = prop.find('(') {
+                &prop[0..idx]
+            } else {
+                prop
+            };
+            
+            *property_types.entry(property_type.to_string()).or_insert(0) += 1;
+        }
+        
+        writeln!(output, "\nProperty Types:").unwrap();
+        let mut sorted_types: Vec<_> = property_types.iter().collect();
+        sorted_types.sort_by(|a, b| b.1.cmp(a.1));
+        
+        for (prop_type, count) in sorted_types {
+            writeln!(output, "- {}: {}", prop_type, count).unwrap();
+        }
+        
+        output
+    }
+}
+
+/// Contains all debug information for a test
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DebugData {
+    // Metadata extracted from the test file
+    pub title: String,
+    pub assert_content: String,
+    pub help_link: String,
+    pub flags: String,
+    pub author: String,
+    
+    // CSS parsing
+    pub css_warnings: String,
+    pub css_stats: String,
+    
+    // XML and DOM structure
+    pub parsed_xml: String,
+    pub styled_dom: String,
+    
+    // Layout information
+    pub solved_layout: String,
+    pub layout_stats: String,
+    
+    // Display list information
+    pub display_list: String,
+    
+    // Rendering information
+    pub render_time_ms: u64,
+    pub render_warnings: Vec<String>,
+}
+
+impl DebugData {
+    /// Create a new debug data collector
+    pub fn new() -> Self {
+        Default::default()
+    }
+    
+    /// Format the entire debug data as a string
+    pub fn format(&self) -> String {
+        use std::fmt::Write;
+
+        let mut output = String::new();
+        
+        // Metadata section
+        writeln!(output, "# Test Metadata").unwrap();
+        writeln!(output, "Title: {}", self.title).unwrap();
+        if !self.assert_content.is_empty() {
+            writeln!(output, "Assert: {}", self.assert_content).unwrap();
+        }
+        if !self.help_link.is_empty() {
+            writeln!(output, "Spec Link: {}", self.help_link).unwrap();
+        }
+        if !self.author.is_empty() {
+            writeln!(output, "Author: {}", self.author).unwrap();
+        }
+        if !self.flags.is_empty() {
+            writeln!(output, "Flags: {}", self.flags).unwrap();
+        }
+        
+        // Add all other sections with appropriate headers
+        self.add_section(&mut output, "CSS Warnings", &self.css_warnings);
+        self.add_section(&mut output, "CSS Statistics", &self.css_stats);
+        self.add_section(&mut output, "Parsed XML", &self.parsed_xml);
+        self.add_section(&mut output, "Styled DOM", &self.styled_dom);
+        self.add_section(&mut output, "Solved Layout", &self.solved_layout);
+        self.add_section(&mut output, "Layout Statistics", &self.layout_stats);
+        self.add_section(&mut output, "Display List", &self.display_list);
+        
+        // Rendering information
+        writeln!(output, "\n# Rendering Information").unwrap();
+        writeln!(output, "Render time: {} ms", self.render_time_ms).unwrap();
+        
+        if !self.render_warnings.is_empty() {
+            writeln!(output, "\n## Render Warnings").unwrap();
+            for (i, warning) in self.render_warnings.iter().enumerate() {
+                writeln!(output, "{}. {}", i + 1, warning).unwrap();
+            }
+        }
+        
+        output
+    }
+    
+    /// Add a section to the output if it's not empty
+    fn add_section(&self, output: &mut String, title: &str, content: &str) {
+        use std::fmt::Write;
+        if !content.is_empty() {
+            writeln!(output, "\n# {}", title).unwrap();
+            writeln!(output, "{}", content).unwrap();
+        }
+    }
+}
+
+/// Debug data collector for the reftest runner
+pub struct DebugDataCollector {
+    pub data: DebugData,
+}
+
+impl DebugDataCollector {
+    /// Create a new debug data collector
+    pub fn new() -> Self {
+        Self {
+            data: DebugData::new(),
+        }
+    }
+    
+    /// Set metadata for the test
+    pub fn set_metadata(
+        &mut self,
+        title: String,
+        assert_content: String,
+        help_link: String,
+        flags: String,
+        author: String,
+    ) {
+        self.data.title = title;
+        self.data.assert_content = assert_content;
+        self.data.help_link = help_link;
+        self.data.flags = flags;
+        self.data.author = author;
+    }
+    
+    /// Set CSS warnings and stats
+    pub fn set_css_debug_info(&mut self, warnings: String, stats: String) {
+        self.data.css_warnings = warnings;
+        self.data.css_stats = stats;
+    }
+    
+    /// Set XML and DOM structure
+    pub fn set_dom_debug_info(&mut self, parsed_xml: String, styled_dom: String) {
+        self.data.parsed_xml = parsed_xml;
+        self.data.styled_dom = styled_dom;
+    }
+    
+    /// Set layout information
+    pub fn set_layout_debug_info(&mut self, solved_layout: String, layout_stats: String) {
+        self.data.solved_layout = solved_layout;
+        self.data.layout_stats = layout_stats;
+    }
+    
+    /// Set display list information
+    pub fn set_display_list_debug_info(&mut self, display_list: String) {
+        self.data.display_list = display_list;
+    }
+    
+    /// Add rendering information
+    pub fn set_render_info(&mut self, time_ms: u64, warnings: Vec<String>) {
+        self.data.render_time_ms = time_ms;
+        self.data.render_warnings = warnings;
+    }
+    
+    /// Get the formatted debug data
+    pub fn get_formatted_data(&self) -> String {
+        self.data.format()
+    }
+    
+    /// Get the debug data
+    pub fn get_data(&self) -> DebugData {
+        self.data.clone()
+    }
+}
+
+/// Wrapper around layout solving that captures debug information
+pub fn solve_layout_with_debug(
+    styled_dom: StyledDom,
+    document_id: DocumentId,
+    epoch: Epoch,
+    fake_window_state: &FullWindowState,
+    renderer_resources: &mut RendererResources,
+    debug_collector: &mut DebugDataCollector,
+) -> Result<LayoutResult, Box<dyn std::error::Error>> {
+    use std::fmt::Write;
+    // Create resources for layout
+    let fc_cache = azul_layout::font::loading::build_font_cache();
+    let image_cache = ImageCache::default();
+    let callbacks = RenderCallbacks {
+        insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
+        layout_fn: azul_layout::solver2::do_the_layout,
+        load_font_fn: azul_layout::font::loading::font_source_get_bytes,
+        parse_font_fn: azul_layout::parse_font_fn,
+    };
+    
+    // Solve the layout
+    let mut resource_updates = Vec::new();
+    let mut debug = Some(Vec::new());
+    let id_namespace = IdNamespace(0);
+    
+    // Start timer
+    let start = std::time::Instant::now();
+    
+    let mut solved_layout = azul_core::display_list::SolvedLayout::new(
+        styled_dom,
+        epoch,
+        &document_id,
+        fake_window_state,
+        &mut resource_updates,
+        id_namespace,
+        &image_cache,
+        &fc_cache,
+        &callbacks,
+        renderer_resources,
+        DpiScaleFactor {
+            inner: FloatValue::new(fake_window_state.size.get_hidpi_factor()),
+        },
+        &mut debug,
+    );
+    
+    // End timer
+    let elapsed = start.elapsed();
+    
+    // Collect layout warnings
+    let mut layout_warnings = Vec::new();
+    if solved_layout.layout_results.is_empty() {
+        layout_warnings.push("Failed to solve layout, using empty layout result".to_string());
+    }
+    
+    // Capture layout statistics
+    let mut layout_stats = String::new();
+    writeln!(layout_stats, "Layout Statistics").unwrap();
+    writeln!(layout_stats, "=================").unwrap();
+    writeln!(layout_stats, "Layout time: {:?}", elapsed).unwrap();
+    writeln!(layout_stats, "Resource updates: {}", resource_updates.len()).unwrap();
+    
+    if let Some(debug_vec) = &debug {
+        writeln!(layout_stats, "Debug events: {}", debug_vec.len()).unwrap();
+    }
+    
+    // Collect layout information
+    if !solved_layout.layout_results.is_empty() {
+        let layout_result = &solved_layout.layout_results[0];
+        debug_collector.set_layout_debug_info(
+            layout_result.print_layout_rects(true),
+            layout_stats
+        );
+    } else {
+        debug_collector.set_layout_debug_info(
+            "No layout results available".to_string(),
+            layout_stats
+        );
+    }
+    
+    if solved_layout.layout_results.is_empty() {
+        Err("No layout results available".into())
+    } else {
+        Ok(solved_layout.layout_results.remove(0))
+    }
+}
+
+/// Format the display list for debugging
+pub fn format_display_list_for_debug(display_list: &CachedDisplayList) -> String {
+    use std::fmt::Write;
+    let mut output = String::new();
+    
+    writeln!(output, "Display List").unwrap();
+    writeln!(output, "=============").unwrap();
+    
+    match &display_list.root {
+        DisplayListMsg::Frame(frame) => {
+            format_frame(&mut output, frame, 0);
+        }
+        DisplayListMsg::ScrollFrame(scroll_frame) => {
+            writeln!(output, "Root: ScrollFrame").unwrap();
+            format_frame(&mut output, &scroll_frame.frame, 1);
+        }
+        DisplayListMsg::IFrame(id, size, origin, cached) => {
+            writeln!(output, "Root: IFrame (id: {:?}, size: {:?}, origin: {:?})", id, size, origin).unwrap();
+            format_display_list_for_debug_internal(&mut output, cached, 1);
+        }
+    }
+    
+    output
+}
+
+/// Format the display list for debugging (internal recursive function)
+fn format_display_list_for_debug_internal(output: &mut String, display_list: &CachedDisplayList, indent: usize) {
+    use std::fmt::Write;
+    match &display_list.root {
+        DisplayListMsg::Frame(frame) => {
+            format_frame(output, frame, indent);
+        }
+        DisplayListMsg::ScrollFrame(scroll_frame) => {
+            writeln!(output, "{}ScrollFrame", "  ".repeat(indent)).unwrap();
+            format_frame(output, &scroll_frame.frame, indent + 1);
+        }
+        DisplayListMsg::IFrame(id, size, origin, cached) => {
+            writeln!(output, "{}IFrame (id: {:?}, size: {:?}, origin: {:?})", 
+                "  ".repeat(indent), id, size, origin).unwrap();
+            format_display_list_for_debug_internal(output, cached, indent + 1);
+        }
+    }
+}
+
+/// Format a display list frame for debugging
+fn format_frame(output: &mut String, frame: &DisplayListFrame, indent: usize) {
+    use std::fmt::Write;
+    let indent_str = "  ".repeat(indent);
+    
+    writeln!(output, "{}Frame (size: {:?})", indent_str, frame.size).unwrap();
+    
+    // Print content
+    if !frame.content.is_empty() {
+        writeln!(output, "{}Content ({})", indent_str, frame.content.len()).unwrap();
+        for (i, content) in frame.content.iter().enumerate() {
+            if i < 10 { // Limit displayed items
+                writeln!(output, "{}  {:?}", indent_str, content).unwrap();
+            } else {
+                writeln!(output, "{}  ... ({} more items)", indent_str, frame.content.len() - 10).unwrap();
+                break;
+            }
+        }
+    }
+    
+    // Print children
+    if !frame.children.is_empty() {
+        writeln!(output, "{}Children ({})", indent_str, frame.children.len()).unwrap();
+        for (i, child) in frame.children.iter().enumerate() {
+            if i < 5 { // Limit displayed children
+                match child {
+                    DisplayListMsg::Frame(child_frame) => {
+                        format_frame(output, child_frame, indent + 1);
+                    }
+                    DisplayListMsg::ScrollFrame(scroll_frame) => {
+                        writeln!(output, "{}  ScrollFrame", indent_str).unwrap();
+                        format_frame(output, &scroll_frame.frame, indent + 2);
+                    }
+                    DisplayListMsg::IFrame(id, size, origin, cached) => {
+                        writeln!(output, "{}  IFrame (id: {:?}, size: {:?}, origin: {:?})", 
+                            indent_str, id, size, origin).unwrap();
+                    }
+                }
+            } else {
+                writeln!(output, "{}  ... ({} more children)", indent_str, frame.children.len() - 5).unwrap();
+                break;
+            }
+        }
+    }
+}
+
+/// Enhanced test result with debug data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedTestResult {
+    // Basic test info
+    pub test_name: String,
+    pub diff_count: usize,
+    pub passed: bool,
+    
+    // Metadata from test file
+    pub title: String,
+    pub assert_content: String,
+    pub help_link: String,
+    pub flags: String,
+    pub author: String,
+    
+    // Debug info
+    pub css_warnings: String,
+    pub parsed_xml: String,
+    pub styled_dom: String,
+    pub solved_layout: String,
+    pub display_list: String,
+    
+    // Additional stats
+    pub render_time_ms: u64,
+}
+
+impl EnhancedTestResult {
+    /// Create a new enhanced test result from test name
+    pub fn new(test_name: String) -> Self {
+        Self {
+            test_name,
+            diff_count: 0,
+            passed: false,
+            title: String::new(),
+            assert_content: String::new(),
+            help_link: String::new(),
+            flags: String::new(),
+            author: String::new(),
+            css_warnings: String::new(),
+            parsed_xml: String::new(),
+            styled_dom: String::new(),
+            solved_layout: String::new(),
+            display_list: String::new(),
+            render_time_ms: 0,
+        }
+    }
+    
+    /// Create an enhanced test result from debug data
+    pub fn from_debug_data(
+        test_name: String,
+        diff_count: usize,
+        passed: bool,
+        debug_data: DebugData
+    ) -> Self {
+        Self {
+            test_name,
+            diff_count,
+            passed,
+            title: debug_data.title,
+            assert_content: debug_data.assert_content,
+            help_link: debug_data.help_link,
+            flags: debug_data.flags, 
+            author: debug_data.author,
+            css_warnings: debug_data.css_warnings,
+            parsed_xml: debug_data.parsed_xml,
+            styled_dom: debug_data.styled_dom,
+            solved_layout: debug_data.solved_layout,
+            display_list: debug_data.display_list,
+            render_time_ms: debug_data.render_time_ms,
+        }
+    }
+}
+
+// Generate enhanced HTML report
+fn generate_enhanced_html_report(
+    output_dir: &Path, 
+    results: &[EnhancedTestResult],
+    total_tests: usize,
+    passed_tests: usize
+) -> Result<(), Box<dyn Error>> {
+    let report_path = output_dir.join("report.html");
+    let mut file = File::create(&report_path)?;
+    
+    // Serialize test data to JSON for JavaScript
+    let test_data_json = serde_json::to_string(results)?;
+    
+    // Read the HTML template
+    let html_template = include_str!("./report_template.html");
+    
+    // Replace placeholders with actual data
+    let html_content = html_template.replace("[]{{test_data_json}}", &test_data_json);
+    
+    // Write HTML to file
+    file.write_all(html_content.as_bytes())?;
+    
+    println!("Enhanced HTML report generated at {}", report_path.display());
+    
+    Ok(())
+}
+
+fn enhance_test_results(results: &[TestResult], test_dir: &Path) -> Vec<EnhancedTestResult> {
+    let mut enhanced_results = Vec::new();
+    
+    for result in results {
+        let test_file = test_dir.join(format!("{}.xht", result.test_name));
+        let debug_json = PathBuf::from("reftest_output").join(format!("{}_debug.json", result.test_name));
+        
+        // Create a new enhanced result with basic test information
+        let mut enhanced_result = EnhancedTestResult::new(result.test_name.clone());
+        enhanced_result.diff_count = result.diff_count;
+        enhanced_result.passed = result.passed;
+        
+        // First try to load debug data from the JSON file if it exists
+        // This would contain data captured during test execution
+        if debug_json.exists() {
+            if let Ok(json_content) = std::fs::read_to_string(&debug_json) {
+                if let Ok(debug_data) = serde_json::from_str::<DebugData>(&json_content) {
+                    // Create enhanced result from the debug data
+                    enhanced_result = EnhancedTestResult::from_debug_data(
+                        result.test_name.clone(),
+                        result.diff_count,
+                        result.passed,
+                        debug_data
+                    );
+                }
+            }
+        } else {
+            // Fall back to extracting what we can from the test file
+            if test_file.exists() {
+                // Try to parse the test file to extract metadata
+                if let Ok((_, metadata)) = EnhancedXmlParser::parse_test_file(&test_file) {
+                    enhanced_result.title = metadata.title;
+                    enhanced_result.assert_content = metadata.assert_content;
+                    enhanced_result.help_link = metadata.help_link;
+                    enhanced_result.flags = metadata.flags;
+                    enhanced_result.author = metadata.author;
+                    
+                    // Try to get styling information and warnings
+                    if let Ok(file_content) = std::fs::read_to_string(&test_file) {
+                        // Extract CSS
+                        if let Ok(css_text) = extract_css_from_xml(&file_content) {
+                            let mut css_collector = CssWarningCollector::new();
+                            let parsed_css = css_collector.parse_css(&css_text);
+                            let css_stats = CssStats::analyze(&parsed_css);
+                            
+                            enhanced_result.css_warnings = css_collector.format_warnings();
+                            
+                            // Parse XML and format for display
+                            if let Ok(parsed_nodes) = parse_xml_string(&file_content) {
+                                let mut xml_formatted = String::new();
+                                for node in &parsed_nodes {
+                                    xml_formatted.push_str(&EnhancedXmlParser::format_xml_for_display(node, 0));
+                                }
+                                enhanced_result.parsed_xml = xml_formatted;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Add the enhanced result to our collection
+        enhanced_results.push(enhanced_result);
+    }
+    
+    enhanced_results
+}
+
+/// Helper function to extract CSS from an XHTML file
+fn extract_css_from_xml(xml_content: &str) -> Result<String, Box<dyn Error>> {
+    let mut css = String::new();
+    
+    // Simple string-based extraction for efficiency
+    if let Some(style_start) = xml_content.find("<style type=\"text/css\">") {
+        if let Some(style_end) = xml_content[style_start..].find("</style>") {
+            css = xml_content[style_start + 23..style_start + style_end].trim().to_string();
+        }
+    }
+    
+    Ok(css)
 }
