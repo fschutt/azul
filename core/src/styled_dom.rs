@@ -180,6 +180,48 @@ impl Drop for CssPropertyCachePtr {
     }
 }
 
+#[test]
+fn test_it() {
+    let s = "
+        html, body, p {
+            margin: 0;
+            padding: 0;
+        }
+        #div1 {
+            border: solid black;
+            height: 2in;
+            position: absolute;
+            top: 1in;
+            width: 3in;
+        }
+        div div {
+            background: blue;
+            height: 1in;
+            position: fixed;
+            width: 1in;
+        }
+    ";
+
+    let css = azul_css::parser::new_from_str(s);
+    println!("warnings: {:#?}", css.1);
+    let dom = Dom::body()
+        .with_children(
+            vec![Dom::div()
+                .with_ids_and_classes(
+                    vec![crate::dom::IdOrClass::Id("div1".to_string().into())].into(),
+                )
+                .with_children(vec![Dom::div()].into())]
+            .into(),
+        )
+        .style(CssApiWrapper { css: css.0 });
+    println!(
+        "styled dom: {:#?}",
+        dom.get_html_string("", "", false)
+            .lines()
+            .collect::<Vec<_>>()
+    );
+}
+
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -226,6 +268,8 @@ impl CssPropertyCache {
         use azul_css::{CssDeclaration, CssPathPseudoSelector::*, LayoutDisplay};
 
         let css_is_empty = css.is_empty();
+
+        println!("css: {css:#?}");
 
         if !css_is_empty {
             css.sort_by_specificity();

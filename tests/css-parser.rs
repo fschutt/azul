@@ -207,6 +207,18 @@ fn test_parse_box_shadow_10() {
 
 
 #[test]
+fn test_parse_css_border_0() {
+    assert_eq!(
+        parse_style_border("solid black"),
+        Ok(StyleBorderSide {
+            border_width: PixelValue::px(1.0),
+            border_style: BorderStyle::Solid,
+            border_color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+        })
+    );
+}
+
+#[test]
 fn test_parse_css_border_1() {
     assert_eq!(
         parse_style_border("5px solid red"),

@@ -30,10 +30,25 @@ impl CssApiWrapper {
         Self { css: Css::empty() }
     }
 
+    // Updated to always return CSS with warnings
     pub fn from_string(s: AzString) -> Self {
-        Self {
-            css: crate::parser::new_from_str(s.as_str()).unwrap_or_default(),
-        }
+        let (css, _warnings) = new_from_str(s.as_str());
+        Self { css }
+    }
+
+    // New method that returns both CSS and warnings
+    pub fn from_string_with_warnings(s: AzString) -> (Self, Vec<CssParseWarnMsgOwned>) {
+        let (css, warnings) = new_from_str(s.as_str());
+        (
+            Self { css },
+            warnings
+                .into_iter()
+                .map(|w| CssParseWarnMsgOwned {
+                    warning: w.warning.to_contained(),
+                    location: w.location,
+                })
+                .collect(),
+        )
     }
 }
 
@@ -469,12 +484,25 @@ impl<'a> fmt::Display for CssParseError<'a> {
     }
 }
 
-pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
+pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssParseWarnMsg<'a>>) {
     let mut tokenizer = Tokenizer::new(css_string);
-    let (stylesheet, _warnings) = new_from_str_inner(css_string, &mut tokenizer)?;
-    Ok(Css {
-        stylesheets: vec![stylesheet].into(),
-    })
+    let (stylesheet, warnings) = match new_from_str_inner(css_string, &mut tokenizer) {
+        Ok((stylesheet, warnings)) => (stylesheet, warnings),
+        Err(error) => {
+            let warning = CssParseWarnMsg {
+                warning: CssParseWarnMsgInner::ParseError(error.error),
+                location: error.location,
+            };
+            (Stylesheet::default(), vec![warning])
+        }
+    };
+
+    (
+        Css {
+            stylesheets: vec![stylesheet].into(),
+        },
+        warnings,
+    )
 }
 
 /// Returns the location of where the parser is currently in the document
@@ -600,7 +628,9 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
                 selectors.push(CssPathSelector::Global);
             }
             Token::TypeSelector(div_type) => {
-                selectors.push(CssPathSelector::Type(NodeTypeTag::from_str(div_type)?));
+                if let Ok(nt) = NodeTypeTag::from_str(div_type) {
+                    selectors.push(CssPathSelector::Type(nt));
+                }
             }
             Token::IdSelector(id) => {
                 selectors.push(CssPathSelector::Id(id.to_string().into()));
@@ -713,22 +743,68 @@ impl CssParseWarnMsgOwned {
 pub enum CssParseWarnMsgInner<'a> {
     /// Key "blah" isn't (yet) supported, so the parser didn't attempt to parse the value at all
     UnsupportedKeyValuePair { key: &'a str, value: &'a str },
+    /// A CSS parse error that was encountered but recovered from
+    ParseError(CssParseErrorInner<'a>),
+    /// A rule was skipped due to an error
+    SkippedRule {
+        selector: Option<&'a str>,
+        error: CssParseErrorInner<'a>,
+    },
+    /// A declaration was skipped due to an error
+    SkippedDeclaration {
+        key: &'a str,
+        value: &'a str,
+        error: CssParseErrorInner<'a>,
+    },
+    /// Malformed block structure (mismatched braces, etc.)
+    MalformedStructure { message: &'a str },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParseWarnMsgInnerOwned {
-    UnsupportedKeyValuePair { key: String, value: String },
+    UnsupportedKeyValuePair {
+        key: String,
+        value: String,
+    },
+    ParseError(CssParseErrorInnerOwned),
+    SkippedRule {
+        selector: Option<String>,
+        error: CssParseErrorInnerOwned,
+    },
+    SkippedDeclaration {
+        key: String,
+        value: String,
+        error: CssParseErrorInnerOwned,
+    },
+    MalformedStructure {
+        message: String,
+    },
 }
 
 impl<'a> CssParseWarnMsgInner<'a> {
     pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
         match self {
-            CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value } => {
+            Self::UnsupportedKeyValuePair { key, value } => {
                 CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair {
                     key: key.to_string(),
                     value: value.to_string(),
                 }
             }
+            Self::ParseError(e) => CssParseWarnMsgInnerOwned::ParseError(e.to_contained()),
+            Self::SkippedRule { selector, error } => CssParseWarnMsgInnerOwned::SkippedRule {
+                selector: selector.map(|s| s.to_string()),
+                error: error.to_contained(),
+            },
+            Self::SkippedDeclaration { key, value, error } => {
+                CssParseWarnMsgInnerOwned::SkippedDeclaration {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    error: error.to_contained(),
+                }
+            }
+            Self::MalformedStructure { message } => CssParseWarnMsgInnerOwned::MalformedStructure {
+                message: message.to_string(),
+            },
         }
     }
 }
@@ -736,12 +812,38 @@ impl<'a> CssParseWarnMsgInner<'a> {
 impl CssParseWarnMsgInnerOwned {
     pub fn to_shared<'a>(&'a self) -> CssParseWarnMsgInner<'a> {
         match self {
-            CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair { key, value } => {
+            Self::UnsupportedKeyValuePair { key, value } => {
                 CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value }
+            }
+            Self::ParseError(e) => CssParseWarnMsgInner::ParseError(e.to_shared()),
+            Self::SkippedRule { selector, error } => CssParseWarnMsgInner::SkippedRule {
+                selector: selector.as_deref(),
+                error: error.to_shared(),
+            },
+            Self::SkippedDeclaration { key, value, error } => {
+                CssParseWarnMsgInner::SkippedDeclaration {
+                    key,
+                    value,
+                    error: error.to_shared(),
+                }
+            }
+            Self::MalformedStructure { message } => {
+                CssParseWarnMsgInner::MalformedStructure { message }
             }
         }
     }
 }
+
+impl_display! { CssParseWarnMsgInner<'a>, {
+    UnsupportedKeyValuePair { key, value } => format!("Unsupported CSS property: \"{}: {}\"", key, value),
+    ParseError(e) => format!("Parse error (recoverable): {}", e),
+    SkippedRule { selector, error } => {
+        let sel = selector.unwrap_or("unknown");
+        format!("Skipped rule for selector '{}': {}", sel, error)
+    },
+    SkippedDeclaration { key, value, error } => format!("Skipped declaration '{}:{}': {}", key, value, error),
+    MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
+}}
 
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
 ///
@@ -755,151 +857,307 @@ fn new_from_str_inner<'a>(
     use azul_simplecss::{Combinator, Token};
 
     let mut css_blocks = Vec::new();
+    let mut warnings = Vec::new();
 
-    // Used for error checking / checking for closed braces
     let mut parser_in_block = false;
     let mut block_nesting = 0_usize;
-
-    // Current css paths (i.e. `div#id, .class, p` are stored here -
-    // when the block is finished, all `current_rules` gets duplicated with
-    // one path corresponding to one set of rules each).
     let mut current_paths = Vec::new();
-    // Current CSS declarations
     let mut current_rules = BTreeMap::<&str, (&str, (ErrorLocation, ErrorLocation))>::new();
-    // Keep track of the current path during parsing
     let mut last_path = Vec::new();
-
     let mut last_error_location = ErrorLocation { original_pos: 0 };
 
     loop {
-        let token = tokenizer.parse_next().map_err(|e| CssParseError {
-            css_string,
-            error: e.into(),
-            location: (last_error_location, get_error_location(tokenizer)),
-        })?;
+        let token = match tokenizer.parse_next() {
+            Ok(token) => token,
+            Err(e) => {
+                let error_location = get_error_location(tokenizer);
+                warnings.push(CssParseWarnMsg {
+                    warning: CssParseWarnMsgInner::ParseError(e.into()),
+                    location: (last_error_location, error_location),
+                });
 
-        macro_rules! check_parser_is_outside_block {
-            () => {
+                // Try to recover by skipping to the next token or block
                 if parser_in_block {
-                    return Err(CssParseError {
-                        css_string,
-                        error: CssParseErrorInner::MalformedCss,
-                        location: (last_error_location, get_error_location(tokenizer)),
-                    });
+                    // Continue searching for the end of this block
+                    continue;
+                } else {
+                    // Skip this token and continue
+                    continue;
                 }
-            };
-        }
+            }
+        };
 
-        macro_rules! check_parser_is_inside_block {
-            () => {
-                if !parser_in_block {
-                    return Err(CssParseError {
-                        css_string,
-                        error: CssParseErrorInner::MalformedCss,
-                        location: (last_error_location, get_error_location(tokenizer)),
-                    });
-                }
-            };
+        macro_rules! warn_and_continue {
+            ($warning:expr) => {{
+                warnings.push(CssParseWarnMsg {
+                    warning: $warning,
+                    location: (last_error_location, get_error_location(tokenizer)),
+                });
+                continue;
+            }};
         }
 
         match token {
             Token::BlockStart => {
-                check_parser_is_outside_block!();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Block start inside another block"
+                    });
+                }
                 parser_in_block = true;
                 block_nesting += 1;
-                current_paths.push(last_path.clone());
-                last_path.clear();
+                if !last_path.is_empty() {
+                    current_paths.push(last_path.clone());
+                    last_path.clear();
+                }
             }
             Token::Comma => {
-                check_parser_is_outside_block!();
-                current_paths.push(last_path.clone());
-                last_path.clear();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Comma inside block"
+                    });
+                }
+                if !last_path.is_empty() {
+                    current_paths.push(last_path.clone());
+                    last_path.clear();
+                } else {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Empty selector before comma"
+                    });
+                }
             }
             Token::BlockEnd => {
-                block_nesting -= 1;
-                check_parser_is_inside_block!();
+                if block_nesting == 0 {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Block end without matching block start"
+                    });
+                }
+
+                block_nesting = block_nesting.saturating_sub(1);
                 parser_in_block = false;
 
-                css_blocks.extend(current_paths.drain(..).map(|path| UnparsedCssRuleBlock {
-                    path: CssPath {
-                        selectors: path.into(),
-                    },
-                    declarations: current_rules.clone(),
-                }));
+                if !current_paths.is_empty() {
+                    css_blocks.extend(current_paths.drain(..).map(|path| UnparsedCssRuleBlock {
+                        path: CssPath {
+                            selectors: path.into(),
+                        },
+                        declarations: current_rules.clone(),
+                    }));
+                } else {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Block with no selectors"
+                    });
+                }
 
                 current_rules.clear();
-                last_path.clear(); // technically unnecessary, but just to be sure
+                last_path.clear();
             }
-
-            // tokens that adjust the last_path
             Token::UniversalSelector => {
-                check_parser_is_outside_block!();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
                 last_path.push(CssPathSelector::Global);
             }
             Token::TypeSelector(div_type) => {
-                check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::Type(
-                    NodeTypeTag::from_str(div_type).map_err(|e| CssParseError {
-                        css_string,
-                        error: e.into(),
-                        location: (last_error_location, get_error_location(tokenizer)),
-                    })?,
-                ));
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
+
+                match NodeTypeTag::from_str(div_type) {
+                    Ok(nt) => last_path.push(CssPathSelector::Type(nt)),
+                    Err(e) => {
+                        warn_and_continue!(CssParseWarnMsgInner::SkippedRule {
+                            selector: Some(div_type),
+                            error: e.into(),
+                        });
+                    }
+                }
             }
             Token::IdSelector(id) => {
-                check_parser_is_outside_block!();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
                 last_path.push(CssPathSelector::Id(id.to_string().into()));
             }
             Token::ClassSelector(class) => {
-                check_parser_is_outside_block!();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
                 last_path.push(CssPathSelector::Class(class.to_string().into()));
             }
             Token::Combinator(Combinator::GreaterThan) => {
-                check_parser_is_outside_block!();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
                 last_path.push(CssPathSelector::DirectChildren);
             }
             Token::Combinator(Combinator::Space) => {
-                check_parser_is_outside_block!();
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
                 last_path.push(CssPathSelector::Children);
             }
             Token::PseudoClass { selector, value } => {
-                check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::PseudoSelector(
-                    pseudo_selector_from_str(selector, value).map_err(|e| CssParseError {
-                        css_string,
-                        error: e.into(),
-                        location: (last_error_location, get_error_location(tokenizer)),
-                    })?,
-                ));
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
+
+                match pseudo_selector_from_str(selector, value) {
+                    Ok(ps) => last_path.push(CssPathSelector::PseudoSelector(ps)),
+                    Err(e) => {
+                        warn_and_continue!(CssParseWarnMsgInner::SkippedRule {
+                            selector: Some(selector),
+                            error: e.into(),
+                        });
+                    }
+                }
             }
             Token::Declaration(key, val) => {
-                check_parser_is_inside_block!();
+                if !parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Declaration outside block"
+                    });
+                }
                 current_rules.insert(
                     key,
                     (val, (last_error_location, get_error_location(tokenizer))),
                 );
             }
             Token::EndOfStream => {
-                // uneven number of open / close braces
                 if block_nesting != 0 {
-                    return Err(CssParseError {
-                        css_string,
-                        error: CssParseErrorInner::UnclosedBlock,
+                    warnings.push(CssParseWarnMsg {
+                        warning: CssParseWarnMsgInner::MalformedStructure {
+                            message: "Unclosed blocks at end of file",
+                        },
                         location: (last_error_location, get_error_location(tokenizer)),
                     });
                 }
-
                 break;
             }
-            _ => {
-                // attributes, lang-attributes and @keyframes are not supported
-            }
+            _ => { /* Ignore unsupported tokens */ }
         }
 
         last_error_location = get_error_location(tokenizer);
     }
 
-    unparsed_css_blocks_to_stylesheet(css_blocks, css_string)
+    // Process the collected CSS blocks and convert warnings
+    let (stylesheet, mut block_warnings) = css_blocks_to_stylesheet(css_blocks, css_string);
+    warnings.append(&mut block_warnings);
+
+    Ok((stylesheet, warnings))
+}
+
+fn css_blocks_to_stylesheet<'a>(
+    css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
+    css_string: &'a str,
+) -> (Stylesheet, Vec<CssParseWarnMsg<'a>>) {
+    let css_key_map = crate::get_css_key_map();
+    let mut warnings = Vec::new();
+    let mut parsed_css_blocks = Vec::new();
+
+    for unparsed_css_block in css_blocks {
+        let mut declarations = Vec::<CssDeclaration>::new();
+
+        for (unparsed_css_key, (unparsed_css_value, location)) in &unparsed_css_block.declarations {
+            match parse_declaration_resilient(
+                unparsed_css_key,
+                unparsed_css_value,
+                *location,
+                &css_key_map,
+            ) {
+                Ok(decls) => declarations.extend(decls),
+                Err(e) => {
+                    warnings.push(CssParseWarnMsg {
+                        warning: CssParseWarnMsgInner::SkippedDeclaration {
+                            key: unparsed_css_key,
+                            value: unparsed_css_value,
+                            error: e,
+                        },
+                        location: *location,
+                    });
+                }
+            }
+        }
+
+        parsed_css_blocks.push(CssRuleBlock {
+            path: unparsed_css_block.path.into(),
+            declarations: declarations.into(),
+        });
+    }
+
+    (
+        Stylesheet {
+            rules: parsed_css_blocks.into(),
+        },
+        warnings,
+    )
+}
+
+fn parse_declaration_resilient<'a>(
+    unparsed_css_key: &'a str,
+    unparsed_css_value: &'a str,
+    location: (ErrorLocation, ErrorLocation),
+    css_key_map: &CssKeyMap,
+) -> Result<Vec<CssDeclaration>, CssParseErrorInner<'a>> {
+    let mut declarations = Vec::new();
+
+    if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, css_key_map) {
+        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
+            return Err(CssParseErrorInner::VarOnShorthandProperty {
+                key: combined_key,
+                value: unparsed_css_value,
+            });
+        }
+
+        // Attempt to parse combined properties, continue with what succeeds
+        match crate::parser::parse_combined_css_property(combined_key, unparsed_css_value) {
+            Ok(parsed_props) => {
+                declarations.extend(parsed_props.into_iter().map(CssDeclaration::Static));
+            }
+            Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+        }
+    } else if let Some(normal_key) = CssPropertyType::from_str(unparsed_css_key, css_key_map) {
+        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
+            let (css_var_id, css_var_default) = css_var?;
+            match crate::parser::parse_css_property(normal_key, css_var_default) {
+                Ok(parsed_default) => {
+                    declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
+                        dynamic_id: css_var_id.to_string().into(),
+                        default_value: parsed_default,
+                    }));
+                }
+                Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+            }
+        } else {
+            match crate::parser::parse_css_property(normal_key, unparsed_css_value) {
+                Ok(parsed_value) => {
+                    declarations.push(CssDeclaration::Static(parsed_value));
+                }
+                Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+            }
+        }
+    } else {
+        return Err(CssParseErrorInner::UnknownPropertyKey(
+            unparsed_css_key,
+            unparsed_css_value,
+        ));
+    }
+
+    Ok(declarations)
 }
 
 fn unparsed_css_blocks_to_stylesheet<'a>(
@@ -953,59 +1211,23 @@ pub fn parse_css_declaration<'a>(
     warnings: &mut Vec<CssParseWarnMsg<'a>>,
     declarations: &mut Vec<CssDeclaration>,
 ) -> Result<(), CssParseErrorInner<'a>> {
-    use self::{CssParseErrorInner::*, CssParseWarnMsgInner::*};
-
-    if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, &css_key_map) {
-        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
-            // margin: var(--my-variable);
-            return Err(VarOnShorthandProperty {
-                key: combined_key,
-                value: unparsed_css_value,
-            });
-        } else {
-            // margin: 10px;
-            let parsed_css_properties =
-                crate::parser::parse_combined_css_property(combined_key, unparsed_css_value)
-                    .map_err(|e| DynamicCssParseError(e.into()))?;
-
-            declarations.extend(
-                parsed_css_properties
-                    .into_iter()
-                    .map(|val| CssDeclaration::Static(val)),
-            );
+    match parse_declaration_resilient(unparsed_css_key, unparsed_css_value, location, css_key_map) {
+        Ok(mut decls) => {
+            declarations.append(&mut decls);
+            Ok(())
         }
-    } else if let Some(normal_key) = CssPropertyType::from_str(unparsed_css_key, css_key_map) {
-        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
-            // margin-left: var(--my-variable);
-            let (css_var_id, css_var_default) = css_var?;
-            let parsed_default_value =
-                crate::parser::parse_css_property(normal_key, css_var_default)
-                    .map_err(|e| DynamicCssParseError(e.into()))?;
-
-            declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
-                dynamic_id: css_var_id.to_string().into(),
-                default_value: parsed_default_value,
-            }));
-        } else {
-            // margin-left: 10px;
-            let parsed_css_value =
-                crate::parser::parse_css_property(normal_key, unparsed_css_value)
-                    .map_err(|e| DynamicCssParseError(e.into()))?;
-
-            declarations.push(CssDeclaration::Static(parsed_css_value));
+        Err(e) => {
+            if let CssParseErrorInner::UnknownPropertyKey(key, val) = &e {
+                warnings.push(CssParseWarnMsg {
+                    warning: CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value: val },
+                    location,
+                });
+                Ok(()) // Continue processing despite unknown property
+            } else {
+                Err(e) // Propagate other errors
+            }
         }
-    } else {
-        // asldfkjasdf: 10px;
-        warnings.push(CssParseWarnMsg {
-            warning: UnsupportedKeyValuePair {
-                key: unparsed_css_key,
-                value: unparsed_css_value,
-            },
-            location,
-        });
     }
-
-    Ok(())
 }
 
 fn check_if_value_is_css_var<'a>(

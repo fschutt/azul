@@ -1675,7 +1675,10 @@ fn parse_pixel_value_inner<'a>(
         }
     }
 
-    Err(CssPixelValueParseError::InvalidPixelValue(input))
+    match input.trim().parse::<f32>() {
+        Ok(o) => Ok(PixelValue::px(o)),
+        Err(_) => Err(CssPixelValueParseError::InvalidPixelValue(input)),
+    }
 }
 
 pub fn parse_pixel_value<'a>(input: &'a str) -> Result<PixelValue, CssPixelValueParseError<'a>> {
@@ -1685,6 +1688,9 @@ pub fn parse_pixel_value<'a>(input: &'a str) -> Result<PixelValue, CssPixelValue
             ("px", SizeMetric::Px),
             ("em", SizeMetric::Em),
             ("pt", SizeMetric::Pt),
+            ("in", SizeMetric::In),
+            ("mm", SizeMetric::Mm),
+            ("cm", SizeMetric::Cm),
             ("%", SizeMetric::Percent),
         ],
     )
@@ -1700,6 +1706,9 @@ pub fn parse_pixel_value_no_percent<'a>(
                 ("px", SizeMetric::Px),
                 ("em", SizeMetric::Em),
                 ("pt", SizeMetric::Pt),
+                ("in", SizeMetric::In),
+                ("mm", SizeMetric::Mm),
+                ("cm", SizeMetric::Cm),
             ],
         )?,
     })
@@ -2446,56 +2455,35 @@ fn take_until_next_whitespace(iter: &mut CharIndices) -> Option<usize> {
 
 /// Parse a CSS border such as
 ///
-/// "5px solid red"
+/// "5px solid red", "solid black" (1px)
 pub fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBorderParseError<'a>> {
     use self::CssBorderParseError::*;
 
-    let input = input.trim();
+    let oi = input.trim().split_whitespace().collect::<Vec<_>>();
 
-    // The first argument can either be a style or a pixel value
-
-    let mut char_iter = input.char_indices();
-    let first_arg_end =
-        take_until_next_whitespace(&mut char_iter).ok_or(MissingThickness(input))?;
-    let first_arg_str = &input[0..first_arg_end];
-
-    advance_until_next_char(&mut char_iter);
-
-    let second_argument_end = take_until_next_whitespace(&mut char_iter);
-    let (border_width, border_width_str_end, border_style);
-
-    match second_argument_end {
-        None => {
-            // First argument is the one and only argument, therefore has to be a style such as
-            // "double"
-            border_style =
-                parse_style_border_style(first_arg_str).map_err(|e| InvalidBorderStyle(e))?;
-            return Ok(StyleBorderSide {
-                border_style,
+    match oi.len() {
+        0 => return Err(CssBorderParseError::InvalidBorderDeclaration(input)),
+        1 => {
+            // First argument is the one and only argument,
+            // therefore has to be a style such as "double"
+            Ok(StyleBorderSide {
+                border_style: parse_style_border_style(&oi[0])
+                    .map_err(|e| InvalidBorderStyle(e))?,
                 border_width: DEFAULT_BORDER_THICKNESS,
                 border_color: DEFAULT_BORDER_COLOR,
-            });
+            })
         }
-        Some(end) => {
-            // First argument is a pixel value, second argument is the border style
-            border_width = parse_pixel_value(first_arg_str).map_err(|e| ThicknessParseError(e))?;
-            let border_style_str = &input[first_arg_end..end];
-            border_style =
-                parse_style_border_style(border_style_str).map_err(|e| InvalidBorderStyle(e))?;
-            border_width_str_end = end;
-        }
+        2 => Ok(StyleBorderSide {
+            border_style: parse_style_border_style(&oi[0]).map_err(|e| InvalidBorderStyle(e))?,
+            border_width: DEFAULT_BORDER_THICKNESS,
+            border_color: parse_css_color(&oi[1]).map_err(|e| ColorParseError(e))?,
+        }),
+        _ => Ok(StyleBorderSide {
+            border_width: parse_pixel_value(&oi[0]).map_err(|e| ThicknessParseError(e))?,
+            border_style: parse_style_border_style(&oi[1]).map_err(|e| InvalidBorderStyle(e))?,
+            border_color: parse_css_color(&oi[2]).map_err(|e| ColorParseError(e))?,
+        }),
     }
-
-    let border_color_str = &input[border_width_str_end..];
-
-    // Last argument can be either a hex color or a rgb str
-    let border_color = parse_css_color(border_color_str).map_err(|e| ColorParseError(e))?;
-
-    Ok(StyleBorderSide {
-        border_width,
-        border_style,
-        border_color,
-    })
 }
 
 /// Parses a CSS box-shadow, such as "5px 10px inset"

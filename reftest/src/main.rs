@@ -292,6 +292,8 @@ fn generate_azul_rendering(
         &mut azul_layout::xml::XmlComponentMap::default(),
     );
 
+    println!("dom xml: {:#?}", styled_dom.parsed_dom);
+
     // Generate and save PNG
     styled_dom_to_png(
         &styled_dom.parsed_dom,

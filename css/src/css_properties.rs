@@ -769,6 +769,33 @@ macro_rules! impl_pixel_value {
                 }
             }
 
+            /// Same as `PixelValue::in()`, but only accepts whole numbers,
+            /// since using `f32` in const fn is not yet stabilized.
+            #[inline]
+            pub const fn const_in(value: isize) -> Self {
+                Self {
+                    inner: PixelValue::const_in(value),
+                }
+            }
+
+            /// Same as `PixelValue::cm()`, but only accepts whole numbers,
+            /// since using `f32` in const fn is not yet stabilized.
+            #[inline]
+            pub const fn const_cm(value: isize) -> Self {
+                Self {
+                    inner: PixelValue::const_cm(value),
+                }
+            }
+
+            /// Same as `PixelValue::cm()`, but only accepts whole numbers,
+            /// since using `f32` in const fn is not yet stabilized.
+            #[inline]
+            pub const fn const_mm(value: isize) -> Self {
+                Self {
+                    inner: PixelValue::const_mm(value),
+                }
+            }
+
             #[inline]
             pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
                 Self {
@@ -3941,6 +3968,9 @@ impl fmt::Display for SizeMetric {
             Px => write!(f, "px"),
             Pt => write!(f, "pt"),
             Em => write!(f, "pt"),
+            In => write!(f, "in"),
+            Cm => write!(f, "cm"),
+            Mm => write!(f, "mm"),
             Percent => write!(f, "%"),
         }
     }
@@ -3981,6 +4011,27 @@ impl PixelValue {
         Self::const_from_metric(SizeMetric::Percent, value)
     }
 
+    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_in(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::In, value)
+    }
+
+    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_cm(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Cm, value)
+    }
+
+    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_mm(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Mm, value)
+    }
+
     #[inline]
     pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
         Self {
@@ -3997,6 +4048,21 @@ impl PixelValue {
     #[inline]
     pub fn em(value: f32) -> Self {
         Self::from_metric(SizeMetric::Em, value)
+    }
+
+    #[inline]
+    pub fn inch(value: f32) -> Self {
+        Self::from_metric(SizeMetric::In, value)
+    }
+
+    #[inline]
+    pub fn cm(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Cm, value)
+    }
+
+    #[inline]
+    pub fn mm(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Mm, value)
     }
 
     #[inline]
@@ -4039,10 +4105,14 @@ impl PixelValue {
     /// Returns the value of the SizeMetric in pixels
     #[inline]
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
+        // to_pixels always assumes 96 DPI
         match self.metric {
             SizeMetric::Px => self.number.get(),
             SizeMetric::Pt => self.number.get() * PT_TO_PX,
             SizeMetric::Em => self.number.get() * EM_HEIGHT,
+            SizeMetric::In => self.number.get() * 96.0,
+            SizeMetric::Cm => self.number.get() * 96.0 / 2.54,
+            SizeMetric::Mm => self.number.get() * 96.0 / 25.4,
             SizeMetric::Percent => self.number.get() / 100.0 * percent_resolve,
         }
     }
@@ -4172,6 +4242,9 @@ pub enum SizeMetric {
     Px,
     Pt,
     Em,
+    In,
+    Cm,
+    Mm,
     Percent,
 }
 

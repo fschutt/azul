@@ -1291,6 +1291,8 @@ pub fn str_to_dom<'a>(
     let mut global_style = None;
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        println!("head node present!");
+
         // parse all dynamic XML components from the head node
         for node in head_node.children.as_ref() {
             match DynamicXmlComponent::new(node) {
@@ -1311,11 +1313,14 @@ pub fn str_to_dom<'a>(
         // parse the <style></style> tag contents, if present
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
+                println!("found css: {text}");
                 let parsed_css = CssApiWrapper::from_string(text.clone().into());
                 global_style = Some(parsed_css);
             }
         }
     }
+
+    println!("rendering body node");
 
     render_dom_from_body_node(&body_node, global_style, component_map, max_width)
         .map_err(|e| e.into())
@@ -1356,8 +1361,7 @@ pub fn str_to_rust_code<'a>(
 
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                let parsed_css =
-                    azul_css::parser::new_from_str(&text).map_err(|e| e.to_contained())?;
+                let parsed_css = azul_css::parser::new_from_str(&text).0;
                 global_style = parsed_css;
             }
         }
@@ -2048,7 +2052,7 @@ pub fn render_component_inner<'a>(
     let mut css = match find_node_by_type(xml_node.children.as_ref(), "style")
         .and_then(|style_node| style_node.text.as_ref().map(|s| s.as_str()))
     {
-        Some(text) => azul_css::parser::new_from_str(&text).map_err(|e| e.to_contained())?,
+        Some(text) => azul_css::parser::new_from_str(&text).0,
         None => Css::empty(),
     };
 

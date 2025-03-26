@@ -758,6 +758,18 @@ fn format_pixel_value(p: &PixelValue) -> String {
             "PixelValue::const_percent({})",
             libm::roundf(p.number.get()) as isize
         ),
+        SizeMetric::In => format!(
+            "PixelValue::const_in({})",
+            libm::roundf(p.number.get()) as isize
+        ),
+        SizeMetric::Cm => format!(
+            "PixelValue::const_cm({})",
+            libm::roundf(p.number.get()) as isize
+        ),
+        SizeMetric::Mm => format!(
+            "PixelValue::const_mm({})",
+            libm::roundf(p.number.get()) as isize
+        ),
     }
 }
 
