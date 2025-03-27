@@ -69,7 +69,7 @@ path = "xml.rs"
 # path = "udp-chat.rs"
 
 [dependencies]
-azul = { path = "../../api/rust", default-features = false }
+azul = { path = "../../api/rust" }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }

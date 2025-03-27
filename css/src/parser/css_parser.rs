@@ -224,7 +224,6 @@ macro_rules! typed_pixel_value_parser {
 /// ```rust
 /// # extern crate azul_css;
 ///
-/// # use azul_css_parser;
 /// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssPropertyValue, CssProperty};
 /// assert_eq!(
 ///     azul_css::parser::parse_css_property(CssPropertyType::Width, "500px"),
@@ -401,7 +400,6 @@ pub fn parse_css_property<'a>(
 ///
 /// ```rust
 /// # extern crate azul_css;
-/// # use azul_css_parser;
 /// # use azul_css::*;
 /// assert_eq!(
 ///     azul_css::parser::parse_combined_css_property(
@@ -5447,9 +5445,9 @@ impl CssStyleFontFamilyParseErrorOwned {
 /// # use azul_css::{StyleFontFamily, StyleFontFamilyVec};
 /// let input = "\"Helvetica\", 'Arial', Times New Roman";
 /// let fonts: StyleFontFamilyVec = vec![
-///     StyleFontFamily::Native("Helvetica".into()),
-///     StyleFontFamily::Native("Arial".into()),
-///     StyleFontFamily::Native("Times New Roman".into()),
+///     StyleFontFamily::System("Helvetica".into()),
+///     StyleFontFamily::System("Arial".into()),
+///     StyleFontFamily::System("Times New Roman".into()),
 /// ]
 /// .into();
 ///

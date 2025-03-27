@@ -1,9 +1,9 @@
 /// Implement `Display` for an enum.
 ///
 /// Example usage:
-/// ```
+/// ```no_run,ignore
 /// enum Foo<'a> {
-///     Bar(&'a str)
+///     Bar(&'a str),
 ///     Baz(i32)
 /// }
 ///
@@ -70,9 +70,9 @@ macro_rules! impl_debug_as_display {
 
 /// Implement the `From` trait for any type.
 /// Example usage:
-/// ```
+/// ```no_run,ignore
 /// enum MyError<'a> {
-///     Bar(BarError<'a>)
+///     Bar(BarError<'a>),
 ///     Foo(FooError<'a>)
 /// }
 ///

@@ -2,7 +2,7 @@
 
 ## Build/Test Commands
 - Build project: `python3 ./build.py && cargo build --release`
-- Run tests: `cargo test --no-fail-fast`
+- Run tests: `cargo test --no-fail-fast && cd test && cargo test --no-fail-fast && cd ..`
 - Run single test: `cargo test test_name`
 - Run reftests: `cargo run --manifest-path reftest/Cargo.toml --release` (outputs reftest/reftest_output/results.json)
 - Check specific package: `cargo check --manifest-path path/to/Cargo.toml`

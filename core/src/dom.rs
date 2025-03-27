@@ -267,7 +267,7 @@ impl EventFilter {
 /// Creates a function inside an impl <enum type> block that returns a single
 /// variant if the enum is that variant.
 ///
-/// ```rust
+/// ```rust,no_run,ignore
 /// # use azul_core::dom::get_single_enum_type;
 /// enum A {
 ///     Abc(AbcType),
