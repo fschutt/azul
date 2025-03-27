@@ -3,11 +3,16 @@ use alloc::{boxed::Box, collections::btree_map::BTreeMap, rc::Rc, vec::Vec};
 use allsorts_subset_browser::{
     binary::read::ReadScope,
     font_data::FontData,
+    glyph_info,
     gsub::RawGlyphFlags,
     layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     tables::{
         cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
-        glyf::{BoundingBox, GlyfRecord, GlyfTable, Glyph},
+        glyf::{
+            BoundingBox, ComponentOffsets, CompositeGlyph, CompositeGlyphArgument,
+            CompositeGlyphComponent, CompositeGlyphScale, EmptyGlyph, GlyfRecord, GlyfTable, Glyph,
+            Point, SimpleGlyph,
+        },
         loca::{LocaOffsets, LocaTable},
         FontTableProvider, HeadTable, HheaTable, MaxpTable,
     },
@@ -251,38 +256,42 @@ pub enum GlyphOutlineOperation {
     ClosePath,
 }
 
+// MoveTo in em units
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineMoveTo {
-    pub x: f32,
-    pub y: f32,
+    pub x: i16,
+    pub y: i16,
 }
 
+// LineTo in em units
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineLineTo {
-    pub x: f32,
-    pub y: f32,
+    pub x: i16,
+    pub y: i16,
 }
 
+// QuadTo in em units
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineQuadTo {
-    pub ctrl_1_x: f32,
-    pub ctrl_1_y: f32,
-    pub end_x: f32,
-    pub end_y: f32,
+    pub ctrl_1_x: i16,
+    pub ctrl_1_y: i16,
+    pub end_x: i16,
+    pub end_y: i16,
 }
 
+// CubicTo in em units
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineCubicTo {
-    pub ctrl_1_x: f32,
-    pub ctrl_1_y: f32,
-    pub ctrl_2_x: f32,
-    pub ctrl_2_y: f32,
-    pub end_x: f32,
-    pub end_y: f32,
+    pub ctrl_1_x: i16,
+    pub ctrl_1_y: i16,
+    pub ctrl_2_x: i16,
+    pub ctrl_2_y: i16,
+    pub end_x: i16,
+    pub end_y: i16,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -301,40 +310,6 @@ impl Default for GlyphOutlineBuilder {
         GlyphOutlineBuilder {
             operations: Vec::new(),
         }
-    }
-}
-
-impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.operations
-            .push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y }));
-    }
-    fn line_to(&mut self, x: f32, y: f32) {
-        self.operations
-            .push(GlyphOutlineOperation::LineTo(OutlineLineTo { x, y }));
-    }
-    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        self.operations
-            .push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
-                ctrl_1_x: x1,
-                ctrl_1_y: y1,
-                end_x: x,
-                end_y: y,
-            }));
-    }
-    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        self.operations
-            .push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
-                ctrl_1_x: x1,
-                ctrl_1_y: y1,
-                ctrl_2_x: x2,
-                ctrl_2_y: y2,
-                end_x: x,
-                end_y: y,
-            }));
-    }
-    fn close(&mut self) {
-        self.operations.push(GlyphOutlineOperation::ClosePath);
     }
 }
 
@@ -365,11 +340,14 @@ pub struct OwnedGlyphBoundingBox {
 pub struct OwnedGlyph {
     pub bounding_box: OwnedGlyphBoundingBox,
     pub horz_advance: u16,
-    pub outline: Option<GlyphOutline>,
+    pub outline: Vec<GlyphOutline>,
+    // unresolved outlines, later to be added
+    pub unresolved_composite: Vec<CompositeGlyphComponent>,
+    pub phantom_points: Option<[Point; 4]>,
 }
 
 impl OwnedGlyph {
-    fn from_glyph_data<'a>(glyph: Glyph<'a>, horz_advance: u16) -> Option<Self> {
+    fn from_glyph_data<'a>(glyph: &Glyph<'a>, horz_advance: u16) -> Option<Self> {
         let bbox = glyph.bounding_box()?;
         Some(Self {
             bounding_box: OwnedGlyphBoundingBox {
@@ -379,8 +357,464 @@ impl OwnedGlyph {
                 min_y: bbox.y_min,
             },
             horz_advance,
-            outline: None,
+            phantom_points: glyph.phantom_points(),
+            unresolved_composite: match glyph {
+                Glyph::Empty(_) => Vec::new(),
+                Glyph::Composite(c) => c.glyphs.clone(),
+                Glyph::Simple(s) => Vec::new(),
+            },
+            outline: translate_glyph_outline(glyph)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|ol| GlyphOutline {
+                    operations: ol.into(),
+                })
+                .collect(),
         })
+    }
+}
+
+fn translate_glyph_outline<'a>(glyph: &Glyph<'a>) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+    match glyph {
+        Glyph::Empty(e) => translate_empty_glyph(e),
+        Glyph::Simple(sg) => translate_simple_glyph(sg),
+        Glyph::Composite(cg) => translate_composite_glyph(cg),
+    }
+}
+
+fn translate_empty_glyph(glyph: &EmptyGlyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+    let f = glyph.phantom_points?;
+    Some(vec![vec![
+        GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+            x: f[0].0,
+            y: f[0].1,
+        }),
+        GlyphOutlineOperation::LineTo(OutlineLineTo {
+            x: f[1].0,
+            y: f[1].1,
+        }),
+        GlyphOutlineOperation::LineTo(OutlineLineTo {
+            x: f[2].0,
+            y: f[2].1,
+        }),
+        GlyphOutlineOperation::LineTo(OutlineLineTo {
+            x: f[3].0,
+            y: f[3].1,
+        }),
+        GlyphOutlineOperation::ClosePath,
+    ]])
+}
+
+fn translate_simple_glyph<'a>(glyph: &SimpleGlyph<'a>) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+    let mut outlines = Vec::new();
+
+    // Process each contour
+    for contour in glyph.contours() {
+        let mut operations = Vec::new();
+        let contour_len = contour.len();
+
+        if contour_len == 0 {
+            continue;
+        }
+
+        // Find first on-curve point (or use first point if none exist)
+        let first_on_curve_idx = contour
+            .iter()
+            .position(|(flag, _)| flag.is_on_curve())
+            .unwrap_or(0);
+
+        let (first_flag, first_point) = contour[first_on_curve_idx];
+
+        // Handle special case: all points are off-curve
+        if !first_flag.is_on_curve() {
+            // Create an implicit on-curve point between last and first
+            let last_idx = contour_len - 1;
+            let (_, last_point) = contour[last_idx];
+            let implicit_x = (last_point.0 + first_point.0) / 2;
+            let implicit_y = (last_point.1 + first_point.1) / 2;
+            operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+                x: implicit_x,
+                y: implicit_y,
+            }));
+        } else {
+            operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+                x: first_point.0,
+                y: first_point.1,
+            }));
+        }
+
+        // Process remaining points
+        let mut i = 0;
+        while i < contour_len {
+            let curr_idx = (first_on_curve_idx + 1 + i) % contour_len;
+            let (curr_flag, curr_point) = contour[curr_idx];
+            let next_idx = (curr_idx + 1) % contour_len;
+            let (next_flag, next_point) = contour[next_idx];
+
+            if curr_flag.is_on_curve() {
+                // Current point is on-curve, add LineTo
+                operations.push(GlyphOutlineOperation::LineTo(OutlineLineTo {
+                    x: curr_point.0,
+                    y: curr_point.1,
+                }));
+                i += 1;
+            } else if next_flag.is_on_curve() {
+                // Current off-curve, next on-curve: QuadraticCurveTo
+                operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
+                    ctrl_1_x: curr_point.0,
+                    ctrl_1_y: curr_point.1,
+                    end_x: next_point.0,
+                    end_y: next_point.1,
+                }));
+                i += 2; // Skip both points
+            } else {
+                // Both off-curve, create implicit on-curve point
+                let implicit_x = (curr_point.0 + next_point.0) / 2;
+                let implicit_y = (curr_point.1 + next_point.1) / 2;
+
+                operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
+                    ctrl_1_x: curr_point.0,
+                    ctrl_1_y: curr_point.1,
+                    end_x: implicit_x,
+                    end_y: implicit_y,
+                }));
+                i += 1; // Only advance by one point
+            }
+        }
+
+        // Close the path
+        operations.push(GlyphOutlineOperation::ClosePath);
+        outlines.push(operations);
+    }
+
+    Some(outlines)
+}
+
+fn translate_composite_glyph<'a>(
+    glyph: &CompositeGlyph<'a>,
+) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+    // Composite glyphs will be resolved in a second pass
+    // Return a placeholder based on bounding box for now
+    let bbox = glyph.bounding_box;
+    Some(vec![vec![
+        GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+            x: bbox.x_min,
+            y: bbox.y_min,
+        }),
+        GlyphOutlineOperation::LineTo(OutlineLineTo {
+            x: bbox.x_max,
+            y: bbox.y_min,
+        }),
+        GlyphOutlineOperation::LineTo(OutlineLineTo {
+            x: bbox.x_max,
+            y: bbox.y_max,
+        }),
+        GlyphOutlineOperation::LineTo(OutlineLineTo {
+            x: bbox.x_min,
+            y: bbox.y_max,
+        }),
+        GlyphOutlineOperation::ClosePath,
+    ]])
+}
+
+// Additional function to resolve composite glyphs in a second pass
+fn resolved_glyph_components(og: &mut OwnedGlyph, all_glyphs: &BTreeMap<u16, OwnedGlyph>) {
+    // TODO: does not respect attachment points or anything like this
+    // only checks whether we can resolve the glyph from the map
+    let mut unresolved_composites = Vec::new();
+    for i in og.unresolved_composite.iter() {
+        let owned_glyph = match all_glyphs.get(&i.glyph_index) {
+            Some(s) => s,
+            None => {
+                unresolved_composites.push(i.clone());
+                continue;
+            }
+        };
+        og.outline.extend_from_slice(&owned_glyph.outline);
+    }
+
+    og.unresolved_composite = unresolved_composites;
+}
+
+fn transform_component_outlines(
+    outlines: &mut Vec<Vec<GlyphOutlineOperation>>,
+    scale: Option<CompositeGlyphScale>,
+    arg1: CompositeGlyphArgument,
+    arg2: CompositeGlyphArgument,
+    offset_type: ComponentOffsets,
+) {
+    // Extract offset values
+    let (offset_x, offset_y) = match (arg1, arg2) {
+        (CompositeGlyphArgument::I16(x), CompositeGlyphArgument::I16(y)) => (x, y),
+        (CompositeGlyphArgument::U16(x), CompositeGlyphArgument::U16(y)) => (x as i16, y as i16),
+        (CompositeGlyphArgument::I8(x), CompositeGlyphArgument::I8(y)) => {
+            (i16::from(x), i16::from(y))
+        }
+        (CompositeGlyphArgument::U8(x), CompositeGlyphArgument::U8(y)) => {
+            (i16::from(x), i16::from(y))
+        }
+        _ => (0, 0), // Mismatched types, use default
+    };
+
+    // Apply transformation to each outline
+    for outline in outlines {
+        for op in outline.as_mut_slice() {
+            match op {
+                GlyphOutlineOperation::MoveTo(point) => {
+                    transform_point(point, offset_x, offset_y, scale, offset_type);
+                }
+                GlyphOutlineOperation::LineTo(point) => {
+                    transform_point_lineto(point, offset_x, offset_y, scale, offset_type);
+                }
+                GlyphOutlineOperation::QuadraticCurveTo(curve) => {
+                    transform_quad_point(curve, offset_x, offset_y, scale, offset_type);
+                }
+                GlyphOutlineOperation::CubicCurveTo(curve) => {
+                    transform_cubic_point(curve, offset_x, offset_y, scale, offset_type);
+                }
+                GlyphOutlineOperation::ClosePath => {}
+            }
+        }
+    }
+}
+
+fn transform_point(
+    point: &mut OutlineMoveTo,
+    offset_x: i16,
+    offset_y: i16,
+    scale: Option<CompositeGlyphScale>,
+    offset_type: ComponentOffsets,
+) {
+    // Apply scale if present
+    if let Some(scale_factor) = scale {
+        match scale_factor {
+            CompositeGlyphScale::Scale(s) => {
+                let scale = f32::from(s);
+                point.x = (point.x as f32 * scale) as i16;
+                point.y = (point.y as f32 * scale) as i16;
+            }
+            CompositeGlyphScale::XY { x_scale, y_scale } => {
+                point.x = (point.x as f32 * f32::from(x_scale)) as i16;
+                point.y = (point.y as f32 * f32::from(y_scale)) as i16;
+            }
+            CompositeGlyphScale::Matrix(matrix) => {
+                let new_x = (point.x as f32 * f32::from(matrix[0][0])
+                    + point.y as f32 * f32::from(matrix[0][1])) as i16;
+                let new_y = (point.x as f32 * f32::from(matrix[1][0])
+                    + point.y as f32 * f32::from(matrix[1][1])) as i16;
+                point.x = new_x;
+                point.y = new_y;
+            }
+        }
+    }
+
+    // Apply offset based on offset type
+    match offset_type {
+        ComponentOffsets::Scaled => {
+            // Offset is already scaled by the transform
+            point.x += offset_x;
+            point.y += offset_y;
+        }
+        ComponentOffsets::Unscaled => {
+            // Offset should be applied after scaling
+            point.x += offset_x;
+            point.y += offset_y;
+        }
+    }
+}
+
+// Implement the same transform_point function for LineTo
+fn transform_point_lineto(
+    point: &mut OutlineLineTo,
+    offset_x: i16,
+    offset_y: i16,
+    scale: Option<CompositeGlyphScale>,
+    offset_type: ComponentOffsets,
+) {
+    // Same implementation as above, just with OutlineLineTo
+    // Apply scale if present
+    if let Some(scale_factor) = scale {
+        match scale_factor {
+            CompositeGlyphScale::Scale(s) => {
+                let scale = f32::from(s);
+                point.x = (point.x as f32 * scale) as i16;
+                point.y = (point.y as f32 * scale) as i16;
+            }
+            CompositeGlyphScale::XY { x_scale, y_scale } => {
+                point.x = (point.x as f32 * f32::from(x_scale)) as i16;
+                point.y = (point.y as f32 * f32::from(y_scale)) as i16;
+            }
+            CompositeGlyphScale::Matrix(matrix) => {
+                let new_x = (point.x as f32 * f32::from(matrix[0][0])
+                    + point.y as f32 * f32::from(matrix[0][1])) as i16;
+                let new_y = (point.x as f32 * f32::from(matrix[1][0])
+                    + point.y as f32 * f32::from(matrix[1][1])) as i16;
+                point.x = new_x;
+                point.y = new_y;
+            }
+        }
+    }
+
+    // Apply offset based on offset type
+    match offset_type {
+        ComponentOffsets::Scaled => {
+            // Offset is already scaled by the transform
+            point.x += offset_x;
+            point.y += offset_y;
+        }
+        ComponentOffsets::Unscaled => {
+            // Offset should be applied after scaling
+            point.x += offset_x;
+            point.y += offset_y;
+        }
+    }
+}
+
+fn transform_quad_point(
+    point: &mut OutlineQuadTo,
+    offset_x: i16,
+    offset_y: i16,
+    scale: Option<CompositeGlyphScale>,
+    offset_type: ComponentOffsets,
+) {
+    // Apply scale if present
+    if let Some(scale_factor) = scale {
+        match scale_factor {
+            CompositeGlyphScale::Scale(s) => {
+                let scale = f32::from(s);
+                point.ctrl_1_x = (point.ctrl_1_x as f32 * scale) as i16;
+                point.ctrl_1_y = (point.ctrl_1_y as f32 * scale) as i16;
+                point.end_x = (point.end_x as f32 * scale) as i16;
+                point.end_y = (point.end_y as f32 * scale) as i16;
+            }
+            CompositeGlyphScale::XY { x_scale, y_scale } => {
+                point.ctrl_1_x = (point.ctrl_1_x as f32 * f32::from(x_scale)) as i16;
+                point.ctrl_1_y = (point.ctrl_1_y as f32 * f32::from(y_scale)) as i16;
+                point.end_x = (point.end_x as f32 * f32::from(x_scale)) as i16;
+                point.end_y = (point.end_y as f32 * f32::from(y_scale)) as i16;
+            }
+            CompositeGlyphScale::Matrix(matrix) => {
+                // Transform control point
+                let new_ctrl_x = (point.ctrl_1_x as f32 * f32::from(matrix[0][0])
+                    + point.ctrl_1_y as f32 * f32::from(matrix[0][1]))
+                    as i16;
+                let new_ctrl_y = (point.ctrl_1_x as f32 * f32::from(matrix[1][0])
+                    + point.ctrl_1_y as f32 * f32::from(matrix[1][1]))
+                    as i16;
+
+                // Transform end point
+                let new_end_x = (point.end_x as f32 * f32::from(matrix[0][0])
+                    + point.end_y as f32 * f32::from(matrix[0][1]))
+                    as i16;
+                let new_end_y = (point.end_x as f32 * f32::from(matrix[1][0])
+                    + point.end_y as f32 * f32::from(matrix[1][1]))
+                    as i16;
+
+                point.ctrl_1_x = new_ctrl_x;
+                point.ctrl_1_y = new_ctrl_y;
+                point.end_x = new_end_x;
+                point.end_y = new_end_y;
+            }
+        }
+    }
+
+    // Apply offset based on offset type
+    match offset_type {
+        ComponentOffsets::Scaled => {
+            point.ctrl_1_x += offset_x;
+            point.ctrl_1_y += offset_y;
+            point.end_x += offset_x;
+            point.end_y += offset_y;
+        }
+        ComponentOffsets::Unscaled => {
+            point.ctrl_1_x += offset_x;
+            point.ctrl_1_y += offset_y;
+            point.end_x += offset_x;
+            point.end_y += offset_y;
+        }
+    }
+}
+
+fn transform_cubic_point(
+    point: &mut OutlineCubicTo,
+    offset_x: i16,
+    offset_y: i16,
+    scale: Option<CompositeGlyphScale>,
+    offset_type: ComponentOffsets,
+) {
+    // Apply scale if present
+    if let Some(scale_factor) = scale {
+        match scale_factor {
+            CompositeGlyphScale::Scale(s) => {
+                let scale = f32::from(s);
+                point.ctrl_1_x = (point.ctrl_1_x as f32 * scale) as i16;
+                point.ctrl_1_y = (point.ctrl_1_y as f32 * scale) as i16;
+                point.ctrl_2_x = (point.ctrl_2_x as f32 * scale) as i16;
+                point.ctrl_2_y = (point.ctrl_2_y as f32 * scale) as i16;
+                point.end_x = (point.end_x as f32 * scale) as i16;
+                point.end_y = (point.end_y as f32 * scale) as i16;
+            }
+            CompositeGlyphScale::XY { x_scale, y_scale } => {
+                point.ctrl_1_x = (point.ctrl_1_x as f32 * f32::from(x_scale)) as i16;
+                point.ctrl_1_y = (point.ctrl_1_y as f32 * f32::from(y_scale)) as i16;
+                point.ctrl_2_x = (point.ctrl_2_x as f32 * f32::from(x_scale)) as i16;
+                point.ctrl_2_y = (point.ctrl_2_y as f32 * f32::from(y_scale)) as i16;
+                point.end_x = (point.end_x as f32 * f32::from(x_scale)) as i16;
+                point.end_y = (point.end_y as f32 * f32::from(y_scale)) as i16;
+            }
+            CompositeGlyphScale::Matrix(matrix) => {
+                // Transform first control point
+                let new_ctrl1_x = (point.ctrl_1_x as f32 * f32::from(matrix[0][0])
+                    + point.ctrl_1_y as f32 * f32::from(matrix[0][1]))
+                    as i16;
+                let new_ctrl1_y = (point.ctrl_1_x as f32 * f32::from(matrix[1][0])
+                    + point.ctrl_1_y as f32 * f32::from(matrix[1][1]))
+                    as i16;
+
+                // Transform second control point
+                let new_ctrl2_x = (point.ctrl_2_x as f32 * f32::from(matrix[0][0])
+                    + point.ctrl_2_y as f32 * f32::from(matrix[0][1]))
+                    as i16;
+                let new_ctrl2_y = (point.ctrl_2_x as f32 * f32::from(matrix[1][0])
+                    + point.ctrl_2_y as f32 * f32::from(matrix[1][1]))
+                    as i16;
+
+                // Transform end point
+                let new_end_x = (point.end_x as f32 * f32::from(matrix[0][0])
+                    + point.end_y as f32 * f32::from(matrix[0][1]))
+                    as i16;
+                let new_end_y = (point.end_x as f32 * f32::from(matrix[1][0])
+                    + point.end_y as f32 * f32::from(matrix[1][1]))
+                    as i16;
+
+                point.ctrl_1_x = new_ctrl1_x;
+                point.ctrl_1_y = new_ctrl1_y;
+                point.ctrl_2_x = new_ctrl2_x;
+                point.ctrl_2_y = new_ctrl2_y;
+                point.end_x = new_end_x;
+                point.end_y = new_end_y;
+            }
+        }
+    }
+
+    // Apply offset based on offset type
+    match offset_type {
+        ComponentOffsets::Scaled => {
+            point.ctrl_1_x += offset_x;
+            point.ctrl_1_y += offset_y;
+            point.ctrl_2_x += offset_x;
+            point.ctrl_2_y += offset_y;
+            point.end_x += offset_x;
+            point.end_y += offset_y;
+        }
+        ComponentOffsets::Unscaled => {
+            point.ctrl_1_x += offset_x;
+            point.ctrl_1_y += offset_y;
+            point.ctrl_2_x += offset_x;
+            point.ctrl_2_y += offset_y;
+            point.end_x += offset_x;
+            point.end_y += offset_y;
+        }
     }
 }
 
@@ -471,16 +905,35 @@ impl ParsedFont {
                     glyph_index,
                 )
                 .unwrap_or_default();
-
                 match glyph_record {
                     GlyfRecord::Present { .. } => None,
-                    GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g.clone(), horz_advance)
-                        .map(|g| (glyph_index, g)),
+                    GlyfRecord::Parsed(g) => {
+                        OwnedGlyph::from_glyph_data(g, horz_advance).map(|g| (glyph_index, g))
+                    }
                 }
             })
             .collect::<Vec<_>>();
 
-        let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
+        let mut glyph_records_decoded = glyph_records_decoded
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+
+        for i in 0..6 {
+            let composite_glyphs_to_resolve = glyph_records_decoded
+                .iter()
+                .filter(|s| !s.1.unresolved_composite.is_empty())
+                .map(|(k, v)| (*k, v.clone()))
+                .collect::<Vec<_>>();
+
+            if composite_glyphs_to_resolve.is_empty() {
+                break;
+            }
+
+            for (k, mut v) in composite_glyphs_to_resolve {
+                resolved_glyph_components(&mut v, &glyph_records_decoded);
+                glyph_records_decoded.insert(k, v);
+            }
+        }
 
         let mut font_data_impl = allsorts_subset_browser::font::Font::new(provider).ok()?;
 

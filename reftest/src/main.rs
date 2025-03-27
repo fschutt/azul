@@ -30,7 +30,7 @@ use azul_layout::{
     text2::shaping::{GlyphOutlineOperation, ParsedFont},
     xml::{domxml_from_str, parse_xml_string},
 };
-use image::{ImageBuffer, RgbaImage};
+use image::{self, DynamicImage, GenericImageView, RgbaImage};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Rect, Transform};
@@ -38,24 +38,16 @@ use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Rect, Transform};
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct TestResult {
-    test_name: String,
-    diff_count: usize,
-    passed: bool,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct TestResults {
-    tests: Vec<TestResult>,
+    tests: Vec<EnhancedTestResult>,
     total_tests: usize,
     passed_tests: usize,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/working");
-    let test_dir = PathBuf::from(path);
-    let output_dir = PathBuf::from("reftest_output");
+    let test_dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/working"));
+    let output_dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/output"));
 
     // Create output directory if it doesn't exist
     fs::create_dir_all(&output_dir)?;
@@ -67,7 +59,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Found {} test files", test_files.len());
 
     // Results to be collected for JSON
-    let results = Arc::new(Mutex::new(Vec::new()));
     let enhanced_results = Arc::new(Mutex::new(Vec::new()));
 
     // Get Chrome path
@@ -114,14 +105,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
         println!("Processing test: {}", test_name);
 
-        let chrome_png = output_dir.join(format!("{}_chrome.png", test_name));
-        let azul_png = output_dir.join(format!("{}_azul.png", test_name));
-        let diff_png = output_dir.join(format!("{}_diff.png", test_name));
+        let chrome_img = output_dir.join(format!("{}_chrome.webp", test_name));
+        let azul_img = output_dir.join(format!("{}_azul.webp", test_name));
 
         // Generate Chrome reference if it doesn't exist
-        if !chrome_png.exists() {
+        if !chrome_img.exists() {
             println!("  Generating Chrome reference for {}", test_name);
-            match generate_chrome_screenshot(&chrome_path, test_file, &chrome_png, WIDTH, HEIGHT) {
+            match generate_chrome_screenshot(&chrome_path, test_file, &chrome_img, WIDTH, HEIGHT) {
                 Ok(_) => println!("  Chrome screenshot generated successfully"),
                 Err(e) => {
                     println!("  Failed to generate Chrome screenshot: {}", e);
@@ -132,10 +122,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("  Using existing Chrome reference for {}", test_name);
         }
 
-        let (chrome_w, chrome_h) = match image::image_dimensions(&chrome_png) {
-            Ok(o) => o,
+        let (chrome_w, chrome_h) = match image::open(&chrome_img) {
+            Ok(img) => img.dimensions(),
             Err(e) => {
-                println!("  Failed to generate Chrome screenshot: {}", e);
+                println!("  Failed to open Chrome image: {}", e);
                 return;
             }
         };
@@ -144,7 +134,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Generate Azul rendering
         let mut debug_data = None;
-        match generate_azul_rendering(test_file, &azul_png, dpi_factor) {
+        match generate_azul_rendering(test_file, &azul_img, dpi_factor) {
             Ok(data) => {
                 println!("  Azul rendering generated successfully");
                 debug_data = Some(data);
@@ -156,7 +146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         // Compare images and generate diff
-        match compare_images(&chrome_png, &azul_png, &diff_png) {
+        match compare_images(&chrome_img, &azul_img) {
             Ok(diff_count) => {
                 let passed = diff_count < 1000; // Threshold for passing
                 println!(
@@ -165,24 +155,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                     if passed { "PASSED" } else { "FAILED" }
                 );
 
-                // Store basic result
-                let mut results_vec = results.lock().unwrap();
-                results_vec.push(TestResult {
-                    test_name: test_name.to_string(),
-                    diff_count,
-                    passed,
-                });
+                // Read the original XHTML source
+                let xhtml_source = match fs::read_to_string(test_file) {
+                    Ok(content) => Some(content),
+                    Err(_) => None,
+                };
 
                 // Store enhanced result with debug data
-                if let Some(data) = debug_data {
-                    let mut enhanced_results_vec = enhanced_results.lock().unwrap();
-                    enhanced_results_vec.push(EnhancedTestResult::from_debug_data(
-                        test_name.to_string(),
-                        diff_count,
-                        passed,
-                        data,
-                    ));
-                }
+                let mut enhanced_results_vec = enhanced_results.lock().unwrap();
+                enhanced_results_vec.push(EnhancedTestResult::from_debug_data(
+                    test_name.to_string(),
+                    diff_count,
+                    passed,
+                    debug_data.unwrap_or_default(),
+                ));
             }
             Err(e) => {
                 println!("  Failed to compare images: {}", e);
@@ -190,13 +176,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // Get the final results
-    let final_results = results.lock().unwrap();
-    let passed_tests = final_results.iter().filter(|r| r.passed).count();
-    let total_tests = final_results.len();
-
     // Get enhanced results
     let final_enhanced_results = enhanced_results.lock().unwrap();
+    let passed_tests = final_enhanced_results.iter().filter(|r| r.passed).count();
 
     // Generate enhanced HTML report with header information
     println!("Generating HTML report");
@@ -211,13 +193,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate JSON results
     println!("Generating JSON results");
-    generate_json_results(&output_dir, &final_results, passed_tests)?;
+    generate_json_results(&output_dir, &*final_enhanced_results, passed_tests)?;
 
     println!(
         "Testing complete. Results saved to {}",
         output_dir.display()
     );
-    println!("Passed: {}/{}", passed_tests, final_results.len());
+    println!("Passed: {}/{}", passed_tests, final_enhanced_results.len());
 
     // Open the report unless we're in CI
     if env::var("GITHUB_CI").is_err() {
@@ -371,7 +353,7 @@ fn generate_azul_rendering(
     let xml_content = fs::read_to_string(test_file)?;
 
     // Initialize debug data collector
-    let mut debug_collector = DebugDataCollector::new();
+    let mut debug_collector = DebugDataCollector::new(xml_content.clone());
 
     // Parse XML to DomXml
     let (dom_xml, metadata, xml) =
@@ -407,7 +389,7 @@ fn generate_azul_rendering(
     );
 
     // Generate and save PNG
-    let result = styled_dom_to_png_with_debug(
+    let warnings = styled_dom_to_png_with_debug(
         &dom_xml.parsed_dom,
         output_file,
         WIDTH,
@@ -418,24 +400,10 @@ fn generate_azul_rendering(
 
     // Record rendering time
     let elapsed = start.elapsed();
-    debug_collector.set_render_info(
-        elapsed.as_millis() as u64,
-        Vec::new(), // No warnings for now
-    );
+    debug_collector.set_render_info(elapsed.as_millis() as u64, warnings);
 
     // Save debug data to JSON
     let debug_data = debug_collector.get_data();
-    let debug_json_path = output_file.with_file_name(
-        output_file
-            .file_stem()
-            .unwrap()
-            .to_string_lossy()
-            .to_string()
-            + "_debug.json",
-    );
-
-    let json = serde_json::to_string_pretty(&debug_data)?;
-    std::fs::write(debug_json_path, json)?;
 
     Ok(debug_data)
 }
@@ -447,7 +415,7 @@ fn styled_dom_to_png_with_debug(
     height: u32,
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Vec<String>, Box<dyn Error>> {
     // Create document ID and epoch for layout
     let document_id = DocumentId {
         namespace_id: IdNamespace(0),
@@ -468,7 +436,7 @@ fn styled_dom_to_png_with_debug(
     let image_cache = ImageCache::default();
 
     // Solve layout with debug information
-    let layout_result = solve_layout_with_debug(
+    let (layout_result, debug_msg) = solve_layout_with_debug(
         styled_dom.clone(),
         document_id,
         epoch,
@@ -508,56 +476,29 @@ fn styled_dom_to_png_with_debug(
     // Render the display list to the pixmap
     render_display_list(&cached_display_list, &mut pixmap, &renderer_resources)?;
 
-    // Save the pixmap to a PNG file
-    pixmap.save_png(output_file)?;
+    // Save the pixmap to a WebP file (lossless)
+    let pixmap_data = pixmap.data();
+    let width = pixmap.width();
+    let height = pixmap.height();
 
-    Ok(())
-}
+    // Use image crate to save webp image
+    let rgba = image::RgbaImage::from_raw(width, height, pixmap_data.to_vec())
+        .ok_or("Failed to create image from pixmap data")?;
 
-fn solve_layout(
-    styled_dom: StyledDom,
-    document_id: DocumentId,
-    epoch: Epoch,
-    fake_window_state: &FullWindowState,
-    renderer_resources: &mut azul_core::app_resources::RendererResources,
-) -> Result<LayoutResult, Box<dyn Error>> {
-    let fc_cache = azul_layout::font::loading::build_font_cache();
-    let image_cache = ImageCache::default();
-    let callbacks = RenderCallbacks {
-        insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
-        layout_fn: azul_layout::solver2::do_the_layout,
-        load_font_fn: azul_layout::font::loading::font_source_get_bytes,
-        parse_font_fn: azul_layout::parse_font_fn,
-    };
+    // Save as WebP with lossless quality
+    let mut webp_data = Vec::new();
+    let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp_data);
+    encoder.encode(
+        &rgba.into_raw(),
+        width,
+        height,
+        image::ColorType::Rgba8.into(),
+    )?;
 
-    // Solve the layout
-    let mut resource_updates = Vec::new();
-    let mut debug = Some(Vec::new());
-    let id_namespace = IdNamespace(0);
+    // Write the WebP data to file
+    std::fs::write(output_file, webp_data)?;
 
-    let mut solved_layout = SolvedLayout::new(
-        styled_dom,
-        epoch,
-        &document_id,
-        fake_window_state,
-        &mut resource_updates,
-        id_namespace,
-        &image_cache,
-        &fc_cache,
-        &callbacks,
-        renderer_resources,
-        DpiScaleFactor {
-            inner: FloatValue::new(fake_window_state.size.get_hidpi_factor()),
-        },
-        &mut debug,
-    );
-
-    if solved_layout.layout_results.is_empty() {
-        // Handle error case with a default empty layout result
-        Err(format!("    Warning: Failed to solve layout, using empty layout result").into())
-    } else {
-        Ok(solved_layout.layout_results.remove(0))
-    }
+    Ok(debug_msg)
 }
 
 fn render_display_list(
@@ -1140,6 +1081,8 @@ fn render_text(
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
 
+    println!("rendering text!");
+
     // Find the font and font size from the font_instance_key
     let font_instance = renderer_resources.get_renderable_font_data(&font_instance_key);
 
@@ -1162,17 +1105,18 @@ fn render_text(
 
             // Find the glyph outline in the parsed font
             if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
-                if let Some(outline) = &glyph_data.outline {
+                let mut pb = PathBuilder::new();
+
+                for outline in glyph_data.outline.iter() {
                     // Create path from outline
-                    let mut pb = PathBuilder::new();
                     let mut is_first = true;
 
                     for op in outline.operations.as_ref() {
                         match op {
                             GlyphOutlineOperation::MoveTo(pt) => {
                                 // Scale and position the point
-                                let x = rect.x() + glyph.point.x + pt.x * scale_factor;
-                                let y = baseline_y - pt.y * scale_factor;
+                                let x = rect.x() + glyph.point.x + pt.x as f32 * scale_factor;
+                                let y = baseline_y - pt.y as f32 * scale_factor;
 
                                 if is_first {
                                     pb.move_to(x, y);
@@ -1182,24 +1126,29 @@ fn render_text(
                                 }
                             }
                             GlyphOutlineOperation::LineTo(pt) => {
-                                let x = rect.x() + glyph.point.x + pt.x * scale_factor;
-                                let y = baseline_y - pt.y * scale_factor;
+                                let x = rect.x() + glyph.point.x + pt.x as f32 * scale_factor;
+                                let y = baseline_y - pt.y as f32 * scale_factor;
                                 pb.line_to(x, y);
                             }
                             GlyphOutlineOperation::QuadraticCurveTo(qt) => {
-                                let ctrl_x = rect.x() + glyph.point.x + qt.ctrl_1_x * scale_factor;
-                                let ctrl_y = baseline_y - qt.ctrl_1_y * scale_factor;
-                                let end_x = rect.x() + glyph.point.x + qt.end_x * scale_factor;
-                                let end_y = baseline_y - qt.end_y * scale_factor;
+                                let ctrl_x =
+                                    rect.x() + glyph.point.x + qt.ctrl_1_x as f32 * scale_factor;
+                                let ctrl_y = baseline_y - qt.ctrl_1_y as f32 * scale_factor;
+                                let end_x =
+                                    rect.x() + glyph.point.x + qt.end_x as f32 * scale_factor;
+                                let end_y = baseline_y - qt.end_y as f32 * scale_factor;
                                 pb.quad_to(ctrl_x, ctrl_y, end_x, end_y);
                             }
                             GlyphOutlineOperation::CubicCurveTo(ct) => {
-                                let ctrl1_x = rect.x() + glyph.point.x + ct.ctrl_1_x * scale_factor;
-                                let ctrl1_y = baseline_y - ct.ctrl_1_y * scale_factor;
-                                let ctrl2_x = rect.x() + glyph.point.x + ct.ctrl_2_x * scale_factor;
-                                let ctrl2_y = baseline_y - ct.ctrl_2_y * scale_factor;
-                                let end_x = rect.x() + glyph.point.x + ct.end_x * scale_factor;
-                                let end_y = baseline_y - ct.end_y * scale_factor;
+                                let ctrl1_x =
+                                    rect.x() + glyph.point.x + ct.ctrl_1_x as f32 * scale_factor;
+                                let ctrl1_y = baseline_y - ct.ctrl_1_y as f32 * scale_factor;
+                                let ctrl2_x =
+                                    rect.x() + glyph.point.x + ct.ctrl_2_x as f32 * scale_factor;
+                                let ctrl2_y = baseline_y - ct.ctrl_2_y as f32 * scale_factor;
+                                let end_x =
+                                    rect.x() + glyph.point.x + ct.end_x as f32 * scale_factor;
+                                let end_y = baseline_y - ct.end_y as f32 * scale_factor;
                                 pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
                             }
                             GlyphOutlineOperation::ClosePath => {
@@ -1207,56 +1156,19 @@ fn render_text(
                             }
                         }
                     }
+                }
 
-                    if let Some(path) = pb.finish() {
-                        let transformed_path = path
-                            .transform(transform)
-                            .ok_or_else(|| "Failed to transform text path".to_string())?;
-                        pixmap.fill_path(
-                            &transformed_path,
-                            &paint,
-                            tiny_skia::FillRule::Winding,
-                            Transform::identity(),
-                            None,
-                        );
-                    }
-                } else {
-                    // No outline data, use a fallback rectangle for the glyph
-                    let width = glyph_data.horz_advance as f32 * scale_factor;
-                    let height = (parsed_font.font_metrics.ascender
-                        - parsed_font.font_metrics.descender)
-                        as f32
-                        * scale_factor;
-
-                    if let Some(glyph_rect) = Rect::from_xywh(
-                        rect.x() + glyph.point.x,
-                        baseline_y - parsed_font.font_metrics.ascender as f32 * scale_factor,
-                        width,
-                        height,
-                    ) {
-                        let mut pb = PathBuilder::new();
-                        let rect = Rect::from_xywh(
-                            glyph_rect.x(),
-                            glyph_rect.y(),
-                            glyph_rect.width(),
-                            glyph_rect.height(),
-                        );
-                        if let Some(r) = rect {
-                            pb.push_rect(r);
-                        }
-                        if let Some(path) = pb.finish() {
-                            let transformed_path = path
-                                .transform(transform)
-                                .ok_or_else(|| "Failed to transform text path".to_string())?;
-                            pixmap.fill_path(
-                                &transformed_path,
-                                &paint,
-                                tiny_skia::FillRule::Winding,
-                                Transform::identity(),
-                                None,
-                            );
-                        }
-                    }
+                if let Some(path) = pb.finish() {
+                    let transformed_path = path
+                        .transform(transform)
+                        .ok_or_else(|| "Failed to transform text path".to_string())?;
+                    pixmap.fill_path(
+                        &transformed_path,
+                        &paint,
+                        tiny_skia::FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
                 }
             }
         }
@@ -1468,176 +1380,75 @@ impl Default for Options {
     }
 }
 
-fn compare_images(
-    chrome_png: &Path,
-    azul_png: &Path,
-    diff_png: &Path,
-) -> Result<usize, Box<dyn Error>> {
+/// Helper function to determine if two pixels are similar enough (for anti-aliasing)
+fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) -> bool {
+    // Skip fully transparent pixels
+    if p1[3] == 0 && p2[3] == 0 {
+        return true;
+    }
+
+    // Calculate color distance, accounting for alpha
+    let delta_squared = (0..3)
+        .map(|i| {
+            let d = (p1[i] as f64 / 255.0) - (p2[i] as f64 / 255.0);
+            d * d
+        })
+        .sum::<f64>();
+
+    // Calculate alpha distance
+    let alpha_delta = ((p1[3] as f64 / 255.0) - (p2[3] as f64 / 255.0)).abs();
+
+    // Return true if both color and alpha differences are within threshold
+    delta_squared < threshold * threshold && alpha_delta < threshold
+}
+
+fn compare_images(chrome_img_path: &Path, azul_img_path: &Path) -> Result<usize, Box<dyn Error>> {
     println!(
         "  Comparing images: {} vs {}",
-        chrome_png.display(),
-        azul_png.display()
+        chrome_img_path.display(),
+        azul_img_path.display()
     );
 
     // Load images
-    let chrome_img = std::fs::read(chrome_png)?;
-    let azul_img = std::fs::read(chrome_png)?;
+    let chrome_img = image::open(chrome_img_path)?;
+    let azul_img = image::open(azul_img_path)?;
 
-    // Use pixelmatch to compare the images
-    let options = pixelmatch::Options {
-        threshold: 0.1,
-        include_aa: false,
-        alpha: 0.1,
-        aa_color: [255, 255, 0, 255],
-        diff_color: [255, 0, 0, 255],
-        diff_color_alt: Some([0, 255, 0, 255]),
-        diff_mask: false,
-    };
+    // Convert images to RGBA8 for pixel-by-pixel comparison
+    let chrome_rgba = chrome_img.to_rgba8();
+    let azul_rgba = azul_img.to_rgba8();
 
-    let mut diff_img = Cursor::new(Vec::new());
+    // Check dimensions
+    if chrome_rgba.dimensions() != azul_rgba.dimensions() {
+        return Err(format!(
+            "Image dimensions don't match: {:?} vs {:?}",
+            chrome_rgba.dimensions(),
+            azul_rgba.dimensions()
+        )
+        .into());
+    }
 
-    // Compare images
-    let diff_count = pixelmatch::pixelmatch(&chrome_img, &azul_img, &mut diff_img, Some(options))?;
+    let (width, height) = chrome_rgba.dimensions();
+    let mut diff_count = 0;
 
-    // Save the diff image
-    std::fs::write(diff_png, diff_img.into_inner())?;
+    // Perform direct byte comparison with anti-aliasing allowance
+    for y in 0..height {
+        for x in 0..width {
+            let chrome_pixel = chrome_rgba.get_pixel(x, y);
+            let azul_pixel = azul_rgba.get_pixel(x, y);
+
+            // Compare pixels with some tolerance for anti-aliasing
+            if !pixels_similar(chrome_pixel, azul_pixel, 0.1) {
+                diff_count += 1;
+            }
+        }
+    }
 
     Ok(diff_count)
 }
 
-fn generate_html_report(output_dir: &Path, results: &[TestResult]) -> Result<(), Box<dyn Error>> {
-    let report_path = output_dir.join("report.html");
-    let mut file = File::create(&report_path)?;
-
-    // HTML header
-    writeln!(file, "<!DOCTYPE html>")?;
-    writeln!(file, "<html lang=\"en\">")?;
-    writeln!(file, "<head>")?;
-    writeln!(file, "  <meta charset=\"UTF-8\">")?;
-    writeln!(
-        file,
-        "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-    )?;
-    writeln!(file, "  <title>Azul CSS Reftest Results</title>")?;
-    writeln!(file, "  <style>")?;
-    writeln!(
-        file,
-        "    body {{ font-family: sans-serif; margin: 20px; }}"
-    )?;
-    writeln!(file, "    h1 {{ color: #333; }}")?;
-    writeln!(
-        file,
-        "    table {{ border-collapse: collapse; width: 100%; }}"
-    )?;
-    writeln!(
-        file,
-        "    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}"
-    )?;
-    writeln!(file, "    th {{ background-color: #f2f2f2; }}")?;
-    writeln!(
-        file,
-        "    tr:nth-child(even) {{ background-color: #f9f9f9; }}"
-    )?;
-    writeln!(file, "    .passed {{ background-color: #dff0d8; }}")?;
-    writeln!(file, "    .failed {{ background-color: #f2dede; }}")?;
-    writeln!(file, "    img {{ max-width: 100%; height: auto; }}")?;
-    writeln!(
-        file,
-        "    .summary {{ margin: 20px 0; padding: 10px; background-color: #f5f5f5; border-radius: \
-         5px; }}"
-    )?;
-    writeln!(file, "  </style>")?;
-    writeln!(file, "</head>")?;
-    writeln!(file, "<body>")?;
-
-    // Report header
-    writeln!(file, "  <h1>Azul CSS Reftest Results</h1>")?;
-
-    // Summary section
-    let total_tests = results.len();
-    let passed_tests = results.iter().filter(|r| r.passed).count();
-
-    writeln!(file, "  <div class=\"summary\">")?;
-    writeln!(file, "    <h2>Summary</h2>")?;
-    writeln!(file, "    <p>Total tests: {}</p>", total_tests)?;
-    writeln!(
-        file,
-        "    <p>Passed tests: {} ({}%)</p>",
-        passed_tests,
-        if total_tests > 0 {
-            passed_tests * 100 / total_tests
-        } else {
-            0
-        }
-    )?;
-    writeln!(
-        file,
-        "    <p>Failed tests: {} ({}%)</p>",
-        total_tests - passed_tests,
-        if total_tests > 0 {
-            (total_tests - passed_tests) * 100 / total_tests
-        } else {
-            0
-        }
-    )?;
-    writeln!(file, "  </div>")?;
-
-    // Results table
-    writeln!(file, "  <table>")?;
-    writeln!(file, "    <tr>")?;
-    writeln!(file, "      <th>Test</th>")?;
-    writeln!(file, "      <th>Chrome Reference</th>")?;
-    writeln!(file, "      <th>Azul Rendering</th>")?;
-    writeln!(file, "      <th>Difference</th>")?;
-    writeln!(file, "      <th>Diff Count</th>")?;
-    writeln!(file, "      <th>Result</th>")?;
-    writeln!(file, "    </tr>")?;
-
-    // Sort results by test name
-    let mut sorted_results = results.to_vec();
-    sorted_results.sort_by(|a, b| a.test_name.cmp(&b.test_name));
-
-    for result in sorted_results {
-        let row_class = if result.passed { "passed" } else { "failed" };
-
-        writeln!(file, "    <tr class=\"{}\">", row_class)?;
-        writeln!(file, "      <td>{}</td>", result.test_name)?;
-        writeln!(
-            file,
-            "      <td><img src=\"{}_chrome.png\" alt=\"Chrome\"></td>",
-            result.test_name
-        )?;
-        writeln!(
-            file,
-            "      <td><img src=\"{}_azul.png\" alt=\"Azul\"></td>",
-            result.test_name
-        )?;
-        writeln!(
-            file,
-            "      <td><img src=\"{}_diff.png\" alt=\"Difference\"></td>",
-            result.test_name
-        )?;
-        writeln!(file, "      <td>{}</td>", result.diff_count)?;
-        writeln!(
-            file,
-            "      <td>{}</td>",
-            if result.passed { "PASS" } else { "FAIL" }
-        )?;
-        writeln!(file, "    </tr>")?;
-    }
-
-    writeln!(file, "  </table>")?;
-    writeln!(file, "</body>")?;
-    writeln!(file, "</html>")?;
-
-    println!("HTML report generated at {}", report_path.display());
-
-    Ok(())
-}
-
 fn generate_json_results(
     output_dir: &Path,
-    results: &[TestResult],
+    results: &[EnhancedTestResult],
     passed_tests: usize,
 ) -> Result<(), Box<dyn Error>> {
     let json_path = output_dir.join("results.json");
@@ -1655,376 +1466,6 @@ fn generate_json_results(
     println!("JSON results saved to {}", json_path.display());
 
     Ok(())
-}
-
-mod pixelmatch {
-
-    // modified from https://github.com/dfrankland/pixelmatch-rs
-    //
-    // MIT License
-    //
-    // Copyright (c) 2021 Dylan Frankland
-    //
-    // Permission is hereby granted, free of charge, to any person obtaining a copy
-    // of this software and associated documentation files (the "Software"), to deal
-    // in the Software without restriction, including without limitation the rights
-    // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    // copies of the Software, and to permit persons to whom the Software is
-    // furnished to do so, subject to the following conditions:
-    //
-    // The above copyright notice and this permission notice shall be included in all
-    // copies or substantial portions of the Software.
-    //
-    // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    // SOFTWARE.
-
-    use core::f64;
-    use std::io::{BufRead, Cursor, Read, Seek, Write};
-
-    use image::{
-        codecs::png::PngDecoder, save_buffer, DynamicImage, GenericImage, GenericImageView,
-        ImageFormat, Rgba,
-    };
-
-    pub struct Options {
-        /// matching threshold (0 to 1); smaller is more sensitive
-        pub threshold: f64,
-        /// whether to skip anti-aliasing detection
-        pub include_aa: bool,
-        /// opacity of original image in diff output
-        pub alpha: f64,
-        /// color of anti-aliased pixels in diff output
-        pub aa_color: [u8; 4],
-        /// color of different pixels in diff output
-        pub diff_color: [u8; 4],
-        /// whether to detect dark on light differences between img1 and img2 and set an
-        /// alternative color to differentiate between the two
-        pub diff_color_alt: Option<[u8; 4]>,
-        /// draw the diff over a transparent background (a mask)
-        pub diff_mask: bool,
-    }
-
-    impl Default for Options {
-        fn default() -> Self {
-            Options {
-                threshold: 0.1,
-                include_aa: false,
-                alpha: 0.1,
-                aa_color: [255, 255, 0, 255],
-                diff_color: [255, 0, 0, 255],
-                diff_color_alt: None,
-                diff_mask: false,
-            }
-        }
-    }
-
-    pub fn pixelmatch(
-        img1: &[u8],
-        img2: &[u8],
-        output: &mut Cursor<Vec<u8>>,
-        options: Option<Options>,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
-        let img1 = image::load_from_memory(img1)?;
-        let img2 = image::load_from_memory(img2)?;
-
-        let img1_dimensions = img1.dimensions();
-        if img1.dimensions() != img2.dimensions() {
-            return Err(<Box<dyn std::error::Error>>::from(
-                "Image sizes do not match.",
-            ));
-        }
-
-        let options = options.unwrap_or_default();
-        let mut img_out = DynamicImage::new_rgba8(img1_dimensions.0, img1_dimensions.1);
-
-        // check if images are identical
-        let mut identical = true;
-        for (pixel1, pixel2) in img1.pixels().zip(img2.pixels()) {
-            if pixel1 != pixel2 {
-                identical = false;
-                break;
-            }
-        }
-
-        // fast path if identical
-        if identical {
-            if !options.diff_mask {
-                for pixel in img1.pixels() {
-                    draw_gray_pixel(&pixel, options.alpha, &mut img_out)?;
-                }
-            }
-
-            img_out.write_to(output, ImageFormat::Png)?;
-            return Ok(0);
-        }
-
-        // maximum acceptable square distance between two colors;
-        // 35215 is the maximum possible value for the YIQ difference metric
-        let max_delta = 35215_f64 * options.threshold * options.threshold;
-        let mut diff: usize = 0;
-
-        for (pixel1, pixel2) in img1.pixels().zip(img2.pixels()) {
-            let delta = color_delta(&pixel1.2, &pixel2.2, false);
-
-            if delta.abs() > max_delta {
-                // check it's a real rendering difference or just anti-aliasing
-                if !options.include_aa
-                    && (antialiased(
-                        &img1,
-                        pixel1.0,
-                        pixel1.1,
-                        img1_dimensions.0,
-                        img1_dimensions.1,
-                        &img2,
-                    ) || antialiased(
-                        &img2,
-                        pixel1.0,
-                        pixel1.1,
-                        img1_dimensions.0,
-                        img1_dimensions.1,
-                        &img1,
-                    ))
-                {
-                    // one of the pixels is anti-aliasing; draw as yellow and do not count as
-                    // difference note that we do not include such pixels in a
-                    // mask
-                    if let (img_out, false) = (&mut img_out, options.diff_mask) {
-                        img_out.put_pixel(pixel1.0, pixel1.1, Rgba(options.aa_color));
-                    }
-                } else {
-                    // found substantial difference not caused by anti-aliasing; draw it as such
-                    let color = if delta < 0.0 {
-                        options.diff_color_alt.unwrap_or(options.diff_color)
-                    } else {
-                        options.diff_color
-                    };
-                    img_out.put_pixel(pixel1.0, pixel1.1, Rgba(color));
-                    diff += 1;
-                }
-            } else if let (img_out, false) = (&mut img_out, options.diff_mask) {
-                // pixels are similar; draw background as grayscale image blended with white
-                draw_gray_pixel(&pixel1, options.alpha, img_out)?;
-            }
-        }
-
-        img_out.write_to(output, ImageFormat::Png)?;
-
-        Ok(diff)
-    }
-
-    // check if a pixel is likely a part of anti-aliasing;
-    // based on "Anti-aliased Pixel and Intensity Slope Detector" paper by V. Vysniauskas, 2009
-    fn antialiased(
-        img1: &DynamicImage,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        img2: &DynamicImage,
-    ) -> bool {
-        let mut zeroes: u8 = if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
-            1
-        } else {
-            0
-        };
-
-        let mut min = 0.0;
-        let mut max = 0.0;
-
-        let mut min_x = 0;
-        let mut min_y = 0;
-        let mut max_x = 0;
-        let mut max_y = 0;
-
-        let center_rgba = img1.get_pixel(x, y);
-
-        for adjacent_x in (if x > 0 { x - 1 } else { x })..=(if x < width - 1 { x + 1 } else { x })
-        {
-            for adjacent_y in
-                (if y > 0 { y - 1 } else { y })..=(if y < height - 1 { y + 1 } else { y })
-            {
-                if adjacent_x == x && adjacent_y == y {
-                    continue;
-                }
-
-                // brightness delta between the center pixel and adjacent one
-                let rgba = img1.get_pixel(adjacent_x, adjacent_y);
-                let delta = color_delta(&center_rgba, &rgba, true);
-
-                // count the number of equal, darker and brighter adjacent pixels
-                if delta == 0.0 {
-                    zeroes += 1;
-
-                    // if found more than 2 equal siblings, it's definitely not anti-aliasing
-                    if zeroes > 2 {
-                        return false;
-                    }
-
-                    continue;
-                }
-
-                // remember the darkest pixel
-                if delta < min {
-                    min = delta;
-                    min_x = adjacent_x;
-                    min_y = adjacent_y;
-
-                    continue;
-                }
-
-                // remember the brightest pixel
-                if delta > max {
-                    max = delta;
-                    max_x = adjacent_x;
-                    max_y = adjacent_y;
-                }
-            }
-        }
-
-        // if there are no both darker and brighter pixels among siblings, it's not anti-aliasing
-        if min == 0.0 || max == 0.0 {
-            return false;
-        }
-
-        // if either the darkest or the brightest pixel has 3+ equal siblings in both images
-        // (definitely not anti-aliased), this pixel is anti-aliased
-        (has_many_siblings(img1, min_x, min_y, width, height)
-            && has_many_siblings(img2, min_x, min_y, width, height))
-            || (has_many_siblings(img1, max_x, max_y, width, height)
-                && has_many_siblings(img2, max_x, max_y, width, height))
-    }
-
-    // check if a pixel has 3+ adjacent pixels of the same color.
-    fn has_many_siblings(img: &DynamicImage, x: u32, y: u32, width: u32, height: u32) -> bool {
-        let mut zeroes: u8 = if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
-            1
-        } else {
-            0
-        };
-
-        let center_rgba = img.get_pixel(x, y);
-
-        for adjacent_x in (if x > 0 { x - 1 } else { x })..=(if x < width - 1 { x + 1 } else { x })
-        {
-            for adjacent_y in
-                (if y > 0 { y - 1 } else { y })..=(if y < height - 1 { y + 1 } else { y })
-            {
-                if adjacent_x == x && adjacent_y == y {
-                    continue;
-                }
-
-                let rgba = img.get_pixel(adjacent_x, adjacent_y);
-
-                if center_rgba == rgba {
-                    zeroes += 1;
-                }
-
-                if zeroes > 2 {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    // calculate color difference according to the paper "Measuring perceived color difference
-    // using YIQ NTSC transmission color space in mobile applications" by Y. Kotsarenko and F. Ramos
-    fn color_delta(rgba1: &Rgba<u8>, rgba2: &Rgba<u8>, y_only: bool) -> f64 {
-        let mut r1 = rgba1[0] as f64;
-        let mut g1 = rgba1[1] as f64;
-        let mut b1 = rgba1[2] as f64;
-        let mut a1 = rgba1[3] as f64;
-
-        let mut r2 = rgba2[0] as f64;
-        let mut g2 = rgba2[1] as f64;
-        let mut b2 = rgba2[2] as f64;
-        let mut a2 = rgba2[3] as f64;
-
-        if (a1 - a2).abs() < f64::EPSILON
-            && (r1 - r2).abs() < f64::EPSILON
-            && (g1 - g2).abs() < f64::EPSILON
-            && (b1 - b2).abs() < f64::EPSILON
-        {
-            return 0.0;
-        }
-
-        if a1 < 255.0 {
-            a1 /= 255.0;
-            r1 = blend(r1, a1);
-            g1 = blend(g1, a1);
-            b1 = blend(b1, a1);
-        }
-
-        if a2 < 255.0 {
-            a2 /= 255.0;
-            r2 = blend(r2, a2);
-            g2 = blend(g2, a2);
-            b2 = blend(b2, a2);
-        }
-
-        let y1 = rgb2y(r1, g1, b1);
-        let y2 = rgb2y(r2, g2, b2);
-        let y = y1 - y2;
-
-        // brightness difference only
-        if y_only {
-            return y;
-        }
-
-        let i = rgb2i(r1, g1, b1) - rgb2i(r2, g2, b2);
-        let q = rgb2q(r1, g1, b1) - rgb2q(r2, g2, b2);
-
-        let delta = 0.5053 * y * y + 0.299 * i * i + 0.1957 * q * q;
-
-        // encode whether the pixel lightens or darkens in the sign
-        if y1 > y2 {
-            -delta
-        } else {
-            delta
-        }
-    }
-
-    fn draw_gray_pixel(
-        (x, y, rgba): &(u32, u32, Rgba<u8>),
-        alpha: f64,
-        output: &mut DynamicImage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if !output.in_bounds(*x, *y) {
-            return Err(<Box<dyn std::error::Error>>::from(
-                "Pixel is not in bounds of output.",
-            ));
-        }
-
-        let val = blend(
-            rgb2y(rgba[0], rgba[1], rgba[2]),
-            (alpha * rgba[3] as f64) / 255.0,
-        ) as u8;
-        let gray_rgba = Rgba([val, val, val, val]);
-        output.put_pixel(*x, *y, gray_rgba);
-
-        Ok(())
-    }
-
-    // blend semi-transparent color with white
-    fn blend<T: Into<f64>>(c: T, a: T) -> f64 {
-        255.0 + (c.into() - 255.0) * a.into()
-    }
-
-    fn rgb2y<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
-        r.into() * 0.29889531 + g.into() * 0.58662247 + b.into() * 0.11448223
-    }
-    fn rgb2i<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
-        r.into() * 0.59597799 - g.into() * 0.27417610 - b.into() * 0.32180189
-    }
-    fn rgb2q<T: Into<f64>>(r: T, g: T, b: T) -> f64 {
-        r.into() * 0.21147017 - g.into() * 0.52261711 + b.into() * 0.31114694
-    }
 }
 
 /// Metadata extracted from a test file
@@ -2479,7 +1920,7 @@ impl CssStats {
 }
 
 /// Contains all debug information for a test
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DebugData {
     // Metadata extracted from the test file
     pub title: String,
@@ -2487,6 +1928,8 @@ pub struct DebugData {
     pub help_link: String,
     pub flags: String,
     pub author: String,
+
+    pub xhtml_source: String,
 
     // CSS parsing
     pub css_warnings: String,
@@ -2510,8 +1953,10 @@ pub struct DebugData {
 
 impl DebugData {
     /// Create a new debug data collector
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(xhtml_source: String) -> DebugData {
+        let mut m = DebugData::default();
+        m.xhtml_source = xhtml_source;
+        m
     }
 
     /// Format the entire debug data as a string
@@ -2576,9 +2021,9 @@ pub struct DebugDataCollector {
 
 impl DebugDataCollector {
     /// Create a new debug data collector
-    pub fn new() -> Self {
+    pub fn new(source: String) -> Self {
         Self {
-            data: DebugData::new(),
+            data: DebugData::new(source),
         }
     }
 
@@ -2646,7 +2091,7 @@ pub fn solve_layout_with_debug(
     fake_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
-) -> Result<LayoutResult, Box<dyn std::error::Error>> {
+) -> Result<(LayoutResult, Vec<String>), Box<dyn std::error::Error>> {
     use std::fmt::Write;
     // Create resources for layout
     let fc_cache = azul_layout::font::loading::build_font_cache();
@@ -2654,7 +2099,7 @@ pub fn solve_layout_with_debug(
     let callbacks = RenderCallbacks {
         insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::solver2::do_the_layout,
-        load_font_fn: azul_layout::font::loading::font_source_get_bytes,
+        load_font_fn: azul_layout::font::loading::font_source_get_bytes_load_outlines,
         parse_font_fn: azul_layout::parse_font_fn,
     };
 
@@ -2712,11 +2157,18 @@ pub fn solve_layout_with_debug(
             .set_layout_debug_info("No layout results available".to_string(), layout_stats);
     }
 
-    if solved_layout.layout_results.is_empty() {
-        Err("No layout results available".into())
+    let lr = if solved_layout.layout_results.is_empty() {
+        Err("No layout results available".to_string())
     } else {
         Ok(solved_layout.layout_results.remove(0))
-    }
+    }?;
+
+    let warnings = debug
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| format!("{}: {}", s.location, s.message))
+        .collect();
+    Ok((lr, warnings))
 }
 
 /// Format the display list for debugging
@@ -2859,6 +2311,7 @@ pub struct EnhancedTestResult {
     pub author: String,
 
     // Debug info
+    pub xhtml_source: String,
     pub css_warnings: String,
     pub parsed_xml: String,
     pub styled_dom: String,
@@ -2867,13 +2320,15 @@ pub struct EnhancedTestResult {
 
     // Additional stats
     pub render_time_ms: u64,
+    pub render_warnings: Vec<String>,
 }
 
 impl EnhancedTestResult {
     /// Create a new enhanced test result from test name
-    pub fn new(test_name: String) -> Self {
+    pub fn new(test_name: String, xhtml_source: String) -> Self {
         Self {
             test_name,
+            xhtml_source,
             diff_count: 0,
             passed: false,
             title: String::new(),
@@ -2886,6 +2341,7 @@ impl EnhancedTestResult {
             styled_dom: String::new(),
             solved_layout: String::new(),
             display_list: String::new(),
+            render_warnings: Vec::new(),
             render_time_ms: 0,
         }
     }
@@ -2906,7 +2362,9 @@ impl EnhancedTestResult {
             help_link: debug_data.help_link,
             flags: debug_data.flags,
             author: debug_data.author,
+            render_warnings: debug_data.render_warnings,
             css_warnings: debug_data.css_warnings,
+            xhtml_source: debug_data.xhtml_source,
             parsed_xml: debug_data.parsed_xml,
             styled_dom: debug_data.styled_dom,
             solved_layout: debug_data.solved_layout,
@@ -2958,76 +2416,6 @@ fn generate_enhanced_html_report(
     );
 
     Ok(())
-}
-fn enhance_test_results(results: &[TestResult], test_dir: &Path) -> Vec<EnhancedTestResult> {
-    let mut enhanced_results = Vec::new();
-
-    for result in results {
-        let test_file = test_dir.join(format!("{}.xht", result.test_name));
-        let debug_json =
-            PathBuf::from("reftest_output").join(format!("{}_debug.json", result.test_name));
-
-        // Create a new enhanced result with basic test information
-        let mut enhanced_result = EnhancedTestResult::new(result.test_name.clone());
-        enhanced_result.diff_count = result.diff_count;
-        enhanced_result.passed = result.passed;
-
-        // First try to load debug data from the JSON file if it exists
-        // This would contain data captured during test execution
-        if debug_json.exists() {
-            if let Ok(json_content) = std::fs::read_to_string(&debug_json) {
-                if let Ok(debug_data) = serde_json::from_str::<DebugData>(&json_content) {
-                    // Create enhanced result from the debug data
-                    enhanced_result = EnhancedTestResult::from_debug_data(
-                        result.test_name.clone(),
-                        result.diff_count,
-                        result.passed,
-                        debug_data,
-                    );
-                }
-            }
-        } else {
-            // Fall back to extracting what we can from the test file
-            if test_file.exists() {
-                // Try to parse the test file to extract metadata
-                if let Ok((_, metadata, _)) = EnhancedXmlParser::parse_test_file(&test_file) {
-                    enhanced_result.title = metadata.title;
-                    enhanced_result.assert_content = metadata.assert_content;
-                    enhanced_result.help_link = metadata.help_link;
-                    enhanced_result.flags = metadata.flags;
-                    enhanced_result.author = metadata.author;
-
-                    // Try to get styling information and warnings
-                    if let Ok(file_content) = std::fs::read_to_string(&test_file) {
-                        // Extract CSS
-                        if let Ok(css_text) = extract_css_from_xml(&file_content) {
-                            let mut css_collector = CssWarningCollector::new();
-                            let parsed_css = css_collector.parse_css(&css_text);
-                            let css_stats = CssStats::analyze(&parsed_css);
-
-                            enhanced_result.css_warnings = css_collector.format_warnings();
-
-                            // Parse XML and format for display
-                            if let Ok(parsed_nodes) = parse_xml_string(&file_content) {
-                                let mut xml_formatted = String::new();
-                                for node in &parsed_nodes {
-                                    xml_formatted.push_str(
-                                        &EnhancedXmlParser::format_xml_for_display(node, 0),
-                                    );
-                                }
-                                enhanced_result.parsed_xml = xml_formatted;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add the enhanced result to our collection
-        enhanced_results.push(enhanced_result);
-    }
-
-    enhanced_results
 }
 
 /// Helper function to extract CSS from an XHTML file

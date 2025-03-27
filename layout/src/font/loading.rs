@@ -44,6 +44,16 @@ azul_core::impl_display!(FontReloadError, {
     FontLoadingNotActive(id) => format!("Could not load system font: \"{:?}\": crate was not compiled with --features=\"font_loading\"", id)
 });
 
+/// Same as `font_source_get_bytes` but sets the `load_outlines` on the font source
+pub fn font_source_get_bytes_load_outlines(
+    font_family: &StyleFontFamily,
+    fc_cache: &FcFontCache,
+) -> Option<LoadedFontSource> {
+    let mut f = font_source_get_bytes(font_family, fc_cache)?;
+    f.load_outlines = true;
+    Some(f)
+}
+
 /// Returns the bytes of the font (loads the font from the system in case it is a
 /// `FontSource::System` font). Also returns the index into the font (in case the font is a font
 /// collection).

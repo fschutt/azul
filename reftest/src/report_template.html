@@ -483,7 +483,7 @@
     /* Media queries */
     @media (min-width: 768px) {
       .test-content {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
       }
     }
 
@@ -823,7 +823,7 @@
         card.innerHTML = `
           <div class="test-header">
             <h3 class="test-title">${test.test_name}</h3>
-            <span class="test-result ${statusClass}">${resultText}</span>
+            <span class="test-result ${statusClass}">${resultText} // ${test.diff_count} px diff</span>
           </div>
           
           <div class="test-metadata">
@@ -834,27 +834,24 @@
           
           <div class="test-content">
             <div class="test-image-container">
-              <img class="test-image" src="${test.test_name}_chrome.png" alt="Chrome Reference">
+              <img class="test-image" src="${test.test_name}_chrome.webp" alt="Chrome Reference">
               <div class="test-image-label">Chrome Reference</div>
             </div>
             
             <div class="test-image-container">
-              <img class="test-image" src="${test.test_name}_azul.png" alt="Azul Rendering">
+              <img class="test-image" src="${test.test_name}_azul.webp" alt="Azul Rendering">
               <div class="test-image-label">Azul Rendering</div>
-            </div>
-            
-            <div class="test-image-container">
-              <img class="test-image" src="${test.test_name}_diff.png" alt="Difference">
-              <div class="test-image-label">Diff (${test.diff_count} pixels)</div>
             </div>
           </div>
           
           <div class="test-data-buttons">
+            <button class="data-button" data-test="${test.test_name}" data-type="xhtml">View XHTML</button>
             <button class="data-button" data-test="${test.test_name}" data-type="warnings">CSS Warnings</button>
             <button class="data-button" data-test="${test.test_name}" data-type="xml">Parsed XML</button>
             <button class="data-button" data-test="${test.test_name}" data-type="dom">Styled DOM</button>
             <button class="data-button" data-test="${test.test_name}" data-type="layout">Solved Layout</button>
             <button class="data-button" data-test="${test.test_name}" data-type="display">Display List</button>
+            <button class="data-button" data-test="${test.test_name}" data-type="copy" onclick="copyDebugData('${test.test_name}')">Copy Debug</button>
           </div>
         `;
         
@@ -960,6 +957,10 @@
       let data;
       
       switch (dataType) {
+        case 'xhtml':
+          title = 'XHTML Source';
+          data = test.xhtml_source || 'XHTML source not available.';
+          break;
         case 'warnings':
           title = 'CSS Warnings';
           data = test.css_warnings || 'No CSS warnings.';
@@ -980,6 +981,9 @@
           title = 'Display List';
           data = test.display_list || 'Display list not available.';
           break;
+        case 'copy':
+          // Handled by onclick handler
+          return;
         default:
           title = 'Unknown Data Type';
           data = 'Data not available.';
@@ -1013,6 +1017,44 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+    }
+    
+    // Copy all debug data to clipboard
+    function copyDebugData(testName) {
+      // Find the test data
+      const test = testData.find(t => t.test_name === testName);
+      if (!test) {
+        console.error(`Test not found: ${testName}`);
+        return;
+      }
+      
+      // Concatenate all debug data
+      const allData = [
+        "=== XHTML SOURCE ===",
+        test.xhtml_source || "Not available",
+        "\n=== CSS WARNINGS ===",
+        test.css_warnings || "No CSS warnings",
+        "\n=== PARSED XML ===",
+        test.parsed_xml || "Not available",
+        "\n=== STYLED DOM ===",
+        test.styled_dom || "Not available",
+        "\n=== SOLVED LAYOUT ===",
+        test.solved_layout || "Not available",
+        "\n=== DISPLAY LIST ===",
+        test.display_list || "Not available",
+        "\n=== RENDER DEBUG MSGS ===",
+        test.render_warnings || "Not available"
+      ].join("\n");
+      
+      // Copy to clipboard
+      navigator.clipboard.writeText(allData)
+        .then(() => {
+          alert("Debug data copied to clipboard!");
+        })
+        .catch(err => {
+          console.error("Could not copy text: ", err);
+          alert("Failed to copy debug data. See console for details.");
+        });
     }
     
     // Close overlay when clicking outside the content

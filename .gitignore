@@ -1,4 +1,6 @@
 target/
+reftest_output/
+output/
 vendor/
 **/*.rs.bk
 *.pdf

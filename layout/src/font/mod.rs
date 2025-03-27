@@ -175,12 +175,16 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
                 if let Some(gsettings_pref) = linux_get_gsettings_font("font-name") {
                     patterns.push(FcPattern {
                         name: Some(gsettings_pref),
+                        italic: PatternMatch::False,
+                        bold: PatternMatch::False,
                         ..FcPattern::default()
                     });
                 }
                 if let Some(fontconfig_pref) = linux_get_fc_match_font("sans-serif") {
                     patterns.push(FcPattern {
                         name: Some(fontconfig_pref),
+                        italic: PatternMatch::False,
+                        bold: PatternMatch::False,
                         ..FcPattern::default()
                     });
                 }
@@ -189,6 +193,7 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
             for sans_serif_font in KNOWN_SYSTEM_SANS_SERIF_FONTS.iter() {
                 patterns.push(FcPattern {
                     name: Some(sans_serif_font.to_string()),
+                    italic: PatternMatch::False,
                     ..FcPattern::default()
                 });
             }
@@ -207,6 +212,8 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
             for serif_font in KNOWN_SYSTEM_SERIF_FONTS.iter() {
                 patterns.push(FcPattern {
                     name: Some(serif_font.to_string()),
+                    italic: PatternMatch::False,
+                    bold: PatternMatch::False,
                     ..FcPattern::default()
                 });
             }
@@ -214,11 +221,15 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
         other => {
             patterns.push(FcPattern {
                 name: Some(other.clone().into()),
+                italic: PatternMatch::False,
+                bold: PatternMatch::False,
                 ..FcPattern::default()
             });
 
             patterns.push(FcPattern {
                 family: Some(other.clone().into()),
+                italic: PatternMatch::False,
+                bold: PatternMatch::False,
                 ..FcPattern::default()
             });
         }
