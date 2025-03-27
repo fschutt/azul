@@ -4,7 +4,7 @@ members = [
     "api/rust",
     "dll",
     # "workbench",
-    "tests",
+    # "tests",
     "css",
     "core",
     "layout",

@@ -5,7 +5,8 @@ use azul_core::{
         DecodedImage, ExclusionSide, RendererResourcesTrait, ShapedWords, TextExclusionArea,
         WordPositions, Words,
     },
-    dom::{NodeData, NodeType},
+    display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths},
+    dom::{NodeData, NodeDataInlineCssProperty, NodeType},
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyleFontFamiliesHash, StyledDom},
     ui_solver::{
@@ -15,7 +16,7 @@ use azul_core::{
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::*;
+use azul_css::{parser::CssApiWrapper, *};
 
 use crate::text2::layout::{position_words, shape_words, split_text_into_words, HyphenationCache};
 
@@ -1753,7 +1754,13 @@ fn position_absolute_element(
 
     // Get the static position - where the element would be in normal flow
     // This is important for fixed elements without explicit positioning
-    let static_position = positioned_rects[node_id].position.get_static_offset();
+    let static_position = if position_type == LayoutPosition::Fixed {
+        // For fixed elements, static position is relative to initial containing block
+        LogicalPosition::new(containing_block.origin.x, containing_block.origin.y)
+    } else {
+        // For absolute elements, use the stored static position
+        positioned_rects[node_id].position.get_static_offset()
+    };
 
     // Calculate the position
     let mut position = LogicalPosition::new(static_position.x, static_position.y);

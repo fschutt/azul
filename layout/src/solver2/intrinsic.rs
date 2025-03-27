@@ -1,5 +1,5 @@
 use azul_core::{
-    app_resources::{DecodedImage, RendererResources},
+    app_resources::{DecodedImage, RendererResources, RendererResourcesTrait},
     dom::NodeType,
     id_tree::{NodeDataContainer, NodeDataContainerRef},
     styled_dom::StyledDom,
@@ -9,10 +9,10 @@ use azul_core::{
 use azul_css::*;
 
 /// Calculate the intrinsic sizes for all elements in the DOM
-pub fn calculate_intrinsic_sizes(
+pub fn calculate_intrinsic_sizes<T: RendererResourcesTrait>(
     styled_dom: &StyledDom,
     formatting_contexts: &NodeDataContainer<FormattingContext>,
-    renderer_resources: &RendererResources,
+    renderer_resources: &T,
 ) -> NodeDataContainer<IntrinsicSizes> {
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data = styled_dom.node_data.as_container();
@@ -103,11 +103,11 @@ pub fn calculate_intrinsic_sizes(
 }
 
 /// Calculate intrinsic sizes for text nodes
-fn calculate_text_intrinsic_sizes(
+fn calculate_text_intrinsic_sizes<T: RendererResourcesTrait>(
     node_id: azul_core::id_tree::NodeId,
     text: &str,
     styled_dom: &StyledDom,
-    renderer_resources: &RendererResources,
+    renderer_resources: &T,
 ) -> Option<IntrinsicSizes> {
     use azul_core::{styled_dom::StyleFontFamiliesHash, ui_solver::DEFAULT_FONT_SIZE_PX};
 
@@ -174,10 +174,10 @@ fn calculate_text_intrinsic_sizes(
 }
 
 /// Calculate intrinsic sizes for image nodes
-fn calculate_image_intrinsic_sizes(
+fn calculate_image_intrinsic_sizes<T: RendererResourcesTrait>(
     image: &azul_core::app_resources::ImageRef,
     styled_dom: &StyledDom,
-    renderer_resources: &RendererResources,
+    renderer_resources: &T,
 ) -> Option<IntrinsicSizes> {
     // Get image dimensions from the image data
     let (width, height) = match image.get_data() {
