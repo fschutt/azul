@@ -13,9 +13,10 @@
   <meta content="" name="flags" />
   <meta content="When determining the specified value of a property, the cascade mechanism of (user agent, author, user) style sheets has precedence. If no value results from such mechanism, then the property may inherit from its parent. In this testcase, it is presumed that i elements are specified in the user agents style sheets to italicize their text content." name="assert" />
 
-  <style type="text/css"><![CDATA[
+  <style type="text/css">* { margin: 0; padding: 0 }<![CDATA[
   div {font-style: normal;}
-  ]]></style>
+  ]]></style>
+
  </head>
 
  <body>

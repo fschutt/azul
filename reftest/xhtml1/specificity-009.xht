@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/cascade.html#specificity" />
         <meta name="flags" content="" />
         <meta name="assert" content="First-line selector with highest specificity wins - specificity 0003 take precedence over 0002." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             html > body > *:first-line /* a=0 b=0 c=0 d=3 -> specificity = 0,0,0,3 */
             {
                 color: green;

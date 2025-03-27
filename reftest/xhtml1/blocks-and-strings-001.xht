@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/syndata.html#block" />
         <meta name="flags" content="invalid" />
         <meta name="assert" content="Nested blocks and strings are parsed accordingly." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             div
             {
                 "this is a string]}""[{\"'";  /*should be parsed as a string but be ignored*/

@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/cascade.html#specificity" />
         <meta name="flags" content="" />
         <meta name="assert" content="An element selector with a pseudo-element selector wins over a pseudo-element selector - specificity 0002 takes precedence over 0001." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             div:first-line /* a=0 b=0 c=0 d=2 -> specificity = 0,0,0,2 */
             {
                 color: green;

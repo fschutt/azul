@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/cascade.html#specificity" />
         <meta name="flags" content="" />
         <meta name="assert" content="The combined specificity of an element selector, with a pseudo-class selector and a pseudo-element selector achieves an higher specificity than the combined specificity of an element selector with a pseudo-element selector." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             div:first-child:first-line /* a=0 b=0 c=1 d=2 -> specificity = 0,0,1,2 */
             {
                 color: green;

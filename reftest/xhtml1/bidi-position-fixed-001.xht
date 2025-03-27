@@ -8,7 +8,7 @@
     <link rel="help" href="http://www.w3.org/TR/CSS21/text.html#alignment-prop"/>
     <meta name="flags" content=""/>
     <meta name="assert" content="Default horizontal position of position:fixed block should be right in rtl context, and ancestor direction should still be applied inside the block taken out of normal flow"/>
-    <style type="text/css"><![CDATA[
+    <style type="text/css">* { margin: 0; padding: 0 }<![CDATA[
     body {direction:rtl;}
     .note {direction:ltr;position:fixed;margin-top:2em;}
   ]]></style>

@@ -8,7 +8,7 @@
   <link rel="help" href="http://www.w3.org/TR/CSS21/visudet.html#containing-block-details" />
   <link rel="help" href="http://www.w3.org/TR/CSS21/visudet.html#the-height-property" />
   <meta name="assert" content="Anonymous block boxes are ignored when resolving         percentage values that would refer to it: the closest non-anonymous         ancestor box is used instead." />
-  <style type="text/css"><![CDATA[
+  <style type="text/css">* { margin: 0; padding: 0 }<![CDATA[
     #parent { height: 200px; position: relative; }
     #child { float: left; height: 50%; width: 100px; background: green; position: relative }
     #background { position: absolute; top: 0; left: 0; width: 100px; height: 100px; background: red }

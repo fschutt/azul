@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/cascade.html#specificity" />
         <meta name="flags" content="" />
         <meta name="assert" content="The element selector has a higher specificity over the universal selector - specificity 0001 takes precedence over 0000." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             div /* a=0 b=0 c=0 d=1 -> specificity = 0,0,0,1 */
             {
                 color: green;

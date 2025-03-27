@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/cascade.html#specificity" />
         <meta name="flags" content="" />
         <meta name="assert" content="The ID attribute in a selector has the higher specificity than the combined pseudo-class and element selectors - specificity 0100 takes precedence over 0011." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             #id1 /* a=0 b=1 c=0 d=0 -> specificity = 0,1,0,0 */
             {
                 color: green;

@@ -9,7 +9,7 @@
   <link rel="help" href="http://www.w3.org/TR/CSS21/visuren.html#propdef-position"/>
   <meta name="flags" content="dom" />
   <meta name="assert" content="The position of a positioned element which inherits its 'top' value from its relatively positioned grandparent changes when the grandparent's 'top' value is changed."/>
-  <style type="text/css"><![CDATA[
+  <style type="text/css">* { margin: 0; padding: 0 }<![CDATA[
     .testDiv { position: absolute; width: 100px; height: 100px; }
     #green { top: 4em; background: green; }
     #red { top: inherit; background: red; }
