@@ -25,3 +25,4 @@ LICENSE-WINDOWS.txt
 LICENSE-LINUX.txt
 LICENSE-MAC.txt
 Cargo.lock
+*.lock
