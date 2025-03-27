@@ -1,6 +1,5 @@
 use azul::{
     prelude::*,
-    str::String as AzString,
     widgets::{Ribbon, RibbonOnTabClickedCallback},
 };
 
@@ -44,6 +43,6 @@ fn main() {
         current_active_tab: 3,
     };
     let app = App::new(RefAny::new(data), AppConfig::new(LayoutSolver::Default));
-    let mut window = WindowCreateOptions::new(myLayoutFunc);
+    let window = WindowCreateOptions::new(myLayoutFunc);
     app.run(window);
 }

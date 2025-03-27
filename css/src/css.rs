@@ -630,7 +630,7 @@ impl Stylesheet {
 
 /// Returns specificity of the given css path. Further information can be found on
 /// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
-fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
+pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
     let id_count = path
         .selectors
         .iter()

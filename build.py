@@ -1219,7 +1219,7 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
         fn_args_with_mem_transmute = strip_fn_arg_types_mem_transmute(fn_args)
-        code += "        pub(crate) fn " + fn_name + "(" + fn_args + ")" + return_arrow + fn_return + " { unsafe { transmute(azul::" + fn_name + "(" + fn_args_with_mem_transmute + ")) } }\r\n"
+        code += "        pub(crate) fn " + fn_name + "(" + fn_args + ")" + return_arrow + fn_return + " { unsafe { transmute(azul_dll::" + fn_name + "(" + fn_args_with_mem_transmute + ")) } }\r\n"
     code += "    }\r\n\r\n"
 
     code += "    #[cfg(not(feature = \"link-static\"))]\r\n"

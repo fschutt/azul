@@ -1,25 +1,35 @@
+#[cfg(test)]
+use azul_core::dom::*;
+use azul_core::id_tree::NodeDataContainer;
+#[cfg(test)]
+use azul_css::AzString;
+
 // Fix for test_compact_dom_conversion
 #[test]
 fn test_compact_dom_conversion() {
     use azul_css::StringVec;
 
     let dom: Dom = Dom::body()
-        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into()))
+        .with_child(
+            Dom::div()
+                .with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into()),
+        )
         .with_child(
             Dom::div()
                 .with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into())
-                .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Id("child_2".to_string().into())].into())),
+                .with_child(Dom::div().with_ids_and_classes(
+                    vec![IdOrClass::Id("child_2".to_string().into())].into(),
+                )),
         )
-        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into()));
+        .with_child(
+            Dom::div()
+                .with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into()),
+        );
 
-    let c0: Vec<AzString> = vec!["class1".to_string().into()];
-    let c0: StringVec = c0.into();
-    let c1: Vec<AzString> = vec!["class1".to_string().into()];
-    let c1: StringVec = c1.into();
-    let c2: Vec<AzString> = vec!["child_2".to_string().into()];
-    let c2: StringVec = c2.into();
-    let c3: Vec<AzString> = vec!["class1".to_string().into()];
-    let c3: StringVec = c3.into();
+    let c0 = vec![IdOrClass::Class("class1".to_string().into())];
+    let c1 = vec![IdOrClass::Class("class1".to_string().into())];
+    let c2 = vec![IdOrClass::Id("child_2".to_string().into())];
+    let c3 = vec![IdOrClass::Class("class1".to_string().into())];
 
     let expected_dom: CompactDom = CompactDom {
         root: NodeId::ZERO,
@@ -60,10 +70,10 @@ fn test_compact_dom_conversion() {
         node_data: NodeDataContainer {
             internal: vec![
                 /* 0 */ NodeData::body(),
-                /* 1 */ NodeData::div().with_classes(c0),
-                /* 2 */ NodeData::div().with_classes(c1),
-                /* 3 */ NodeData::div().with_ids(c2),
-                /* 4 */ NodeData::div().with_classes(c3),
+                /* 1 */ NodeData::div().with_ids_and_classes(c0.into()),
+                /* 2 */ NodeData::div().with_ids_and_classes(c1.into()),
+                /* 3 */ NodeData::div().with_ids_and_classes(c2.into()),
+                /* 4 */ NodeData::div().with_ids_and_classes(c3.into()),
             ],
         },
     };
@@ -89,17 +99,22 @@ fn test_dom_sibling_1() {
         .with_child(
             Dom::div()
                 .with_ids_and_classes(vec![IdOrClass::Id("sibling-1".to_string().into())].into())
-                .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Id("sibling-1-child-1".to_string().into())].into())),
+                .with_child(Dom::div().with_ids_and_classes(
+                    vec![IdOrClass::Id("sibling-1-child-1".to_string().into())].into(),
+                )),
         )
         .with_child(
             Dom::div()
                 .with_ids_and_classes(vec![IdOrClass::Id("sibling-2".to_string().into())].into())
-                .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Id("sibling-2-child-1".to_string().into())].into())),
+                .with_child(Dom::div().with_ids_and_classes(
+                    vec![IdOrClass::Id("sibling-2-child-1".to_string().into())].into(),
+                )),
         );
 
     let dom = convert_dom_into_compact_dom(dom);
 
-    let arena = &dom.arena;
+    let node_data = &dom.node_data;
+    let node_hierarchy = &dom.node_hierarchy;
 
     assert_eq!(NodeId::new(0), dom.root);
 
@@ -107,68 +122,103 @@ fn test_dom_sibling_1() {
     let v: StringVec = v.into();
     assert_eq!(
         v,
-        arena.node_data[arena.node_hierarchy[dom.root]
+        node_data.as_ref()[node_hierarchy.as_ref()[dom.root]
             .get_first_child(dom.root)
             .expect("root has no first child")]
-        .ids
+        .get_ids_and_classes()
+        .as_slice()
+        .into_iter()
+        .map(|s| match s {
+            IdOrClass::Class(s) => s.clone_self(),
+            IdOrClass::Id(s) => s.clone_self(),
+        })
+        .collect::<Vec<_>>()
+        .into()
     );
 
     let v: Vec<AzString> = vec!["sibling-2".to_string().into()];
     let v: StringVec = v.into();
     assert_eq!(
         v,
-        arena.node_data[arena.node_hierarchy[arena.node_hierarchy[dom.root]
+        node_data.as_ref()[node_hierarchy.as_ref()[node_hierarchy.as_ref()[dom.root]
             .get_first_child(dom.root)
             .expect("root has no first child")]
         .next_sibling
         .expect("root has no second sibling")]
-        .ids
+        .get_ids_and_classes()
+        .as_slice()
+        .into_iter()
+        .map(|s| match s {
+            IdOrClass::Class(s) => s.clone_self(),
+            IdOrClass::Id(s) => s.clone_self(),
+        })
+        .collect::<Vec<_>>()
+        .into()
     );
 
     let v: Vec<AzString> = vec!["sibling-1-child-1".to_string().into()];
     let v: StringVec = v.into();
     assert_eq!(
         v,
-        arena.node_data[arena.node_hierarchy[arena.node_hierarchy[dom.root]
+        node_data.as_ref()[node_hierarchy.as_ref()[node_hierarchy.as_ref()[dom.root]
             .get_first_child(dom.root)
             .expect("root has no first child")]
-        .get_first_child(arena.node_hierarchy[dom.root]
-            .get_first_child(dom.root)
-            .expect("root has no first child"))
+        .get_first_child(
+            node_hierarchy.as_ref()[dom.root]
+                .get_first_child(dom.root)
+                .expect("root has no first child")
+        )
         .expect("first child has no first child")]
-        .ids
+        .get_ids_and_classes()
+        .as_slice()
+        .into_iter()
+        .map(|s| match s {
+            IdOrClass::Class(s) => s.clone_self(),
+            IdOrClass::Id(s) => s.clone_self(),
+        })
+        .collect::<Vec<_>>()
+        .into()
     );
 
     let v: Vec<AzString> = vec!["sibling-2-child-1".to_string().into()];
     let v: StringVec = v.into();
     assert_eq!(
         v,
-        arena.node_data[arena.node_hierarchy[arena.node_hierarchy[arena.node_hierarchy[dom.root]
+        node_data.as_ref()[node_hierarchy.as_ref()[node_hierarchy.as_ref()[node_hierarchy
+            .as_ref()[dom.root]
             .get_first_child(dom.root)
             .expect("root has no first child")]
         .next_sibling
         .expect("first child has no second sibling")]
-        .get_first_child(arena.node_hierarchy[arena.node_hierarchy[dom.root]
-            .get_first_child(dom.root)
-            .expect("root has no first child")]
-        .next_sibling
-        .expect("first child has no second sibling"))
+        .get_first_child(
+            node_hierarchy.as_ref()[node_hierarchy.as_ref()[dom.root]
+                .get_first_child(dom.root)
+                .expect("root has no first child")]
+            .next_sibling
+            .expect("first child has no second sibling")
+        )
         .expect("second sibling has no first child")]
-        .ids
+        .get_ids_and_classes()
+        .as_slice()
+        .into_iter()
+        .map(|s| match s {
+            IdOrClass::Class(s) => s.clone_self(),
+            IdOrClass::Id(s) => s.clone_self(),
+        })
+        .collect::<Vec<_>>()
+        .into()
     );
 }
 
 #[test]
 fn test_dom_from_iter_1() {
+    use azul_core::id_tree::Node;
 
-    use crate::id_tree::Node;
-
-    let dom = Dom::body()
-    .with_children(
+    let dom = Dom::body().with_children(
         (0..5)
-        .map(|e| Dom::text(format!("{}", e + 1)))
-        .collect::<Vec<_>>()
-        .into()
+            .map(|e| Dom::text(format!("{}", e + 1)))
+            .collect::<Vec<_>>()
+            .into(),
     );
 
     let dom = convert_dom_into_compact_dom(dom);
@@ -205,8 +255,7 @@ fn test_dom_from_iter_1() {
     );
 
     assert_eq!(
-        node_hierarchy
-            .get(NodeId::new(node_hierarchy.len() - 1)),
+        node_hierarchy.get(NodeId::new(node_hierarchy.len() - 1)),
         Some(&Node {
             parent: Some(NodeId::new(0)),
             previous_sibling: Some(NodeId::new(4)),
@@ -217,10 +266,6 @@ fn test_dom_from_iter_1() {
 
     assert_eq!(
         node_data.get(NodeId::new(node_data.len() - 1)),
-        Some(&NodeData {
-            node_type: NodeType::Text("5".to_string().into()),
-            ..Default::default()
-        })
+        Some(&NodeData::text("5"))
     );
 }
-

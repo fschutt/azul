@@ -37,7 +37,7 @@ impl CascadeInfoVec {
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
 /// that element)
-pub(crate) fn matches_html_element(
+pub fn matches_html_element(
     css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
@@ -110,14 +110,14 @@ pub(crate) fn matches_html_element(
 /// The CssGroupIterator splits the CSS path into semantic blocks, i.e.:
 ///
 /// "body > .foo.main > #baz" will be split into ["body", ".foo.main" and "#baz"]
-pub(crate) struct CssGroupIterator<'a> {
+pub struct CssGroupIterator<'a> {
     pub css_path: &'a [CssPathSelector],
     pub current_idx: usize,
     pub last_reason: CssGroupSplitReason,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum CssGroupSplitReason {
+pub enum CssGroupSplitReason {
     /// ".foo .main" - match any children
     Children,
     /// ".foo > .main" - match only direct children
@@ -188,7 +188,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-pub(crate) fn construct_html_cascade_tree(
+pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef,
     node_depths_sorted: &[(usize, NodeId)],
 ) -> NodeDataContainer<CascadeInfo> {
@@ -248,7 +248,7 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
 ///
 /// The intent is to "split" the CSS path into groups by selectors, then store and cache
 /// whether the direct or any parent has matched the path correctly
-pub(crate) fn selector_group_matches(
+pub fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: &CascadeInfo,
     node_data: &NodeData,

@@ -1,6 +1,15 @@
+#[cfg(test)]
+use azul_core::xml::{
+    compile_body_node_to_rust_code, compile_component, compile_components_to_rust_code,
+    format_args_dynamic, get_body_node, get_item, normalize_casing, parse_component_arguments,
+    prepare_string, ComponentArgumentTypes, ComponentParseError, XmlComponentMap, XmlNode,
+};
+#[cfg(test)]
+use azul_layout::xml::parse_xml_string;
+
 #[test]
 fn test_compile_dom_1() {
-    use crate::callbacks::Dummy;
+    use azul_core::callbacks::Dummy;
 
     // Test the output of a certain component
     fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
@@ -52,9 +61,9 @@ fn test_compile_dom_1() {
 
 #[test]
 fn test_format_args_dynamic() {
-    let mut variables = FilteredComponentArguments::new();
-    variables.insert("a".to_string(), "value1".to_string());
-    variables.insert("b".to_string(), "value2".to_string());
+    let mut variables = ComponentArgumentTypes::new();
+    variables.push(("a".to_string(), "value1".to_string()));
+    variables.push(("b".to_string(), "value2".to_string()));
     assert_eq!(
         format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
         String::from("hello value1, value2{ {c} }"),
@@ -87,10 +96,10 @@ fn test_normalize_casing() {
 
 #[test]
 fn test_parse_component_arguments() {
-    let mut args_1_expected = ComponentArguments::new();
-    args_1_expected.insert("selected_date".to_string(), "DateTime".to_string());
-    args_1_expected.insert("minimum_date".to_string(), "DateTime".to_string());
-    args_1_expected.insert("grid_visible".to_string(), "bool".to_string());
+    let mut args_1_expected = ComponentArgumentTypes::new();
+    args_1_expected.push(("selected_date".to_string(), "DateTime".to_string()));
+    args_1_expected.push(("minimum_date".to_string(), "DateTime".to_string()));
+    args_1_expected.push(("grid_visible".to_string(), "bool".to_string()));
 
     // Everything OK
     assert_eq!(
@@ -105,7 +114,7 @@ fn test_parse_component_arguments() {
         parse_component_arguments("gridVisible: bool, selectedDate: , minimumDate: DateTime"),
         Err(ComponentParseError::MissingType(
             1,
-            "selectedDate".to_string()
+            "selectedDate".to_string().into(),
         ))
     );
 
@@ -122,8 +131,8 @@ fn test_parse_component_arguments() {
         ),
         Err(ComponentParseError::WhiteSpaceInComponentType(
             1,
-            "selectedDate".to_string(),
-            "DateTime  minimumDate".to_string()
+            "selectedDate".to_string().into(),
+            "DateTime  minimumDate".to_string().into(),
         ))
     );
 
@@ -134,7 +143,7 @@ fn test_parse_component_arguments() {
         ),
         Err(ComponentParseError::WhiteSpaceInComponentName(
             1,
-            "selectedDate DateTime".to_string()
+            "selectedDate DateTime".to_string().into(),
         ))
     );
 }
@@ -169,17 +178,41 @@ fn test_xml_get_item() {
         XmlNode::new("j"),
     ]);
 
-    assert_eq!(&get_item(&[], &mut tree).unwrap().node_type, "component");
-    assert_eq!(&get_item(&[0], &mut tree).unwrap().node_type, "a");
-    assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().node_type, "b");
-    assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().node_type, "c");
-    assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().node_type, "d");
-    assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().node_type, "e");
-    assert_eq!(&get_item(&[1], &mut tree).unwrap().node_type, "f");
-    assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().node_type, "g");
-    assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().node_type, "h");
-    assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().node_type, "i");
-    assert_eq!(&get_item(&[2], &mut tree).unwrap().node_type, "j");
+    assert_eq!(
+        get_item(&[], &mut tree).unwrap().node_type.as_str(),
+        "component"
+    );
+    assert_eq!(get_item(&[0], &mut tree).unwrap().node_type.as_str(), "a");
+    assert_eq!(
+        get_item(&[0, 0], &mut tree).unwrap().node_type.as_str(),
+        "b"
+    );
+    assert_eq!(
+        get_item(&[0, 1], &mut tree).unwrap().node_type.as_str(),
+        "c"
+    );
+    assert_eq!(
+        get_item(&[0, 2], &mut tree).unwrap().node_type.as_str(),
+        "d"
+    );
+    assert_eq!(
+        get_item(&[0, 3], &mut tree).unwrap().node_type.as_str(),
+        "e"
+    );
+    assert_eq!(get_item(&[1], &mut tree).unwrap().node_type.as_str(), "f");
+    assert_eq!(
+        get_item(&[1, 0], &mut tree).unwrap().node_type.as_str(),
+        "g"
+    );
+    assert_eq!(
+        get_item(&[1, 0, 0], &mut tree).unwrap().node_type.as_str(),
+        "h"
+    );
+    assert_eq!(
+        get_item(&[1, 1], &mut tree).unwrap().node_type.as_str(),
+        "i"
+    );
+    assert_eq!(get_item(&[2], &mut tree).unwrap().node_type.as_str(), "j");
 
     assert_eq!(get_item(&[123213], &mut tree), None);
     assert_eq!(get_item(&[0, 1, 2], &mut tree), None);
@@ -212,4 +245,3 @@ fn test_prepare_string_2() {
     let output = prepare_string(input1);
     assert_eq!(output, String::from("Hello, 123\nTest Test2\nTest3\nTest4"));
 }
-

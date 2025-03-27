@@ -9533,14 +9533,14 @@ mod dll {
         use super::types::*;
 
         pub(crate) fn AzApp_new(data: AzRefAny, config: AzAppConfig) -> AzApp {
-            unsafe { transmute(azul::AzApp_new(transmute(data), transmute(config))) }
+            unsafe { transmute(azul_dll::AzApp_new(transmute(data), transmute(config))) }
         }
         pub(crate) fn AzApp_addWindow(app: &mut AzApp, window: AzWindowCreateOptions) {
-            unsafe { transmute(azul::AzApp_addWindow(transmute(app), transmute(window))) }
+            unsafe { transmute(azul_dll::AzApp_addWindow(transmute(app), transmute(window))) }
         }
         pub(crate) fn AzApp_addImage(app: &mut AzApp, id: AzString, image: AzImageRef) {
             unsafe {
-                transmute(azul::AzApp_addImage(
+                transmute(azul_dll::AzApp_addImage(
                     transmute(app),
                     transmute(id),
                     transmute(image),
@@ -9548,66 +9548,78 @@ mod dll {
             }
         }
         pub(crate) fn AzApp_getMonitors(app: &AzApp) -> AzMonitorVec {
-            unsafe { transmute(azul::AzApp_getMonitors(transmute(app))) }
+            unsafe { transmute(azul_dll::AzApp_getMonitors(transmute(app))) }
         }
         pub(crate) fn AzApp_run(app: &AzApp, window: AzWindowCreateOptions) {
-            unsafe { transmute(azul::AzApp_run(transmute(app), transmute(window))) }
+            unsafe { transmute(azul_dll::AzApp_run(transmute(app), transmute(window))) }
         }
         pub(crate) fn AzApp_delete(object: &mut AzApp) {
-            unsafe { transmute(azul::AzApp_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzApp_delete(transmute(object))) }
         }
         pub(crate) fn AzApp_deepCopy(object: &AzApp) -> AzApp {
-            unsafe { transmute(azul::AzApp_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzApp_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzAppConfig_new(layout_solver: AzLayoutSolver) -> AzAppConfig {
-            unsafe { transmute(azul::AzAppConfig_new(transmute(layout_solver))) }
+            unsafe { transmute(azul_dll::AzAppConfig_new(transmute(layout_solver))) }
         }
         pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks {
-            unsafe { transmute(azul::AzSystemCallbacks_libraryInternal()) }
+            unsafe { transmute(azul_dll::AzSystemCallbacks_libraryInternal()) }
         }
         pub(crate) fn AzWindowCreateOptions_new(
             layout_callback: AzLayoutCallbackType,
         ) -> AzWindowCreateOptions {
-            unsafe { transmute(azul::AzWindowCreateOptions_new(transmute(layout_callback))) }
+            unsafe {
+                transmute(azul_dll::AzWindowCreateOptions_new(transmute(
+                    layout_callback,
+                )))
+            }
         }
         pub(crate) fn AzLogicalPosition_new(x: f32, y: f32) -> AzLogicalPosition {
-            unsafe { transmute(azul::AzLogicalPosition_new(transmute(x), transmute(y))) }
+            unsafe { transmute(azul_dll::AzLogicalPosition_new(transmute(x), transmute(y))) }
         }
         pub(crate) fn AzLogicalPosition_zero() -> AzLogicalPosition {
-            unsafe { transmute(azul::AzLogicalPosition_zero()) }
+            unsafe { transmute(azul_dll::AzLogicalPosition_zero()) }
         }
         pub(crate) fn AzLogicalSize_toPhysical(
             logicalsize: &AzLogicalSize,
             hidpi_factor: f32,
         ) -> AzPhysicalSizeU32 {
             unsafe {
-                transmute(azul::AzLogicalSize_toPhysical(
+                transmute(azul_dll::AzLogicalSize_toPhysical(
                     transmute(logicalsize),
                     transmute(hidpi_factor),
                 ))
             }
         }
         pub(crate) fn AzWindowSize_getHidpiFactor(windowsize: &AzWindowSize) -> f32 {
-            unsafe { transmute(azul::AzWindowSize_getHidpiFactor(transmute(windowsize))) }
+            unsafe { transmute(azul_dll::AzWindowSize_getHidpiFactor(transmute(windowsize))) }
         }
         pub(crate) fn AzKeyboardState_shiftDown(keyboardstate: &AzKeyboardState) -> bool {
-            unsafe { transmute(azul::AzKeyboardState_shiftDown(transmute(keyboardstate))) }
+            unsafe {
+                transmute(azul_dll::AzKeyboardState_shiftDown(transmute(
+                    keyboardstate,
+                )))
+            }
         }
         pub(crate) fn AzKeyboardState_ctrlDown(keyboardstate: &AzKeyboardState) -> bool {
-            unsafe { transmute(azul::AzKeyboardState_ctrlDown(transmute(keyboardstate))) }
+            unsafe { transmute(azul_dll::AzKeyboardState_ctrlDown(transmute(keyboardstate))) }
         }
         pub(crate) fn AzKeyboardState_altDown(keyboardstate: &AzKeyboardState) -> bool {
-            unsafe { transmute(azul::AzKeyboardState_altDown(transmute(keyboardstate))) }
+            unsafe { transmute(azul_dll::AzKeyboardState_altDown(transmute(keyboardstate))) }
         }
         pub(crate) fn AzKeyboardState_superDown(keyboardstate: &AzKeyboardState) -> bool {
-            unsafe { transmute(azul::AzKeyboardState_superDown(transmute(keyboardstate))) }
+            unsafe {
+                transmute(azul_dll::AzKeyboardState_superDown(transmute(
+                    keyboardstate,
+                )))
+            }
         }
         pub(crate) fn AzKeyboardState_isKeyDown(
             keyboardstate: &AzKeyboardState,
             key: AzVirtualKeyCode,
         ) -> bool {
             unsafe {
-                transmute(azul::AzKeyboardState_isKeyDown(
+                transmute(azul_dll::AzKeyboardState_isKeyDown(
                     transmute(keyboardstate),
                     transmute(key),
                 ))
@@ -9617,25 +9629,25 @@ mod dll {
             cursorposition: &AzCursorPosition,
         ) -> AzOptionLogicalPosition {
             unsafe {
-                transmute(azul::AzCursorPosition_getPosition(transmute(
+                transmute(azul_dll::AzCursorPosition_getPosition(transmute(
                     cursorposition,
                 )))
             }
         }
         pub(crate) fn AzWindowState_new(layout_callback: AzLayoutCallbackType) -> AzWindowState {
-            unsafe { transmute(azul::AzWindowState_new(transmute(layout_callback))) }
+            unsafe { transmute(azul_dll::AzWindowState_new(transmute(layout_callback))) }
         }
         pub(crate) fn AzWindowState_default() -> AzWindowState {
-            unsafe { transmute(azul::AzWindowState_default()) }
+            unsafe { transmute(azul_dll::AzWindowState_default()) }
         }
         pub(crate) fn AzCallbackInfo_getHitNode(callbackinfo: &AzCallbackInfo) -> AzDomNodeId {
-            unsafe { transmute(azul::AzCallbackInfo_getHitNode(transmute(callbackinfo))) }
+            unsafe { transmute(azul_dll::AzCallbackInfo_getHitNode(transmute(callbackinfo))) }
         }
         pub(crate) fn AzCallbackInfo_getSystemTimeFn(
             callbackinfo: &AzCallbackInfo,
         ) -> AzGetSystemTimeFn {
             unsafe {
-                transmute(azul::AzCallbackInfo_getSystemTimeFn(transmute(
+                transmute(azul_dll::AzCallbackInfo_getSystemTimeFn(transmute(
                     callbackinfo,
                 )))
             }
@@ -9644,16 +9656,16 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzOptionLogicalPosition {
             unsafe {
-                transmute(azul::AzCallbackInfo_getCursorRelativeToViewport(transmute(
-                    callbackinfo,
-                )))
+                transmute(azul_dll::AzCallbackInfo_getCursorRelativeToViewport(
+                    transmute(callbackinfo),
+                ))
             }
         }
         pub(crate) fn AzCallbackInfo_getCursorRelativeToNode(
             callbackinfo: &AzCallbackInfo,
         ) -> AzOptionLogicalPosition {
             unsafe {
-                transmute(azul::AzCallbackInfo_getCursorRelativeToNode(transmute(
+                transmute(azul_dll::AzCallbackInfo_getCursorRelativeToNode(transmute(
                     callbackinfo,
                 )))
             }
@@ -9662,7 +9674,7 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzWindowState {
             unsafe {
-                transmute(azul::AzCallbackInfo_getCurrentWindowState(transmute(
+                transmute(azul_dll::AzCallbackInfo_getCurrentWindowState(transmute(
                     callbackinfo,
                 )))
             }
@@ -9671,7 +9683,7 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzKeyboardState {
             unsafe {
-                transmute(azul::AzCallbackInfo_getCurrentKeyboardState(transmute(
+                transmute(azul_dll::AzCallbackInfo_getCurrentKeyboardState(transmute(
                     callbackinfo,
                 )))
             }
@@ -9680,7 +9692,7 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzMouseState {
             unsafe {
-                transmute(azul::AzCallbackInfo_getCurrentMouseState(transmute(
+                transmute(azul_dll::AzCallbackInfo_getCurrentMouseState(transmute(
                     callbackinfo,
                 )))
             }
@@ -9689,7 +9701,7 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzOptionWindowState {
             unsafe {
-                transmute(azul::AzCallbackInfo_getPreviousWindowState(transmute(
+                transmute(azul_dll::AzCallbackInfo_getPreviousWindowState(transmute(
                     callbackinfo,
                 )))
             }
@@ -9698,16 +9710,16 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzOptionKeyboardState {
             unsafe {
-                transmute(azul::AzCallbackInfo_getPreviousKeyboardState(transmute(
-                    callbackinfo,
-                )))
+                transmute(azul_dll::AzCallbackInfo_getPreviousKeyboardState(
+                    transmute(callbackinfo),
+                ))
             }
         }
         pub(crate) fn AzCallbackInfo_getPreviousMouseState(
             callbackinfo: &AzCallbackInfo,
         ) -> AzOptionMouseState {
             unsafe {
-                transmute(azul::AzCallbackInfo_getPreviousMouseState(transmute(
+                transmute(azul_dll::AzCallbackInfo_getPreviousMouseState(transmute(
                     callbackinfo,
                 )))
             }
@@ -9716,20 +9728,24 @@ mod dll {
             callbackinfo: &AzCallbackInfo,
         ) -> AzRawWindowHandle {
             unsafe {
-                transmute(azul::AzCallbackInfo_getCurrentWindowHandle(transmute(
+                transmute(azul_dll::AzCallbackInfo_getCurrentWindowHandle(transmute(
                     callbackinfo,
                 )))
             }
         }
         pub(crate) fn AzCallbackInfo_getGlContext(callbackinfo: &AzCallbackInfo) -> AzOptionGl {
-            unsafe { transmute(azul::AzCallbackInfo_getGlContext(transmute(callbackinfo))) }
+            unsafe {
+                transmute(azul_dll::AzCallbackInfo_getGlContext(transmute(
+                    callbackinfo,
+                )))
+            }
         }
         pub(crate) fn AzCallbackInfo_getScrollPosition(
             callbackinfo: &AzCallbackInfo,
             node_id: AzDomNodeId,
         ) -> AzOptionLogicalPosition {
             unsafe {
-                transmute(azul::AzCallbackInfo_getScrollPosition(
+                transmute(azul_dll::AzCallbackInfo_getScrollPosition(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9740,7 +9756,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionRefAny {
             unsafe {
-                transmute(azul::AzCallbackInfo_getDataset(
+                transmute(azul_dll::AzCallbackInfo_getDataset(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9751,7 +9767,7 @@ mod dll {
             dataset: AzRefAny,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzCallbackInfo_getNodeIdOfRootDataset(
+                transmute(azul_dll::AzCallbackInfo_getNodeIdOfRootDataset(
                     transmute(callbackinfo),
                     transmute(dataset),
                 ))
@@ -9762,7 +9778,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionString {
             unsafe {
-                transmute(azul::AzCallbackInfo_getStringContents(
+                transmute(azul_dll::AzCallbackInfo_getStringContents(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9773,7 +9789,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionInlineText {
             unsafe {
-                transmute(azul::AzCallbackInfo_getInlineText(
+                transmute(azul_dll::AzCallbackInfo_getInlineText(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9784,7 +9800,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionFontRef {
             unsafe {
-                transmute(azul::AzCallbackInfo_getFontRef(
+                transmute(azul_dll::AzCallbackInfo_getFontRef(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9795,7 +9811,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionResolvedTextLayoutOptions {
             unsafe {
-                transmute(azul::AzCallbackInfo_getTextLayoutOptions(
+                transmute(azul_dll::AzCallbackInfo_getTextLayoutOptions(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9807,7 +9823,7 @@ mod dll {
             text: AzString,
         ) -> AzOptionInlineText {
             unsafe {
-                transmute(azul::AzCallbackInfo_shapeText(
+                transmute(azul_dll::AzCallbackInfo_shapeText(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(text),
@@ -9819,7 +9835,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> usize {
             unsafe {
-                transmute(azul::AzCallbackInfo_getIndexInParent(
+                transmute(azul_dll::AzCallbackInfo_getIndexInParent(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9830,7 +9846,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzCallbackInfo_getParent(
+                transmute(azul_dll::AzCallbackInfo_getParent(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9841,7 +9857,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzCallbackInfo_getPreviousSibling(
+                transmute(azul_dll::AzCallbackInfo_getPreviousSibling(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9852,7 +9868,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzCallbackInfo_getNextSibling(
+                transmute(azul_dll::AzCallbackInfo_getNextSibling(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9863,7 +9879,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzCallbackInfo_getFirstChild(
+                transmute(azul_dll::AzCallbackInfo_getFirstChild(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9874,7 +9890,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzCallbackInfo_getLastChild(
+                transmute(azul_dll::AzCallbackInfo_getLastChild(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9885,7 +9901,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionPositionInfo {
             unsafe {
-                transmute(azul::AzCallbackInfo_getNodePosition(
+                transmute(azul_dll::AzCallbackInfo_getNodePosition(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9896,7 +9912,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionLogicalSize {
             unsafe {
-                transmute(azul::AzCallbackInfo_getNodeSize(
+                transmute(azul_dll::AzCallbackInfo_getNodeSize(
                     transmute(callbackinfo),
                     transmute(node_id),
                 ))
@@ -9908,7 +9924,7 @@ mod dll {
             property_type: AzCssPropertyType,
         ) -> AzOptionCssProperty {
             unsafe {
-                transmute(azul::AzCallbackInfo_getComputedCssProperty(
+                transmute(azul_dll::AzCallbackInfo_getComputedCssProperty(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(property_type),
@@ -9920,7 +9936,7 @@ mod dll {
             new_state: AzWindowState,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_setWindowState(
+                transmute(azul_dll::AzCallbackInfo_setWindowState(
                     transmute(callbackinfo),
                     transmute(new_state),
                 ))
@@ -9931,7 +9947,7 @@ mod dll {
             target: AzFocusTarget,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_setFocus(
+                transmute(azul_dll::AzCallbackInfo_setFocus(
                     transmute(callbackinfo),
                     transmute(target),
                 ))
@@ -9943,7 +9959,7 @@ mod dll {
             new_property: AzCssProperty,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_setCssProperty(
+                transmute(azul_dll::AzCallbackInfo_setCssProperty(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(new_property),
@@ -9956,7 +9972,7 @@ mod dll {
             scroll_position: AzLogicalPosition,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_setScrollPosition(
+                transmute(azul_dll::AzCallbackInfo_setScrollPosition(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(scroll_position),
@@ -9969,7 +9985,7 @@ mod dll {
             string: AzString,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_setStringContents(
+                transmute(azul_dll::AzCallbackInfo_setStringContents(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(string),
@@ -9982,7 +9998,7 @@ mod dll {
             image: AzImageRef,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_addImage(
+                transmute(azul_dll::AzCallbackInfo_addImage(
                     transmute(callbackinfo),
                     transmute(id),
                     transmute(image),
@@ -9991,7 +10007,7 @@ mod dll {
         }
         pub(crate) fn AzCallbackInfo_hasImage(callbackinfo: &AzCallbackInfo, id: AzString) -> bool {
             unsafe {
-                transmute(azul::AzCallbackInfo_hasImage(
+                transmute(azul_dll::AzCallbackInfo_hasImage(
                     transmute(callbackinfo),
                     transmute(id),
                 ))
@@ -10002,7 +10018,7 @@ mod dll {
             id: AzString,
         ) -> AzOptionImageRef {
             unsafe {
-                transmute(azul::AzCallbackInfo_getImage(
+                transmute(azul_dll::AzCallbackInfo_getImage(
                     transmute(callbackinfo),
                     transmute(id),
                 ))
@@ -10015,7 +10031,7 @@ mod dll {
             image_type: AzUpdateImageType,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_updateImage(
+                transmute(azul_dll::AzCallbackInfo_updateImage(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(new_image),
@@ -10025,7 +10041,7 @@ mod dll {
         }
         pub(crate) fn AzCallbackInfo_deleteImage(callbackinfo: &mut AzCallbackInfo, id: AzString) {
             unsafe {
-                transmute(azul::AzCallbackInfo_deleteImage(
+                transmute(azul_dll::AzCallbackInfo_deleteImage(
                     transmute(callbackinfo),
                     transmute(id),
                 ))
@@ -10037,7 +10053,7 @@ mod dll {
             new_mask: AzImageMask,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_updateImageMask(
+                transmute(azul_dll::AzCallbackInfo_updateImageMask(
                     transmute(callbackinfo),
                     transmute(node_id),
                     transmute(new_mask),
@@ -10046,7 +10062,7 @@ mod dll {
         }
         pub(crate) fn AzCallbackInfo_stopPropagation(callbackinfo: &mut AzCallbackInfo) {
             unsafe {
-                transmute(azul::AzCallbackInfo_stopPropagation(transmute(
+                transmute(azul_dll::AzCallbackInfo_stopPropagation(transmute(
                     callbackinfo,
                 )))
             }
@@ -10056,7 +10072,7 @@ mod dll {
             new_window: AzWindowCreateOptions,
         ) {
             unsafe {
-                transmute(azul::AzCallbackInfo_createWindow(
+                transmute(azul_dll::AzCallbackInfo_createWindow(
                     transmute(callbackinfo),
                     transmute(new_window),
                 ))
@@ -10067,7 +10083,7 @@ mod dll {
             timer: AzTimer,
         ) -> AzTimerId {
             unsafe {
-                transmute(azul::AzCallbackInfo_startTimer(
+                transmute(azul_dll::AzCallbackInfo_startTimer(
                     transmute(callbackinfo),
                     transmute(timer),
                 ))
@@ -10079,7 +10095,7 @@ mod dll {
             animation: AzAnimation,
         ) -> AzOptionTimerId {
             unsafe {
-                transmute(azul::AzCallbackInfo_startAnimation(
+                transmute(azul_dll::AzCallbackInfo_startAnimation(
                     transmute(callbackinfo),
                     transmute(node),
                     transmute(animation),
@@ -10091,7 +10107,7 @@ mod dll {
             timer_id: AzTimerId,
         ) -> bool {
             unsafe {
-                transmute(azul::AzCallbackInfo_stopTimer(
+                transmute(azul_dll::AzCallbackInfo_stopTimer(
                     transmute(callbackinfo),
                     transmute(timer_id),
                 ))
@@ -10104,7 +10120,7 @@ mod dll {
             callback: AzThreadCallbackType,
         ) -> AzOptionThreadId {
             unsafe {
-                transmute(azul::AzCallbackInfo_startThread(
+                transmute(azul_dll::AzCallbackInfo_startThread(
                     transmute(callbackinfo),
                     transmute(thread_initialize_data),
                     transmute(writeback_data),
@@ -10118,7 +10134,7 @@ mod dll {
             msg: AzThreadSendMsg,
         ) -> bool {
             unsafe {
-                transmute(azul::AzCallbackInfo_sendThreadMsg(
+                transmute(azul_dll::AzCallbackInfo_sendThreadMsg(
                     transmute(callbackinfo),
                     transmute(thread_id),
                     transmute(msg),
@@ -10130,20 +10146,24 @@ mod dll {
             thread_id: AzThreadId,
         ) -> bool {
             unsafe {
-                transmute(azul::AzCallbackInfo_stopThread(
+                transmute(azul_dll::AzCallbackInfo_stopThread(
                     transmute(callbackinfo),
                     transmute(thread_id),
                 ))
             }
         }
         pub(crate) fn AzPositionInfo_isPositioned(positioninfo: &AzPositionInfo) -> bool {
-            unsafe { transmute(azul::AzPositionInfo_isPositioned(transmute(positioninfo))) }
+            unsafe {
+                transmute(azul_dll::AzPositionInfo_isPositioned(transmute(
+                    positioninfo,
+                )))
+            }
         }
         pub(crate) fn AzPositionInfo_getStaticOffset(
             positioninfo: &AzPositionInfo,
         ) -> AzLogicalPosition {
             unsafe {
-                transmute(azul::AzPositionInfo_getStaticOffset(transmute(
+                transmute(azul_dll::AzPositionInfo_getStaticOffset(transmute(
                     positioninfo,
                 )))
             }
@@ -10152,7 +10172,7 @@ mod dll {
             positioninfo: &AzPositionInfo,
         ) -> AzLogicalPosition {
             unsafe {
-                transmute(azul::AzPositionInfo_getRelativeOffset(transmute(
+                transmute(azul_dll::AzPositionInfo_getRelativeOffset(transmute(
                     positioninfo,
                 )))
             }
@@ -10161,7 +10181,7 @@ mod dll {
             hidpiadjustedbounds: &AzHidpiAdjustedBounds,
         ) -> AzLogicalSize {
             unsafe {
-                transmute(azul::AzHidpiAdjustedBounds_getLogicalSize(transmute(
+                transmute(azul_dll::AzHidpiAdjustedBounds_getLogicalSize(transmute(
                     hidpiadjustedbounds,
                 )))
             }
@@ -10170,7 +10190,7 @@ mod dll {
             hidpiadjustedbounds: &AzHidpiAdjustedBounds,
         ) -> AzPhysicalSizeU32 {
             unsafe {
-                transmute(azul::AzHidpiAdjustedBounds_getPhysicalSize(transmute(
+                transmute(azul_dll::AzHidpiAdjustedBounds_getPhysicalSize(transmute(
                     hidpiadjustedbounds,
                 )))
             }
@@ -10179,7 +10199,7 @@ mod dll {
             hidpiadjustedbounds: &AzHidpiAdjustedBounds,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzHidpiAdjustedBounds_getHidpiFactor(transmute(
+                transmute(azul_dll::AzHidpiAdjustedBounds_getHidpiFactor(transmute(
                     hidpiadjustedbounds,
                 )))
             }
@@ -10189,20 +10209,20 @@ mod dll {
             position: AzLogicalPosition,
         ) -> AzInlineTextHitVec {
             unsafe {
-                transmute(azul::AzInlineText_hitTest(
+                transmute(azul_dll::AzInlineText_hitTest(
                     transmute(inlinetext),
                     transmute(position),
                 ))
             }
         }
         pub(crate) fn AzResolvedTextLayoutOptions_default() -> AzResolvedTextLayoutOptions {
-            unsafe { transmute(azul::AzResolvedTextLayoutOptions_default()) }
+            unsafe { transmute(azul_dll::AzResolvedTextLayoutOptions_default()) }
         }
         pub(crate) fn AzRenderImageCallbackInfo_getGlContext(
             renderimagecallbackinfo: &AzRenderImageCallbackInfo,
         ) -> AzOptionGl {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getGlContext(transmute(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getGlContext(transmute(
                     renderimagecallbackinfo,
                 )))
             }
@@ -10211,7 +10231,7 @@ mod dll {
             renderimagecallbackinfo: &AzRenderImageCallbackInfo,
         ) -> AzHidpiAdjustedBounds {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getBounds(transmute(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getBounds(transmute(
                     renderimagecallbackinfo,
                 )))
             }
@@ -10220,7 +10240,7 @@ mod dll {
             renderimagecallbackinfo: &AzRenderImageCallbackInfo,
         ) -> AzDomNodeId {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getCallbackNodeId(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getCallbackNodeId(
                     transmute(renderimagecallbackinfo),
                 ))
             }
@@ -10230,7 +10250,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionInlineText {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getInlineText(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getInlineText(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
@@ -10241,7 +10261,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> usize {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getIndexInParent(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getIndexInParent(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
@@ -10252,7 +10272,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getParent(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getParent(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
@@ -10263,7 +10283,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getPreviousSibling(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getPreviousSibling(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
@@ -10274,7 +10294,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getNextSibling(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getNextSibling(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
@@ -10285,7 +10305,7 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getFirstChild(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getFirstChild(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
@@ -10296,35 +10316,35 @@ mod dll {
             node_id: AzDomNodeId,
         ) -> AzOptionDomNodeId {
             unsafe {
-                transmute(azul::AzRenderImageCallbackInfo_getLastChild(
+                transmute(azul_dll::AzRenderImageCallbackInfo_getLastChild(
                     transmute(renderimagecallbackinfo),
                     transmute(node_id),
                 ))
             }
         }
         pub(crate) fn AzRefCount_canBeShared(refcount: &AzRefCount) -> bool {
-            unsafe { transmute(azul::AzRefCount_canBeShared(transmute(refcount))) }
+            unsafe { transmute(azul_dll::AzRefCount_canBeShared(transmute(refcount))) }
         }
         pub(crate) fn AzRefCount_canBeSharedMut(refcount: &AzRefCount) -> bool {
-            unsafe { transmute(azul::AzRefCount_canBeSharedMut(transmute(refcount))) }
+            unsafe { transmute(azul_dll::AzRefCount_canBeSharedMut(transmute(refcount))) }
         }
         pub(crate) fn AzRefCount_increaseRef(refcount: &mut AzRefCount) {
-            unsafe { transmute(azul::AzRefCount_increaseRef(transmute(refcount))) }
+            unsafe { transmute(azul_dll::AzRefCount_increaseRef(transmute(refcount))) }
         }
         pub(crate) fn AzRefCount_decreaseRef(refcount: &mut AzRefCount) {
-            unsafe { transmute(azul::AzRefCount_decreaseRef(transmute(refcount))) }
+            unsafe { transmute(azul_dll::AzRefCount_decreaseRef(transmute(refcount))) }
         }
         pub(crate) fn AzRefCount_increaseRefmut(refcount: &mut AzRefCount) {
-            unsafe { transmute(azul::AzRefCount_increaseRefmut(transmute(refcount))) }
+            unsafe { transmute(azul_dll::AzRefCount_increaseRefmut(transmute(refcount))) }
         }
         pub(crate) fn AzRefCount_decreaseRefmut(refcount: &mut AzRefCount) {
-            unsafe { transmute(azul::AzRefCount_decreaseRefmut(transmute(refcount))) }
+            unsafe { transmute(azul_dll::AzRefCount_decreaseRefmut(transmute(refcount))) }
         }
         pub(crate) fn AzRefCount_delete(object: &mut AzRefCount) {
-            unsafe { transmute(azul::AzRefCount_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzRefCount_delete(transmute(object))) }
         }
         pub(crate) fn AzRefCount_deepCopy(object: &AzRefCount) -> AzRefCount {
-            unsafe { transmute(azul::AzRefCount_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzRefCount_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzRefAny_newC(
             ptr: *const c_void,
@@ -10334,7 +10354,7 @@ mod dll {
             destructor: AzRefAnyDestructorType,
         ) -> AzRefAny {
             unsafe {
-                transmute(azul::AzRefAny_newC(
+                transmute(azul_dll::AzRefAny_newC(
                     transmute(ptr),
                     transmute(len),
                     transmute(type_id),
@@ -10344,22 +10364,22 @@ mod dll {
             }
         }
         pub(crate) fn AzRefAny_getTypeId(refany: &AzRefAny) -> u64 {
-            unsafe { transmute(azul::AzRefAny_getTypeId(transmute(refany))) }
+            unsafe { transmute(azul_dll::AzRefAny_getTypeId(transmute(refany))) }
         }
         pub(crate) fn AzRefAny_getTypeName(refany: &AzRefAny) -> AzString {
-            unsafe { transmute(azul::AzRefAny_getTypeName(transmute(refany))) }
+            unsafe { transmute(azul_dll::AzRefAny_getTypeName(transmute(refany))) }
         }
         pub(crate) fn AzRefAny_delete(object: &mut AzRefAny) {
-            unsafe { transmute(azul::AzRefAny_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzRefAny_delete(transmute(object))) }
         }
         pub(crate) fn AzRefAny_deepCopy(object: &AzRefAny) -> AzRefAny {
-            unsafe { transmute(azul::AzRefAny_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzRefAny_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzLayoutCallbackInfo_getGlContext(
             layoutcallbackinfo: &AzLayoutCallbackInfo,
         ) -> AzOptionGl {
             unsafe {
-                transmute(azul::AzLayoutCallbackInfo_getGlContext(transmute(
+                transmute(azul_dll::AzLayoutCallbackInfo_getGlContext(transmute(
                     layoutcallbackinfo,
                 )))
             }
@@ -10368,7 +10388,7 @@ mod dll {
             layoutcallbackinfo: &AzLayoutCallbackInfo,
         ) -> AzStringPairVec {
             unsafe {
-                transmute(azul::AzLayoutCallbackInfo_getSystemFonts(transmute(
+                transmute(azul_dll::AzLayoutCallbackInfo_getSystemFonts(transmute(
                     layoutcallbackinfo,
                 )))
             }
@@ -10378,36 +10398,36 @@ mod dll {
             id: AzString,
         ) -> AzOptionImageRef {
             unsafe {
-                transmute(azul::AzLayoutCallbackInfo_getImage(
+                transmute(azul_dll::AzLayoutCallbackInfo_getImage(
                     transmute(layoutcallbackinfo),
                     transmute(id),
                 ))
             }
         }
         pub(crate) fn AzDom_new(node_type: AzNodeType) -> AzDom {
-            unsafe { transmute(azul::AzDom_new(transmute(node_type))) }
+            unsafe { transmute(azul_dll::AzDom_new(transmute(node_type))) }
         }
         pub(crate) fn AzDom_body() -> AzDom {
-            unsafe { transmute(azul::AzDom_body()) }
+            unsafe { transmute(azul_dll::AzDom_body()) }
         }
         pub(crate) fn AzDom_div() -> AzDom {
-            unsafe { transmute(azul::AzDom_div()) }
+            unsafe { transmute(azul_dll::AzDom_div()) }
         }
         pub(crate) fn AzDom_br() -> AzDom {
-            unsafe { transmute(azul::AzDom_br()) }
+            unsafe { transmute(azul_dll::AzDom_br()) }
         }
         pub(crate) fn AzDom_text(string: AzString) -> AzDom {
-            unsafe { transmute(azul::AzDom_text(transmute(string))) }
+            unsafe { transmute(azul_dll::AzDom_text(transmute(string))) }
         }
         pub(crate) fn AzDom_image(image: AzImageRef) -> AzDom {
-            unsafe { transmute(azul::AzDom_image(transmute(image))) }
+            unsafe { transmute(azul_dll::AzDom_image(transmute(image))) }
         }
         pub(crate) fn AzDom_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzDom {
-            unsafe { transmute(azul::AzDom_iframe(transmute(data), transmute(callback))) }
+            unsafe { transmute(azul_dll::AzDom_iframe(transmute(data), transmute(callback))) }
         }
         pub(crate) fn AzDom_setNodeType(dom: &mut AzDom, node_type: AzNodeType) {
             unsafe {
-                transmute(azul::AzDom_setNodeType(
+                transmute(azul_dll::AzDom_setNodeType(
                     transmute(dom),
                     transmute(node_type),
                 ))
@@ -10415,21 +10435,31 @@ mod dll {
         }
         pub(crate) fn AzDom_withNodeType(dom: &mut AzDom, node_type: AzNodeType) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withNodeType(
+                transmute(azul_dll::AzDom_withNodeType(
                     transmute(dom),
                     transmute(node_type),
                 ))
             }
         }
         pub(crate) fn AzDom_setDataset(dom: &mut AzDom, dataset: AzRefAny) {
-            unsafe { transmute(azul::AzDom_setDataset(transmute(dom), transmute(dataset))) }
+            unsafe {
+                transmute(azul_dll::AzDom_setDataset(
+                    transmute(dom),
+                    transmute(dataset),
+                ))
+            }
         }
         pub(crate) fn AzDom_withDataset(dom: &mut AzDom, dataset: AzRefAny) -> AzDom {
-            unsafe { transmute(azul::AzDom_withDataset(transmute(dom), transmute(dataset))) }
+            unsafe {
+                transmute(azul_dll::AzDom_withDataset(
+                    transmute(dom),
+                    transmute(dataset),
+                ))
+            }
         }
         pub(crate) fn AzDom_setIdsAndClasses(dom: &mut AzDom, ids_and_classes: AzIdOrClassVec) {
             unsafe {
-                transmute(azul::AzDom_setIdsAndClasses(
+                transmute(azul_dll::AzDom_setIdsAndClasses(
                     transmute(dom),
                     transmute(ids_and_classes),
                 ))
@@ -10440,7 +10470,7 @@ mod dll {
             ids_and_classes: AzIdOrClassVec,
         ) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withIdsAndClasses(
+                transmute(azul_dll::AzDom_withIdsAndClasses(
                     transmute(dom),
                     transmute(ids_and_classes),
                 ))
@@ -10448,7 +10478,7 @@ mod dll {
         }
         pub(crate) fn AzDom_setCallbacks(dom: &mut AzDom, callbacks: AzCallbackDataVec) {
             unsafe {
-                transmute(azul::AzDom_setCallbacks(
+                transmute(azul_dll::AzDom_setCallbacks(
                     transmute(dom),
                     transmute(callbacks),
                 ))
@@ -10456,7 +10486,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withCallbacks(dom: &mut AzDom, callbacks: AzCallbackDataVec) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withCallbacks(
+                transmute(azul_dll::AzDom_withCallbacks(
                     transmute(dom),
                     transmute(callbacks),
                 ))
@@ -10467,7 +10497,7 @@ mod dll {
             css_properties: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzDom_setInlineCssProps(
+                transmute(azul_dll::AzDom_setInlineCssProps(
                     transmute(dom),
                     transmute(css_properties),
                 ))
@@ -10478,7 +10508,7 @@ mod dll {
             css_properties: AzNodeDataInlineCssPropertyVec,
         ) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withInlineCssProps(
+                transmute(azul_dll::AzDom_withInlineCssProps(
                     transmute(dom),
                     transmute(css_properties),
                 ))
@@ -10491,7 +10521,7 @@ mod dll {
             callback: AzCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzDom_addCallback(
+                transmute(azul_dll::AzDom_addCallback(
                     transmute(dom),
                     transmute(event),
                     transmute(data),
@@ -10506,7 +10536,7 @@ mod dll {
             callback: AzCallbackType,
         ) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withCallback(
+                transmute(azul_dll::AzDom_withCallback(
                     transmute(dom),
                     transmute(event),
                     transmute(data),
@@ -10515,43 +10545,58 @@ mod dll {
             }
         }
         pub(crate) fn AzDom_addChild(dom: &mut AzDom, child: AzDom) {
-            unsafe { transmute(azul::AzDom_addChild(transmute(dom), transmute(child))) }
+            unsafe { transmute(azul_dll::AzDom_addChild(transmute(dom), transmute(child))) }
         }
         pub(crate) fn AzDom_withChild(dom: &mut AzDom, child: AzDom) -> AzDom {
-            unsafe { transmute(azul::AzDom_withChild(transmute(dom), transmute(child))) }
+            unsafe { transmute(azul_dll::AzDom_withChild(transmute(dom), transmute(child))) }
         }
         pub(crate) fn AzDom_setChildren(dom: &mut AzDom, children: AzDomVec) {
-            unsafe { transmute(azul::AzDom_setChildren(transmute(dom), transmute(children))) }
+            unsafe {
+                transmute(azul_dll::AzDom_setChildren(
+                    transmute(dom),
+                    transmute(children),
+                ))
+            }
         }
         pub(crate) fn AzDom_withChildren(dom: &mut AzDom, children: AzDomVec) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withChildren(
+                transmute(azul_dll::AzDom_withChildren(
                     transmute(dom),
                     transmute(children),
                 ))
             }
         }
         pub(crate) fn AzDom_addId(dom: &mut AzDom, id: AzString) {
-            unsafe { transmute(azul::AzDom_addId(transmute(dom), transmute(id))) }
+            unsafe { transmute(azul_dll::AzDom_addId(transmute(dom), transmute(id))) }
         }
         pub(crate) fn AzDom_withId(dom: &mut AzDom, id: AzString) -> AzDom {
-            unsafe { transmute(azul::AzDom_withId(transmute(dom), transmute(id))) }
+            unsafe { transmute(azul_dll::AzDom_withId(transmute(dom), transmute(id))) }
         }
         pub(crate) fn AzDom_addClass(dom: &mut AzDom, class: AzString) {
-            unsafe { transmute(azul::AzDom_addClass(transmute(dom), transmute(class))) }
+            unsafe { transmute(azul_dll::AzDom_addClass(transmute(dom), transmute(class))) }
         }
         pub(crate) fn AzDom_withClass(dom: &mut AzDom, class: AzString) -> AzDom {
-            unsafe { transmute(azul::AzDom_withClass(transmute(dom), transmute(class))) }
+            unsafe { transmute(azul_dll::AzDom_withClass(transmute(dom), transmute(class))) }
         }
         pub(crate) fn AzDom_addCssProperty(dom: &mut AzDom, prop: AzCssProperty) {
-            unsafe { transmute(azul::AzDom_addCssProperty(transmute(dom), transmute(prop))) }
+            unsafe {
+                transmute(azul_dll::AzDom_addCssProperty(
+                    transmute(dom),
+                    transmute(prop),
+                ))
+            }
         }
         pub(crate) fn AzDom_withCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom {
-            unsafe { transmute(azul::AzDom_withCssProperty(transmute(dom), transmute(prop))) }
+            unsafe {
+                transmute(azul_dll::AzDom_withCssProperty(
+                    transmute(dom),
+                    transmute(prop),
+                ))
+            }
         }
         pub(crate) fn AzDom_addHoverCssProperty(dom: &mut AzDom, prop: AzCssProperty) {
             unsafe {
-                transmute(azul::AzDom_addHoverCssProperty(
+                transmute(azul_dll::AzDom_addHoverCssProperty(
                     transmute(dom),
                     transmute(prop),
                 ))
@@ -10559,7 +10604,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withHoverCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withHoverCssProperty(
+                transmute(azul_dll::AzDom_withHoverCssProperty(
                     transmute(dom),
                     transmute(prop),
                 ))
@@ -10567,7 +10612,7 @@ mod dll {
         }
         pub(crate) fn AzDom_addActiveCssProperty(dom: &mut AzDom, prop: AzCssProperty) {
             unsafe {
-                transmute(azul::AzDom_addActiveCssProperty(
+                transmute(azul_dll::AzDom_addActiveCssProperty(
                     transmute(dom),
                     transmute(prop),
                 ))
@@ -10575,7 +10620,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withActiveCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withActiveCssProperty(
+                transmute(azul_dll::AzDom_withActiveCssProperty(
                     transmute(dom),
                     transmute(prop),
                 ))
@@ -10583,7 +10628,7 @@ mod dll {
         }
         pub(crate) fn AzDom_addFocusCssProperty(dom: &mut AzDom, prop: AzCssProperty) {
             unsafe {
-                transmute(azul::AzDom_addFocusCssProperty(
+                transmute(azul_dll::AzDom_addFocusCssProperty(
                     transmute(dom),
                     transmute(prop),
                 ))
@@ -10591,18 +10636,23 @@ mod dll {
         }
         pub(crate) fn AzDom_withFocusCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withFocusCssProperty(
+                transmute(azul_dll::AzDom_withFocusCssProperty(
                     transmute(dom),
                     transmute(prop),
                 ))
             }
         }
         pub(crate) fn AzDom_setInlineStyle(dom: &mut AzDom, style: AzString) {
-            unsafe { transmute(azul::AzDom_setInlineStyle(transmute(dom), transmute(style))) }
+            unsafe {
+                transmute(azul_dll::AzDom_setInlineStyle(
+                    transmute(dom),
+                    transmute(style),
+                ))
+            }
         }
         pub(crate) fn AzDom_withInlineStyle(dom: &mut AzDom, style: AzString) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withInlineStyle(
+                transmute(azul_dll::AzDom_withInlineStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10610,7 +10660,7 @@ mod dll {
         }
         pub(crate) fn AzDom_setInlineHoverStyle(dom: &mut AzDom, style: AzString) {
             unsafe {
-                transmute(azul::AzDom_setInlineHoverStyle(
+                transmute(azul_dll::AzDom_setInlineHoverStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10618,7 +10668,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withInlineHoverStyle(dom: &mut AzDom, style: AzString) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withInlineHoverStyle(
+                transmute(azul_dll::AzDom_withInlineHoverStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10626,7 +10676,7 @@ mod dll {
         }
         pub(crate) fn AzDom_setInlineActiveStyle(dom: &mut AzDom, style: AzString) {
             unsafe {
-                transmute(azul::AzDom_setInlineActiveStyle(
+                transmute(azul_dll::AzDom_setInlineActiveStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10634,7 +10684,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withInlineActiveStyle(dom: &mut AzDom, style: AzString) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withInlineActiveStyle(
+                transmute(azul_dll::AzDom_withInlineActiveStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10642,7 +10692,7 @@ mod dll {
         }
         pub(crate) fn AzDom_setInlineFocusStyle(dom: &mut AzDom, style: AzString) {
             unsafe {
-                transmute(azul::AzDom_setInlineFocusStyle(
+                transmute(azul_dll::AzDom_setInlineFocusStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10650,7 +10700,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withInlineFocusStyle(dom: &mut AzDom, style: AzString) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withInlineFocusStyle(
+                transmute(azul_dll::AzDom_withInlineFocusStyle(
                     transmute(dom),
                     transmute(style),
                 ))
@@ -10658,7 +10708,7 @@ mod dll {
         }
         pub(crate) fn AzDom_setClipMask(dom: &mut AzDom, clip_mask: AzImageMask) {
             unsafe {
-                transmute(azul::AzDom_setClipMask(
+                transmute(azul_dll::AzDom_setClipMask(
                     transmute(dom),
                     transmute(clip_mask),
                 ))
@@ -10666,7 +10716,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withClipMask(dom: &mut AzDom, clip_mask: AzImageMask) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withClipMask(
+                transmute(azul_dll::AzDom_withClipMask(
                     transmute(dom),
                     transmute(clip_mask),
                 ))
@@ -10674,7 +10724,7 @@ mod dll {
         }
         pub(crate) fn AzDom_setTabIndex(dom: &mut AzDom, tab_index: AzTabIndex) {
             unsafe {
-                transmute(azul::AzDom_setTabIndex(
+                transmute(azul_dll::AzDom_setTabIndex(
                     transmute(dom),
                     transmute(tab_index),
                 ))
@@ -10682,7 +10732,7 @@ mod dll {
         }
         pub(crate) fn AzDom_withTabIndex(dom: &mut AzDom, tab_index: AzTabIndex) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withTabIndex(
+                transmute(azul_dll::AzDom_withTabIndex(
                     transmute(dom),
                     transmute(tab_index),
                 ))
@@ -10693,7 +10743,7 @@ mod dll {
             accessibility_info: AzAccessibilityInfo,
         ) {
             unsafe {
-                transmute(azul::AzDom_setAccessibilityInfo(
+                transmute(azul_dll::AzDom_setAccessibilityInfo(
                     transmute(dom),
                     transmute(accessibility_info),
                 ))
@@ -10704,21 +10754,31 @@ mod dll {
             accessibility_info: AzAccessibilityInfo,
         ) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withAccessibilityInfo(
+                transmute(azul_dll::AzDom_withAccessibilityInfo(
                     transmute(dom),
                     transmute(accessibility_info),
                 ))
             }
         }
         pub(crate) fn AzDom_setMenuBar(dom: &mut AzDom, menu_bar: AzMenu) {
-            unsafe { transmute(azul::AzDom_setMenuBar(transmute(dom), transmute(menu_bar))) }
+            unsafe {
+                transmute(azul_dll::AzDom_setMenuBar(
+                    transmute(dom),
+                    transmute(menu_bar),
+                ))
+            }
         }
         pub(crate) fn AzDom_withMenuBar(dom: &mut AzDom, menu_bar: AzMenu) -> AzDom {
-            unsafe { transmute(azul::AzDom_withMenuBar(transmute(dom), transmute(menu_bar))) }
+            unsafe {
+                transmute(azul_dll::AzDom_withMenuBar(
+                    transmute(dom),
+                    transmute(menu_bar),
+                ))
+            }
         }
         pub(crate) fn AzDom_setContextMenu(dom: &mut AzDom, context_menu: AzMenu) {
             unsafe {
-                transmute(azul::AzDom_setContextMenu(
+                transmute(azul_dll::AzDom_setContextMenu(
                     transmute(dom),
                     transmute(context_menu),
                 ))
@@ -10726,51 +10786,51 @@ mod dll {
         }
         pub(crate) fn AzDom_withContextMenu(dom: &mut AzDom, context_menu: AzMenu) -> AzDom {
             unsafe {
-                transmute(azul::AzDom_withContextMenu(
+                transmute(azul_dll::AzDom_withContextMenu(
                     transmute(dom),
                     transmute(context_menu),
                 ))
             }
         }
         pub(crate) fn AzDom_hash(dom: &AzDom) -> u64 {
-            unsafe { transmute(azul::AzDom_hash(transmute(dom))) }
+            unsafe { transmute(azul_dll::AzDom_hash(transmute(dom))) }
         }
         pub(crate) fn AzDom_nodeCount(dom: &AzDom) -> usize {
-            unsafe { transmute(azul::AzDom_nodeCount(transmute(dom))) }
+            unsafe { transmute(azul_dll::AzDom_nodeCount(transmute(dom))) }
         }
         pub(crate) fn AzDom_getHtmlString(dom: &mut AzDom) -> AzString {
-            unsafe { transmute(azul::AzDom_getHtmlString(transmute(dom))) }
+            unsafe { transmute(azul_dll::AzDom_getHtmlString(transmute(dom))) }
         }
         pub(crate) fn AzDom_getHtmlStringTest(dom: &mut AzDom) -> AzString {
-            unsafe { transmute(azul::AzDom_getHtmlStringTest(transmute(dom))) }
+            unsafe { transmute(azul_dll::AzDom_getHtmlStringTest(transmute(dom))) }
         }
         pub(crate) fn AzDom_style(dom: &mut AzDom, css: AzCss) -> AzStyledDom {
-            unsafe { transmute(azul::AzDom_style(transmute(dom), transmute(css))) }
+            unsafe { transmute(azul_dll::AzDom_style(transmute(dom), transmute(css))) }
         }
         pub(crate) fn AzNodeData_new(node_type: AzNodeType) -> AzNodeData {
-            unsafe { transmute(azul::AzNodeData_new(transmute(node_type))) }
+            unsafe { transmute(azul_dll::AzNodeData_new(transmute(node_type))) }
         }
         pub(crate) fn AzNodeData_body() -> AzNodeData {
-            unsafe { transmute(azul::AzNodeData_body()) }
+            unsafe { transmute(azul_dll::AzNodeData_body()) }
         }
         pub(crate) fn AzNodeData_div() -> AzNodeData {
-            unsafe { transmute(azul::AzNodeData_div()) }
+            unsafe { transmute(azul_dll::AzNodeData_div()) }
         }
         pub(crate) fn AzNodeData_br() -> AzNodeData {
-            unsafe { transmute(azul::AzNodeData_br()) }
+            unsafe { transmute(azul_dll::AzNodeData_br()) }
         }
         pub(crate) fn AzNodeData_text(string: AzString) -> AzNodeData {
-            unsafe { transmute(azul::AzNodeData_text(transmute(string))) }
+            unsafe { transmute(azul_dll::AzNodeData_text(transmute(string))) }
         }
         pub(crate) fn AzNodeData_image(image: AzImageRef) -> AzNodeData {
-            unsafe { transmute(azul::AzNodeData_image(transmute(image))) }
+            unsafe { transmute(azul_dll::AzNodeData_image(transmute(image))) }
         }
         pub(crate) fn AzNodeData_iframe(
             data: AzRefAny,
             callback: AzIFrameCallbackType,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_iframe(
+                transmute(azul_dll::AzNodeData_iframe(
                     transmute(data),
                     transmute(callback),
                 ))
@@ -10778,7 +10838,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setNodeType(nodedata: &mut AzNodeData, node_type: AzNodeType) {
             unsafe {
-                transmute(azul::AzNodeData_setNodeType(
+                transmute(azul_dll::AzNodeData_setNodeType(
                     transmute(nodedata),
                     transmute(node_type),
                 ))
@@ -10789,7 +10849,7 @@ mod dll {
             node_type: AzNodeType,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withNodeType(
+                transmute(azul_dll::AzNodeData_withNodeType(
                     transmute(nodedata),
                     transmute(node_type),
                 ))
@@ -10797,7 +10857,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setDataset(nodedata: &mut AzNodeData, dataset: AzRefAny) {
             unsafe {
-                transmute(azul::AzNodeData_setDataset(
+                transmute(azul_dll::AzNodeData_setDataset(
                     transmute(nodedata),
                     transmute(dataset),
                 ))
@@ -10808,7 +10868,7 @@ mod dll {
             dataset: AzRefAny,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withDataset(
+                transmute(azul_dll::AzNodeData_withDataset(
                     transmute(nodedata),
                     transmute(dataset),
                 ))
@@ -10819,7 +10879,7 @@ mod dll {
             ids_and_classes: AzIdOrClassVec,
         ) {
             unsafe {
-                transmute(azul::AzNodeData_setIdsAndClasses(
+                transmute(azul_dll::AzNodeData_setIdsAndClasses(
                     transmute(nodedata),
                     transmute(ids_and_classes),
                 ))
@@ -10830,7 +10890,7 @@ mod dll {
             ids_and_classes: AzIdOrClassVec,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withIdsAndClasses(
+                transmute(azul_dll::AzNodeData_withIdsAndClasses(
                     transmute(nodedata),
                     transmute(ids_and_classes),
                 ))
@@ -10843,7 +10903,7 @@ mod dll {
             callback: AzCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzNodeData_addCallback(
+                transmute(azul_dll::AzNodeData_addCallback(
                     transmute(nodedata),
                     transmute(event),
                     transmute(data),
@@ -10858,7 +10918,7 @@ mod dll {
             callback: AzCallbackType,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withCallback(
+                transmute(azul_dll::AzNodeData_withCallback(
                     transmute(nodedata),
                     transmute(event),
                     transmute(data),
@@ -10871,7 +10931,7 @@ mod dll {
             callbacks: AzCallbackDataVec,
         ) {
             unsafe {
-                transmute(azul::AzNodeData_setCallbacks(
+                transmute(azul_dll::AzNodeData_setCallbacks(
                     transmute(nodedata),
                     transmute(callbacks),
                 ))
@@ -10882,7 +10942,7 @@ mod dll {
             callbacks: AzCallbackDataVec,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withCallbacks(
+                transmute(azul_dll::AzNodeData_withCallbacks(
                     transmute(nodedata),
                     transmute(callbacks),
                 ))
@@ -10893,7 +10953,7 @@ mod dll {
             css_properties: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzNodeData_setInlineCssProps(
+                transmute(azul_dll::AzNodeData_setInlineCssProps(
                     transmute(nodedata),
                     transmute(css_properties),
                 ))
@@ -10904,7 +10964,7 @@ mod dll {
             css_properties: AzNodeDataInlineCssPropertyVec,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withInlineCssProps(
+                transmute(azul_dll::AzNodeData_withInlineCssProps(
                     transmute(nodedata),
                     transmute(css_properties),
                 ))
@@ -10912,7 +10972,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setInlineStyle(nodedata: &mut AzNodeData, style: AzString) {
             unsafe {
-                transmute(azul::AzNodeData_setInlineStyle(
+                transmute(azul_dll::AzNodeData_setInlineStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10923,7 +10983,7 @@ mod dll {
             style: AzString,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withInlineStyle(
+                transmute(azul_dll::AzNodeData_withInlineStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10931,7 +10991,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setInlineHoverStyle(nodedata: &mut AzNodeData, style: AzString) {
             unsafe {
-                transmute(azul::AzNodeData_setInlineHoverStyle(
+                transmute(azul_dll::AzNodeData_setInlineHoverStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10942,7 +11002,7 @@ mod dll {
             style: AzString,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withInlineHoverStyle(
+                transmute(azul_dll::AzNodeData_withInlineHoverStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10950,7 +11010,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setInlineActiveStyle(nodedata: &mut AzNodeData, style: AzString) {
             unsafe {
-                transmute(azul::AzNodeData_setInlineActiveStyle(
+                transmute(azul_dll::AzNodeData_setInlineActiveStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10961,7 +11021,7 @@ mod dll {
             style: AzString,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withInlineActiveStyle(
+                transmute(azul_dll::AzNodeData_withInlineActiveStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10969,7 +11029,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setInlineFocusStyle(nodedata: &mut AzNodeData, style: AzString) {
             unsafe {
-                transmute(azul::AzNodeData_setInlineFocusStyle(
+                transmute(azul_dll::AzNodeData_setInlineFocusStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10980,7 +11040,7 @@ mod dll {
             style: AzString,
         ) -> AzNodeData {
             unsafe {
-                transmute(azul::AzNodeData_withInlineFocusStyle(
+                transmute(azul_dll::AzNodeData_withInlineFocusStyle(
                     transmute(nodedata),
                     transmute(style),
                 ))
@@ -10988,7 +11048,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setClipMask(nodedata: &mut AzNodeData, image_mask: AzImageMask) {
             unsafe {
-                transmute(azul::AzNodeData_setClipMask(
+                transmute(azul_dll::AzNodeData_setClipMask(
                     transmute(nodedata),
                     transmute(image_mask),
                 ))
@@ -10996,7 +11056,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setTabIndex(nodedata: &mut AzNodeData, tab_index: AzTabIndex) {
             unsafe {
-                transmute(azul::AzNodeData_setTabIndex(
+                transmute(azul_dll::AzNodeData_setTabIndex(
                     transmute(nodedata),
                     transmute(tab_index),
                 ))
@@ -11007,7 +11067,7 @@ mod dll {
             accessibility_info: AzAccessibilityInfo,
         ) {
             unsafe {
-                transmute(azul::AzNodeData_setAccessibilityInfo(
+                transmute(azul_dll::AzNodeData_setAccessibilityInfo(
                     transmute(nodedata),
                     transmute(accessibility_info),
                 ))
@@ -11015,7 +11075,7 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setMenuBar(nodedata: &mut AzNodeData, menu_bar: AzMenu) {
             unsafe {
-                transmute(azul::AzNodeData_setMenuBar(
+                transmute(azul_dll::AzNodeData_setMenuBar(
                     transmute(nodedata),
                     transmute(menu_bar),
                 ))
@@ -11023,24 +11083,24 @@ mod dll {
         }
         pub(crate) fn AzNodeData_setContextMenu(nodedata: &mut AzNodeData, context_menu: AzMenu) {
             unsafe {
-                transmute(azul::AzNodeData_setContextMenu(
+                transmute(azul_dll::AzNodeData_setContextMenu(
                     transmute(nodedata),
                     transmute(context_menu),
                 ))
             }
         }
         pub(crate) fn AzNodeData_hash(nodedata: &AzNodeData) -> u64 {
-            unsafe { transmute(azul::AzNodeData_hash(transmute(nodedata))) }
+            unsafe { transmute(azul_dll::AzNodeData_hash(transmute(nodedata))) }
         }
         pub(crate) fn AzOn_intoEventFilter(on: AzOn) -> AzEventFilter {
-            unsafe { transmute(azul::AzOn_intoEventFilter(transmute(on))) }
+            unsafe { transmute(azul_dll::AzOn_intoEventFilter(transmute(on))) }
         }
         pub(crate) fn AzMenu_new(items: AzMenuItemVec) -> AzMenu {
-            unsafe { transmute(azul::AzMenu_new(transmute(items))) }
+            unsafe { transmute(azul_dll::AzMenu_new(transmute(items))) }
         }
         pub(crate) fn AzMenu_setPopupPosition(menu: &mut AzMenu, position: AzMenuPopupPosition) {
             unsafe {
-                transmute(azul::AzMenu_setPopupPosition(
+                transmute(azul_dll::AzMenu_setPopupPosition(
                     transmute(menu),
                     transmute(position),
                 ))
@@ -11051,14 +11111,14 @@ mod dll {
             position: AzMenuPopupPosition,
         ) -> AzMenu {
             unsafe {
-                transmute(azul::AzMenu_withPopupPosition(
+                transmute(azul_dll::AzMenu_withPopupPosition(
                     transmute(menu),
                     transmute(position),
                 ))
             }
         }
         pub(crate) fn AzStringMenuItem_new(label: AzString) -> AzStringMenuItem {
-            unsafe { transmute(azul::AzStringMenuItem_new(transmute(label))) }
+            unsafe { transmute(azul_dll::AzStringMenuItem_new(transmute(label))) }
         }
         pub(crate) fn AzStringMenuItem_setCallback(
             stringmenuitem: &mut AzStringMenuItem,
@@ -11066,7 +11126,7 @@ mod dll {
             callback: AzCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzStringMenuItem_setCallback(
+                transmute(azul_dll::AzStringMenuItem_setCallback(
                     transmute(stringmenuitem),
                     transmute(data),
                     transmute(callback),
@@ -11079,7 +11139,7 @@ mod dll {
             callback: AzCallbackType,
         ) -> AzStringMenuItem {
             unsafe {
-                transmute(azul::AzStringMenuItem_withCallback(
+                transmute(azul_dll::AzStringMenuItem_withCallback(
                     transmute(stringmenuitem),
                     transmute(data),
                     transmute(callback),
@@ -11091,7 +11151,7 @@ mod dll {
             child: AzMenuItem,
         ) {
             unsafe {
-                transmute(azul::AzStringMenuItem_addChild(
+                transmute(azul_dll::AzStringMenuItem_addChild(
                     transmute(stringmenuitem),
                     transmute(child),
                 ))
@@ -11102,7 +11162,7 @@ mod dll {
             child: AzMenuItem,
         ) -> AzStringMenuItem {
             unsafe {
-                transmute(azul::AzStringMenuItem_withChild(
+                transmute(azul_dll::AzStringMenuItem_withChild(
                     transmute(stringmenuitem),
                     transmute(child),
                 ))
@@ -11113,7 +11173,7 @@ mod dll {
             children: AzMenuItemVec,
         ) {
             unsafe {
-                transmute(azul::AzStringMenuItem_setChildren(
+                transmute(azul_dll::AzStringMenuItem_setChildren(
                     transmute(stringmenuitem),
                     transmute(children),
                 ))
@@ -11124,7 +11184,7 @@ mod dll {
             children: AzMenuItemVec,
         ) -> AzStringMenuItem {
             unsafe {
-                transmute(azul::AzStringMenuItem_withChildren(
+                transmute(azul_dll::AzStringMenuItem_withChildren(
                     transmute(stringmenuitem),
                     transmute(children),
                 ))
@@ -11135,45 +11195,49 @@ mod dll {
             callback: AzCallbackType,
         ) -> AzMenuCallback {
             unsafe {
-                transmute(azul::AzMenuCallback_new(
+                transmute(azul_dll::AzMenuCallback_new(
                     transmute(data),
                     transmute(callback),
                 ))
             }
         }
         pub(crate) fn AzCss_empty() -> AzCss {
-            unsafe { transmute(azul::AzCss_empty()) }
+            unsafe { transmute(azul_dll::AzCss_empty()) }
         }
         pub(crate) fn AzCss_fromString(s: AzString) -> AzCss {
-            unsafe { transmute(azul::AzCss_fromString(transmute(s))) }
+            unsafe { transmute(azul_dll::AzCss_fromString(transmute(s))) }
         }
         pub(crate) fn AzColorU_fromStr(string: AzString) -> AzColorU {
-            unsafe { transmute(azul::AzColorU_fromStr(transmute(string))) }
+            unsafe { transmute(azul_dll::AzColorU_fromStr(transmute(string))) }
         }
         pub(crate) fn AzColorU_transparent() -> AzColorU {
-            unsafe { transmute(azul::AzColorU_transparent()) }
+            unsafe { transmute(azul_dll::AzColorU_transparent()) }
         }
         pub(crate) fn AzColorU_white() -> AzColorU {
-            unsafe { transmute(azul::AzColorU_white()) }
+            unsafe { transmute(azul_dll::AzColorU_white()) }
         }
         pub(crate) fn AzColorU_black() -> AzColorU {
-            unsafe { transmute(azul::AzColorU_black()) }
+            unsafe { transmute(azul_dll::AzColorU_black()) }
         }
         pub(crate) fn AzColorU_toHash(coloru: &AzColorU) -> AzString {
-            unsafe { transmute(azul::AzColorU_toHash(transmute(coloru))) }
+            unsafe { transmute(azul_dll::AzColorU_toHash(transmute(coloru))) }
         }
         pub(crate) fn AzAngleValue_getDegrees(anglevalue: &AzAngleValue) -> f32 {
-            unsafe { transmute(azul::AzAngleValue_getDegrees(transmute(anglevalue))) }
+            unsafe { transmute(azul_dll::AzAngleValue_getDegrees(transmute(anglevalue))) }
         }
         pub(crate) fn AzCssProperty_getKeyString(cssproperty: &AzCssProperty) -> AzString {
-            unsafe { transmute(azul::AzCssProperty_getKeyString(transmute(cssproperty))) }
+            unsafe { transmute(azul_dll::AzCssProperty_getKeyString(transmute(cssproperty))) }
         }
         pub(crate) fn AzCssProperty_getValueString(cssproperty: &AzCssProperty) -> AzString {
-            unsafe { transmute(azul::AzCssProperty_getValueString(transmute(cssproperty))) }
+            unsafe {
+                transmute(azul_dll::AzCssProperty_getValueString(transmute(
+                    cssproperty,
+                )))
+            }
         }
         pub(crate) fn AzCssProperty_getKeyValueString(cssproperty: &AzCssProperty) -> AzString {
             unsafe {
-                transmute(azul::AzCssProperty_getKeyValueString(transmute(
+                transmute(azul_dll::AzCssProperty_getKeyValueString(transmute(
                     cssproperty,
                 )))
             }
@@ -11185,7 +11249,7 @@ mod dll {
             context: AzInterpolateContext,
         ) -> AzCssProperty {
             unsafe {
-                transmute(azul::AzCssProperty_interpolate(
+                transmute(azul_dll::AzCssProperty_interpolate(
                     transmute(cssproperty),
                     transmute(other),
                     transmute(t),
@@ -11199,7 +11263,7 @@ mod dll {
             data: AzRefAny,
         ) -> AzDom {
             unsafe {
-                transmute(azul::AzRibbon_dom(
+                transmute(azul_dll::AzRibbon_dom(
                     transmute(ribbon),
                     transmute(callback),
                     transmute(data),
@@ -11207,7 +11271,7 @@ mod dll {
             }
         }
         pub(crate) fn AzButton_new(label: AzString) -> AzButton {
-            unsafe { transmute(azul::AzButton_new(transmute(label))) }
+            unsafe { transmute(azul_dll::AzButton_new(transmute(label))) }
         }
         pub(crate) fn AzButton_setOnClick(
             button: &mut AzButton,
@@ -11215,7 +11279,7 @@ mod dll {
             callback: AzCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzButton_setOnClick(
+                transmute(azul_dll::AzButton_setOnClick(
                     transmute(button),
                     transmute(data),
                     transmute(callback),
@@ -11228,7 +11292,7 @@ mod dll {
             callback: AzCallbackType,
         ) -> AzButton {
             unsafe {
-                transmute(azul::AzButton_withOnClick(
+                transmute(azul_dll::AzButton_withOnClick(
                     transmute(button),
                     transmute(data),
                     transmute(callback),
@@ -11236,17 +11300,17 @@ mod dll {
             }
         }
         pub(crate) fn AzButton_dom(button: &mut AzButton) -> AzDom {
-            unsafe { transmute(azul::AzButton_dom(transmute(button))) }
+            unsafe { transmute(azul_dll::AzButton_dom(transmute(button))) }
         }
         pub(crate) fn AzFileInput_new(path: AzOptionString) -> AzFileInput {
-            unsafe { transmute(azul::AzFileInput_new(transmute(path))) }
+            unsafe { transmute(azul_dll::AzFileInput_new(transmute(path))) }
         }
         pub(crate) fn AzFileInput_setDefaultText(
             fileinput: &mut AzFileInput,
             default_text: AzString,
         ) {
             unsafe {
-                transmute(azul::AzFileInput_setDefaultText(
+                transmute(azul_dll::AzFileInput_setDefaultText(
                     transmute(fileinput),
                     transmute(default_text),
                 ))
@@ -11257,7 +11321,7 @@ mod dll {
             default_text: AzString,
         ) -> AzFileInput {
             unsafe {
-                transmute(azul::AzFileInput_withDefaultText(
+                transmute(azul_dll::AzFileInput_withDefaultText(
                     transmute(fileinput),
                     transmute(default_text),
                 ))
@@ -11269,7 +11333,7 @@ mod dll {
             callback: AzFileInputOnPathChangeCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzFileInput_setOnPathChange(
+                transmute(azul_dll::AzFileInput_setOnPathChange(
                     transmute(fileinput),
                     transmute(data),
                     transmute(callback),
@@ -11282,7 +11346,7 @@ mod dll {
             callback: AzFileInputOnPathChangeCallbackType,
         ) -> AzFileInput {
             unsafe {
-                transmute(azul::AzFileInput_withOnPathChange(
+                transmute(azul_dll::AzFileInput_withOnPathChange(
                     transmute(fileinput),
                     transmute(data),
                     transmute(callback),
@@ -11290,10 +11354,10 @@ mod dll {
             }
         }
         pub(crate) fn AzFileInput_dom(fileinput: &mut AzFileInput) -> AzDom {
-            unsafe { transmute(azul::AzFileInput_dom(transmute(fileinput))) }
+            unsafe { transmute(azul_dll::AzFileInput_dom(transmute(fileinput))) }
         }
         pub(crate) fn AzCheckBox_new(checked: bool) -> AzCheckBox {
-            unsafe { transmute(azul::AzCheckBox_new(transmute(checked))) }
+            unsafe { transmute(azul_dll::AzCheckBox_new(transmute(checked))) }
         }
         pub(crate) fn AzCheckBox_setOnToggle(
             checkbox: &mut AzCheckBox,
@@ -11301,7 +11365,7 @@ mod dll {
             callback: AzCheckBoxOnToggleCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzCheckBox_setOnToggle(
+                transmute(azul_dll::AzCheckBox_setOnToggle(
                     transmute(checkbox),
                     transmute(data),
                     transmute(callback),
@@ -11314,7 +11378,7 @@ mod dll {
             callback: AzCheckBoxOnToggleCallbackType,
         ) -> AzCheckBox {
             unsafe {
-                transmute(azul::AzCheckBox_withOnToggle(
+                transmute(azul_dll::AzCheckBox_withOnToggle(
                     transmute(checkbox),
                     transmute(data),
                     transmute(callback),
@@ -11322,16 +11386,16 @@ mod dll {
             }
         }
         pub(crate) fn AzCheckBox_dom(checkbox: &mut AzCheckBox) -> AzDom {
-            unsafe { transmute(azul::AzCheckBox_dom(transmute(checkbox))) }
+            unsafe { transmute(azul_dll::AzCheckBox_dom(transmute(checkbox))) }
         }
         pub(crate) fn AzLabel_new(text: AzString) -> AzLabel {
-            unsafe { transmute(azul::AzLabel_new(transmute(text))) }
+            unsafe { transmute(azul_dll::AzLabel_new(transmute(text))) }
         }
         pub(crate) fn AzLabel_dom(label: &mut AzLabel) -> AzDom {
-            unsafe { transmute(azul::AzLabel_dom(transmute(label))) }
+            unsafe { transmute(azul_dll::AzLabel_dom(transmute(label))) }
         }
         pub(crate) fn AzColorInput_new(color: AzColorU) -> AzColorInput {
-            unsafe { transmute(azul::AzColorInput_new(transmute(color))) }
+            unsafe { transmute(azul_dll::AzColorInput_new(transmute(color))) }
         }
         pub(crate) fn AzColorInput_setOnValueChange(
             colorinput: &mut AzColorInput,
@@ -11339,7 +11403,7 @@ mod dll {
             callback: AzColorInputOnValueChangeCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzColorInput_setOnValueChange(
+                transmute(azul_dll::AzColorInput_setOnValueChange(
                     transmute(colorinput),
                     transmute(data),
                     transmute(callback),
@@ -11352,7 +11416,7 @@ mod dll {
             callback: AzColorInputOnValueChangeCallbackType,
         ) -> AzColorInput {
             unsafe {
-                transmute(azul::AzColorInput_withOnValueChange(
+                transmute(azul_dll::AzColorInput_withOnValueChange(
                     transmute(colorinput),
                     transmute(data),
                     transmute(callback),
@@ -11360,14 +11424,14 @@ mod dll {
             }
         }
         pub(crate) fn AzColorInput_dom(colorinput: &mut AzColorInput) -> AzDom {
-            unsafe { transmute(azul::AzColorInput_dom(transmute(colorinput))) }
+            unsafe { transmute(azul_dll::AzColorInput_dom(transmute(colorinput))) }
         }
         pub(crate) fn AzTextInput_new() -> AzTextInput {
-            unsafe { transmute(azul::AzTextInput_new()) }
+            unsafe { transmute(azul_dll::AzTextInput_new()) }
         }
         pub(crate) fn AzTextInput_setText(textinput: &mut AzTextInput, text: AzString) {
             unsafe {
-                transmute(azul::AzTextInput_setText(
+                transmute(azul_dll::AzTextInput_setText(
                     transmute(textinput),
                     transmute(text),
                 ))
@@ -11378,7 +11442,7 @@ mod dll {
             text: AzString,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withText(
+                transmute(azul_dll::AzTextInput_withText(
                     transmute(textinput),
                     transmute(text),
                 ))
@@ -11386,7 +11450,7 @@ mod dll {
         }
         pub(crate) fn AzTextInput_setPlaceholder(textinput: &mut AzTextInput, text: AzString) {
             unsafe {
-                transmute(azul::AzTextInput_setPlaceholder(
+                transmute(azul_dll::AzTextInput_setPlaceholder(
                     transmute(textinput),
                     transmute(text),
                 ))
@@ -11397,7 +11461,7 @@ mod dll {
             text: AzString,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withPlaceholder(
+                transmute(azul_dll::AzTextInput_withPlaceholder(
                     transmute(textinput),
                     transmute(text),
                 ))
@@ -11409,7 +11473,7 @@ mod dll {
             callback: AzTextInputOnTextInputCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzTextInput_setOnTextInput(
+                transmute(azul_dll::AzTextInput_setOnTextInput(
                     transmute(textinput),
                     transmute(data),
                     transmute(callback),
@@ -11422,7 +11486,7 @@ mod dll {
             callback: AzTextInputOnTextInputCallbackType,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withOnTextInput(
+                transmute(azul_dll::AzTextInput_withOnTextInput(
                     transmute(textinput),
                     transmute(data),
                     transmute(callback),
@@ -11435,7 +11499,7 @@ mod dll {
             callback: AzTextInputOnVirtualKeyDownCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzTextInput_setOnVirtualKeyDown(
+                transmute(azul_dll::AzTextInput_setOnVirtualKeyDown(
                     transmute(textinput),
                     transmute(data),
                     transmute(callback),
@@ -11448,7 +11512,7 @@ mod dll {
             callback: AzTextInputOnVirtualKeyDownCallbackType,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withOnVirtualKeyDown(
+                transmute(azul_dll::AzTextInput_withOnVirtualKeyDown(
                     transmute(textinput),
                     transmute(data),
                     transmute(callback),
@@ -11461,7 +11525,7 @@ mod dll {
             callback: AzTextInputOnFocusLostCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzTextInput_setOnFocusLost(
+                transmute(azul_dll::AzTextInput_setOnFocusLost(
                     transmute(textinput),
                     transmute(data),
                     transmute(callback),
@@ -11474,7 +11538,7 @@ mod dll {
             callback: AzTextInputOnFocusLostCallbackType,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withOnFocusLost(
+                transmute(azul_dll::AzTextInput_withOnFocusLost(
                     transmute(textinput),
                     transmute(data),
                     transmute(callback),
@@ -11486,7 +11550,7 @@ mod dll {
             placeholder_style: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzTextInput_setPlaceholderStyle(
+                transmute(azul_dll::AzTextInput_setPlaceholderStyle(
                     transmute(textinput),
                     transmute(placeholder_style),
                 ))
@@ -11497,7 +11561,7 @@ mod dll {
             placeholder_style: AzNodeDataInlineCssPropertyVec,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withPlaceholderStyle(
+                transmute(azul_dll::AzTextInput_withPlaceholderStyle(
                     transmute(textinput),
                     transmute(placeholder_style),
                 ))
@@ -11508,7 +11572,7 @@ mod dll {
             container_style: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzTextInput_setContainerStyle(
+                transmute(azul_dll::AzTextInput_setContainerStyle(
                     transmute(textinput),
                     transmute(container_style),
                 ))
@@ -11519,7 +11583,7 @@ mod dll {
             container_style: AzNodeDataInlineCssPropertyVec,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withContainerStyle(
+                transmute(azul_dll::AzTextInput_withContainerStyle(
                     transmute(textinput),
                     transmute(container_style),
                 ))
@@ -11530,7 +11594,7 @@ mod dll {
             label_style: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzTextInput_setLabelStyle(
+                transmute(azul_dll::AzTextInput_setLabelStyle(
                     transmute(textinput),
                     transmute(label_style),
                 ))
@@ -11541,20 +11605,24 @@ mod dll {
             label_style: AzNodeDataInlineCssPropertyVec,
         ) -> AzTextInput {
             unsafe {
-                transmute(azul::AzTextInput_withLabelStyle(
+                transmute(azul_dll::AzTextInput_withLabelStyle(
                     transmute(textinput),
                     transmute(label_style),
                 ))
             }
         }
         pub(crate) fn AzTextInput_dom(textinput: &mut AzTextInput) -> AzDom {
-            unsafe { transmute(azul::AzTextInput_dom(transmute(textinput))) }
+            unsafe { transmute(azul_dll::AzTextInput_dom(transmute(textinput))) }
         }
         pub(crate) fn AzTextInputState_getText(textinputstate: &AzTextInputState) -> AzString {
-            unsafe { transmute(azul::AzTextInputState_getText(transmute(textinputstate))) }
+            unsafe {
+                transmute(azul_dll::AzTextInputState_getText(transmute(
+                    textinputstate,
+                )))
+            }
         }
         pub(crate) fn AzNumberInput_new(number: f32) -> AzNumberInput {
-            unsafe { transmute(azul::AzNumberInput_new(transmute(number))) }
+            unsafe { transmute(azul_dll::AzNumberInput_new(transmute(number))) }
         }
         pub(crate) fn AzNumberInput_setOnTextInput(
             numberinput: &mut AzNumberInput,
@@ -11562,7 +11630,7 @@ mod dll {
             callback: AzTextInputOnTextInputCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setOnTextInput(
+                transmute(azul_dll::AzNumberInput_setOnTextInput(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11575,7 +11643,7 @@ mod dll {
             callback: AzTextInputOnTextInputCallbackType,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withOnTextInput(
+                transmute(azul_dll::AzNumberInput_withOnTextInput(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11588,7 +11656,7 @@ mod dll {
             callback: AzTextInputOnVirtualKeyDownCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setOnVirtualKeyDown(
+                transmute(azul_dll::AzNumberInput_setOnVirtualKeyDown(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11601,7 +11669,7 @@ mod dll {
             callback: AzTextInputOnVirtualKeyDownCallbackType,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withOnVirtualKeyDown(
+                transmute(azul_dll::AzNumberInput_withOnVirtualKeyDown(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11614,7 +11682,7 @@ mod dll {
             callback: AzNumberInputOnFocusLostCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setOnFocusLost(
+                transmute(azul_dll::AzNumberInput_setOnFocusLost(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11627,7 +11695,7 @@ mod dll {
             callback: AzNumberInputOnFocusLostCallbackType,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withOnFocusLost(
+                transmute(azul_dll::AzNumberInput_withOnFocusLost(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11639,7 +11707,7 @@ mod dll {
             style: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setPlaceholderStyle(
+                transmute(azul_dll::AzNumberInput_setPlaceholderStyle(
                     transmute(numberinput),
                     transmute(style),
                 ))
@@ -11650,7 +11718,7 @@ mod dll {
             style: AzNodeDataInlineCssPropertyVec,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withPlaceholderStyle(
+                transmute(azul_dll::AzNumberInput_withPlaceholderStyle(
                     transmute(numberinput),
                     transmute(style),
                 ))
@@ -11661,7 +11729,7 @@ mod dll {
             style: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setContainerStyle(
+                transmute(azul_dll::AzNumberInput_setContainerStyle(
                     transmute(numberinput),
                     transmute(style),
                 ))
@@ -11672,7 +11740,7 @@ mod dll {
             style: AzNodeDataInlineCssPropertyVec,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withContainerStyle(
+                transmute(azul_dll::AzNumberInput_withContainerStyle(
                     transmute(numberinput),
                     transmute(style),
                 ))
@@ -11683,7 +11751,7 @@ mod dll {
             style: AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setLabelStyle(
+                transmute(azul_dll::AzNumberInput_setLabelStyle(
                     transmute(numberinput),
                     transmute(style),
                 ))
@@ -11694,7 +11762,7 @@ mod dll {
             style: AzNodeDataInlineCssPropertyVec,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withLabelStyle(
+                transmute(azul_dll::AzNumberInput_withLabelStyle(
                     transmute(numberinput),
                     transmute(style),
                 ))
@@ -11706,7 +11774,7 @@ mod dll {
             callback: AzNumberInputOnValueChangeCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzNumberInput_setOnValueChange(
+                transmute(azul_dll::AzNumberInput_setOnValueChange(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11719,7 +11787,7 @@ mod dll {
             callback: AzNumberInputOnValueChangeCallbackType,
         ) -> AzNumberInput {
             unsafe {
-                transmute(azul::AzNumberInput_withOnValueChange(
+                transmute(azul_dll::AzNumberInput_withOnValueChange(
                     transmute(numberinput),
                     transmute(data),
                     transmute(callback),
@@ -11727,17 +11795,17 @@ mod dll {
             }
         }
         pub(crate) fn AzNumberInput_dom(numberinput: &mut AzNumberInput) -> AzDom {
-            unsafe { transmute(azul::AzNumberInput_dom(transmute(numberinput))) }
+            unsafe { transmute(azul_dll::AzNumberInput_dom(transmute(numberinput))) }
         }
         pub(crate) fn AzProgressBar_new(percent_done: f32) -> AzProgressBar {
-            unsafe { transmute(azul::AzProgressBar_new(transmute(percent_done))) }
+            unsafe { transmute(azul_dll::AzProgressBar_new(transmute(percent_done))) }
         }
         pub(crate) fn AzProgressBar_setHeight(
             progressbar: &mut AzProgressBar,
             height: AzPixelValue,
         ) {
             unsafe {
-                transmute(azul::AzProgressBar_setHeight(
+                transmute(azul_dll::AzProgressBar_setHeight(
                     transmute(progressbar),
                     transmute(height),
                 ))
@@ -11748,7 +11816,7 @@ mod dll {
             height: AzPixelValue,
         ) -> AzProgressBar {
             unsafe {
-                transmute(azul::AzProgressBar_withHeight(
+                transmute(azul_dll::AzProgressBar_withHeight(
                     transmute(progressbar),
                     transmute(height),
                 ))
@@ -11759,7 +11827,7 @@ mod dll {
             background: AzStyleBackgroundContentVec,
         ) {
             unsafe {
-                transmute(azul::AzProgressBar_setContainerBackground(
+                transmute(azul_dll::AzProgressBar_setContainerBackground(
                     transmute(progressbar),
                     transmute(background),
                 ))
@@ -11770,7 +11838,7 @@ mod dll {
             background: AzStyleBackgroundContentVec,
         ) -> AzProgressBar {
             unsafe {
-                transmute(azul::AzProgressBar_withContainerStyle(
+                transmute(azul_dll::AzProgressBar_withContainerStyle(
                     transmute(progressbar),
                     transmute(background),
                 ))
@@ -11781,7 +11849,7 @@ mod dll {
             background: AzStyleBackgroundContentVec,
         ) {
             unsafe {
-                transmute(azul::AzProgressBar_setBarBackground(
+                transmute(azul_dll::AzProgressBar_setBarBackground(
                     transmute(progressbar),
                     transmute(background),
                 ))
@@ -11792,21 +11860,21 @@ mod dll {
             background: AzStyleBackgroundContentVec,
         ) -> AzProgressBar {
             unsafe {
-                transmute(azul::AzProgressBar_withBarBackground(
+                transmute(azul_dll::AzProgressBar_withBarBackground(
                     transmute(progressbar),
                     transmute(background),
                 ))
             }
         }
         pub(crate) fn AzProgressBar_dom(progressbar: &mut AzProgressBar) -> AzDom {
-            unsafe { transmute(azul::AzProgressBar_dom(transmute(progressbar))) }
+            unsafe { transmute(azul_dll::AzProgressBar_dom(transmute(progressbar))) }
         }
         pub(crate) fn AzTabHeader_new(tabs: AzStringVec) -> AzTabHeader {
-            unsafe { transmute(azul::AzTabHeader_new(transmute(tabs))) }
+            unsafe { transmute(azul_dll::AzTabHeader_new(transmute(tabs))) }
         }
         pub(crate) fn AzTabHeader_setActiveTab(tabheader: &mut AzTabHeader, active_tab: usize) {
             unsafe {
-                transmute(azul::AzTabHeader_setActiveTab(
+                transmute(azul_dll::AzTabHeader_setActiveTab(
                     transmute(tabheader),
                     transmute(active_tab),
                 ))
@@ -11817,7 +11885,7 @@ mod dll {
             active_tab: usize,
         ) -> AzTabHeader {
             unsafe {
-                transmute(azul::AzTabHeader_withActiveTab(
+                transmute(azul_dll::AzTabHeader_withActiveTab(
                     transmute(tabheader),
                     transmute(active_tab),
                 ))
@@ -11829,7 +11897,7 @@ mod dll {
             callback: AzTabOnClickCallbackType,
         ) {
             unsafe {
-                transmute(azul::AzTabHeader_setOnClick(
+                transmute(azul_dll::AzTabHeader_setOnClick(
                     transmute(tabheader),
                     transmute(data),
                     transmute(callback),
@@ -11842,7 +11910,7 @@ mod dll {
             callback: AzTabOnClickCallbackType,
         ) -> AzTabHeader {
             unsafe {
-                transmute(azul::AzTabHeader_withOnClick(
+                transmute(azul_dll::AzTabHeader_withOnClick(
                     transmute(tabheader),
                     transmute(data),
                     transmute(callback),
@@ -11850,14 +11918,14 @@ mod dll {
             }
         }
         pub(crate) fn AzTabHeader_dom(tabheader: &mut AzTabHeader) -> AzDom {
-            unsafe { transmute(azul::AzTabHeader_dom(transmute(tabheader))) }
+            unsafe { transmute(azul_dll::AzTabHeader_dom(transmute(tabheader))) }
         }
         pub(crate) fn AzTabContent_new(content: AzDom) -> AzTabContent {
-            unsafe { transmute(azul::AzTabContent_new(transmute(content))) }
+            unsafe { transmute(azul_dll::AzTabContent_new(transmute(content))) }
         }
         pub(crate) fn AzTabContent_setPadding(tabcontent: &mut AzTabContent, has_padding: bool) {
             unsafe {
-                transmute(azul::AzTabContent_setPadding(
+                transmute(azul_dll::AzTabContent_setPadding(
                     transmute(tabcontent),
                     transmute(has_padding),
                 ))
@@ -11868,21 +11936,21 @@ mod dll {
             has_padding: bool,
         ) -> AzTabContent {
             unsafe {
-                transmute(azul::AzTabContent_withPadding(
+                transmute(azul_dll::AzTabContent_withPadding(
                     transmute(tabcontent),
                     transmute(has_padding),
                 ))
             }
         }
         pub(crate) fn AzTabContent_dom(tabcontent: &mut AzTabContent) -> AzDom {
-            unsafe { transmute(azul::AzTabContent_dom(transmute(tabcontent))) }
+            unsafe { transmute(azul_dll::AzTabContent_dom(transmute(tabcontent))) }
         }
         pub(crate) fn AzFrame_new(title: AzString, dom: AzDom) -> AzFrame {
-            unsafe { transmute(azul::AzFrame_new(transmute(title), transmute(dom))) }
+            unsafe { transmute(azul_dll::AzFrame_new(transmute(title), transmute(dom))) }
         }
         pub(crate) fn AzFrame_setFlexGrow(frame: &mut AzFrame, flex_grow: f32) {
             unsafe {
-                transmute(azul::AzFrame_setFlexGrow(
+                transmute(azul_dll::AzFrame_setFlexGrow(
                     transmute(frame),
                     transmute(flex_grow),
                 ))
@@ -11890,70 +11958,70 @@ mod dll {
         }
         pub(crate) fn AzFrame_withFlexGrow(frame: &mut AzFrame, flex_grow: f32) -> AzFrame {
             unsafe {
-                transmute(azul::AzFrame_withFlexGrow(
+                transmute(azul_dll::AzFrame_withFlexGrow(
                     transmute(frame),
                     transmute(flex_grow),
                 ))
             }
         }
         pub(crate) fn AzFrame_dom(frame: &mut AzFrame) -> AzDom {
-            unsafe { transmute(azul::AzFrame_dom(transmute(frame))) }
+            unsafe { transmute(azul_dll::AzFrame_dom(transmute(frame))) }
         }
         pub(crate) fn AzNodeGraph_dom(nodegraph: &mut AzNodeGraph) -> AzDom {
-            unsafe { transmute(azul::AzNodeGraph_dom(transmute(nodegraph))) }
+            unsafe { transmute(azul_dll::AzNodeGraph_dom(transmute(nodegraph))) }
         }
         pub(crate) fn AzListView_new(columns: AzStringVec) -> AzListView {
-            unsafe { transmute(azul::AzListView_new(transmute(columns))) }
+            unsafe { transmute(azul_dll::AzListView_new(transmute(columns))) }
         }
         pub(crate) fn AzListView_withRows(
             listview: &mut AzListView,
             rows: AzListViewRowVec,
         ) -> AzListView {
             unsafe {
-                transmute(azul::AzListView_withRows(
+                transmute(azul_dll::AzListView_withRows(
                     transmute(listview),
                     transmute(rows),
                 ))
             }
         }
         pub(crate) fn AzListView_dom(listview: &mut AzListView) -> AzDom {
-            unsafe { transmute(azul::AzListView_dom(transmute(listview))) }
+            unsafe { transmute(azul_dll::AzListView_dom(transmute(listview))) }
         }
         pub(crate) fn AzTreeView_new(root: AzString) -> AzTreeView {
-            unsafe { transmute(azul::AzTreeView_new(transmute(root))) }
+            unsafe { transmute(azul_dll::AzTreeView_new(transmute(root))) }
         }
         pub(crate) fn AzTreeView_dom(treeview: &mut AzTreeView) -> AzDom {
-            unsafe { transmute(azul::AzTreeView_dom(transmute(treeview))) }
+            unsafe { transmute(azul_dll::AzTreeView_dom(transmute(treeview))) }
         }
         pub(crate) fn AzDropDown_new(choices: AzStringVec) -> AzDropDown {
-            unsafe { transmute(azul::AzDropDown_new(transmute(choices))) }
+            unsafe { transmute(azul_dll::AzDropDown_new(transmute(choices))) }
         }
         pub(crate) fn AzDropDown_dom(dropdown: &mut AzDropDown) -> AzDom {
-            unsafe { transmute(azul::AzDropDown_dom(transmute(dropdown))) }
+            unsafe { transmute(azul_dll::AzDropDown_dom(transmute(dropdown))) }
         }
         pub(crate) fn AzCssPropertyCache_delete(object: &mut AzCssPropertyCache) {
-            unsafe { transmute(azul::AzCssPropertyCache_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCssPropertyCache_delete(transmute(object))) }
         }
         pub(crate) fn AzCssPropertyCache_deepCopy(
             object: &AzCssPropertyCache,
         ) -> AzCssPropertyCache {
-            unsafe { transmute(azul::AzCssPropertyCache_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCssPropertyCache_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzStyledDom_new(dom: AzDom, css: AzCss) -> AzStyledDom {
-            unsafe { transmute(azul::AzStyledDom_new(transmute(dom), transmute(css))) }
+            unsafe { transmute(azul_dll::AzStyledDom_new(transmute(dom), transmute(css))) }
         }
         pub(crate) fn AzStyledDom_default() -> AzStyledDom {
-            unsafe { transmute(azul::AzStyledDom_default()) }
+            unsafe { transmute(azul_dll::AzStyledDom_default()) }
         }
         pub(crate) fn AzStyledDom_fromXml(xml_string: AzString) -> AzStyledDom {
-            unsafe { transmute(azul::AzStyledDom_fromXml(transmute(xml_string))) }
+            unsafe { transmute(azul_dll::AzStyledDom_fromXml(transmute(xml_string))) }
         }
         pub(crate) fn AzStyledDom_fromFile(xml_file_path: AzString) -> AzStyledDom {
-            unsafe { transmute(azul::AzStyledDom_fromFile(transmute(xml_file_path))) }
+            unsafe { transmute(azul_dll::AzStyledDom_fromFile(transmute(xml_file_path))) }
         }
         pub(crate) fn AzStyledDom_appendChild(styleddom: &mut AzStyledDom, dom: AzStyledDom) {
             unsafe {
-                transmute(azul::AzStyledDom_appendChild(
+                transmute(azul_dll::AzStyledDom_appendChild(
                     transmute(styleddom),
                     transmute(dom),
                 ))
@@ -11964,7 +12032,7 @@ mod dll {
             dom: AzStyledDom,
         ) -> AzStyledDom {
             unsafe {
-                transmute(azul::AzStyledDom_withChild(
+                transmute(azul_dll::AzStyledDom_withChild(
                     transmute(styleddom),
                     transmute(dom),
                 ))
@@ -11972,24 +12040,28 @@ mod dll {
         }
         pub(crate) fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) {
             unsafe {
-                transmute(azul::AzStyledDom_restyle(
+                transmute(azul_dll::AzStyledDom_restyle(
                     transmute(styleddom),
                     transmute(css),
                 ))
             }
         }
         pub(crate) fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize {
-            unsafe { transmute(azul::AzStyledDom_nodeCount(transmute(styleddom))) }
+            unsafe { transmute(azul_dll::AzStyledDom_nodeCount(transmute(styleddom))) }
         }
         pub(crate) fn AzStyledDom_getHtmlString(styleddom: &AzStyledDom) -> AzString {
-            unsafe { transmute(azul::AzStyledDom_getHtmlString(transmute(styleddom))) }
+            unsafe { transmute(azul_dll::AzStyledDom_getHtmlString(transmute(styleddom))) }
         }
         pub(crate) fn AzStyledDom_getHtmlStringTest(styleddom: &AzStyledDom) -> AzString {
-            unsafe { transmute(azul::AzStyledDom_getHtmlStringTest(transmute(styleddom))) }
+            unsafe {
+                transmute(azul_dll::AzStyledDom_getHtmlStringTest(transmute(
+                    styleddom,
+                )))
+            }
         }
         pub(crate) fn AzStyledDom_setMenuBar(styleddom: &mut AzStyledDom, menu: AzMenu) {
             unsafe {
-                transmute(azul::AzStyledDom_setMenuBar(
+                transmute(azul_dll::AzStyledDom_setMenuBar(
                     transmute(styleddom),
                     transmute(menu),
                 ))
@@ -12000,7 +12072,7 @@ mod dll {
             menu: AzMenu,
         ) -> AzStyledDom {
             unsafe {
-                transmute(azul::AzStyledDom_withMenuBar(
+                transmute(azul_dll::AzStyledDom_withMenuBar(
                     transmute(styleddom),
                     transmute(menu),
                 ))
@@ -12008,7 +12080,7 @@ mod dll {
         }
         pub(crate) fn AzStyledDom_setContextMenu(styleddom: &mut AzStyledDom, menu: AzMenu) {
             unsafe {
-                transmute(azul::AzStyledDom_setContextMenu(
+                transmute(azul_dll::AzStyledDom_setContextMenu(
                     transmute(styleddom),
                     transmute(menu),
                 ))
@@ -12019,7 +12091,7 @@ mod dll {
             menu: AzMenu,
         ) -> AzStyledDom {
             unsafe {
-                transmute(azul::AzStyledDom_withContextMenu(
+                transmute(azul_dll::AzStyledDom_withContextMenu(
                     transmute(styleddom),
                     transmute(menu),
                 ))
@@ -12034,7 +12106,7 @@ mod dll {
             format: AzRawImageFormat,
         ) -> AzTexture {
             unsafe {
-                transmute(azul::AzTexture_new(
+                transmute(azul_dll::AzTexture_new(
                     transmute(texture_id),
                     transmute(flags),
                     transmute(size),
@@ -12050,7 +12122,7 @@ mod dll {
             background: AzColorU,
         ) -> AzTexture {
             unsafe {
-                transmute(azul::AzTexture_allocateRgba8(
+                transmute(azul_dll::AzTexture_allocateRgba8(
                     transmute(gl),
                     transmute(size),
                     transmute(background),
@@ -12063,7 +12135,7 @@ mod dll {
             background: AzColorU,
         ) -> AzTexture {
             unsafe {
-                transmute(azul::AzTexture_allocateClipMask(
+                transmute(azul_dll::AzTexture_allocateClipMask(
                     transmute(gl),
                     transmute(size),
                     transmute(background),
@@ -12071,14 +12143,14 @@ mod dll {
             }
         }
         pub(crate) fn AzTexture_clear(texture: &mut AzTexture) {
-            unsafe { transmute(azul::AzTexture_clear(transmute(texture))) }
+            unsafe { transmute(azul_dll::AzTexture_clear(transmute(texture))) }
         }
         pub(crate) fn AzTexture_drawClipMask(
             texture: &mut AzTexture,
             node: AzTessellatedSvgNode,
         ) -> bool {
             unsafe {
-                transmute(azul::AzTexture_drawClipMask(
+                transmute(azul_dll::AzTexture_drawClipMask(
                     transmute(texture),
                     transmute(node),
                 ))
@@ -12092,7 +12164,7 @@ mod dll {
             transforms: AzStyleTransformVec,
         ) -> bool {
             unsafe {
-                transmute(azul::AzTexture_drawTesselatedSvgGpuNode(
+                transmute(azul_dll::AzTexture_drawTesselatedSvgGpuNode(
                     transmute(texture),
                     transmute(node),
                     transmute(size),
@@ -12108,7 +12180,7 @@ mod dll {
             transforms: AzStyleTransformVec,
         ) -> bool {
             unsafe {
-                transmute(azul::AzTexture_drawTesselatedColoredSvgGpuNode(
+                transmute(azul_dll::AzTexture_drawTesselatedColoredSvgGpuNode(
                     transmute(texture),
                     transmute(node),
                     transmute(size),
@@ -12117,22 +12189,22 @@ mod dll {
             }
         }
         pub(crate) fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool {
-            unsafe { transmute(azul::AzTexture_applyFxaa(transmute(texture))) }
+            unsafe { transmute(azul_dll::AzTexture_applyFxaa(transmute(texture))) }
         }
         pub(crate) fn AzTexture_delete(object: &mut AzTexture) {
-            unsafe { transmute(azul::AzTexture_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzTexture_delete(transmute(object))) }
         }
         pub(crate) fn AzTexture_deepCopy(object: &AzTexture) -> AzTexture {
-            unsafe { transmute(azul::AzTexture_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzTexture_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzGlVoidPtrConst_delete(object: &mut AzGlVoidPtrConst) {
-            unsafe { transmute(azul::AzGlVoidPtrConst_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGlVoidPtrConst_delete(transmute(object))) }
         }
         pub(crate) fn AzGlVoidPtrConst_deepCopy(object: &AzGlVoidPtrConst) -> AzGlVoidPtrConst {
-            unsafe { transmute(azul::AzGlVoidPtrConst_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGlVoidPtrConst_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzGl_getType(gl: &AzGl) -> AzGlType {
-            unsafe { transmute(azul::AzGl_getType(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_getType(transmute(gl))) }
         }
         pub(crate) fn AzGl_bufferDataUntyped(
             gl: &AzGl,
@@ -12142,7 +12214,7 @@ mod dll {
             usage: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_bufferDataUntyped(
+                transmute(azul_dll::AzGl_bufferDataUntyped(
                     transmute(gl),
                     transmute(target),
                     transmute(size),
@@ -12159,7 +12231,7 @@ mod dll {
             data: AzGlVoidPtrConst,
         ) {
             unsafe {
-                transmute(azul::AzGl_bufferSubDataUntyped(
+                transmute(azul_dll::AzGl_bufferSubDataUntyped(
                     transmute(gl),
                     transmute(target),
                     transmute(offset),
@@ -12170,7 +12242,7 @@ mod dll {
         }
         pub(crate) fn AzGl_mapBuffer(gl: &AzGl, target: u32, access: u32) -> AzGlVoidPtrMut {
             unsafe {
-                transmute(azul::AzGl_mapBuffer(
+                transmute(azul_dll::AzGl_mapBuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(access),
@@ -12185,7 +12257,7 @@ mod dll {
             access: u32,
         ) -> AzGlVoidPtrMut {
             unsafe {
-                transmute(azul::AzGl_mapBufferRange(
+                transmute(azul_dll::AzGl_mapBufferRange(
                     transmute(gl),
                     transmute(target),
                     transmute(offset),
@@ -12195,11 +12267,11 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_unmapBuffer(gl: &AzGl, target: u32) -> u8 {
-            unsafe { transmute(azul::AzGl_unmapBuffer(transmute(gl), transmute(target))) }
+            unsafe { transmute(azul_dll::AzGl_unmapBuffer(transmute(gl), transmute(target))) }
         }
         pub(crate) fn AzGl_texBuffer(gl: &AzGl, target: u32, internal_format: u32, buffer: u32) {
             unsafe {
-                transmute(azul::AzGl_texBuffer(
+                transmute(azul_dll::AzGl_texBuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(internal_format),
@@ -12209,7 +12281,7 @@ mod dll {
         }
         pub(crate) fn AzGl_shaderSource(gl: &AzGl, shader: u32, strings: AzStringVec) {
             unsafe {
-                transmute(azul::AzGl_shaderSource(
+                transmute(azul_dll::AzGl_shaderSource(
                     transmute(gl),
                     transmute(shader),
                     transmute(strings),
@@ -12217,7 +12289,7 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_readBuffer(gl: &AzGl, mode: u32) {
-            unsafe { transmute(azul::AzGl_readBuffer(transmute(gl), transmute(mode))) }
+            unsafe { transmute(azul_dll::AzGl_readBuffer(transmute(gl), transmute(mode))) }
         }
         pub(crate) fn AzGl_readPixelsIntoBuffer(
             gl: &AzGl,
@@ -12230,7 +12302,7 @@ mod dll {
             dst_buffer: AzU8VecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_readPixelsIntoBuffer(
+                transmute(azul_dll::AzGl_readPixelsIntoBuffer(
                     transmute(gl),
                     transmute(x),
                     transmute(y),
@@ -12252,7 +12324,7 @@ mod dll {
             pixel_type: u32,
         ) -> AzU8Vec {
             unsafe {
-                transmute(azul::AzGl_readPixels(
+                transmute(azul_dll::AzGl_readPixels(
                     transmute(gl),
                     transmute(x),
                     transmute(y),
@@ -12273,7 +12345,7 @@ mod dll {
             pixel_type: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_readPixelsIntoPbo(
+                transmute(azul_dll::AzGl_readPixelsIntoPbo(
                     transmute(gl),
                     transmute(x),
                     transmute(y),
@@ -12286,7 +12358,7 @@ mod dll {
         }
         pub(crate) fn AzGl_sampleCoverage(gl: &AzGl, value: f32, invert: bool) {
             unsafe {
-                transmute(azul::AzGl_sampleCoverage(
+                transmute(azul_dll::AzGl_sampleCoverage(
                     transmute(gl),
                     transmute(value),
                     transmute(invert),
@@ -12295,7 +12367,7 @@ mod dll {
         }
         pub(crate) fn AzGl_polygonOffset(gl: &AzGl, factor: f32, units: f32) {
             unsafe {
-                transmute(azul::AzGl_polygonOffset(
+                transmute(azul_dll::AzGl_polygonOffset(
                     transmute(gl),
                     transmute(factor),
                     transmute(units),
@@ -12304,7 +12376,7 @@ mod dll {
         }
         pub(crate) fn AzGl_pixelStoreI(gl: &AzGl, name: u32, param: i32) {
             unsafe {
-                transmute(azul::AzGl_pixelStoreI(
+                transmute(azul_dll::AzGl_pixelStoreI(
                     transmute(gl),
                     transmute(name),
                     transmute(param),
@@ -12312,26 +12384,26 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_genBuffers(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genBuffers(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genBuffers(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_genRenderbuffers(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genRenderbuffers(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genRenderbuffers(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_genFramebuffers(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genFramebuffers(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genFramebuffers(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_genTextures(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genTextures(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genTextures(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_genVertexArrays(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genVertexArrays(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genVertexArrays(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_genQueries(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genQueries(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genQueries(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_beginQuery(gl: &AzGl, target: u32, id: u32) {
             unsafe {
-                transmute(azul::AzGl_beginQuery(
+                transmute(azul_dll::AzGl_beginQuery(
                     transmute(gl),
                     transmute(target),
                     transmute(id),
@@ -12339,11 +12411,11 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_endQuery(gl: &AzGl, target: u32) {
-            unsafe { transmute(azul::AzGl_endQuery(transmute(gl), transmute(target))) }
+            unsafe { transmute(azul_dll::AzGl_endQuery(transmute(gl), transmute(target))) }
         }
         pub(crate) fn AzGl_queryCounter(gl: &AzGl, id: u32, target: u32) {
             unsafe {
-                transmute(azul::AzGl_queryCounter(
+                transmute(azul_dll::AzGl_queryCounter(
                     transmute(gl),
                     transmute(id),
                     transmute(target),
@@ -12352,7 +12424,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getQueryObjectIv(gl: &AzGl, id: u32, pname: u32) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getQueryObjectIv(
+                transmute(azul_dll::AzGl_getQueryObjectIv(
                     transmute(gl),
                     transmute(id),
                     transmute(pname),
@@ -12361,7 +12433,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getQueryObjectUiv(gl: &AzGl, id: u32, pname: u32) -> u32 {
             unsafe {
-                transmute(azul::AzGl_getQueryObjectUiv(
+                transmute(azul_dll::AzGl_getQueryObjectUiv(
                     transmute(gl),
                     transmute(id),
                     transmute(pname),
@@ -12370,7 +12442,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getQueryObjectI64V(gl: &AzGl, id: u32, pname: u32) -> i64 {
             unsafe {
-                transmute(azul::AzGl_getQueryObjectI64V(
+                transmute(azul_dll::AzGl_getQueryObjectI64V(
                     transmute(gl),
                     transmute(id),
                     transmute(pname),
@@ -12379,7 +12451,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getQueryObjectUi64V(gl: &AzGl, id: u32, pname: u32) -> u64 {
             unsafe {
-                transmute(azul::AzGl_getQueryObjectUi64V(
+                transmute(azul_dll::AzGl_getQueryObjectUi64V(
                     transmute(gl),
                     transmute(id),
                     transmute(pname),
@@ -12387,22 +12459,32 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_deleteQueries(gl: &AzGl, queries: AzGLuintVecRef) {
-            unsafe { transmute(azul::AzGl_deleteQueries(transmute(gl), transmute(queries))) }
+            unsafe {
+                transmute(azul_dll::AzGl_deleteQueries(
+                    transmute(gl),
+                    transmute(queries),
+                ))
+            }
         }
         pub(crate) fn AzGl_deleteVertexArrays(gl: &AzGl, vertex_arrays: AzGLuintVecRef) {
             unsafe {
-                transmute(azul::AzGl_deleteVertexArrays(
+                transmute(azul_dll::AzGl_deleteVertexArrays(
                     transmute(gl),
                     transmute(vertex_arrays),
                 ))
             }
         }
         pub(crate) fn AzGl_deleteBuffers(gl: &AzGl, buffers: AzGLuintVecRef) {
-            unsafe { transmute(azul::AzGl_deleteBuffers(transmute(gl), transmute(buffers))) }
+            unsafe {
+                transmute(azul_dll::AzGl_deleteBuffers(
+                    transmute(gl),
+                    transmute(buffers),
+                ))
+            }
         }
         pub(crate) fn AzGl_deleteRenderbuffers(gl: &AzGl, renderbuffers: AzGLuintVecRef) {
             unsafe {
-                transmute(azul::AzGl_deleteRenderbuffers(
+                transmute(azul_dll::AzGl_deleteRenderbuffers(
                     transmute(gl),
                     transmute(renderbuffers),
                 ))
@@ -12410,7 +12492,7 @@ mod dll {
         }
         pub(crate) fn AzGl_deleteFramebuffers(gl: &AzGl, framebuffers: AzGLuintVecRef) {
             unsafe {
-                transmute(azul::AzGl_deleteFramebuffers(
+                transmute(azul_dll::AzGl_deleteFramebuffers(
                     transmute(gl),
                     transmute(framebuffers),
                 ))
@@ -12418,7 +12500,7 @@ mod dll {
         }
         pub(crate) fn AzGl_deleteTextures(gl: &AzGl, textures: AzGLuintVecRef) {
             unsafe {
-                transmute(azul::AzGl_deleteTextures(
+                transmute(azul_dll::AzGl_deleteTextures(
                     transmute(gl),
                     transmute(textures),
                 ))
@@ -12432,7 +12514,7 @@ mod dll {
             renderbuffer: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_framebufferRenderbuffer(
+                transmute(azul_dll::AzGl_framebufferRenderbuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(attachment),
@@ -12449,7 +12531,7 @@ mod dll {
             height: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_renderbufferStorage(
+                transmute(azul_dll::AzGl_renderbufferStorage(
                     transmute(gl),
                     transmute(target),
                     transmute(internalformat),
@@ -12459,14 +12541,19 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_depthFunc(gl: &AzGl, func: u32) {
-            unsafe { transmute(azul::AzGl_depthFunc(transmute(gl), transmute(func))) }
+            unsafe { transmute(azul_dll::AzGl_depthFunc(transmute(gl), transmute(func))) }
         }
         pub(crate) fn AzGl_activeTexture(gl: &AzGl, texture: u32) {
-            unsafe { transmute(azul::AzGl_activeTexture(transmute(gl), transmute(texture))) }
+            unsafe {
+                transmute(azul_dll::AzGl_activeTexture(
+                    transmute(gl),
+                    transmute(texture),
+                ))
+            }
         }
         pub(crate) fn AzGl_attachShader(gl: &AzGl, program: u32, shader: u32) {
             unsafe {
-                transmute(azul::AzGl_attachShader(
+                transmute(azul_dll::AzGl_attachShader(
                     transmute(gl),
                     transmute(program),
                     transmute(shader),
@@ -12475,7 +12562,7 @@ mod dll {
         }
         pub(crate) fn AzGl_bindAttribLocation(gl: &AzGl, program: u32, index: u32, name: AzRefstr) {
             unsafe {
-                transmute(azul::AzGl_bindAttribLocation(
+                transmute(azul_dll::AzGl_bindAttribLocation(
                     transmute(gl),
                     transmute(program),
                     transmute(index),
@@ -12490,7 +12577,7 @@ mod dll {
             result: AzGLintVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getUniformIv(
+                transmute(azul_dll::AzGl_getUniformIv(
                     transmute(gl),
                     transmute(program),
                     transmute(location),
@@ -12505,7 +12592,7 @@ mod dll {
             result: AzGLfloatVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getUniformFv(
+                transmute(azul_dll::AzGl_getUniformFv(
                     transmute(gl),
                     transmute(program),
                     transmute(location),
@@ -12515,7 +12602,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getUniformBlockIndex(gl: &AzGl, program: u32, name: AzRefstr) -> u32 {
             unsafe {
-                transmute(azul::AzGl_getUniformBlockIndex(
+                transmute(azul_dll::AzGl_getUniformBlockIndex(
                     transmute(gl),
                     transmute(program),
                     transmute(name),
@@ -12528,7 +12615,7 @@ mod dll {
             names: AzRefstrVecRef,
         ) -> AzGLuintVec {
             unsafe {
-                transmute(azul::AzGl_getUniformIndices(
+                transmute(azul_dll::AzGl_getUniformIndices(
                     transmute(gl),
                     transmute(program),
                     transmute(names),
@@ -12537,7 +12624,7 @@ mod dll {
         }
         pub(crate) fn AzGl_bindBufferBase(gl: &AzGl, target: u32, index: u32, buffer: u32) {
             unsafe {
-                transmute(azul::AzGl_bindBufferBase(
+                transmute(azul_dll::AzGl_bindBufferBase(
                     transmute(gl),
                     transmute(target),
                     transmute(index),
@@ -12554,7 +12641,7 @@ mod dll {
             size: isize,
         ) {
             unsafe {
-                transmute(azul::AzGl_bindBufferRange(
+                transmute(azul_dll::AzGl_bindBufferRange(
                     transmute(gl),
                     transmute(target),
                     transmute(index),
@@ -12571,7 +12658,7 @@ mod dll {
             uniform_block_binding: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_uniformBlockBinding(
+                transmute(azul_dll::AzGl_uniformBlockBinding(
                     transmute(gl),
                     transmute(program),
                     transmute(uniform_block_index),
@@ -12581,7 +12668,7 @@ mod dll {
         }
         pub(crate) fn AzGl_bindBuffer(gl: &AzGl, target: u32, buffer: u32) {
             unsafe {
-                transmute(azul::AzGl_bindBuffer(
+                transmute(azul_dll::AzGl_bindBuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(buffer),
@@ -12589,11 +12676,16 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_bindVertexArray(gl: &AzGl, vao: u32) {
-            unsafe { transmute(azul::AzGl_bindVertexArray(transmute(gl), transmute(vao))) }
+            unsafe {
+                transmute(azul_dll::AzGl_bindVertexArray(
+                    transmute(gl),
+                    transmute(vao),
+                ))
+            }
         }
         pub(crate) fn AzGl_bindRenderbuffer(gl: &AzGl, target: u32, renderbuffer: u32) {
             unsafe {
-                transmute(azul::AzGl_bindRenderbuffer(
+                transmute(azul_dll::AzGl_bindRenderbuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(renderbuffer),
@@ -12602,7 +12694,7 @@ mod dll {
         }
         pub(crate) fn AzGl_bindFramebuffer(gl: &AzGl, target: u32, framebuffer: u32) {
             unsafe {
-                transmute(azul::AzGl_bindFramebuffer(
+                transmute(azul_dll::AzGl_bindFramebuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(framebuffer),
@@ -12611,7 +12703,7 @@ mod dll {
         }
         pub(crate) fn AzGl_bindTexture(gl: &AzGl, target: u32, texture: u32) {
             unsafe {
-                transmute(azul::AzGl_bindTexture(
+                transmute(azul_dll::AzGl_bindTexture(
                     transmute(gl),
                     transmute(target),
                     transmute(texture),
@@ -12619,7 +12711,7 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_drawBuffers(gl: &AzGl, bufs: AzGLenumVecRef) {
-            unsafe { transmute(azul::AzGl_drawBuffers(transmute(gl), transmute(bufs))) }
+            unsafe { transmute(azul_dll::AzGl_drawBuffers(transmute(gl), transmute(bufs))) }
         }
         pub(crate) fn AzGl_texImage2D(
             gl: &AzGl,
@@ -12634,7 +12726,7 @@ mod dll {
             opt_data: AzOptionU8VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_texImage2D(
+                transmute(azul_dll::AzGl_texImage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12659,7 +12751,7 @@ mod dll {
             data: AzU8VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_compressedTexImage2D(
+                transmute(azul_dll::AzGl_compressedTexImage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12683,7 +12775,7 @@ mod dll {
             data: AzU8VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_compressedTexSubImage2D(
+                transmute(azul_dll::AzGl_compressedTexSubImage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12710,7 +12802,7 @@ mod dll {
             opt_data: AzOptionU8VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_texImage3D(
+                transmute(azul_dll::AzGl_texImage3D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12737,7 +12829,7 @@ mod dll {
             border: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_copyTexImage2D(
+                transmute(azul_dll::AzGl_copyTexImage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12762,7 +12854,7 @@ mod dll {
             height: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_copyTexSubImage2D(
+                transmute(azul_dll::AzGl_copyTexSubImage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12788,7 +12880,7 @@ mod dll {
             height: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_copyTexSubImage3D(
+                transmute(azul_dll::AzGl_copyTexSubImage3D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12815,7 +12907,7 @@ mod dll {
             data: AzU8VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_texSubImage2D(
+                transmute(azul_dll::AzGl_texSubImage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12842,7 +12934,7 @@ mod dll {
             offset: usize,
         ) {
             unsafe {
-                transmute(azul::AzGl_texSubImage2DPbo(
+                transmute(azul_dll::AzGl_texSubImage2DPbo(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12871,7 +12963,7 @@ mod dll {
             data: AzU8VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_texSubImage3D(
+                transmute(azul_dll::AzGl_texSubImage3D(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12902,7 +12994,7 @@ mod dll {
             offset: usize,
         ) {
             unsafe {
-                transmute(azul::AzGl_texSubImage3DPbo(
+                transmute(azul_dll::AzGl_texSubImage3DPbo(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12927,7 +13019,7 @@ mod dll {
             height: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_texStorage2D(
+                transmute(azul_dll::AzGl_texStorage2D(
                     transmute(gl),
                     transmute(target),
                     transmute(levels),
@@ -12947,7 +13039,7 @@ mod dll {
             depth: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_texStorage3D(
+                transmute(azul_dll::AzGl_texStorage3D(
                     transmute(gl),
                     transmute(target),
                     transmute(levels),
@@ -12967,7 +13059,7 @@ mod dll {
             output: AzU8VecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getTexImageIntoBuffer(
+                transmute(azul_dll::AzGl_getTexImageIntoBuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(level),
@@ -12996,7 +13088,7 @@ mod dll {
             src_depth: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_copyImageSubData(
+                transmute(azul_dll::AzGl_copyImageSubData(
                     transmute(gl),
                     transmute(src_name),
                     transmute(src_target),
@@ -13022,7 +13114,7 @@ mod dll {
             attachments: AzGLenumVecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_invalidateFramebuffer(
+                transmute(azul_dll::AzGl_invalidateFramebuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(attachments),
@@ -13039,7 +13131,7 @@ mod dll {
             height: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_invalidateSubFramebuffer(
+                transmute(azul_dll::AzGl_invalidateSubFramebuffer(
                     transmute(gl),
                     transmute(target),
                     transmute(attachments),
@@ -13052,7 +13144,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getIntegerV(gl: &AzGl, name: u32, result: AzGLintVecRefMut) {
             unsafe {
-                transmute(azul::AzGl_getIntegerV(
+                transmute(azul_dll::AzGl_getIntegerV(
                     transmute(gl),
                     transmute(name),
                     transmute(result),
@@ -13061,7 +13153,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getInteger64V(gl: &AzGl, name: u32, result: AzGLint64VecRefMut) {
             unsafe {
-                transmute(azul::AzGl_getInteger64V(
+                transmute(azul_dll::AzGl_getInteger64V(
                     transmute(gl),
                     transmute(name),
                     transmute(result),
@@ -13075,7 +13167,7 @@ mod dll {
             result: AzGLintVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getIntegerIv(
+                transmute(azul_dll::AzGl_getIntegerIv(
                     transmute(gl),
                     transmute(name),
                     transmute(index),
@@ -13090,7 +13182,7 @@ mod dll {
             result: AzGLint64VecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getInteger64Iv(
+                transmute(azul_dll::AzGl_getInteger64Iv(
                     transmute(gl),
                     transmute(name),
                     transmute(index),
@@ -13100,7 +13192,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getBooleanV(gl: &AzGl, name: u32, result: AzGLbooleanVecRefMut) {
             unsafe {
-                transmute(azul::AzGl_getBooleanV(
+                transmute(azul_dll::AzGl_getBooleanV(
                     transmute(gl),
                     transmute(name),
                     transmute(result),
@@ -13109,7 +13201,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getFloatV(gl: &AzGl, name: u32, result: AzGLfloatVecRefMut) {
             unsafe {
-                transmute(azul::AzGl_getFloatV(
+                transmute(azul_dll::AzGl_getFloatV(
                     transmute(gl),
                     transmute(name),
                     transmute(result),
@@ -13123,7 +13215,7 @@ mod dll {
             pname: u32,
         ) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getFramebufferAttachmentParameterIv(
+                transmute(azul_dll::AzGl_getFramebufferAttachmentParameterIv(
                     transmute(gl),
                     transmute(target),
                     transmute(attachment),
@@ -13133,7 +13225,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getRenderbufferParameterIv(gl: &AzGl, target: u32, pname: u32) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getRenderbufferParameterIv(
+                transmute(azul_dll::AzGl_getRenderbufferParameterIv(
                     transmute(gl),
                     transmute(target),
                     transmute(pname),
@@ -13142,7 +13234,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getTexParameterIv(gl: &AzGl, target: u32, name: u32) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getTexParameterIv(
+                transmute(azul_dll::AzGl_getTexParameterIv(
                     transmute(gl),
                     transmute(target),
                     transmute(name),
@@ -13151,7 +13243,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getTexParameterFv(gl: &AzGl, target: u32, name: u32) -> f32 {
             unsafe {
-                transmute(azul::AzGl_getTexParameterFv(
+                transmute(azul_dll::AzGl_getTexParameterFv(
                     transmute(gl),
                     transmute(target),
                     transmute(name),
@@ -13160,7 +13252,7 @@ mod dll {
         }
         pub(crate) fn AzGl_texParameterI(gl: &AzGl, target: u32, pname: u32, param: i32) {
             unsafe {
-                transmute(azul::AzGl_texParameterI(
+                transmute(azul_dll::AzGl_texParameterI(
                     transmute(gl),
                     transmute(target),
                     transmute(pname),
@@ -13170,7 +13262,7 @@ mod dll {
         }
         pub(crate) fn AzGl_texParameterF(gl: &AzGl, target: u32, pname: u32, param: f32) {
             unsafe {
-                transmute(azul::AzGl_texParameterF(
+                transmute(azul_dll::AzGl_texParameterF(
                     transmute(gl),
                     transmute(target),
                     transmute(pname),
@@ -13187,7 +13279,7 @@ mod dll {
             level: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_framebufferTexture2D(
+                transmute(azul_dll::AzGl_framebufferTexture2D(
                     transmute(gl),
                     transmute(target),
                     transmute(attachment),
@@ -13206,7 +13298,7 @@ mod dll {
             layer: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_framebufferTextureLayer(
+                transmute(azul_dll::AzGl_framebufferTextureLayer(
                     transmute(gl),
                     transmute(target),
                     transmute(attachment),
@@ -13230,7 +13322,7 @@ mod dll {
             filter: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_blitFramebuffer(
+                transmute(azul_dll::AzGl_blitFramebuffer(
                     transmute(gl),
                     transmute(src_x0),
                     transmute(src_y0),
@@ -13247,7 +13339,7 @@ mod dll {
         }
         pub(crate) fn AzGl_vertexAttrib4F(gl: &AzGl, index: u32, x: f32, y: f32, z: f32, w: f32) {
             unsafe {
-                transmute(azul::AzGl_vertexAttrib4F(
+                transmute(azul_dll::AzGl_vertexAttrib4F(
                     transmute(gl),
                     transmute(index),
                     transmute(x),
@@ -13266,7 +13358,7 @@ mod dll {
             offset: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_vertexAttribPointerF32(
+                transmute(azul_dll::AzGl_vertexAttribPointerF32(
                     transmute(gl),
                     transmute(index),
                     transmute(size),
@@ -13286,7 +13378,7 @@ mod dll {
             offset: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_vertexAttribPointer(
+                transmute(azul_dll::AzGl_vertexAttribPointer(
                     transmute(gl),
                     transmute(index),
                     transmute(size),
@@ -13306,7 +13398,7 @@ mod dll {
             offset: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_vertexAttribIPointer(
+                transmute(azul_dll::AzGl_vertexAttribIPointer(
                     transmute(gl),
                     transmute(index),
                     transmute(size),
@@ -13318,7 +13410,7 @@ mod dll {
         }
         pub(crate) fn AzGl_vertexAttribDivisor(gl: &AzGl, index: u32, divisor: u32) {
             unsafe {
-                transmute(azul::AzGl_vertexAttribDivisor(
+                transmute(azul_dll::AzGl_vertexAttribDivisor(
                     transmute(gl),
                     transmute(index),
                     transmute(divisor),
@@ -13327,7 +13419,7 @@ mod dll {
         }
         pub(crate) fn AzGl_viewport(gl: &AzGl, x: i32, y: i32, width: i32, height: i32) {
             unsafe {
-                transmute(azul::AzGl_viewport(
+                transmute(azul_dll::AzGl_viewport(
                     transmute(gl),
                     transmute(x),
                     transmute(y),
@@ -13338,7 +13430,7 @@ mod dll {
         }
         pub(crate) fn AzGl_scissor(gl: &AzGl, x: i32, y: i32, width: i32, height: i32) {
             unsafe {
-                transmute(azul::AzGl_scissor(
+                transmute(azul_dll::AzGl_scissor(
                     transmute(gl),
                     transmute(x),
                     transmute(y),
@@ -13348,14 +13440,14 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_lineWidth(gl: &AzGl, width: f32) {
-            unsafe { transmute(azul::AzGl_lineWidth(transmute(gl), transmute(width))) }
+            unsafe { transmute(azul_dll::AzGl_lineWidth(transmute(gl), transmute(width))) }
         }
         pub(crate) fn AzGl_useProgram(gl: &AzGl, program: u32) {
-            unsafe { transmute(azul::AzGl_useProgram(transmute(gl), transmute(program))) }
+            unsafe { transmute(azul_dll::AzGl_useProgram(transmute(gl), transmute(program))) }
         }
         pub(crate) fn AzGl_validateProgram(gl: &AzGl, program: u32) {
             unsafe {
-                transmute(azul::AzGl_validateProgram(
+                transmute(azul_dll::AzGl_validateProgram(
                     transmute(gl),
                     transmute(program),
                 ))
@@ -13363,7 +13455,7 @@ mod dll {
         }
         pub(crate) fn AzGl_drawArrays(gl: &AzGl, mode: u32, first: i32, count: i32) {
             unsafe {
-                transmute(azul::AzGl_drawArrays(
+                transmute(azul_dll::AzGl_drawArrays(
                     transmute(gl),
                     transmute(mode),
                     transmute(first),
@@ -13379,7 +13471,7 @@ mod dll {
             primcount: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_drawArraysInstanced(
+                transmute(azul_dll::AzGl_drawArraysInstanced(
                     transmute(gl),
                     transmute(mode),
                     transmute(first),
@@ -13396,7 +13488,7 @@ mod dll {
             indices_offset: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_drawElements(
+                transmute(azul_dll::AzGl_drawElements(
                     transmute(gl),
                     transmute(mode),
                     transmute(count),
@@ -13414,7 +13506,7 @@ mod dll {
             primcount: i32,
         ) {
             unsafe {
-                transmute(azul::AzGl_drawElementsInstanced(
+                transmute(azul_dll::AzGl_drawElementsInstanced(
                     transmute(gl),
                     transmute(mode),
                     transmute(count),
@@ -13426,7 +13518,7 @@ mod dll {
         }
         pub(crate) fn AzGl_blendColor(gl: &AzGl, r: f32, g: f32, b: f32, a: f32) {
             unsafe {
-                transmute(azul::AzGl_blendColor(
+                transmute(azul_dll::AzGl_blendColor(
                     transmute(gl),
                     transmute(r),
                     transmute(g),
@@ -13437,7 +13529,7 @@ mod dll {
         }
         pub(crate) fn AzGl_blendFunc(gl: &AzGl, sfactor: u32, dfactor: u32) {
             unsafe {
-                transmute(azul::AzGl_blendFunc(
+                transmute(azul_dll::AzGl_blendFunc(
                     transmute(gl),
                     transmute(sfactor),
                     transmute(dfactor),
@@ -13452,7 +13544,7 @@ mod dll {
             dest_alpha: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_blendFuncSeparate(
+                transmute(azul_dll::AzGl_blendFuncSeparate(
                     transmute(gl),
                     transmute(src_rgb),
                     transmute(dest_rgb),
@@ -13462,11 +13554,11 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_blendEquation(gl: &AzGl, mode: u32) {
-            unsafe { transmute(azul::AzGl_blendEquation(transmute(gl), transmute(mode))) }
+            unsafe { transmute(azul_dll::AzGl_blendEquation(transmute(gl), transmute(mode))) }
         }
         pub(crate) fn AzGl_blendEquationSeparate(gl: &AzGl, mode_rgb: u32, mode_alpha: u32) {
             unsafe {
-                transmute(azul::AzGl_blendEquationSeparate(
+                transmute(azul_dll::AzGl_blendEquationSeparate(
                     transmute(gl),
                     transmute(mode_rgb),
                     transmute(mode_alpha),
@@ -13475,7 +13567,7 @@ mod dll {
         }
         pub(crate) fn AzGl_colorMask(gl: &AzGl, r: bool, g: bool, b: bool, a: bool) {
             unsafe {
-                transmute(azul::AzGl_colorMask(
+                transmute(azul_dll::AzGl_colorMask(
                     transmute(gl),
                     transmute(r),
                     transmute(g),
@@ -13485,20 +13577,20 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_cullFace(gl: &AzGl, mode: u32) {
-            unsafe { transmute(azul::AzGl_cullFace(transmute(gl), transmute(mode))) }
+            unsafe { transmute(azul_dll::AzGl_cullFace(transmute(gl), transmute(mode))) }
         }
         pub(crate) fn AzGl_frontFace(gl: &AzGl, mode: u32) {
-            unsafe { transmute(azul::AzGl_frontFace(transmute(gl), transmute(mode))) }
+            unsafe { transmute(azul_dll::AzGl_frontFace(transmute(gl), transmute(mode))) }
         }
         pub(crate) fn AzGl_enable(gl: &AzGl, cap: u32) {
-            unsafe { transmute(azul::AzGl_enable(transmute(gl), transmute(cap))) }
+            unsafe { transmute(azul_dll::AzGl_enable(transmute(gl), transmute(cap))) }
         }
         pub(crate) fn AzGl_disable(gl: &AzGl, cap: u32) {
-            unsafe { transmute(azul::AzGl_disable(transmute(gl), transmute(cap))) }
+            unsafe { transmute(azul_dll::AzGl_disable(transmute(gl), transmute(cap))) }
         }
         pub(crate) fn AzGl_hint(gl: &AzGl, param_name: u32, param_val: u32) {
             unsafe {
-                transmute(azul::AzGl_hint(
+                transmute(azul_dll::AzGl_hint(
                     transmute(gl),
                     transmute(param_name),
                     transmute(param_val),
@@ -13506,17 +13598,17 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_isEnabled(gl: &AzGl, cap: u32) -> u8 {
-            unsafe { transmute(azul::AzGl_isEnabled(transmute(gl), transmute(cap))) }
+            unsafe { transmute(azul_dll::AzGl_isEnabled(transmute(gl), transmute(cap))) }
         }
         pub(crate) fn AzGl_isShader(gl: &AzGl, shader: u32) -> u8 {
-            unsafe { transmute(azul::AzGl_isShader(transmute(gl), transmute(shader))) }
+            unsafe { transmute(azul_dll::AzGl_isShader(transmute(gl), transmute(shader))) }
         }
         pub(crate) fn AzGl_isTexture(gl: &AzGl, texture: u32) -> u8 {
-            unsafe { transmute(azul::AzGl_isTexture(transmute(gl), transmute(texture))) }
+            unsafe { transmute(azul_dll::AzGl_isTexture(transmute(gl), transmute(texture))) }
         }
         pub(crate) fn AzGl_isFramebuffer(gl: &AzGl, framebuffer: u32) -> u8 {
             unsafe {
-                transmute(azul::AzGl_isFramebuffer(
+                transmute(azul_dll::AzGl_isFramebuffer(
                     transmute(gl),
                     transmute(framebuffer),
                 ))
@@ -13524,7 +13616,7 @@ mod dll {
         }
         pub(crate) fn AzGl_isRenderbuffer(gl: &AzGl, renderbuffer: u32) -> u8 {
             unsafe {
-                transmute(azul::AzGl_isRenderbuffer(
+                transmute(azul_dll::AzGl_isRenderbuffer(
                     transmute(gl),
                     transmute(renderbuffer),
                 ))
@@ -13532,7 +13624,7 @@ mod dll {
         }
         pub(crate) fn AzGl_checkFrameBufferStatus(gl: &AzGl, target: u32) -> u32 {
             unsafe {
-                transmute(azul::AzGl_checkFrameBufferStatus(
+                transmute(azul_dll::AzGl_checkFrameBufferStatus(
                     transmute(gl),
                     transmute(target),
                 ))
@@ -13540,7 +13632,7 @@ mod dll {
         }
         pub(crate) fn AzGl_enableVertexAttribArray(gl: &AzGl, index: u32) {
             unsafe {
-                transmute(azul::AzGl_enableVertexAttribArray(
+                transmute(azul_dll::AzGl_enableVertexAttribArray(
                     transmute(gl),
                     transmute(index),
                 ))
@@ -13548,7 +13640,7 @@ mod dll {
         }
         pub(crate) fn AzGl_disableVertexAttribArray(gl: &AzGl, index: u32) {
             unsafe {
-                transmute(azul::AzGl_disableVertexAttribArray(
+                transmute(azul_dll::AzGl_disableVertexAttribArray(
                     transmute(gl),
                     transmute(index),
                 ))
@@ -13556,7 +13648,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform1F(gl: &AzGl, location: i32, v0: f32) {
             unsafe {
-                transmute(azul::AzGl_uniform1F(
+                transmute(azul_dll::AzGl_uniform1F(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13565,7 +13657,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform1Fv(gl: &AzGl, location: i32, values: AzF32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform1Fv(
+                transmute(azul_dll::AzGl_uniform1Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13574,7 +13666,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform1I(gl: &AzGl, location: i32, v0: i32) {
             unsafe {
-                transmute(azul::AzGl_uniform1I(
+                transmute(azul_dll::AzGl_uniform1I(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13583,7 +13675,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform1Iv(gl: &AzGl, location: i32, values: AzI32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform1Iv(
+                transmute(azul_dll::AzGl_uniform1Iv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13592,7 +13684,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform1Ui(gl: &AzGl, location: i32, v0: u32) {
             unsafe {
-                transmute(azul::AzGl_uniform1Ui(
+                transmute(azul_dll::AzGl_uniform1Ui(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13601,7 +13693,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform2F(gl: &AzGl, location: i32, v0: f32, v1: f32) {
             unsafe {
-                transmute(azul::AzGl_uniform2F(
+                transmute(azul_dll::AzGl_uniform2F(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13611,7 +13703,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform2Fv(gl: &AzGl, location: i32, values: AzF32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform2Fv(
+                transmute(azul_dll::AzGl_uniform2Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13620,7 +13712,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform2I(gl: &AzGl, location: i32, v0: i32, v1: i32) {
             unsafe {
-                transmute(azul::AzGl_uniform2I(
+                transmute(azul_dll::AzGl_uniform2I(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13630,7 +13722,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform2Iv(gl: &AzGl, location: i32, values: AzI32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform2Iv(
+                transmute(azul_dll::AzGl_uniform2Iv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13639,7 +13731,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform2Ui(gl: &AzGl, location: i32, v0: u32, v1: u32) {
             unsafe {
-                transmute(azul::AzGl_uniform2Ui(
+                transmute(azul_dll::AzGl_uniform2Ui(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13649,7 +13741,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform3F(gl: &AzGl, location: i32, v0: f32, v1: f32, v2: f32) {
             unsafe {
-                transmute(azul::AzGl_uniform3F(
+                transmute(azul_dll::AzGl_uniform3F(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13660,7 +13752,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform3Fv(gl: &AzGl, location: i32, values: AzF32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform3Fv(
+                transmute(azul_dll::AzGl_uniform3Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13669,7 +13761,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform3I(gl: &AzGl, location: i32, v0: i32, v1: i32, v2: i32) {
             unsafe {
-                transmute(azul::AzGl_uniform3I(
+                transmute(azul_dll::AzGl_uniform3I(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13680,7 +13772,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform3Iv(gl: &AzGl, location: i32, values: AzI32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform3Iv(
+                transmute(azul_dll::AzGl_uniform3Iv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13689,7 +13781,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform3Ui(gl: &AzGl, location: i32, v0: u32, v1: u32, v2: u32) {
             unsafe {
-                transmute(azul::AzGl_uniform3Ui(
+                transmute(azul_dll::AzGl_uniform3Ui(
                     transmute(gl),
                     transmute(location),
                     transmute(v0),
@@ -13700,7 +13792,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform4F(gl: &AzGl, location: i32, x: f32, y: f32, z: f32, w: f32) {
             unsafe {
-                transmute(azul::AzGl_uniform4F(
+                transmute(azul_dll::AzGl_uniform4F(
                     transmute(gl),
                     transmute(location),
                     transmute(x),
@@ -13712,7 +13804,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform4I(gl: &AzGl, location: i32, x: i32, y: i32, z: i32, w: i32) {
             unsafe {
-                transmute(azul::AzGl_uniform4I(
+                transmute(azul_dll::AzGl_uniform4I(
                     transmute(gl),
                     transmute(location),
                     transmute(x),
@@ -13724,7 +13816,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform4Iv(gl: &AzGl, location: i32, values: AzI32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform4Iv(
+                transmute(azul_dll::AzGl_uniform4Iv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13733,7 +13825,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform4Ui(gl: &AzGl, location: i32, x: u32, y: u32, z: u32, w: u32) {
             unsafe {
-                transmute(azul::AzGl_uniform4Ui(
+                transmute(azul_dll::AzGl_uniform4Ui(
                     transmute(gl),
                     transmute(location),
                     transmute(x),
@@ -13745,7 +13837,7 @@ mod dll {
         }
         pub(crate) fn AzGl_uniform4Fv(gl: &AzGl, location: i32, values: AzF32VecRef) {
             unsafe {
-                transmute(azul::AzGl_uniform4Fv(
+                transmute(azul_dll::AzGl_uniform4Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(values),
@@ -13759,7 +13851,7 @@ mod dll {
             value: AzF32VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_uniformMatrix2Fv(
+                transmute(azul_dll::AzGl_uniformMatrix2Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(transpose),
@@ -13774,7 +13866,7 @@ mod dll {
             value: AzF32VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_uniformMatrix3Fv(
+                transmute(azul_dll::AzGl_uniformMatrix3Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(transpose),
@@ -13789,7 +13881,7 @@ mod dll {
             value: AzF32VecRef,
         ) {
             unsafe {
-                transmute(azul::AzGl_uniformMatrix4Fv(
+                transmute(azul_dll::AzGl_uniformMatrix4Fv(
                     transmute(gl),
                     transmute(location),
                     transmute(transpose),
@@ -13798,11 +13890,11 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_depthMask(gl: &AzGl, flag: bool) {
-            unsafe { transmute(azul::AzGl_depthMask(transmute(gl), transmute(flag))) }
+            unsafe { transmute(azul_dll::AzGl_depthMask(transmute(gl), transmute(flag))) }
         }
         pub(crate) fn AzGl_depthRange(gl: &AzGl, near: f64, far: f64) {
             unsafe {
-                transmute(azul::AzGl_depthRange(
+                transmute(azul_dll::AzGl_depthRange(
                     transmute(gl),
                     transmute(near),
                     transmute(far),
@@ -13815,7 +13907,7 @@ mod dll {
             index: u32,
         ) -> AzGetActiveAttribReturn {
             unsafe {
-                transmute(azul::AzGl_getActiveAttrib(
+                transmute(azul_dll::AzGl_getActiveAttrib(
                     transmute(gl),
                     transmute(program),
                     transmute(index),
@@ -13828,7 +13920,7 @@ mod dll {
             index: u32,
         ) -> AzGetActiveUniformReturn {
             unsafe {
-                transmute(azul::AzGl_getActiveUniform(
+                transmute(azul_dll::AzGl_getActiveUniform(
                     transmute(gl),
                     transmute(program),
                     transmute(index),
@@ -13842,7 +13934,7 @@ mod dll {
             pname: u32,
         ) -> AzGLintVec {
             unsafe {
-                transmute(azul::AzGl_getActiveUniformsIv(
+                transmute(azul_dll::AzGl_getActiveUniformsIv(
                     transmute(gl),
                     transmute(program),
                     transmute(indices),
@@ -13857,7 +13949,7 @@ mod dll {
             pname: u32,
         ) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getActiveUniformBlockI(
+                transmute(azul_dll::AzGl_getActiveUniformBlockI(
                     transmute(gl),
                     transmute(program),
                     transmute(index),
@@ -13872,7 +13964,7 @@ mod dll {
             pname: u32,
         ) -> AzGLintVec {
             unsafe {
-                transmute(azul::AzGl_getActiveUniformBlockIv(
+                transmute(azul_dll::AzGl_getActiveUniformBlockIv(
                     transmute(gl),
                     transmute(program),
                     transmute(index),
@@ -13886,7 +13978,7 @@ mod dll {
             index: u32,
         ) -> AzString {
             unsafe {
-                transmute(azul::AzGl_getActiveUniformBlockName(
+                transmute(azul_dll::AzGl_getActiveUniformBlockName(
                     transmute(gl),
                     transmute(program),
                     transmute(index),
@@ -13895,7 +13987,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getAttribLocation(gl: &AzGl, program: u32, name: AzRefstr) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getAttribLocation(
+                transmute(azul_dll::AzGl_getAttribLocation(
                     transmute(gl),
                     transmute(program),
                     transmute(name),
@@ -13904,7 +13996,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getFragDataLocation(gl: &AzGl, program: u32, name: AzRefstr) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getFragDataLocation(
+                transmute(azul_dll::AzGl_getFragDataLocation(
                     transmute(gl),
                     transmute(program),
                     transmute(name),
@@ -13913,7 +14005,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getUniformLocation(gl: &AzGl, program: u32, name: AzRefstr) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getUniformLocation(
+                transmute(azul_dll::AzGl_getUniformLocation(
                     transmute(gl),
                     transmute(program),
                     transmute(name),
@@ -13922,7 +14014,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getProgramInfoLog(gl: &AzGl, program: u32) -> AzString {
             unsafe {
-                transmute(azul::AzGl_getProgramInfoLog(
+                transmute(azul_dll::AzGl_getProgramInfoLog(
                     transmute(gl),
                     transmute(program),
                 ))
@@ -13935,7 +14027,7 @@ mod dll {
             result: AzGLintVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getProgramIv(
+                transmute(azul_dll::AzGl_getProgramIv(
                     transmute(gl),
                     transmute(program),
                     transmute(pname),
@@ -13945,7 +14037,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getProgramBinary(gl: &AzGl, program: u32) -> AzGetProgramBinaryReturn {
             unsafe {
-                transmute(azul::AzGl_getProgramBinary(
+                transmute(azul_dll::AzGl_getProgramBinary(
                     transmute(gl),
                     transmute(program),
                 ))
@@ -13953,7 +14045,7 @@ mod dll {
         }
         pub(crate) fn AzGl_programBinary(gl: &AzGl, program: u32, format: u32, binary: AzU8VecRef) {
             unsafe {
-                transmute(azul::AzGl_programBinary(
+                transmute(azul_dll::AzGl_programBinary(
                     transmute(gl),
                     transmute(program),
                     transmute(format),
@@ -13963,7 +14055,7 @@ mod dll {
         }
         pub(crate) fn AzGl_programParameterI(gl: &AzGl, program: u32, pname: u32, value: i32) {
             unsafe {
-                transmute(azul::AzGl_programParameterI(
+                transmute(azul_dll::AzGl_programParameterI(
                     transmute(gl),
                     transmute(program),
                     transmute(pname),
@@ -13978,7 +14070,7 @@ mod dll {
             result: AzGLintVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getVertexAttribIv(
+                transmute(azul_dll::AzGl_getVertexAttribIv(
                     transmute(gl),
                     transmute(index),
                     transmute(pname),
@@ -13993,7 +14085,7 @@ mod dll {
             result: AzGLfloatVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getVertexAttribFv(
+                transmute(azul_dll::AzGl_getVertexAttribFv(
                     transmute(gl),
                     transmute(index),
                     transmute(pname),
@@ -14003,7 +14095,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getVertexAttribPointerV(gl: &AzGl, index: u32, pname: u32) -> isize {
             unsafe {
-                transmute(azul::AzGl_getVertexAttribPointerV(
+                transmute(azul_dll::AzGl_getVertexAttribPointerV(
                     transmute(gl),
                     transmute(index),
                     transmute(pname),
@@ -14012,7 +14104,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getBufferParameterIv(gl: &AzGl, target: u32, pname: u32) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getBufferParameterIv(
+                transmute(azul_dll::AzGl_getBufferParameterIv(
                     transmute(gl),
                     transmute(target),
                     transmute(pname),
@@ -14021,18 +14113,18 @@ mod dll {
         }
         pub(crate) fn AzGl_getShaderInfoLog(gl: &AzGl, shader: u32) -> AzString {
             unsafe {
-                transmute(azul::AzGl_getShaderInfoLog(
+                transmute(azul_dll::AzGl_getShaderInfoLog(
                     transmute(gl),
                     transmute(shader),
                 ))
             }
         }
         pub(crate) fn AzGl_getString(gl: &AzGl, which: u32) -> AzString {
-            unsafe { transmute(azul::AzGl_getString(transmute(gl), transmute(which))) }
+            unsafe { transmute(azul_dll::AzGl_getString(transmute(gl), transmute(which))) }
         }
         pub(crate) fn AzGl_getStringI(gl: &AzGl, which: u32, index: u32) -> AzString {
             unsafe {
-                transmute(azul::AzGl_getStringI(
+                transmute(azul_dll::AzGl_getStringI(
                     transmute(gl),
                     transmute(which),
                     transmute(index),
@@ -14046,7 +14138,7 @@ mod dll {
             result: AzGLintVecRefMut,
         ) {
             unsafe {
-                transmute(azul::AzGl_getShaderIv(
+                transmute(azul_dll::AzGl_getShaderIv(
                     transmute(gl),
                     transmute(shader),
                     transmute(pname),
@@ -14060,7 +14152,7 @@ mod dll {
             precision_type: u32,
         ) -> AzGlShaderPrecisionFormatReturn {
             unsafe {
-                transmute(azul::AzGl_getShaderPrecisionFormat(
+                transmute(azul_dll::AzGl_getShaderPrecisionFormat(
                     transmute(gl),
                     transmute(shader_type),
                     transmute(precision_type),
@@ -14068,28 +14160,43 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_compileShader(gl: &AzGl, shader: u32) {
-            unsafe { transmute(azul::AzGl_compileShader(transmute(gl), transmute(shader))) }
+            unsafe {
+                transmute(azul_dll::AzGl_compileShader(
+                    transmute(gl),
+                    transmute(shader),
+                ))
+            }
         }
         pub(crate) fn AzGl_createProgram(gl: &AzGl) -> u32 {
-            unsafe { transmute(azul::AzGl_createProgram(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_createProgram(transmute(gl))) }
         }
         pub(crate) fn AzGl_deleteProgram(gl: &AzGl, program: u32) {
-            unsafe { transmute(azul::AzGl_deleteProgram(transmute(gl), transmute(program))) }
+            unsafe {
+                transmute(azul_dll::AzGl_deleteProgram(
+                    transmute(gl),
+                    transmute(program),
+                ))
+            }
         }
         pub(crate) fn AzGl_createShader(gl: &AzGl, shader_type: u32) -> u32 {
             unsafe {
-                transmute(azul::AzGl_createShader(
+                transmute(azul_dll::AzGl_createShader(
                     transmute(gl),
                     transmute(shader_type),
                 ))
             }
         }
         pub(crate) fn AzGl_deleteShader(gl: &AzGl, shader: u32) {
-            unsafe { transmute(azul::AzGl_deleteShader(transmute(gl), transmute(shader))) }
+            unsafe {
+                transmute(azul_dll::AzGl_deleteShader(
+                    transmute(gl),
+                    transmute(shader),
+                ))
+            }
         }
         pub(crate) fn AzGl_detachShader(gl: &AzGl, program: u32, shader: u32) {
             unsafe {
-                transmute(azul::AzGl_detachShader(
+                transmute(azul_dll::AzGl_detachShader(
                     transmute(gl),
                     transmute(program),
                     transmute(shader),
@@ -14097,11 +14204,16 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_linkProgram(gl: &AzGl, program: u32) {
-            unsafe { transmute(azul::AzGl_linkProgram(transmute(gl), transmute(program))) }
+            unsafe {
+                transmute(azul_dll::AzGl_linkProgram(
+                    transmute(gl),
+                    transmute(program),
+                ))
+            }
         }
         pub(crate) fn AzGl_clearColor(gl: &AzGl, r: f32, g: f32, b: f32, a: f32) {
             unsafe {
-                transmute(azul::AzGl_clearColor(
+                transmute(azul_dll::AzGl_clearColor(
                     transmute(gl),
                     transmute(r),
                     transmute(g),
@@ -14111,29 +14223,29 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_clear(gl: &AzGl, buffer_mask: u32) {
-            unsafe { transmute(azul::AzGl_clear(transmute(gl), transmute(buffer_mask))) }
+            unsafe { transmute(azul_dll::AzGl_clear(transmute(gl), transmute(buffer_mask))) }
         }
         pub(crate) fn AzGl_clearDepth(gl: &AzGl, depth: f64) {
-            unsafe { transmute(azul::AzGl_clearDepth(transmute(gl), transmute(depth))) }
+            unsafe { transmute(azul_dll::AzGl_clearDepth(transmute(gl), transmute(depth))) }
         }
         pub(crate) fn AzGl_clearStencil(gl: &AzGl, s: i32) {
-            unsafe { transmute(azul::AzGl_clearStencil(transmute(gl), transmute(s))) }
+            unsafe { transmute(azul_dll::AzGl_clearStencil(transmute(gl), transmute(s))) }
         }
         pub(crate) fn AzGl_flush(gl: &AzGl) {
-            unsafe { transmute(azul::AzGl_flush(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_flush(transmute(gl))) }
         }
         pub(crate) fn AzGl_finish(gl: &AzGl) {
-            unsafe { transmute(azul::AzGl_finish(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_finish(transmute(gl))) }
         }
         pub(crate) fn AzGl_getError(gl: &AzGl) -> u32 {
-            unsafe { transmute(azul::AzGl_getError(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_getError(transmute(gl))) }
         }
         pub(crate) fn AzGl_stencilMask(gl: &AzGl, mask: u32) {
-            unsafe { transmute(azul::AzGl_stencilMask(transmute(gl), transmute(mask))) }
+            unsafe { transmute(azul_dll::AzGl_stencilMask(transmute(gl), transmute(mask))) }
         }
         pub(crate) fn AzGl_stencilMaskSeparate(gl: &AzGl, face: u32, mask: u32) {
             unsafe {
-                transmute(azul::AzGl_stencilMaskSeparate(
+                transmute(azul_dll::AzGl_stencilMaskSeparate(
                     transmute(gl),
                     transmute(face),
                     transmute(mask),
@@ -14142,7 +14254,7 @@ mod dll {
         }
         pub(crate) fn AzGl_stencilFunc(gl: &AzGl, func: u32, ref_: i32, mask: u32) {
             unsafe {
-                transmute(azul::AzGl_stencilFunc(
+                transmute(azul_dll::AzGl_stencilFunc(
                     transmute(gl),
                     transmute(func),
                     transmute(ref_),
@@ -14158,7 +14270,7 @@ mod dll {
             mask: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_stencilFuncSeparate(
+                transmute(azul_dll::AzGl_stencilFuncSeparate(
                     transmute(gl),
                     transmute(face),
                     transmute(func),
@@ -14169,7 +14281,7 @@ mod dll {
         }
         pub(crate) fn AzGl_stencilOp(gl: &AzGl, sfail: u32, dpfail: u32, dppass: u32) {
             unsafe {
-                transmute(azul::AzGl_stencilOp(
+                transmute(azul_dll::AzGl_stencilOp(
                     transmute(gl),
                     transmute(sfail),
                     transmute(dpfail),
@@ -14185,7 +14297,7 @@ mod dll {
             dppass: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_stencilOpSeparate(
+                transmute(azul_dll::AzGl_stencilOpSeparate(
                     transmute(gl),
                     transmute(face),
                     transmute(sfail),
@@ -14200,7 +14312,7 @@ mod dll {
             image: AzGlVoidPtrConst,
         ) {
             unsafe {
-                transmute(azul::AzGl_eglImageTargetTexture2DOes(
+                transmute(azul_dll::AzGl_eglImageTargetTexture2DOes(
                     transmute(gl),
                     transmute(target),
                     transmute(image),
@@ -14208,11 +14320,16 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_generateMipmap(gl: &AzGl, target: u32) {
-            unsafe { transmute(azul::AzGl_generateMipmap(transmute(gl), transmute(target))) }
+            unsafe {
+                transmute(azul_dll::AzGl_generateMipmap(
+                    transmute(gl),
+                    transmute(target),
+                ))
+            }
         }
         pub(crate) fn AzGl_insertEventMarkerExt(gl: &AzGl, message: AzRefstr) {
             unsafe {
-                transmute(azul::AzGl_insertEventMarkerExt(
+                transmute(azul_dll::AzGl_insertEventMarkerExt(
                     transmute(gl),
                     transmute(message),
                 ))
@@ -14220,14 +14337,14 @@ mod dll {
         }
         pub(crate) fn AzGl_pushGroupMarkerExt(gl: &AzGl, message: AzRefstr) {
             unsafe {
-                transmute(azul::AzGl_pushGroupMarkerExt(
+                transmute(azul_dll::AzGl_pushGroupMarkerExt(
                     transmute(gl),
                     transmute(message),
                 ))
             }
         }
         pub(crate) fn AzGl_popGroupMarkerExt(gl: &AzGl) {
-            unsafe { transmute(azul::AzGl_popGroupMarkerExt(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_popGroupMarkerExt(transmute(gl))) }
         }
         pub(crate) fn AzGl_debugMessageInsertKhr(
             gl: &AzGl,
@@ -14238,7 +14355,7 @@ mod dll {
             message: AzRefstr,
         ) {
             unsafe {
-                transmute(azul::AzGl_debugMessageInsertKhr(
+                transmute(azul_dll::AzGl_debugMessageInsertKhr(
                     transmute(gl),
                     transmute(source),
                     transmute(type_),
@@ -14250,7 +14367,7 @@ mod dll {
         }
         pub(crate) fn AzGl_pushDebugGroupKhr(gl: &AzGl, source: u32, id: u32, message: AzRefstr) {
             unsafe {
-                transmute(azul::AzGl_pushDebugGroupKhr(
+                transmute(azul_dll::AzGl_pushDebugGroupKhr(
                     transmute(gl),
                     transmute(source),
                     transmute(id),
@@ -14259,11 +14376,11 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_popDebugGroupKhr(gl: &AzGl) {
-            unsafe { transmute(azul::AzGl_popDebugGroupKhr(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_popDebugGroupKhr(transmute(gl))) }
         }
         pub(crate) fn AzGl_fenceSync(gl: &AzGl, condition: u32, flags: u32) -> AzGLsyncPtr {
             unsafe {
-                transmute(azul::AzGl_fenceSync(
+                transmute(azul_dll::AzGl_fenceSync(
                     transmute(gl),
                     transmute(condition),
                     transmute(flags),
@@ -14277,7 +14394,7 @@ mod dll {
             timeout: u64,
         ) -> u32 {
             unsafe {
-                transmute(azul::AzGl_clientWaitSync(
+                transmute(azul_dll::AzGl_clientWaitSync(
                     transmute(gl),
                     transmute(sync),
                     transmute(flags),
@@ -14287,7 +14404,7 @@ mod dll {
         }
         pub(crate) fn AzGl_waitSync(gl: &AzGl, sync: AzGLsyncPtr, flags: u32, timeout: u64) {
             unsafe {
-                transmute(azul::AzGl_waitSync(
+                transmute(azul_dll::AzGl_waitSync(
                     transmute(gl),
                     transmute(sync),
                     transmute(flags),
@@ -14296,11 +14413,11 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_deleteSync(gl: &AzGl, sync: AzGLsyncPtr) {
-            unsafe { transmute(azul::AzGl_deleteSync(transmute(gl), transmute(sync))) }
+            unsafe { transmute(azul_dll::AzGl_deleteSync(transmute(gl), transmute(sync))) }
         }
         pub(crate) fn AzGl_textureRangeApple(gl: &AzGl, target: u32, data: AzU8VecRef) {
             unsafe {
-                transmute(azul::AzGl_textureRangeApple(
+                transmute(azul_dll::AzGl_textureRangeApple(
                     transmute(gl),
                     transmute(target),
                     transmute(data),
@@ -14308,28 +14425,43 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_genFencesApple(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genFencesApple(transmute(gl), transmute(n))) }
+            unsafe { transmute(azul_dll::AzGl_genFencesApple(transmute(gl), transmute(n))) }
         }
         pub(crate) fn AzGl_deleteFencesApple(gl: &AzGl, fences: AzGLuintVecRef) {
             unsafe {
-                transmute(azul::AzGl_deleteFencesApple(
+                transmute(azul_dll::AzGl_deleteFencesApple(
                     transmute(gl),
                     transmute(fences),
                 ))
             }
         }
         pub(crate) fn AzGl_setFenceApple(gl: &AzGl, fence: u32) {
-            unsafe { transmute(azul::AzGl_setFenceApple(transmute(gl), transmute(fence))) }
+            unsafe {
+                transmute(azul_dll::AzGl_setFenceApple(
+                    transmute(gl),
+                    transmute(fence),
+                ))
+            }
         }
         pub(crate) fn AzGl_finishFenceApple(gl: &AzGl, fence: u32) {
-            unsafe { transmute(azul::AzGl_finishFenceApple(transmute(gl), transmute(fence))) }
+            unsafe {
+                transmute(azul_dll::AzGl_finishFenceApple(
+                    transmute(gl),
+                    transmute(fence),
+                ))
+            }
         }
         pub(crate) fn AzGl_testFenceApple(gl: &AzGl, fence: u32) {
-            unsafe { transmute(azul::AzGl_testFenceApple(transmute(gl), transmute(fence))) }
+            unsafe {
+                transmute(azul_dll::AzGl_testFenceApple(
+                    transmute(gl),
+                    transmute(fence),
+                ))
+            }
         }
         pub(crate) fn AzGl_testObjectApple(gl: &AzGl, object: u32, name: u32) -> u8 {
             unsafe {
-                transmute(azul::AzGl_testObjectApple(
+                transmute(azul_dll::AzGl_testObjectApple(
                     transmute(gl),
                     transmute(object),
                     transmute(name),
@@ -14338,7 +14470,7 @@ mod dll {
         }
         pub(crate) fn AzGl_finishObjectApple(gl: &AzGl, object: u32, name: u32) {
             unsafe {
-                transmute(azul::AzGl_finishObjectApple(
+                transmute(azul_dll::AzGl_finishObjectApple(
                     transmute(gl),
                     transmute(object),
                     transmute(name),
@@ -14347,7 +14479,7 @@ mod dll {
         }
         pub(crate) fn AzGl_getFragDataIndex(gl: &AzGl, program: u32, name: AzRefstr) -> i32 {
             unsafe {
-                transmute(azul::AzGl_getFragDataIndex(
+                transmute(azul_dll::AzGl_getFragDataIndex(
                     transmute(gl),
                     transmute(program),
                     transmute(name),
@@ -14355,7 +14487,7 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_blendBarrierKhr(gl: &AzGl) {
-            unsafe { transmute(azul::AzGl_blendBarrierKhr(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_blendBarrierKhr(transmute(gl))) }
         }
         pub(crate) fn AzGl_bindFragDataLocationIndexed(
             gl: &AzGl,
@@ -14365,7 +14497,7 @@ mod dll {
             name: AzRefstr,
         ) {
             unsafe {
-                transmute(azul::AzGl_bindFragDataLocationIndexed(
+                transmute(azul_dll::AzGl_bindFragDataLocationIndexed(
                     transmute(gl),
                     transmute(program),
                     transmute(color_number),
@@ -14375,22 +14507,27 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_getDebugMessages(gl: &AzGl) -> AzDebugMessageVec {
-            unsafe { transmute(azul::AzGl_getDebugMessages(transmute(gl))) }
+            unsafe { transmute(azul_dll::AzGl_getDebugMessages(transmute(gl))) }
         }
         pub(crate) fn AzGl_provokingVertexAngle(gl: &AzGl, mode: u32) {
             unsafe {
-                transmute(azul::AzGl_provokingVertexAngle(
+                transmute(azul_dll::AzGl_provokingVertexAngle(
                     transmute(gl),
                     transmute(mode),
                 ))
             }
         }
         pub(crate) fn AzGl_genVertexArraysApple(gl: &AzGl, n: i32) -> AzGLuintVec {
-            unsafe { transmute(azul::AzGl_genVertexArraysApple(transmute(gl), transmute(n))) }
+            unsafe {
+                transmute(azul_dll::AzGl_genVertexArraysApple(
+                    transmute(gl),
+                    transmute(n),
+                ))
+            }
         }
         pub(crate) fn AzGl_bindVertexArrayApple(gl: &AzGl, vao: u32) {
             unsafe {
-                transmute(azul::AzGl_bindVertexArrayApple(
+                transmute(azul_dll::AzGl_bindVertexArrayApple(
                     transmute(gl),
                     transmute(vao),
                 ))
@@ -14398,7 +14535,7 @@ mod dll {
         }
         pub(crate) fn AzGl_deleteVertexArraysApple(gl: &AzGl, vertex_arrays: AzGLuintVecRef) {
             unsafe {
-                transmute(azul::AzGl_deleteVertexArraysApple(
+                transmute(azul_dll::AzGl_deleteVertexArraysApple(
                     transmute(gl),
                     transmute(vertex_arrays),
                 ))
@@ -14418,7 +14555,7 @@ mod dll {
             unpack_unmultiply_alpha: u8,
         ) {
             unsafe {
-                transmute(azul::AzGl_copyTextureChromium(
+                transmute(azul_dll::AzGl_copyTextureChromium(
                     transmute(gl),
                     transmute(source_id),
                     transmute(source_level),
@@ -14451,7 +14588,7 @@ mod dll {
             unpack_unmultiply_alpha: u8,
         ) {
             unsafe {
-                transmute(azul::AzGl_copySubTextureChromium(
+                transmute(azul_dll::AzGl_copySubTextureChromium(
                     transmute(gl),
                     transmute(source_id),
                     transmute(source_level),
@@ -14476,7 +14613,7 @@ mod dll {
             image: AzGlVoidPtrConst,
         ) {
             unsafe {
-                transmute(azul::AzGl_eglImageTargetRenderbufferStorageOes(
+                transmute(azul_dll::AzGl_eglImageTargetRenderbufferStorageOes(
                     transmute(gl),
                     transmute(target),
                     transmute(image),
@@ -14497,7 +14634,7 @@ mod dll {
             unpack_unmultiply_alpha: u8,
         ) {
             unsafe {
-                transmute(azul::AzGl_copyTexture3DAngle(
+                transmute(azul_dll::AzGl_copyTexture3DAngle(
                     transmute(gl),
                     transmute(source_id),
                     transmute(source_level),
@@ -14533,7 +14670,7 @@ mod dll {
             unpack_unmultiply_alpha: u8,
         ) {
             unsafe {
-                transmute(azul::AzGl_copySubTexture3DAngle(
+                transmute(azul_dll::AzGl_copySubTexture3DAngle(
                     transmute(gl),
                     transmute(source_id),
                     transmute(source_level),
@@ -14563,7 +14700,7 @@ mod dll {
             flags: u32,
         ) {
             unsafe {
-                transmute(azul::AzGl_bufferStorage(
+                transmute(azul_dll::AzGl_bufferStorage(
                     transmute(gl),
                     transmute(target),
                     transmute(size),
@@ -14579,7 +14716,7 @@ mod dll {
             length: isize,
         ) {
             unsafe {
-                transmute(azul::AzGl_flushMappedBufferRange(
+                transmute(azul_dll::AzGl_flushMappedBufferRange(
                     transmute(gl),
                     transmute(target),
                     transmute(offset),
@@ -14588,10 +14725,10 @@ mod dll {
             }
         }
         pub(crate) fn AzGl_delete(object: &mut AzGl) {
-            unsafe { transmute(azul::AzGl_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGl_delete(transmute(object))) }
         }
         pub(crate) fn AzGl_deepCopy(object: &AzGl) -> AzGl {
-            unsafe { transmute(azul::AzGl_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGl_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzVertexArrayObject_new(
             vertex_layout: AzVertexLayout,
@@ -14599,7 +14736,7 @@ mod dll {
             gl_context: AzGl,
         ) -> AzVertexArrayObject {
             unsafe {
-                transmute(azul::AzVertexArrayObject_new(
+                transmute(azul_dll::AzVertexArrayObject_new(
                     transmute(vertex_layout),
                     transmute(vao_id),
                     transmute(gl_context),
@@ -14607,12 +14744,12 @@ mod dll {
             }
         }
         pub(crate) fn AzVertexArrayObject_delete(object: &mut AzVertexArrayObject) {
-            unsafe { transmute(azul::AzVertexArrayObject_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVertexArrayObject_delete(transmute(object))) }
         }
         pub(crate) fn AzVertexArrayObject_deepCopy(
             object: &AzVertexArrayObject,
         ) -> AzVertexArrayObject {
-            unsafe { transmute(azul::AzVertexArrayObject_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVertexArrayObject_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzVertexBuffer_new(
             vertex_buffer_id: u32,
@@ -14623,7 +14760,7 @@ mod dll {
             index_buffer_format: AzIndexBufferFormat,
         ) -> AzVertexBuffer {
             unsafe {
-                transmute(azul::AzVertexBuffer_new(
+                transmute(azul_dll::AzVertexBuffer_new(
                     transmute(vertex_buffer_id),
                     transmute(vertex_buffer_len),
                     transmute(vao),
@@ -14634,19 +14771,19 @@ mod dll {
             }
         }
         pub(crate) fn AzVertexBuffer_delete(object: &mut AzVertexBuffer) {
-            unsafe { transmute(azul::AzVertexBuffer_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVertexBuffer_delete(transmute(object))) }
         }
         pub(crate) fn AzVertexBuffer_deepCopy(object: &AzVertexBuffer) -> AzVertexBuffer {
-            unsafe { transmute(azul::AzVertexBuffer_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVertexBuffer_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzGLsyncPtr_delete(object: &mut AzGLsyncPtr) {
-            unsafe { transmute(azul::AzGLsyncPtr_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGLsyncPtr_delete(transmute(object))) }
         }
         pub(crate) fn AzGLsyncPtr_deepCopy(object: &AzGLsyncPtr) -> AzGLsyncPtr {
-            unsafe { transmute(azul::AzGLsyncPtr_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGLsyncPtr_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags {
-            unsafe { transmute(azul::AzTextureFlags_default()) }
+            unsafe { transmute(azul_dll::AzTextureFlags_default()) }
         }
         pub(crate) fn AzImageRef_nullImage(
             width: usize,
@@ -14655,7 +14792,7 @@ mod dll {
             tag: AzU8Vec,
         ) -> AzImageRef {
             unsafe {
-                transmute(azul::AzImageRef_nullImage(
+                transmute(azul_dll::AzImageRef_nullImage(
                     transmute(width),
                     transmute(height),
                     transmute(format),
@@ -14664,59 +14801,59 @@ mod dll {
             }
         }
         pub(crate) fn AzImageRef_rawImage(data: AzRawImage) -> AzOptionImageRef {
-            unsafe { transmute(azul::AzImageRef_rawImage(transmute(data))) }
+            unsafe { transmute(azul_dll::AzImageRef_rawImage(transmute(data))) }
         }
         pub(crate) fn AzImageRef_glTexture(texture: AzTexture) -> AzImageRef {
-            unsafe { transmute(azul::AzImageRef_glTexture(transmute(texture))) }
+            unsafe { transmute(azul_dll::AzImageRef_glTexture(transmute(texture))) }
         }
         pub(crate) fn AzImageRef_callback(
             data: AzRefAny,
             callback: AzRenderImageCallbackType,
         ) -> AzImageRef {
             unsafe {
-                transmute(azul::AzImageRef_callback(
+                transmute(azul_dll::AzImageRef_callback(
                     transmute(data),
                     transmute(callback),
                 ))
             }
         }
         pub(crate) fn AzImageRef_cloneBytes(imageref: &AzImageRef) -> AzImageRef {
-            unsafe { transmute(azul::AzImageRef_cloneBytes(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_cloneBytes(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_isInvalid(imageref: &AzImageRef) -> bool {
-            unsafe { transmute(azul::AzImageRef_isInvalid(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_isInvalid(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_isGlTexture(imageref: &AzImageRef) -> bool {
-            unsafe { transmute(azul::AzImageRef_isGlTexture(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_isGlTexture(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_isRawImage(imageref: &AzImageRef) -> bool {
-            unsafe { transmute(azul::AzImageRef_isRawImage(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_isRawImage(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_isCallback(imageref: &AzImageRef) -> bool {
-            unsafe { transmute(azul::AzImageRef_isCallback(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_isCallback(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_getRawImage(imageref: &AzImageRef) -> AzOptionRawImage {
-            unsafe { transmute(azul::AzImageRef_getRawImage(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_getRawImage(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_getHash(imageref: &AzImageRef) -> u64 {
-            unsafe { transmute(azul::AzImageRef_getHash(transmute(imageref))) }
+            unsafe { transmute(azul_dll::AzImageRef_getHash(transmute(imageref))) }
         }
         pub(crate) fn AzImageRef_delete(object: &mut AzImageRef) {
-            unsafe { transmute(azul::AzImageRef_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzImageRef_delete(transmute(object))) }
         }
         pub(crate) fn AzImageRef_deepCopy(object: &AzImageRef) -> AzImageRef {
-            unsafe { transmute(azul::AzImageRef_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzImageRef_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzRawImage_empty() -> AzRawImage {
-            unsafe { transmute(azul::AzRawImage_empty()) }
+            unsafe { transmute(azul_dll::AzRawImage_empty()) }
         }
         pub(crate) fn AzRawImage_allocateClipMask(size: AzLayoutSize) -> AzRawImage {
-            unsafe { transmute(azul::AzRawImage_allocateClipMask(transmute(size))) }
+            unsafe { transmute(azul_dll::AzRawImage_allocateClipMask(transmute(size))) }
         }
         pub(crate) fn AzRawImage_decodeImageBytesAny(
             bytes: AzU8VecRef,
         ) -> AzResultRawImageDecodeImageError {
-            unsafe { transmute(azul::AzRawImage_decodeImageBytesAny(transmute(bytes))) }
+            unsafe { transmute(azul_dll::AzRawImage_decodeImageBytesAny(transmute(bytes))) }
         }
         pub(crate) fn AzRawImage_drawClipMask(
             rawimage: &mut AzRawImage,
@@ -14724,7 +14861,7 @@ mod dll {
             style: AzSvgStyle,
         ) -> bool {
             unsafe {
-                transmute(azul::AzRawImage_drawClipMask(
+                transmute(azul_dll::AzRawImage_drawClipMask(
                     transmute(rawimage),
                     transmute(node),
                     transmute(style),
@@ -14732,48 +14869,52 @@ mod dll {
             }
         }
         pub(crate) fn AzRawImage_encodeBmp(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError {
-            unsafe { transmute(azul::AzRawImage_encodeBmp(transmute(rawimage))) }
+            unsafe { transmute(azul_dll::AzRawImage_encodeBmp(transmute(rawimage))) }
         }
         pub(crate) fn AzRawImage_encodePng(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError {
-            unsafe { transmute(azul::AzRawImage_encodePng(transmute(rawimage))) }
+            unsafe { transmute(azul_dll::AzRawImage_encodePng(transmute(rawimage))) }
         }
         pub(crate) fn AzRawImage_encodeJpeg(
             rawimage: &AzRawImage,
             quality: u8,
         ) -> AzResultU8VecEncodeImageError {
             unsafe {
-                transmute(azul::AzRawImage_encodeJpeg(
+                transmute(azul_dll::AzRawImage_encodeJpeg(
                     transmute(rawimage),
                     transmute(quality),
                 ))
             }
         }
         pub(crate) fn AzRawImage_encodeTga(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError {
-            unsafe { transmute(azul::AzRawImage_encodeTga(transmute(rawimage))) }
+            unsafe { transmute(azul_dll::AzRawImage_encodeTga(transmute(rawimage))) }
         }
         pub(crate) fn AzRawImage_encodePnm(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError {
-            unsafe { transmute(azul::AzRawImage_encodePnm(transmute(rawimage))) }
+            unsafe { transmute(azul_dll::AzRawImage_encodePnm(transmute(rawimage))) }
         }
         pub(crate) fn AzRawImage_encodeGif(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError {
-            unsafe { transmute(azul::AzRawImage_encodeGif(transmute(rawimage))) }
+            unsafe { transmute(azul_dll::AzRawImage_encodeGif(transmute(rawimage))) }
         }
         pub(crate) fn AzRawImage_encodeTiff(
             rawimage: &AzRawImage,
         ) -> AzResultU8VecEncodeImageError {
-            unsafe { transmute(azul::AzRawImage_encodeTiff(transmute(rawimage))) }
+            unsafe { transmute(azul_dll::AzRawImage_encodeTiff(transmute(rawimage))) }
         }
         pub(crate) fn AzFontMetrics_zero() -> AzFontMetrics {
-            unsafe { transmute(azul::AzFontMetrics_zero()) }
+            unsafe { transmute(azul_dll::AzFontMetrics_zero()) }
         }
         pub(crate) fn AzFontMetrics_useTypoMetrics(fontmetrics: &AzFontMetrics) -> bool {
-            unsafe { transmute(azul::AzFontMetrics_useTypoMetrics(transmute(fontmetrics))) }
+            unsafe {
+                transmute(azul_dll::AzFontMetrics_useTypoMetrics(transmute(
+                    fontmetrics,
+                )))
+            }
         }
         pub(crate) fn AzFontMetrics_getAscender(
             fontmetrics: &AzFontMetrics,
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getAscender(
+                transmute(azul_dll::AzFontMetrics_getAscender(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14784,7 +14925,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getDescender(
+                transmute(azul_dll::AzFontMetrics_getDescender(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14795,7 +14936,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getLineGap(
+                transmute(azul_dll::AzFontMetrics_getLineGap(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14806,7 +14947,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getXMin(
+                transmute(azul_dll::AzFontMetrics_getXMin(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14817,7 +14958,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYMin(
+                transmute(azul_dll::AzFontMetrics_getYMin(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14828,7 +14969,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getXMax(
+                transmute(azul_dll::AzFontMetrics_getXMax(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14839,7 +14980,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYMax(
+                transmute(azul_dll::AzFontMetrics_getYMax(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14850,7 +14991,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getAdvanceWidthMax(
+                transmute(azul_dll::AzFontMetrics_getAdvanceWidthMax(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14861,7 +15002,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getMinLeftSideBearing(
+                transmute(azul_dll::AzFontMetrics_getMinLeftSideBearing(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14872,7 +15013,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getMinRightSideBearing(
+                transmute(azul_dll::AzFontMetrics_getMinRightSideBearing(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14883,7 +15024,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getXMaxExtent(
+                transmute(azul_dll::AzFontMetrics_getXMaxExtent(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14894,7 +15035,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getXAvgCharWidth(
+                transmute(azul_dll::AzFontMetrics_getXAvgCharWidth(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14905,7 +15046,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSubscriptXSize(
+                transmute(azul_dll::AzFontMetrics_getYSubscriptXSize(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14916,7 +15057,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSubscriptYSize(
+                transmute(azul_dll::AzFontMetrics_getYSubscriptYSize(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14927,7 +15068,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSubscriptXOffset(
+                transmute(azul_dll::AzFontMetrics_getYSubscriptXOffset(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14938,7 +15079,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSubscriptYOffset(
+                transmute(azul_dll::AzFontMetrics_getYSubscriptYOffset(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14949,7 +15090,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSuperscriptXSize(
+                transmute(azul_dll::AzFontMetrics_getYSuperscriptXSize(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14960,7 +15101,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSuperscriptYSize(
+                transmute(azul_dll::AzFontMetrics_getYSuperscriptYSize(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14971,7 +15112,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSuperscriptXOffset(
+                transmute(azul_dll::AzFontMetrics_getYSuperscriptXOffset(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14982,7 +15123,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYSuperscriptYOffset(
+                transmute(azul_dll::AzFontMetrics_getYSuperscriptYOffset(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -14993,7 +15134,7 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYStrikeoutSize(
+                transmute(azul_dll::AzFontMetrics_getYStrikeoutSize(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
@@ -15004,20 +15145,20 @@ mod dll {
             target_font_size: f32,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzFontMetrics_getYStrikeoutPosition(
+                transmute(azul_dll::AzFontMetrics_getYStrikeoutPosition(
                     transmute(fontmetrics),
                     transmute(target_font_size),
                 ))
             }
         }
         pub(crate) fn AzFontRef_parse(source: AzFontSource) -> AzOptionFontRef {
-            unsafe { transmute(azul::AzFontRef_parse(transmute(source))) }
+            unsafe { transmute(azul_dll::AzFontRef_parse(transmute(source))) }
         }
         pub(crate) fn AzFontRef_getBytes(fontref: &AzFontRef) -> AzU8Vec {
-            unsafe { transmute(azul::AzFontRef_getBytes(transmute(fontref))) }
+            unsafe { transmute(azul_dll::AzFontRef_getBytes(transmute(fontref))) }
         }
         pub(crate) fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics {
-            unsafe { transmute(azul::AzFontRef_getFontMetrics(transmute(fontref))) }
+            unsafe { transmute(azul_dll::AzFontRef_getFontMetrics(transmute(fontref))) }
         }
         pub(crate) fn AzFontRef_shapeText(
             fontref: &AzFontRef,
@@ -15025,7 +15166,7 @@ mod dll {
             options: AzResolvedTextLayoutOptions,
         ) -> AzInlineText {
             unsafe {
-                transmute(azul::AzFontRef_shapeText(
+                transmute(azul_dll::AzFontRef_shapeText(
                     transmute(fontref),
                     transmute(text),
                     transmute(options),
@@ -15033,20 +15174,20 @@ mod dll {
             }
         }
         pub(crate) fn AzFontRef_getHash(fontref: &AzFontRef) -> u64 {
-            unsafe { transmute(azul::AzFontRef_getHash(transmute(fontref))) }
+            unsafe { transmute(azul_dll::AzFontRef_getHash(transmute(fontref))) }
         }
         pub(crate) fn AzFontRef_delete(object: &mut AzFontRef) {
-            unsafe { transmute(azul::AzFontRef_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzFontRef_delete(transmute(object))) }
         }
         pub(crate) fn AzFontRef_deepCopy(object: &AzFontRef) -> AzFontRef {
-            unsafe { transmute(azul::AzFontRef_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzFontRef_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzSvg_fromString(
             svg_string: AzString,
             parse_options: AzSvgParseOptions,
         ) -> AzResultSvgSvgParseError {
             unsafe {
-                transmute(azul::AzSvg_fromString(
+                transmute(azul_dll::AzSvg_fromString(
                     transmute(svg_string),
                     transmute(parse_options),
                 ))
@@ -15057,49 +15198,49 @@ mod dll {
             parse_options: AzSvgParseOptions,
         ) -> AzResultSvgSvgParseError {
             unsafe {
-                transmute(azul::AzSvg_fromBytes(
+                transmute(azul_dll::AzSvg_fromBytes(
                     transmute(svg_bytes),
                     transmute(parse_options),
                 ))
             }
         }
         pub(crate) fn AzSvg_getRoot(svg: &AzSvg) -> AzSvgXmlNode {
-            unsafe { transmute(azul::AzSvg_getRoot(transmute(svg))) }
+            unsafe { transmute(azul_dll::AzSvg_getRoot(transmute(svg))) }
         }
         pub(crate) fn AzSvg_render(svg: &AzSvg, options: AzSvgRenderOptions) -> AzOptionRawImage {
-            unsafe { transmute(azul::AzSvg_render(transmute(svg), transmute(options))) }
+            unsafe { transmute(azul_dll::AzSvg_render(transmute(svg), transmute(options))) }
         }
         pub(crate) fn AzSvg_toString(svg: &AzSvg, options: AzSvgStringFormatOptions) -> AzString {
-            unsafe { transmute(azul::AzSvg_toString(transmute(svg), transmute(options))) }
+            unsafe { transmute(azul_dll::AzSvg_toString(transmute(svg), transmute(options))) }
         }
         pub(crate) fn AzSvg_delete(object: &mut AzSvg) {
-            unsafe { transmute(azul::AzSvg_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvg_delete(transmute(object))) }
         }
         pub(crate) fn AzSvg_deepCopy(object: &AzSvg) -> AzSvg {
-            unsafe { transmute(azul::AzSvg_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvg_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzSvgXmlNode_parseFrom(
             svg_bytes: AzU8VecRef,
             parse_options: AzSvgParseOptions,
         ) -> AzResultSvgXmlNodeSvgParseError {
             unsafe {
-                transmute(azul::AzSvgXmlNode_parseFrom(
+                transmute(azul_dll::AzSvgXmlNode_parseFrom(
                     transmute(svg_bytes),
                     transmute(parse_options),
                 ))
             }
         }
         pub(crate) fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {
-            unsafe { transmute(azul::AzSvgXmlNode_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgXmlNode_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgXmlNode_deepCopy(object: &AzSvgXmlNode) -> AzSvgXmlNode {
-            unsafe { transmute(azul::AzSvgXmlNode_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgXmlNode_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzSvgMultiPolygon_getBounds(
             svgmultipolygon: &AzSvgMultiPolygon,
         ) -> AzSvgRect {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_getBounds(transmute(
+                transmute(azul_dll::AzSvgMultiPolygon_getBounds(transmute(
                     svgmultipolygon,
                 )))
             }
@@ -15111,7 +15252,7 @@ mod dll {
             tolerance: f32,
         ) -> bool {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_containsPoint(
+                transmute(azul_dll::AzSvgMultiPolygon_containsPoint(
                     transmute(svgmultipolygon),
                     transmute(point),
                     transmute(fill_rule),
@@ -15124,7 +15265,7 @@ mod dll {
             other: AzSvgMultiPolygon,
         ) -> AzSvgMultiPolygon {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_union(
+                transmute(azul_dll::AzSvgMultiPolygon_union(
                     transmute(svgmultipolygon),
                     transmute(other),
                 ))
@@ -15135,7 +15276,7 @@ mod dll {
             other: AzSvgMultiPolygon,
         ) -> AzSvgMultiPolygon {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_intersection(
+                transmute(azul_dll::AzSvgMultiPolygon_intersection(
                     transmute(svgmultipolygon),
                     transmute(other),
                 ))
@@ -15146,7 +15287,7 @@ mod dll {
             other: AzSvgMultiPolygon,
         ) -> AzSvgMultiPolygon {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_difference(
+                transmute(azul_dll::AzSvgMultiPolygon_difference(
                     transmute(svgmultipolygon),
                     transmute(other),
                 ))
@@ -15157,7 +15298,7 @@ mod dll {
             other: AzSvgMultiPolygon,
         ) -> AzSvgMultiPolygon {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_xor(
+                transmute(azul_dll::AzSvgMultiPolygon_xor(
                     transmute(svgmultipolygon),
                     transmute(other),
                 ))
@@ -15168,7 +15309,7 @@ mod dll {
             fill_style: AzSvgFillStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_tessellateFill(
+                transmute(azul_dll::AzSvgMultiPolygon_tessellateFill(
                     transmute(svgmultipolygon),
                     transmute(fill_style),
                 ))
@@ -15179,7 +15320,7 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgMultiPolygon_tessellateStroke(
+                transmute(azul_dll::AzSvgMultiPolygon_tessellateStroke(
                     transmute(svgmultipolygon),
                     transmute(stroke_style),
                 ))
@@ -15190,7 +15331,7 @@ mod dll {
             fill_style: AzSvgFillStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgNode_tessellateFill(
+                transmute(azul_dll::AzSvgNode_tessellateFill(
                     transmute(svgnode),
                     transmute(fill_style),
                 ))
@@ -15201,14 +15342,14 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgNode_tessellateStroke(
+                transmute(azul_dll::AzSvgNode_tessellateStroke(
                     transmute(svgnode),
                     transmute(stroke_style),
                 ))
             }
         }
         pub(crate) fn AzSvgNode_isClosed(svgnode: &AzSvgNode) -> bool {
-            unsafe { transmute(azul::AzSvgNode_isClosed(transmute(svgnode))) }
+            unsafe { transmute(azul_dll::AzSvgNode_isClosed(transmute(svgnode))) }
         }
         pub(crate) fn AzSvgNode_containsPoint(
             svgnode: &AzSvgNode,
@@ -15217,7 +15358,7 @@ mod dll {
             tolerance: f32,
         ) -> bool {
             unsafe {
-                transmute(azul::AzSvgNode_containsPoint(
+                transmute(azul_dll::AzSvgNode_containsPoint(
                     transmute(svgnode),
                     transmute(point),
                     transmute(fill_rule),
@@ -15226,22 +15367,30 @@ mod dll {
             }
         }
         pub(crate) fn AzSvgNode_getBounds(svgnode: &AzSvgNode) -> AzSvgRect {
-            unsafe { transmute(azul::AzSvgNode_getBounds(transmute(svgnode))) }
+            unsafe { transmute(azul_dll::AzSvgNode_getBounds(transmute(svgnode))) }
         }
         pub(crate) fn AzSvgSimpleNode_getBounds(svgsimplenode: &AzSvgSimpleNode) -> AzSvgRect {
-            unsafe { transmute(azul::AzSvgSimpleNode_getBounds(transmute(svgsimplenode))) }
+            unsafe {
+                transmute(azul_dll::AzSvgSimpleNode_getBounds(transmute(
+                    svgsimplenode,
+                )))
+            }
         }
         pub(crate) fn AzSvgStyledNode_tessellate(
             svgstylednode: &AzSvgStyledNode,
         ) -> AzTessellatedSvgNode {
-            unsafe { transmute(azul::AzSvgStyledNode_tessellate(transmute(svgstylednode))) }
+            unsafe {
+                transmute(azul_dll::AzSvgStyledNode_tessellate(transmute(
+                    svgstylednode,
+                )))
+            }
         }
         pub(crate) fn AzSvgCircle_tessellateFill(
             svgcircle: &AzSvgCircle,
             fill_style: AzSvgFillStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgCircle_tessellateFill(
+                transmute(azul_dll::AzSvgCircle_tessellateFill(
                     transmute(svgcircle),
                     transmute(fill_style),
                 ))
@@ -15252,30 +15401,30 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgCircle_tessellateStroke(
+                transmute(azul_dll::AzSvgCircle_tessellateStroke(
                     transmute(svgcircle),
                     transmute(stroke_style),
                 ))
             }
         }
         pub(crate) fn AzSvgPath_isClosed(svgpath: &AzSvgPath) -> bool {
-            unsafe { transmute(azul::AzSvgPath_isClosed(transmute(svgpath))) }
+            unsafe { transmute(azul_dll::AzSvgPath_isClosed(transmute(svgpath))) }
         }
         pub(crate) fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) {
-            unsafe { transmute(azul::AzSvgPath_reverse(transmute(svgpath))) }
+            unsafe { transmute(azul_dll::AzSvgPath_reverse(transmute(svgpath))) }
         }
         pub(crate) fn AzSvgPath_getStart(svgpath: &AzSvgPath) -> AzOptionSvgPoint {
-            unsafe { transmute(azul::AzSvgPath_getStart(transmute(svgpath))) }
+            unsafe { transmute(azul_dll::AzSvgPath_getStart(transmute(svgpath))) }
         }
         pub(crate) fn AzSvgPath_getEnd(svgpath: &AzSvgPath) -> AzOptionSvgPoint {
-            unsafe { transmute(azul::AzSvgPath_getEnd(transmute(svgpath))) }
+            unsafe { transmute(azul_dll::AzSvgPath_getEnd(transmute(svgpath))) }
         }
         pub(crate) fn AzSvgPath_getBounds(svgpath: &mut AzSvgPath) -> AzSvgRect {
-            unsafe { transmute(azul::AzSvgPath_getBounds(transmute(svgpath))) }
+            unsafe { transmute(azul_dll::AzSvgPath_getBounds(transmute(svgpath))) }
         }
         pub(crate) fn AzSvgPath_joinWith(svgpath: &mut AzSvgPath, path: AzSvgPath) {
             unsafe {
-                transmute(azul::AzSvgPath_joinWith(
+                transmute(azul_dll::AzSvgPath_joinWith(
                     transmute(svgpath),
                     transmute(path),
                 ))
@@ -15288,7 +15437,7 @@ mod dll {
             cap: AzSvgLineCap,
         ) -> AzSvgPath {
             unsafe {
-                transmute(azul::AzSvgPath_offset(
+                transmute(azul_dll::AzSvgPath_offset(
                     transmute(svgpath),
                     transmute(distance),
                     transmute(join),
@@ -15298,7 +15447,7 @@ mod dll {
         }
         pub(crate) fn AzSvgPath_bevel(svgpath: &mut AzSvgPath, distance: f32) -> AzSvgPath {
             unsafe {
-                transmute(azul::AzSvgPath_bevel(
+                transmute(azul_dll::AzSvgPath_bevel(
                     transmute(svgpath),
                     transmute(distance),
                 ))
@@ -15309,7 +15458,7 @@ mod dll {
             fill_style: AzSvgFillStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgPath_tessellateFill(
+                transmute(azul_dll::AzSvgPath_tessellateFill(
                     transmute(svgpath),
                     transmute(fill_style),
                 ))
@@ -15320,33 +15469,49 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgPath_tessellateStroke(
+                transmute(azul_dll::AzSvgPath_tessellateStroke(
                     transmute(svgpath),
                     transmute(stroke_style),
                 ))
             }
         }
         pub(crate) fn AzSvgPathElement_reverse(svgpathelement: &mut AzSvgPathElement) {
-            unsafe { transmute(azul::AzSvgPathElement_reverse(transmute(svgpathelement))) }
+            unsafe {
+                transmute(azul_dll::AzSvgPathElement_reverse(transmute(
+                    svgpathelement,
+                )))
+            }
         }
         pub(crate) fn AzSvgPathElement_getStart(svgpathelement: &AzSvgPathElement) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgPathElement_getStart(transmute(svgpathelement))) }
+            unsafe {
+                transmute(azul_dll::AzSvgPathElement_getStart(transmute(
+                    svgpathelement,
+                )))
+            }
         }
         pub(crate) fn AzSvgPathElement_getEnd(svgpathelement: &AzSvgPathElement) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgPathElement_getEnd(transmute(svgpathelement))) }
+            unsafe { transmute(azul_dll::AzSvgPathElement_getEnd(transmute(svgpathelement))) }
         }
         pub(crate) fn AzSvgPathElement_getBounds(svgpathelement: &AzSvgPathElement) -> AzSvgRect {
-            unsafe { transmute(azul::AzSvgPathElement_getBounds(transmute(svgpathelement))) }
+            unsafe {
+                transmute(azul_dll::AzSvgPathElement_getBounds(transmute(
+                    svgpathelement,
+                )))
+            }
         }
         pub(crate) fn AzSvgPathElement_getLength(svgpathelement: &AzSvgPathElement) -> f64 {
-            unsafe { transmute(azul::AzSvgPathElement_getLength(transmute(svgpathelement))) }
+            unsafe {
+                transmute(azul_dll::AzSvgPathElement_getLength(transmute(
+                    svgpathelement,
+                )))
+            }
         }
         pub(crate) fn AzSvgPathElement_getTAtOffset(
             svgpathelement: &AzSvgPathElement,
             offset: f64,
         ) -> f64 {
             unsafe {
-                transmute(azul::AzSvgPathElement_getTAtOffset(
+                transmute(azul_dll::AzSvgPathElement_getTAtOffset(
                     transmute(svgpathelement),
                     transmute(offset),
                 ))
@@ -15354,7 +15519,7 @@ mod dll {
         }
         pub(crate) fn AzSvgPathElement_getXAtT(svgpathelement: &AzSvgPathElement, t: f64) -> f64 {
             unsafe {
-                transmute(azul::AzSvgPathElement_getXAtT(
+                transmute(azul_dll::AzSvgPathElement_getXAtT(
                     transmute(svgpathelement),
                     transmute(t),
                 ))
@@ -15362,7 +15527,7 @@ mod dll {
         }
         pub(crate) fn AzSvgPathElement_getYAtT(svgpathelement: &AzSvgPathElement, t: f64) -> f64 {
             unsafe {
-                transmute(azul::AzSvgPathElement_getYAtT(
+                transmute(azul_dll::AzSvgPathElement_getYAtT(
                     transmute(svgpathelement),
                     transmute(t),
                 ))
@@ -15373,7 +15538,7 @@ mod dll {
             t: f64,
         ) -> AzSvgVector {
             unsafe {
-                transmute(azul::AzSvgPathElement_getTangentVectorAtT(
+                transmute(azul_dll::AzSvgPathElement_getTangentVectorAtT(
                     transmute(svgpathelement),
                     transmute(t),
                 ))
@@ -15384,7 +15549,7 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgPathElement_tessellateStroke(
+                transmute(azul_dll::AzSvgPathElement_tessellateStroke(
                     transmute(svgpathelement),
                     transmute(stroke_style),
                 ))
@@ -15392,53 +15557,63 @@ mod dll {
         }
         pub(crate) fn AzSvgPoint_distance(svgpoint: &AzSvgPoint, other: AzSvgPoint) -> f64 {
             unsafe {
-                transmute(azul::AzSvgPoint_distance(
+                transmute(azul_dll::AzSvgPoint_distance(
                     transmute(svgpoint),
                     transmute(other),
                 ))
             }
         }
         pub(crate) fn AzSvgVector_angleDegrees(svgvector: &AzSvgVector) -> f64 {
-            unsafe { transmute(azul::AzSvgVector_angleDegrees(transmute(svgvector))) }
+            unsafe { transmute(azul_dll::AzSvgVector_angleDegrees(transmute(svgvector))) }
         }
         pub(crate) fn AzSvgVector_normalize(svgvector: &AzSvgVector) -> AzSvgVector {
-            unsafe { transmute(azul::AzSvgVector_normalize(transmute(svgvector))) }
+            unsafe { transmute(azul_dll::AzSvgVector_normalize(transmute(svgvector))) }
         }
         pub(crate) fn AzSvgVector_rotate90DegCcw(svgvector: &AzSvgVector) -> AzSvgVector {
-            unsafe { transmute(azul::AzSvgVector_rotate90DegCcw(transmute(svgvector))) }
+            unsafe { transmute(azul_dll::AzSvgVector_rotate90DegCcw(transmute(svgvector))) }
         }
         pub(crate) fn AzSvgLine_reverse(svgline: &mut AzSvgLine) {
-            unsafe { transmute(azul::AzSvgLine_reverse(transmute(svgline))) }
+            unsafe { transmute(azul_dll::AzSvgLine_reverse(transmute(svgline))) }
         }
         pub(crate) fn AzSvgLine_getStart(svgline: &AzSvgLine) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgLine_getStart(transmute(svgline))) }
+            unsafe { transmute(azul_dll::AzSvgLine_getStart(transmute(svgline))) }
         }
         pub(crate) fn AzSvgLine_getEnd(svgline: &AzSvgLine) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgLine_getEnd(transmute(svgline))) }
+            unsafe { transmute(azul_dll::AzSvgLine_getEnd(transmute(svgline))) }
         }
         pub(crate) fn AzSvgLine_getBounds(svgline: &AzSvgLine) -> AzSvgRect {
-            unsafe { transmute(azul::AzSvgLine_getBounds(transmute(svgline))) }
+            unsafe { transmute(azul_dll::AzSvgLine_getBounds(transmute(svgline))) }
         }
         pub(crate) fn AzSvgLine_getLength(svgline: &AzSvgLine) -> f64 {
-            unsafe { transmute(azul::AzSvgLine_getLength(transmute(svgline))) }
+            unsafe { transmute(azul_dll::AzSvgLine_getLength(transmute(svgline))) }
         }
         pub(crate) fn AzSvgLine_getTAtOffset(svgline: &AzSvgLine, offset: f64) -> f64 {
             unsafe {
-                transmute(azul::AzSvgLine_getTAtOffset(
+                transmute(azul_dll::AzSvgLine_getTAtOffset(
                     transmute(svgline),
                     transmute(offset),
                 ))
             }
         }
         pub(crate) fn AzSvgLine_getXAtT(svgline: &AzSvgLine, t: f64) -> f64 {
-            unsafe { transmute(azul::AzSvgLine_getXAtT(transmute(svgline), transmute(t))) }
+            unsafe {
+                transmute(azul_dll::AzSvgLine_getXAtT(
+                    transmute(svgline),
+                    transmute(t),
+                ))
+            }
         }
         pub(crate) fn AzSvgLine_getYAtT(svgline: &AzSvgLine, t: f64) -> f64 {
-            unsafe { transmute(azul::AzSvgLine_getYAtT(transmute(svgline), transmute(t))) }
+            unsafe {
+                transmute(azul_dll::AzSvgLine_getYAtT(
+                    transmute(svgline),
+                    transmute(t),
+                ))
+            }
         }
         pub(crate) fn AzSvgLine_getTangentVectorAtT(svgline: &AzSvgLine, t: f64) -> AzSvgVector {
             unsafe {
-                transmute(azul::AzSvgLine_getTangentVectorAtT(
+                transmute(azul_dll::AzSvgLine_getTangentVectorAtT(
                     transmute(svgline),
                     transmute(t),
                 ))
@@ -15449,7 +15624,7 @@ mod dll {
             other: AzSvgLine,
         ) -> AzOptionSvgPoint {
             unsafe {
-                transmute(azul::AzSvgLine_intersect(
+                transmute(azul_dll::AzSvgLine_intersect(
                     transmute(svgline),
                     transmute(other),
                 ))
@@ -15460,7 +15635,7 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgLine_tessellateStroke(
+                transmute(azul_dll::AzSvgLine_tessellateStroke(
                     transmute(svgline),
                     transmute(stroke_style),
                 ))
@@ -15468,7 +15643,7 @@ mod dll {
         }
         pub(crate) fn AzSvgQuadraticCurve_reverse(svgquadraticcurve: &mut AzSvgQuadraticCurve) {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_reverse(transmute(
+                transmute(azul_dll::AzSvgQuadraticCurve_reverse(transmute(
                     svgquadraticcurve,
                 )))
             }
@@ -15477,7 +15652,7 @@ mod dll {
             svgquadraticcurve: &AzSvgQuadraticCurve,
         ) -> AzSvgPoint {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getStart(transmute(
+                transmute(azul_dll::AzSvgQuadraticCurve_getStart(transmute(
                     svgquadraticcurve,
                 )))
             }
@@ -15486,7 +15661,7 @@ mod dll {
             svgquadraticcurve: &AzSvgQuadraticCurve,
         ) -> AzSvgPoint {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getEnd(transmute(
+                transmute(azul_dll::AzSvgQuadraticCurve_getEnd(transmute(
                     svgquadraticcurve,
                 )))
             }
@@ -15495,7 +15670,7 @@ mod dll {
             svgquadraticcurve: &AzSvgQuadraticCurve,
         ) -> AzSvgRect {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getBounds(transmute(
+                transmute(azul_dll::AzSvgQuadraticCurve_getBounds(transmute(
                     svgquadraticcurve,
                 )))
             }
@@ -15504,7 +15679,7 @@ mod dll {
             svgquadraticcurve: &AzSvgQuadraticCurve,
         ) -> f64 {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getLength(transmute(
+                transmute(azul_dll::AzSvgQuadraticCurve_getLength(transmute(
                     svgquadraticcurve,
                 )))
             }
@@ -15514,7 +15689,7 @@ mod dll {
             offset: f64,
         ) -> f64 {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getTAtOffset(
+                transmute(azul_dll::AzSvgQuadraticCurve_getTAtOffset(
                     transmute(svgquadraticcurve),
                     transmute(offset),
                 ))
@@ -15525,7 +15700,7 @@ mod dll {
             t: f64,
         ) -> f64 {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getXAtT(
+                transmute(azul_dll::AzSvgQuadraticCurve_getXAtT(
                     transmute(svgquadraticcurve),
                     transmute(t),
                 ))
@@ -15536,7 +15711,7 @@ mod dll {
             t: f64,
         ) -> f64 {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getYAtT(
+                transmute(azul_dll::AzSvgQuadraticCurve_getYAtT(
                     transmute(svgquadraticcurve),
                     transmute(t),
                 ))
@@ -15547,7 +15722,7 @@ mod dll {
             t: f64,
         ) -> AzSvgVector {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_getTangentVectorAtT(
+                transmute(azul_dll::AzSvgQuadraticCurve_getTangentVectorAtT(
                     transmute(svgquadraticcurve),
                     transmute(t),
                 ))
@@ -15558,33 +15733,41 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgQuadraticCurve_tessellateStroke(
+                transmute(azul_dll::AzSvgQuadraticCurve_tessellateStroke(
                     transmute(svgquadraticcurve),
                     transmute(stroke_style),
                 ))
             }
         }
         pub(crate) fn AzSvgCubicCurve_reverse(svgcubiccurve: &mut AzSvgCubicCurve) {
-            unsafe { transmute(azul::AzSvgCubicCurve_reverse(transmute(svgcubiccurve))) }
+            unsafe { transmute(azul_dll::AzSvgCubicCurve_reverse(transmute(svgcubiccurve))) }
         }
         pub(crate) fn AzSvgCubicCurve_getStart(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgCubicCurve_getStart(transmute(svgcubiccurve))) }
+            unsafe { transmute(azul_dll::AzSvgCubicCurve_getStart(transmute(svgcubiccurve))) }
         }
         pub(crate) fn AzSvgCubicCurve_getEnd(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgCubicCurve_getEnd(transmute(svgcubiccurve))) }
+            unsafe { transmute(azul_dll::AzSvgCubicCurve_getEnd(transmute(svgcubiccurve))) }
         }
         pub(crate) fn AzSvgCubicCurve_getBounds(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgRect {
-            unsafe { transmute(azul::AzSvgCubicCurve_getBounds(transmute(svgcubiccurve))) }
+            unsafe {
+                transmute(azul_dll::AzSvgCubicCurve_getBounds(transmute(
+                    svgcubiccurve,
+                )))
+            }
         }
         pub(crate) fn AzSvgCubicCurve_getLength(svgcubiccurve: &AzSvgCubicCurve) -> f64 {
-            unsafe { transmute(azul::AzSvgCubicCurve_getLength(transmute(svgcubiccurve))) }
+            unsafe {
+                transmute(azul_dll::AzSvgCubicCurve_getLength(transmute(
+                    svgcubiccurve,
+                )))
+            }
         }
         pub(crate) fn AzSvgCubicCurve_getTAtOffset(
             svgcubiccurve: &AzSvgCubicCurve,
             offset: f64,
         ) -> f64 {
             unsafe {
-                transmute(azul::AzSvgCubicCurve_getTAtOffset(
+                transmute(azul_dll::AzSvgCubicCurve_getTAtOffset(
                     transmute(svgcubiccurve),
                     transmute(offset),
                 ))
@@ -15592,7 +15775,7 @@ mod dll {
         }
         pub(crate) fn AzSvgCubicCurve_getXAtT(svgcubiccurve: &AzSvgCubicCurve, t: f64) -> f64 {
             unsafe {
-                transmute(azul::AzSvgCubicCurve_getXAtT(
+                transmute(azul_dll::AzSvgCubicCurve_getXAtT(
                     transmute(svgcubiccurve),
                     transmute(t),
                 ))
@@ -15600,7 +15783,7 @@ mod dll {
         }
         pub(crate) fn AzSvgCubicCurve_getYAtT(svgcubiccurve: &AzSvgCubicCurve, t: f64) -> f64 {
             unsafe {
-                transmute(azul::AzSvgCubicCurve_getYAtT(
+                transmute(azul_dll::AzSvgCubicCurve_getYAtT(
                     transmute(svgcubiccurve),
                     transmute(t),
                 ))
@@ -15611,7 +15794,7 @@ mod dll {
             t: f64,
         ) -> AzSvgVector {
             unsafe {
-                transmute(azul::AzSvgCubicCurve_getTangentVectorAtT(
+                transmute(azul_dll::AzSvgCubicCurve_getTangentVectorAtT(
                     transmute(svgcubiccurve),
                     transmute(t),
                 ))
@@ -15622,18 +15805,18 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgCubicCurve_tessellateStroke(
+                transmute(azul_dll::AzSvgCubicCurve_tessellateStroke(
                     transmute(svgcubiccurve),
                     transmute(stroke_style),
                 ))
             }
         }
         pub(crate) fn AzSvgRect_getCenter(svgrect: &AzSvgRect) -> AzSvgPoint {
-            unsafe { transmute(azul::AzSvgRect_getCenter(transmute(svgrect))) }
+            unsafe { transmute(azul_dll::AzSvgRect_getCenter(transmute(svgrect))) }
         }
         pub(crate) fn AzSvgRect_containsPoint(svgrect: &AzSvgRect, point: AzSvgPoint) -> bool {
             unsafe {
-                transmute(azul::AzSvgRect_containsPoint(
+                transmute(azul_dll::AzSvgRect_containsPoint(
                     transmute(svgrect),
                     transmute(point),
                 ))
@@ -15647,7 +15830,7 @@ mod dll {
             padding_right: f32,
         ) -> AzSvgRect {
             unsafe {
-                transmute(azul::AzSvgRect_expand(
+                transmute(azul_dll::AzSvgRect_expand(
                     transmute(svgrect),
                     transmute(padding_top),
                     transmute(padding_bottom),
@@ -15661,7 +15844,7 @@ mod dll {
             fill_style: AzSvgFillStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgRect_tessellateFill(
+                transmute(azul_dll::AzSvgRect_tessellateFill(
                     transmute(svgrect),
                     transmute(fill_style),
                 ))
@@ -15672,20 +15855,20 @@ mod dll {
             stroke_style: AzSvgStrokeStyle,
         ) -> AzTessellatedSvgNode {
             unsafe {
-                transmute(azul::AzSvgRect_tessellateStroke(
+                transmute(azul_dll::AzSvgRect_tessellateStroke(
                     transmute(svgrect),
                     transmute(stroke_style),
                 ))
             }
         }
         pub(crate) fn AzTessellatedColoredSvgNode_empty() -> AzTessellatedColoredSvgNode {
-            unsafe { transmute(azul::AzTessellatedColoredSvgNode_empty()) }
+            unsafe { transmute(azul_dll::AzTessellatedColoredSvgNode_empty()) }
         }
         pub(crate) fn AzTessellatedColoredSvgNode_fromNodes(
             nodes: AzTessellatedColoredSvgNodeVecRef,
         ) -> AzTessellatedColoredSvgNode {
             unsafe {
-                transmute(azul::AzTessellatedColoredSvgNode_fromNodes(transmute(
+                transmute(azul_dll::AzTessellatedColoredSvgNode_fromNodes(transmute(
                     nodes,
                 )))
             }
@@ -15695,76 +15878,86 @@ mod dll {
             gl: AzGl,
         ) -> AzTessellatedColoredGPUSvgNode {
             unsafe {
-                transmute(azul::AzTessellatedColoredGPUSvgNode_new(
+                transmute(azul_dll::AzTessellatedColoredGPUSvgNode_new(
                     transmute(tessellated_node),
                     transmute(gl),
                 ))
             }
         }
         pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode {
-            unsafe { transmute(azul::AzTessellatedSvgNode_empty()) }
+            unsafe { transmute(azul_dll::AzTessellatedSvgNode_empty()) }
         }
         pub(crate) fn AzTessellatedSvgNode_fromNodes(
             nodes: AzTessellatedSvgNodeVecRef,
         ) -> AzTessellatedSvgNode {
-            unsafe { transmute(azul::AzTessellatedSvgNode_fromNodes(transmute(nodes))) }
+            unsafe { transmute(azul_dll::AzTessellatedSvgNode_fromNodes(transmute(nodes))) }
         }
         pub(crate) fn AzTessellatedGPUSvgNode_new(
             tessellated_node: *const AzTessellatedSvgNode,
             gl: AzGl,
         ) -> AzTessellatedGPUSvgNode {
             unsafe {
-                transmute(azul::AzTessellatedGPUSvgNode_new(
+                transmute(azul_dll::AzTessellatedGPUSvgNode_new(
                     transmute(tessellated_node),
                     transmute(gl),
                 ))
             }
         }
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions {
-            unsafe { transmute(azul::AzSvgParseOptions_default()) }
+            unsafe { transmute(azul_dll::AzSvgParseOptions_default()) }
         }
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions {
-            unsafe { transmute(azul::AzSvgRenderOptions_default()) }
+            unsafe { transmute(azul_dll::AzSvgRenderOptions_default()) }
         }
         pub(crate) fn AzSvgFillStyle_default() -> AzSvgFillStyle {
-            unsafe { transmute(azul::AzSvgFillStyle_default()) }
+            unsafe { transmute(azul_dll::AzSvgFillStyle_default()) }
         }
         pub(crate) fn AzSvgStrokeStyle_default() -> AzSvgStrokeStyle {
-            unsafe { transmute(azul::AzSvgStrokeStyle_default()) }
+            unsafe { transmute(azul_dll::AzSvgStrokeStyle_default()) }
         }
         pub(crate) fn AzXml_fromStr(xml_string: AzRefstr) -> AzResultXmlXmlError {
-            unsafe { transmute(azul::AzXml_fromStr(transmute(xml_string))) }
+            unsafe { transmute(azul_dll::AzXml_fromStr(transmute(xml_string))) }
         }
         pub(crate) fn AzFile_open(path: AzString) -> AzOptionFile {
-            unsafe { transmute(azul::AzFile_open(transmute(path))) }
+            unsafe { transmute(azul_dll::AzFile_open(transmute(path))) }
         }
         pub(crate) fn AzFile_create(path: AzString) -> AzOptionFile {
-            unsafe { transmute(azul::AzFile_create(transmute(path))) }
+            unsafe { transmute(azul_dll::AzFile_create(transmute(path))) }
         }
         pub(crate) fn AzFile_readToString(file: &mut AzFile) -> AzOptionString {
-            unsafe { transmute(azul::AzFile_readToString(transmute(file))) }
+            unsafe { transmute(azul_dll::AzFile_readToString(transmute(file))) }
         }
         pub(crate) fn AzFile_readToBytes(file: &mut AzFile) -> AzOptionU8Vec {
-            unsafe { transmute(azul::AzFile_readToBytes(transmute(file))) }
+            unsafe { transmute(azul_dll::AzFile_readToBytes(transmute(file))) }
         }
         pub(crate) fn AzFile_writeString(file: &mut AzFile, bytes: AzRefstr) -> bool {
-            unsafe { transmute(azul::AzFile_writeString(transmute(file), transmute(bytes))) }
+            unsafe {
+                transmute(azul_dll::AzFile_writeString(
+                    transmute(file),
+                    transmute(bytes),
+                ))
+            }
         }
         pub(crate) fn AzFile_writeBytes(file: &mut AzFile, bytes: AzU8VecRef) -> bool {
-            unsafe { transmute(azul::AzFile_writeBytes(transmute(file), transmute(bytes))) }
+            unsafe {
+                transmute(azul_dll::AzFile_writeBytes(
+                    transmute(file),
+                    transmute(bytes),
+                ))
+            }
         }
         pub(crate) fn AzFile_close(file: &mut AzFile) {
-            unsafe { transmute(azul::AzFile_close(transmute(file))) }
+            unsafe { transmute(azul_dll::AzFile_close(transmute(file))) }
         }
         pub(crate) fn AzFile_delete(object: &mut AzFile) {
-            unsafe { transmute(azul::AzFile_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzFile_delete(transmute(object))) }
         }
         pub(crate) fn AzFile_deepCopy(object: &AzFile) -> AzFile {
-            unsafe { transmute(azul::AzFile_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzFile_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzMsgBox_ok(icon: AzMsgBoxIcon, title: AzString, message: AzString) -> bool {
             unsafe {
-                transmute(azul::AzMsgBox_ok(
+                transmute(azul_dll::AzMsgBox_ok(
                     transmute(icon),
                     transmute(title),
                     transmute(message),
@@ -15772,16 +15965,16 @@ mod dll {
             }
         }
         pub(crate) fn AzMsgBox_info(message: AzString) -> bool {
-            unsafe { transmute(azul::AzMsgBox_info(transmute(message))) }
+            unsafe { transmute(azul_dll::AzMsgBox_info(transmute(message))) }
         }
         pub(crate) fn AzMsgBox_warning(message: AzString) -> bool {
-            unsafe { transmute(azul::AzMsgBox_warning(transmute(message))) }
+            unsafe { transmute(azul_dll::AzMsgBox_warning(transmute(message))) }
         }
         pub(crate) fn AzMsgBox_error(message: AzString) -> bool {
-            unsafe { transmute(azul::AzMsgBox_error(transmute(message))) }
+            unsafe { transmute(azul_dll::AzMsgBox_error(transmute(message))) }
         }
         pub(crate) fn AzMsgBox_question(message: AzString) -> bool {
-            unsafe { transmute(azul::AzMsgBox_question(transmute(message))) }
+            unsafe { transmute(azul_dll::AzMsgBox_question(transmute(message))) }
         }
         pub(crate) fn AzMsgBox_okCancel(
             icon: AzMsgBoxIcon,
@@ -15790,7 +15983,7 @@ mod dll {
             default_value: AzMsgBoxOkCancel,
         ) -> AzMsgBoxOkCancel {
             unsafe {
-                transmute(azul::AzMsgBox_okCancel(
+                transmute(azul_dll::AzMsgBox_okCancel(
                     transmute(icon),
                     transmute(title),
                     transmute(message),
@@ -15805,7 +15998,7 @@ mod dll {
             default_value: AzMsgBoxYesNo,
         ) -> AzMsgBoxYesNo {
             unsafe {
-                transmute(azul::AzMsgBox_yesNo(
+                transmute(azul_dll::AzMsgBox_yesNo(
                     transmute(icon),
                     transmute(title),
                     transmute(message),
@@ -15819,7 +16012,7 @@ mod dll {
             filter_list: AzOptionFileTypeList,
         ) -> AzOptionString {
             unsafe {
-                transmute(azul::AzFileDialog_selectFile(
+                transmute(azul_dll::AzFileDialog_selectFile(
                     transmute(title),
                     transmute(default_path),
                     transmute(filter_list),
@@ -15832,7 +16025,7 @@ mod dll {
             filter_list: AzOptionFileTypeList,
         ) -> AzOptionStringVec {
             unsafe {
-                transmute(azul::AzFileDialog_selectMultipleFiles(
+                transmute(azul_dll::AzFileDialog_selectMultipleFiles(
                     transmute(title),
                     transmute(default_path),
                     transmute(filter_list),
@@ -15844,7 +16037,7 @@ mod dll {
             default_path: AzOptionString,
         ) -> AzOptionString {
             unsafe {
-                transmute(azul::AzFileDialog_selectFolder(
+                transmute(azul_dll::AzFileDialog_selectFolder(
                     transmute(title),
                     transmute(default_path),
                 ))
@@ -15855,7 +16048,7 @@ mod dll {
             default_path: AzOptionString,
         ) -> AzOptionString {
             unsafe {
-                transmute(azul::AzFileDialog_saveFile(
+                transmute(azul_dll::AzFileDialog_saveFile(
                     transmute(title),
                     transmute(default_path),
                 ))
@@ -15866,20 +16059,20 @@ mod dll {
             default_color: AzOptionColorU,
         ) -> AzOptionColorU {
             unsafe {
-                transmute(azul::AzColorPickerDialog_open(
+                transmute(azul_dll::AzColorPickerDialog_open(
                     transmute(title),
                     transmute(default_color),
                 ))
             }
         }
         pub(crate) fn AzSystemClipboard_new() -> AzOptionSystemClipboard {
-            unsafe { transmute(azul::AzSystemClipboard_new()) }
+            unsafe { transmute(azul_dll::AzSystemClipboard_new()) }
         }
         pub(crate) fn AzSystemClipboard_getStringContents(
             systemclipboard: &AzSystemClipboard,
         ) -> AzOptionString {
             unsafe {
-                transmute(azul::AzSystemClipboard_getStringContents(transmute(
+                transmute(azul_dll::AzSystemClipboard_getStringContents(transmute(
                     systemclipboard,
                 )))
             }
@@ -15889,24 +16082,24 @@ mod dll {
             contents: AzString,
         ) -> bool {
             unsafe {
-                transmute(azul::AzSystemClipboard_setStringContents(
+                transmute(azul_dll::AzSystemClipboard_setStringContents(
                     transmute(systemclipboard),
                     transmute(contents),
                 ))
             }
         }
         pub(crate) fn AzSystemClipboard_delete(object: &mut AzSystemClipboard) {
-            unsafe { transmute(azul::AzSystemClipboard_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSystemClipboard_delete(transmute(object))) }
         }
         pub(crate) fn AzSystemClipboard_deepCopy(object: &AzSystemClipboard) -> AzSystemClipboard {
-            unsafe { transmute(azul::AzSystemClipboard_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSystemClipboard_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzInstant_durationSince(
             instant: &AzInstant,
             earlier: AzInstant,
         ) -> AzOptionDuration {
             unsafe {
-                transmute(azul::AzInstant_durationSince(
+                transmute(azul_dll::AzInstant_durationSince(
                     transmute(instant),
                     transmute(earlier),
                 ))
@@ -15917,7 +16110,7 @@ mod dll {
             duration: AzDuration,
         ) -> AzInstant {
             unsafe {
-                transmute(azul::AzInstant_addDuration(
+                transmute(azul_dll::AzInstant_addDuration(
                     transmute(instant),
                     transmute(duration),
                 ))
@@ -15929,7 +16122,7 @@ mod dll {
             end: AzInstant,
         ) -> f32 {
             unsafe {
-                transmute(azul::AzInstant_linearInterpolate(
+                transmute(azul_dll::AzInstant_linearInterpolate(
                     transmute(instant),
                     transmute(start),
                     transmute(end),
@@ -15937,10 +16130,10 @@ mod dll {
             }
         }
         pub(crate) fn AzInstantPtr_delete(object: &mut AzInstantPtr) {
-            unsafe { transmute(azul::AzInstantPtr_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInstantPtr_delete(transmute(object))) }
         }
         pub(crate) fn AzInstantPtr_deepCopy(object: &AzInstantPtr) -> AzInstantPtr {
-            unsafe { transmute(azul::AzInstantPtr_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInstantPtr_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzTimer_new(
             timer_data: AzRefAny,
@@ -15948,7 +16141,7 @@ mod dll {
             get_system_time_fn: AzGetSystemTimeFn,
         ) -> AzTimer {
             unsafe {
-                transmute(azul::AzTimer_new(
+                transmute(azul_dll::AzTimer_new(
                     transmute(timer_data),
                     transmute(callback),
                     transmute(get_system_time_fn),
@@ -15956,11 +16149,16 @@ mod dll {
             }
         }
         pub(crate) fn AzTimer_withDelay(timer: &AzTimer, delay: AzDuration) -> AzTimer {
-            unsafe { transmute(azul::AzTimer_withDelay(transmute(timer), transmute(delay))) }
+            unsafe {
+                transmute(azul_dll::AzTimer_withDelay(
+                    transmute(timer),
+                    transmute(delay),
+                ))
+            }
         }
         pub(crate) fn AzTimer_withInterval(timer: &AzTimer, interval: AzDuration) -> AzTimer {
             unsafe {
-                transmute(azul::AzTimer_withInterval(
+                transmute(azul_dll::AzTimer_withInterval(
                     transmute(timer),
                     transmute(interval),
                 ))
@@ -15968,52 +16166,61 @@ mod dll {
         }
         pub(crate) fn AzTimer_withTimeout(timer: &AzTimer, timeout: AzDuration) -> AzTimer {
             unsafe {
-                transmute(azul::AzTimer_withTimeout(
+                transmute(azul_dll::AzTimer_withTimeout(
                     transmute(timer),
                     transmute(timeout),
                 ))
             }
         }
         pub(crate) fn AzThread_delete(object: &mut AzThread) {
-            unsafe { transmute(azul::AzThread_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzThread_delete(transmute(object))) }
         }
         pub(crate) fn AzThread_deepCopy(object: &AzThread) -> AzThread {
-            unsafe { transmute(azul::AzThread_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzThread_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzThreadSender_send(
             threadsender: &mut AzThreadSender,
             msg: AzThreadReceiveMsg,
         ) -> bool {
             unsafe {
-                transmute(azul::AzThreadSender_send(
+                transmute(azul_dll::AzThreadSender_send(
                     transmute(threadsender),
                     transmute(msg),
                 ))
             }
         }
         pub(crate) fn AzThreadSender_delete(object: &mut AzThreadSender) {
-            unsafe { transmute(azul::AzThreadSender_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzThreadSender_delete(transmute(object))) }
         }
         pub(crate) fn AzThreadSender_deepCopy(object: &AzThreadSender) -> AzThreadSender {
-            unsafe { transmute(azul::AzThreadSender_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzThreadSender_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzThreadReceiver_receive(
             threadreceiver: &mut AzThreadReceiver,
         ) -> AzOptionThreadSendMsg {
-            unsafe { transmute(azul::AzThreadReceiver_receive(transmute(threadreceiver))) }
+            unsafe {
+                transmute(azul_dll::AzThreadReceiver_receive(transmute(
+                    threadreceiver,
+                )))
+            }
         }
         pub(crate) fn AzThreadReceiver_delete(object: &mut AzThreadReceiver) {
-            unsafe { transmute(azul::AzThreadReceiver_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzThreadReceiver_delete(transmute(object))) }
         }
         pub(crate) fn AzThreadReceiver_deepCopy(object: &AzThreadReceiver) -> AzThreadReceiver {
-            unsafe { transmute(azul::AzThreadReceiver_deepCopy(transmute(object))) }
+            unsafe { transmute(azul_dll::AzThreadReceiver_deepCopy(transmute(object))) }
         }
         pub(crate) fn AzString_format(format: AzString, args: AzFmtArgVec) -> AzString {
-            unsafe { transmute(azul::AzString_format(transmute(format), transmute(args))) }
+            unsafe {
+                transmute(azul_dll::AzString_format(
+                    transmute(format),
+                    transmute(args),
+                ))
+            }
         }
         pub(crate) fn AzString_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzString {
             unsafe {
-                transmute(azul::AzString_copyFromBytes(
+                transmute(azul_dll::AzString_copyFromBytes(
                     transmute(ptr),
                     transmute(start),
                     transmute(len),
@@ -16021,208 +16228,220 @@ mod dll {
             }
         }
         pub(crate) fn AzString_trim(string: &AzString) -> AzString {
-            unsafe { transmute(azul::AzString_trim(transmute(string))) }
+            unsafe { transmute(azul_dll::AzString_trim(transmute(string))) }
         }
         pub(crate) fn AzString_asRefstr(string: &AzString) -> AzRefstr {
-            unsafe { transmute(azul::AzString_asRefstr(transmute(string))) }
+            unsafe { transmute(azul_dll::AzString_asRefstr(transmute(string))) }
         }
         pub(crate) fn AzListViewRowVec_delete(object: &mut AzListViewRowVec) {
-            unsafe { transmute(azul::AzListViewRowVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzListViewRowVec_delete(transmute(object))) }
         }
         pub(crate) fn AzStyleFilterVec_delete(object: &mut AzStyleFilterVec) {
-            unsafe { transmute(azul::AzStyleFilterVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStyleFilterVec_delete(transmute(object))) }
         }
         pub(crate) fn AzLogicalRectVec_delete(object: &mut AzLogicalRectVec) {
-            unsafe { transmute(azul::AzLogicalRectVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzLogicalRectVec_delete(transmute(object))) }
         }
         pub(crate) fn AzNodeTypeIdInfoMapVec_delete(object: &mut AzNodeTypeIdInfoMapVec) {
-            unsafe { transmute(azul::AzNodeTypeIdInfoMapVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzNodeTypeIdInfoMapVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInputOutputTypeIdInfoMapVec_delete(
             object: &mut AzInputOutputTypeIdInfoMapVec,
         ) {
             unsafe {
-                transmute(azul::AzInputOutputTypeIdInfoMapVec_delete(transmute(
+                transmute(azul_dll::AzInputOutputTypeIdInfoMapVec_delete(transmute(
                     object,
                 )))
             }
         }
         pub(crate) fn AzNodeIdNodeMapVec_delete(object: &mut AzNodeIdNodeMapVec) {
-            unsafe { transmute(azul::AzNodeIdNodeMapVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzNodeIdNodeMapVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInputOutputTypeIdVec_delete(object: &mut AzInputOutputTypeIdVec) {
-            unsafe { transmute(azul::AzInputOutputTypeIdVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInputOutputTypeIdVec_delete(transmute(object))) }
         }
         pub(crate) fn AzNodeTypeFieldVec_delete(object: &mut AzNodeTypeFieldVec) {
-            unsafe { transmute(azul::AzNodeTypeFieldVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzNodeTypeFieldVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInputConnectionVec_delete(object: &mut AzInputConnectionVec) {
-            unsafe { transmute(azul::AzInputConnectionVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInputConnectionVec_delete(transmute(object))) }
         }
         pub(crate) fn AzOutputNodeAndIndexVec_delete(object: &mut AzOutputNodeAndIndexVec) {
-            unsafe { transmute(azul::AzOutputNodeAndIndexVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzOutputNodeAndIndexVec_delete(transmute(object))) }
         }
         pub(crate) fn AzOutputConnectionVec_delete(object: &mut AzOutputConnectionVec) {
-            unsafe { transmute(azul::AzOutputConnectionVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzOutputConnectionVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInputNodeAndIndexVec_delete(object: &mut AzInputNodeAndIndexVec) {
-            unsafe { transmute(azul::AzInputNodeAndIndexVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInputNodeAndIndexVec_delete(transmute(object))) }
         }
         pub(crate) fn AzAccessibilityStateVec_delete(object: &mut AzAccessibilityStateVec) {
-            unsafe { transmute(azul::AzAccessibilityStateVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzAccessibilityStateVec_delete(transmute(object))) }
         }
         pub(crate) fn AzMenuItemVec_delete(object: &mut AzMenuItemVec) {
-            unsafe { transmute(azul::AzMenuItemVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzMenuItemVec_delete(transmute(object))) }
         }
         pub(crate) fn AzTessellatedSvgNodeVec_asRefVec(
             tessellatedsvgnodevec: &AzTessellatedSvgNodeVec,
         ) -> AzTessellatedSvgNodeVecRef {
             unsafe {
-                transmute(azul::AzTessellatedSvgNodeVec_asRefVec(transmute(
+                transmute(azul_dll::AzTessellatedSvgNodeVec_asRefVec(transmute(
                     tessellatedsvgnodevec,
                 )))
             }
         }
         pub(crate) fn AzTessellatedSvgNodeVec_delete(object: &mut AzTessellatedSvgNodeVec) {
-            unsafe { transmute(azul::AzTessellatedSvgNodeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzTessellatedSvgNodeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzTessellatedColoredSvgNodeVec_asRefVec(
             tessellatedcoloredsvgnodevec: &AzTessellatedColoredSvgNodeVec,
         ) -> AzTessellatedColoredSvgNodeVecRef {
             unsafe {
-                transmute(azul::AzTessellatedColoredSvgNodeVec_asRefVec(transmute(
-                    tessellatedcoloredsvgnodevec,
-                )))
+                transmute(azul_dll::AzTessellatedColoredSvgNodeVec_asRefVec(
+                    transmute(tessellatedcoloredsvgnodevec),
+                ))
             }
         }
         pub(crate) fn AzTessellatedColoredSvgNodeVec_delete(
             object: &mut AzTessellatedColoredSvgNodeVec,
         ) {
             unsafe {
-                transmute(azul::AzTessellatedColoredSvgNodeVec_delete(transmute(
+                transmute(azul_dll::AzTessellatedColoredSvgNodeVec_delete(transmute(
                     object,
                 )))
             }
         }
         pub(crate) fn AzStyleFontFamilyVec_delete(object: &mut AzStyleFontFamilyVec) {
-            unsafe { transmute(azul::AzStyleFontFamilyVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStyleFontFamilyVec_delete(transmute(object))) }
         }
         pub(crate) fn AzXmlNodeVec_delete(object: &mut AzXmlNodeVec) {
-            unsafe { transmute(azul::AzXmlNodeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzXmlNodeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzFmtArgVec_delete(object: &mut AzFmtArgVec) {
-            unsafe { transmute(azul::AzFmtArgVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzFmtArgVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInlineLineVec_delete(object: &mut AzInlineLineVec) {
-            unsafe { transmute(azul::AzInlineLineVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInlineLineVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInlineWordVec_delete(object: &mut AzInlineWordVec) {
-            unsafe { transmute(azul::AzInlineWordVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInlineWordVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInlineGlyphVec_delete(object: &mut AzInlineGlyphVec) {
-            unsafe { transmute(azul::AzInlineGlyphVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInlineGlyphVec_delete(transmute(object))) }
         }
         pub(crate) fn AzInlineTextHitVec_delete(object: &mut AzInlineTextHitVec) {
-            unsafe { transmute(azul::AzInlineTextHitVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzInlineTextHitVec_delete(transmute(object))) }
         }
         pub(crate) fn AzMonitorVec_delete(object: &mut AzMonitorVec) {
-            unsafe { transmute(azul::AzMonitorVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzMonitorVec_delete(transmute(object))) }
         }
         pub(crate) fn AzVideoModeVec_delete(object: &mut AzVideoModeVec) {
-            unsafe { transmute(azul::AzVideoModeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVideoModeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzDomVec_delete(object: &mut AzDomVec) {
-            unsafe { transmute(azul::AzDomVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzDomVec_delete(transmute(object))) }
         }
         pub(crate) fn AzIdOrClassVec_delete(object: &mut AzIdOrClassVec) {
-            unsafe { transmute(azul::AzIdOrClassVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzIdOrClassVec_delete(transmute(object))) }
         }
         pub(crate) fn AzNodeDataInlineCssPropertyVec_delete(
             object: &mut AzNodeDataInlineCssPropertyVec,
         ) {
             unsafe {
-                transmute(azul::AzNodeDataInlineCssPropertyVec_delete(transmute(
+                transmute(azul_dll::AzNodeDataInlineCssPropertyVec_delete(transmute(
                     object,
                 )))
             }
         }
         pub(crate) fn AzStyleBackgroundContentVec_delete(object: &mut AzStyleBackgroundContentVec) {
-            unsafe { transmute(azul::AzStyleBackgroundContentVec_delete(transmute(object))) }
+            unsafe {
+                transmute(azul_dll::AzStyleBackgroundContentVec_delete(transmute(
+                    object,
+                )))
+            }
         }
         pub(crate) fn AzStyleBackgroundPositionVec_delete(
             object: &mut AzStyleBackgroundPositionVec,
         ) {
-            unsafe { transmute(azul::AzStyleBackgroundPositionVec_delete(transmute(object))) }
+            unsafe {
+                transmute(azul_dll::AzStyleBackgroundPositionVec_delete(transmute(
+                    object,
+                )))
+            }
         }
         pub(crate) fn AzStyleBackgroundRepeatVec_delete(object: &mut AzStyleBackgroundRepeatVec) {
-            unsafe { transmute(azul::AzStyleBackgroundRepeatVec_delete(transmute(object))) }
+            unsafe {
+                transmute(azul_dll::AzStyleBackgroundRepeatVec_delete(transmute(
+                    object,
+                )))
+            }
         }
         pub(crate) fn AzStyleBackgroundSizeVec_delete(object: &mut AzStyleBackgroundSizeVec) {
-            unsafe { transmute(azul::AzStyleBackgroundSizeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStyleBackgroundSizeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzStyleTransformVec_delete(object: &mut AzStyleTransformVec) {
-            unsafe { transmute(azul::AzStyleTransformVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStyleTransformVec_delete(transmute(object))) }
         }
         pub(crate) fn AzCssPropertyVec_delete(object: &mut AzCssPropertyVec) {
-            unsafe { transmute(azul::AzCssPropertyVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCssPropertyVec_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgMultiPolygonVec_delete(object: &mut AzSvgMultiPolygonVec) {
-            unsafe { transmute(azul::AzSvgMultiPolygonVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgMultiPolygonVec_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgSimpleNodeVec_delete(object: &mut AzSvgSimpleNodeVec) {
-            unsafe { transmute(azul::AzSvgSimpleNodeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgSimpleNodeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgPathVec_delete(object: &mut AzSvgPathVec) {
-            unsafe { transmute(azul::AzSvgPathVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgPathVec_delete(transmute(object))) }
         }
         pub(crate) fn AzVertexAttributeVec_delete(object: &mut AzVertexAttributeVec) {
-            unsafe { transmute(azul::AzVertexAttributeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVertexAttributeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgPathElementVec_delete(object: &mut AzSvgPathElementVec) {
-            unsafe { transmute(azul::AzSvgPathElementVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgPathElementVec_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgVertexVec_delete(object: &mut AzSvgVertexVec) {
-            unsafe { transmute(azul::AzSvgVertexVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgVertexVec_delete(transmute(object))) }
         }
         pub(crate) fn AzSvgColoredVertexVec_delete(object: &mut AzSvgColoredVertexVec) {
-            unsafe { transmute(azul::AzSvgColoredVertexVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzSvgColoredVertexVec_delete(transmute(object))) }
         }
         pub(crate) fn AzU32Vec_delete(object: &mut AzU32Vec) {
-            unsafe { transmute(azul::AzU32Vec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzU32Vec_delete(transmute(object))) }
         }
         pub(crate) fn AzXWindowTypeVec_delete(object: &mut AzXWindowTypeVec) {
-            unsafe { transmute(azul::AzXWindowTypeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzXWindowTypeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzVirtualKeyCodeVec_delete(object: &mut AzVirtualKeyCodeVec) {
-            unsafe { transmute(azul::AzVirtualKeyCodeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzVirtualKeyCodeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzCascadeInfoVec_delete(object: &mut AzCascadeInfoVec) {
-            unsafe { transmute(azul::AzCascadeInfoVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCascadeInfoVec_delete(transmute(object))) }
         }
         pub(crate) fn AzScanCodeVec_delete(object: &mut AzScanCodeVec) {
-            unsafe { transmute(azul::AzScanCodeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzScanCodeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzCssDeclarationVec_delete(object: &mut AzCssDeclarationVec) {
-            unsafe { transmute(azul::AzCssDeclarationVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCssDeclarationVec_delete(transmute(object))) }
         }
         pub(crate) fn AzCssPathSelectorVec_delete(object: &mut AzCssPathSelectorVec) {
-            unsafe { transmute(azul::AzCssPathSelectorVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCssPathSelectorVec_delete(transmute(object))) }
         }
         pub(crate) fn AzStylesheetVec_delete(object: &mut AzStylesheetVec) {
-            unsafe { transmute(azul::AzStylesheetVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStylesheetVec_delete(transmute(object))) }
         }
         pub(crate) fn AzCssRuleBlockVec_delete(object: &mut AzCssRuleBlockVec) {
-            unsafe { transmute(azul::AzCssRuleBlockVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCssRuleBlockVec_delete(transmute(object))) }
         }
         pub(crate) fn AzU16Vec_delete(object: &mut AzU16Vec) {
-            unsafe { transmute(azul::AzU16Vec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzU16Vec_delete(transmute(object))) }
         }
         pub(crate) fn AzF32Vec_delete(object: &mut AzF32Vec) {
-            unsafe { transmute(azul::AzF32Vec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzF32Vec_delete(transmute(object))) }
         }
         pub(crate) fn AzU8Vec_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzU8Vec {
             unsafe {
-                transmute(azul::AzU8Vec_copyFromBytes(
+                transmute(azul_dll::AzU8Vec_copyFromBytes(
                     transmute(ptr),
                     transmute(start),
                     transmute(len),
@@ -16230,34 +16449,34 @@ mod dll {
             }
         }
         pub(crate) fn AzU8Vec_asRefVec(u8vec: &AzU8Vec) -> AzU8VecRef {
-            unsafe { transmute(azul::AzU8Vec_asRefVec(transmute(u8vec))) }
+            unsafe { transmute(azul_dll::AzU8Vec_asRefVec(transmute(u8vec))) }
         }
         pub(crate) fn AzU8Vec_delete(object: &mut AzU8Vec) {
-            unsafe { transmute(azul::AzU8Vec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzU8Vec_delete(transmute(object))) }
         }
         pub(crate) fn AzCallbackDataVec_delete(object: &mut AzCallbackDataVec) {
-            unsafe { transmute(azul::AzCallbackDataVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzCallbackDataVec_delete(transmute(object))) }
         }
         pub(crate) fn AzDebugMessageVec_delete(object: &mut AzDebugMessageVec) {
-            unsafe { transmute(azul::AzDebugMessageVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzDebugMessageVec_delete(transmute(object))) }
         }
         pub(crate) fn AzGLuintVec_delete(object: &mut AzGLuintVec) {
-            unsafe { transmute(azul::AzGLuintVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGLuintVec_delete(transmute(object))) }
         }
         pub(crate) fn AzGLintVec_delete(object: &mut AzGLintVec) {
-            unsafe { transmute(azul::AzGLintVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzGLintVec_delete(transmute(object))) }
         }
         pub(crate) fn AzStringVec_delete(object: &mut AzStringVec) {
-            unsafe { transmute(azul::AzStringVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStringVec_delete(transmute(object))) }
         }
         pub(crate) fn AzStringPairVec_delete(object: &mut AzStringPairVec) {
-            unsafe { transmute(azul::AzStringPairVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStringPairVec_delete(transmute(object))) }
         }
         pub(crate) fn AzNormalizedLinearColorStopVec_delete(
             object: &mut AzNormalizedLinearColorStopVec,
         ) {
             unsafe {
-                transmute(azul::AzNormalizedLinearColorStopVec_delete(transmute(
+                transmute(azul_dll::AzNormalizedLinearColorStopVec_delete(transmute(
                     object,
                 )))
             }
@@ -16266,28 +16485,32 @@ mod dll {
             object: &mut AzNormalizedRadialColorStopVec,
         ) {
             unsafe {
-                transmute(azul::AzNormalizedRadialColorStopVec_delete(transmute(
+                transmute(azul_dll::AzNormalizedRadialColorStopVec_delete(transmute(
                     object,
                 )))
             }
         }
         pub(crate) fn AzNodeIdVec_delete(object: &mut AzNodeIdVec) {
-            unsafe { transmute(azul::AzNodeIdVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzNodeIdVec_delete(transmute(object))) }
         }
         pub(crate) fn AzNodeHierarchyItemVec_delete(object: &mut AzNodeHierarchyItemVec) {
-            unsafe { transmute(azul::AzNodeHierarchyItemVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzNodeHierarchyItemVec_delete(transmute(object))) }
         }
         pub(crate) fn AzStyledNodeVec_delete(object: &mut AzStyledNodeVec) {
-            unsafe { transmute(azul::AzStyledNodeVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzStyledNodeVec_delete(transmute(object))) }
         }
         pub(crate) fn AzTagIdToNodeIdMappingVec_delete(object: &mut AzTagIdToNodeIdMappingVec) {
-            unsafe { transmute(azul::AzTagIdToNodeIdMappingVec_delete(transmute(object))) }
+            unsafe {
+                transmute(azul_dll::AzTagIdToNodeIdMappingVec_delete(transmute(
+                    object,
+                )))
+            }
         }
         pub(crate) fn AzParentWithNodeDepthVec_delete(object: &mut AzParentWithNodeDepthVec) {
-            unsafe { transmute(azul::AzParentWithNodeDepthVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzParentWithNodeDepthVec_delete(transmute(object))) }
         }
         pub(crate) fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {
-            unsafe { transmute(azul::AzNodeDataVec_delete(transmute(object))) }
+            unsafe { transmute(azul_dll::AzNodeDataVec_delete(transmute(object))) }
         }
     }
 

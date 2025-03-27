@@ -1,8 +1,4 @@
-use azul::{
-    prelude::*,
-    str::String as AzString,
-    widgets::{Button, Label},
-};
+use azul::prelude::*;
 
 struct DataModel {
     counter: usize,
@@ -86,7 +82,7 @@ fn get_dom() -> StyledDom {
 fn main() {
     let data = DataModel { counter: 0 };
     let app = App::new(RefAny::new(data), AppConfig::new(LayoutSolver::Default));
-    let mut window = WindowCreateOptions::new(myLayoutFunc);
+    let window = WindowCreateOptions::new(myLayoutFunc);
     app.run(window);
 
     println!("inject scroll bars:\r\n{}", get_dom().get_html_string());

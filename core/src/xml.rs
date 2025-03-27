@@ -438,7 +438,7 @@ impl Default for ComponentArguments {
 }
 
 impl ComponentArguments {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 }
@@ -624,6 +624,12 @@ impl XmlNode {
         XmlNode {
             node_type: node_type.into(),
             ..Default::default()
+        }
+    }
+    pub fn with_children(mut self, v: Vec<XmlNode>) -> Self {
+        Self {
+            children: v.into(),
+            ..self
         }
     }
 }

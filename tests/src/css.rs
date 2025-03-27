@@ -1,8 +1,16 @@
+use azul_core::style::{
+    construct_html_cascade_tree, matches_html_element, CssGroupIterator, CssGroupSplitReason,
+};
+#[cfg(test)]
+use azul_css::parser::*;
+#[cfg(test)]
+use azul_css::*;
 
 #[test]
 fn test_specificity() {
-    use self::CssPathSelector::*;
     use alloc::string::ToString;
+
+    use azul_css::CssPathSelector::*;
     assert_eq!(
         get_specificity(&CssPath {
             selectors: vec![Id("hello".to_string().into())].into()
@@ -33,11 +41,11 @@ fn test_specificity() {
 // (in order of CSS path specificity, lowest-to-highest)
 #[test]
 fn test_specificity_sort() {
-    use self::CssPathSelector::*;
-    use crate::NodeTypeTag::*;
     use alloc::string::ToString;
 
-    let input_style = Stylesheet {
+    use azul_css::{CssPathSelector::*, NodeTypeTag::*};
+
+    let mut input_style = Stylesheet {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             CssRuleBlock {
@@ -84,8 +92,9 @@ fn test_specificity_sort() {
             },
         ]
         .into(),
-    }
-    .sort_by_specificity();
+    };
+
+    input_style.sort_by_specificity();
 
     let expected_style = Stylesheet {
         rules: vec![
@@ -141,25 +150,37 @@ fn test_specificity_sort() {
 
 #[test]
 fn test_case_issue_93() {
-    use crate::dom::*;
-    use azul_css::CssPathSelector::*;
-    use azul_css::*;
+    use azul_core::dom::*;
+    use azul_css::{CssPathSelector::*, *};
 
     fn render_tab() -> Dom {
         Dom::div()
-            .with_class("tabwidget-tab")
-            .with_child(Dom::label("").with_class("tabwidget-tab-label"))
-            .with_child(Dom::label("").with_class("tabwidget-tab-close"))
+            .with_ids_and_classes(vec![IdOrClass::Class("tabwidget-tab".into())].into())
+            .with_child(
+                Dom::text("").with_ids_and_classes(
+                    vec![IdOrClass::Class("tabwidget-tab-label".into())].into(),
+                ),
+            )
+            .with_child(
+                Dom::text("").with_ids_and_classes(
+                    vec![IdOrClass::Class("tabwidget-tab-close".into())].into(),
+                ),
+            )
     }
 
-    let dom = Dom::div().with_id("editor-rooms").with_child(
-        Dom::div()
-            .with_class("tabwidget-bar")
-            .with_child(render_tab().with_class("active"))
-            .with_child(render_tab())
-            .with_child(render_tab())
-            .with_child(render_tab()),
-    );
+    let dom = Dom::div()
+        .with_ids_and_classes(vec![IdOrClass::Id("editor-rooms".into())].into())
+        .with_child(
+            Dom::div()
+                .with_ids_and_classes(vec![IdOrClass::Class("tabwidget-bar".into())].into())
+                .with_child(
+                    render_tab()
+                        .with_ids_and_classes(vec![IdOrClass::Class("active".into())].into()),
+                )
+                .with_child(render_tab())
+                .with_child(render_tab())
+                .with_child(render_tab()),
+        );
 
     let dom = convert_dom_into_compact_dom(dom);
 
@@ -176,10 +197,7 @@ fn test_case_issue_93() {
     let node_hierarchy = &dom.node_hierarchy;
     let node_data = &dom.node_data;
     let nodes_sorted: Vec<_> = node_hierarchy.as_ref().get_parents_sorted_by_depth();
-    let html_node_tree = construct_html_cascade_tree(
-        &node_hierarchy.as_ref(),
-        &nodes_sorted,
-    );
+    let html_node_tree = construct_html_cascade_tree(&node_hierarchy.as_ref(), &nodes_sorted);
 
     //  rules: [
     //    ".tabwidget-tab-label"                        : ColorU::BLACK,
@@ -210,7 +228,7 @@ fn test_case_issue_93() {
         matches_html_element(
             &tab_active_close,
             NodeId::new(3),
-            &node_hierarchy.as_container(),
+            &node_hierarchy.as_ref(),
             &node_data.as_ref(),
             &html_node_tree.as_ref(),
             None,
@@ -237,9 +255,7 @@ fn test_case_issue_93() {
 
 #[test]
 fn test_case_issue_93_2() {
-    use azul_css::*;
-
-    use self::CssPathSelector::*;
+    use azul_css::{CssPathSelector::*, *};
 
     let parsed_css = new_from_str(
         "
@@ -256,7 +272,7 @@ fn test_case_issue_93_2() {
         }
     ",
     )
-    .unwrap();
+    .0;
 
     fn declaration(classes: &[CssPathSelector], color: ColorU) -> CssRuleBlock {
         CssRuleBlock {
@@ -320,8 +336,7 @@ fn test_case_issue_93_2() {
 
 #[test]
 fn test_css_group_iterator() {
-    use self::CssPathSelector::*;
-    use azul_css::*;
+    use azul_css::{CssPathSelector::*, *};
 
     // ".hello > #id_text.new_class div.content"
     // -> ["div.content", "#id_text.new_class", ".hello"]
@@ -387,9 +402,10 @@ fn test_css_group_iterator() {
 
 #[test]
 fn test_css_pseudo_selector_parse() {
-    use azul_css::{CssNthChildPattern, CssNthChildSelector::*};
-
-    use self::{CssPathPseudoSelector::*, CssPseudoSelectorParseError::*};
+    use azul_css::{
+        parser::CssPseudoSelectorParseError::*, CssNthChildPattern, CssNthChildSelector::*,
+        CssPathPseudoSelector::*,
+    };
     let ok_res = [
         (("first", None), First),
         (("last", None), Last),
@@ -432,7 +448,6 @@ fn test_css_pseudo_selector_parse() {
     }
 }
 
-
 #[test]
 fn test_css_parse_1() {
     use azul_css::*;
@@ -444,7 +459,7 @@ fn test_css_parse_1() {
         }
     ",
     )
-    .unwrap();
+    .0;
 
     let expected_css_rules = vec![CssRuleBlock {
         path: CssPath {
@@ -484,9 +499,7 @@ fn test_css_parse_1() {
 
 #[test]
 fn test_css_simple_selector_parse() {
-    use azul_css::NodeTypeTag;
-
-    use self::CssPathSelector::*;
+    use azul_css::{CssPathSelector::*, NodeTypeTag};
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
         Type(NodeTypeTag::Div),
@@ -498,7 +511,7 @@ fn test_css_simple_selector_parse() {
         Class("new".to_string().into()),
     ];
     assert_eq!(
-        new_from_str(css).unwrap(),
+        new_from_str(css).0,
         Css {
             stylesheets: vec![Stylesheet {
                 rules: vec![CssRuleBlock {
@@ -514,8 +527,9 @@ fn test_css_simple_selector_parse() {
     );
 }
 
+#[cfg(test)]
 fn test_css(css: &str, expected: Vec<CssRuleBlock>) {
-    let css = new_from_str(css).unwrap();
+    let css = azul_css::parser::new_from_str(css).0;
     assert_eq!(
         css,
         Css {
@@ -577,8 +591,7 @@ fn test_apply_css_pure_class() {
             },
             CssRuleBlock {
                 path: CssPath {
-                    selectors: vec![CssPathSelector::Class("my_class".to_string().into())]
-                        .into(),
+                    selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(),
                 },
                 declarations: vec![CssDeclaration::Static(blue.clone())].into(),
             },
@@ -588,8 +601,8 @@ fn test_apply_css_pure_class() {
 
     // Even more complex example
     {
-        let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; \
-                        } .my_class { background-color: blue; }";
+        let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } \
+                     .my_class { background-color: blue; }";
         let expected_rules = vec![
             CssRuleBlock {
                 path: CssPath {
@@ -609,8 +622,7 @@ fn test_apply_css_pure_class() {
             },
             CssRuleBlock {
                 path: CssPath {
-                    selectors: vec![CssPathSelector::Class("my_class".to_string().into())]
-                        .into(),
+                    selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(),
                 },
                 declarations: vec![CssDeclaration::Static(blue.clone())].into(),
             },
@@ -620,13 +632,10 @@ fn test_apply_css_pure_class() {
     }
 }
 
-
 // Assert that order of the style rules is correct (in same order as provided in CSS form)
 #[test]
 fn test_multiple_rules() {
-    use azul_css::*;
-
-    use self::CssPathSelector::*;
+    use azul_css::{CssPathSelector::*, *};
 
     let parsed_css = new_from_str(
         "
@@ -637,7 +646,7 @@ fn test_multiple_rules() {
         div.my_class.specific#my_id { }
     ",
     )
-    .unwrap();
+    .0;
 
     let expected_rules = vec![
         // Rules are sorted by order of appearance in source string

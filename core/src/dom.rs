@@ -1717,7 +1717,7 @@ impl fmt::Debug for Dom {
 
 /// Same as `Dom`, but arena-based for more efficient memory layout
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
-pub(crate) struct CompactDom {
+pub struct CompactDom {
     pub node_hierarchy: NodeHierarchy,
     pub node_data: NodeDataContainer<NodeData>,
     pub root: NodeId,
@@ -1737,7 +1737,7 @@ impl From<Dom> for CompactDom {
     }
 }
 
-pub(crate) fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
+pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // note: somehow convert this into a non-recursive form later on!
     fn convert_dom_into_compact_dom_internal(
         dom: &mut Dom,

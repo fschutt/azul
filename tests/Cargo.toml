@@ -1,0 +1,19 @@
+[package]
+name = "azul-test"
+version = "0.0.5"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Runs azul integration tests"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
+categories = ["gui"]
+repository = "https://github.com/fschutt/azul"
+readme = "../README.md"
+edition = "2021"
+publish = false
+
+[dependencies]
+azul-layout = { version = "0.0.5", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading"]}
+azul-core = { version = "0.0.5", path = "../core", default-features = false, features = ["std"]}
+azul-css = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"]}
+azul-dll = { version = "0.0.5", path = "../dll", default-features = false, features = ["minimal"] }

@@ -301,6 +301,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 
 [[package]]
+name = "azul-test"
+version = "0.0.5"
+dependencies = [
+ "azul-core",
+ "azul-css",
+ "azul-dll",
+ "azul-layout",
+]
+
+[[package]]
 name = "azul-webrender"
 version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

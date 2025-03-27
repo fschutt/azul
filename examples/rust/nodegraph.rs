@@ -2,10 +2,7 @@
 
 use std::{collections::BTreeMap, string::String};
 
-use azul::{
-    prelude::{String as AzString, *},
-    widgets::*,
-};
+use azul::{prelude::*, widgets::*};
 
 // Custom node graph data model
 #[derive(Debug)]

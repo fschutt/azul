@@ -147,7 +147,7 @@ pub fn detect_script(text: &str) -> Option<Script> {
     }
 }
 
-fn is_cyrillic(ch: char) -> bool {
+pub fn is_cyrillic(ch: char) -> bool {
     matches!(ch,
         '\u{0400}'..='\u{0484}'
         | '\u{0487}'..='\u{052F}'
@@ -160,7 +160,7 @@ fn is_cyrillic(ch: char) -> bool {
 }
 
 // https://en.wikipedia.org/wiki/Latin_script_in_Unicode
-fn is_latin(ch: char) -> bool {
+pub fn is_latin(ch: char) -> bool {
     matches!(ch,
         'a'..='z'
         | 'A'..='Z'
@@ -179,7 +179,7 @@ fn is_latin(ch: char) -> bool {
 }
 
 // Based on https://en.wikipedia.org/wiki/Arabic_script_in_Unicode
-fn is_arabic(ch: char) -> bool {
+pub fn is_arabic(ch: char) -> bool {
     matches!(ch,
         '\u{0600}'..='\u{06FF}'
         | '\u{0750}'..='\u{07FF}'
@@ -192,25 +192,25 @@ fn is_arabic(ch: char) -> bool {
 }
 
 // Based on https://en.wikipedia.org/wiki/Devanagari#Unicode
-fn is_devanagari(ch: char) -> bool {
+pub fn is_devanagari(ch: char) -> bool {
     matches!(ch, '\u{0900}'..='\u{097F}' | '\u{A8E0}'..='\u{A8FF}' | '\u{1CD0}'..='\u{1CFF}')
 }
 
 // Based on https://www.key-shortcut.com/en/writing-systems/ethiopian-script/
-fn is_ethiopic(ch: char) -> bool {
+pub fn is_ethiopic(ch: char) -> bool {
     matches!(ch, '\u{1200}'..='\u{139F}' | '\u{2D80}'..='\u{2DDF}' | '\u{AB00}'..='\u{AB2F}')
 }
 
 // Based on https://en.wikipedia.org/wiki/Hebrew_(Unicode_block)
-fn is_hebrew(ch: char) -> bool {
+pub fn is_hebrew(ch: char) -> bool {
     matches!(ch, '\u{0590}'..='\u{05FF}')
 }
 
-fn is_georgian(ch: char) -> bool {
+pub fn is_georgian(ch: char) -> bool {
     matches!(ch, '\u{10A0}'..='\u{10FF}')
 }
 
-fn is_mandarin(ch: char) -> bool {
+pub fn is_mandarin(ch: char) -> bool {
     matches!(ch,
         '\u{2E80}'..='\u{2E99}'
         | '\u{2E9B}'..='\u{2EF3}'
@@ -226,20 +226,20 @@ fn is_mandarin(ch: char) -> bool {
     )
 }
 
-fn is_bengali(ch: char) -> bool {
+pub fn is_bengali(ch: char) -> bool {
     matches!(ch, '\u{0980}'..='\u{09FF}')
 }
 
-fn is_hiragana(ch: char) -> bool {
+pub fn is_hiragana(ch: char) -> bool {
     matches!(ch, '\u{3040}'..='\u{309F}')
 }
 
-fn is_katakana(ch: char) -> bool {
+pub fn is_katakana(ch: char) -> bool {
     matches!(ch, '\u{30A0}'..='\u{30FF}')
 }
 
 // Hangul is Korean Alphabet. Unicode ranges are taken from: https://en.wikipedia.org/wiki/Hangul
-fn is_hangul(ch: char) -> bool {
+pub fn is_hangul(ch: char) -> bool {
     matches!(ch,
         '\u{AC00}'..='\u{D7AF}'
         | '\u{1100}'..='\u{11FF}'
@@ -252,61 +252,61 @@ fn is_hangul(ch: char) -> bool {
 }
 
 // Taken from: https://en.wikipedia.org/wiki/Greek_and_Coptic
-fn is_greek(ch: char) -> bool {
+pub fn is_greek(ch: char) -> bool {
     matches!(ch, '\u{0370}'..='\u{03FF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Kannada_(Unicode_block)
-fn is_kannada(ch: char) -> bool {
+pub fn is_kannada(ch: char) -> bool {
     matches!(ch, '\u{0C80}'..='\u{0CFF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Tamil_(Unicode_block)
-fn is_tamil(ch: char) -> bool {
+pub fn is_tamil(ch: char) -> bool {
     matches!(ch, '\u{0B80}'..='\u{0BFF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Thai_(Unicode_block)
-fn is_thai(ch: char) -> bool {
+pub fn is_thai(ch: char) -> bool {
     matches!(ch, '\u{0E00}'..='\u{0E7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Gujarati_(Unicode_block)
-fn is_gujarati(ch: char) -> bool {
+pub fn is_gujarati(ch: char) -> bool {
     matches!(ch, '\u{0A80}'..='\u{0AFF}')
 }
 
 // Gurmukhi is the script for Punjabi language.
 // Based on: https://en.wikipedia.org/wiki/Gurmukhi_(Unicode_block)
-fn is_gurmukhi(ch: char) -> bool {
+pub fn is_gurmukhi(ch: char) -> bool {
     matches!(ch, '\u{0A00}'..='\u{0A7F}')
 }
 
-fn is_telugu(ch: char) -> bool {
+pub fn is_telugu(ch: char) -> bool {
     matches!(ch, '\u{0C00}'..='\u{0C7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Malayalam_(Unicode_block)
-fn is_malayalam(ch: char) -> bool {
+pub fn is_malayalam(ch: char) -> bool {
     matches!(ch, '\u{0D00}'..='\u{0D7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Malayalam_(Unicode_block)
-fn is_oriya(ch: char) -> bool {
+pub fn is_oriya(ch: char) -> bool {
     matches!(ch, '\u{0B00}'..='\u{0B7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Myanmar_(Unicode_block)
-fn is_myanmar(ch: char) -> bool {
+pub fn is_myanmar(ch: char) -> bool {
     matches!(ch, '\u{1000}'..='\u{109F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Sinhala_(Unicode_block)
-fn is_sinhala(ch: char) -> bool {
+pub fn is_sinhala(ch: char) -> bool {
     matches!(ch, '\u{0D80}'..='\u{0DFF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Khmer_alphabet
-fn is_khmer(ch: char) -> bool {
+pub fn is_khmer(ch: char) -> bool {
     matches!(ch, '\u{1780}'..='\u{17FF}' | '\u{19E0}'..='\u{19FF}')
 }

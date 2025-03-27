@@ -1,8 +1,4 @@
-use azul::{
-    prelude::*,
-    str::String as AzString,
-    widgets::{Button, Label},
-};
+use azul::{prelude::*, widgets::Button};
 
 struct DataModel {
     counter: usize,

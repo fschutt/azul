@@ -83,17 +83,11 @@ pub mod ui {
 
         use azul::{
             css::*,
-            dom::{
-                Dom, IdOrClass,
-                IdOrClass::{Class, Id},
-                NodeDataInlineCssProperty, TabIndex,
-            },
+            dom::{Dom, IdOrClass, IdOrClass::Class, NodeDataInlineCssProperty, TabIndex},
             str::String as AzString,
             vec::{
                 DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec, NormalizedLinearColorStopVec,
-                NormalizedRadialColorStopVec, StyleBackgroundContentVec,
-                StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec,
-                StyleFontFamilyVec, StyleTransformVec,
+                StyleBackgroundContentVec, StyleFontFamilyVec,
             },
         };
 
@@ -931,7 +925,7 @@ pub mod ui {
     }
 
     extern "C" fn handle_virtual_key_input(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-        let mut event = match info
+        let event = match info
             .get_current_keyboard_state()
             .current_virtual_keycode
             .into_option()
@@ -1211,13 +1205,11 @@ pub mod logic {
 fn main() {
     use azul::{
         app::{App, AppConfig, LayoutSolver},
-        callbacks::{LayoutCallbackInfo, RefAny},
-        css::Css,
+        callbacks::RefAny,
         font::{FontRef, FontSource},
         option::OptionFontRef,
-        style::StyledDom,
         vec::U8Vec,
-        window::{WindowCreateOptions, WindowFrame},
+        window::WindowCreateOptions,
     };
     let font = match FontRef::parse(FontSource {
         data: U8Vec::from_const_slice(FONT),

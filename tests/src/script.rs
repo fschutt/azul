@@ -1,12 +1,5 @@
-
-
-use super::*;
-
-#[test]
-fn test_script_name() {
-    assert_eq!(Script::Cyrillic.name(), "Cyrillic");
-    assert_eq!(Script::Katakana.name(), "Katakana");
-}
+#[cfg(test)]
+use azul_layout::text2::script::*;
 
 #[test]
 fn test_detect_script() {

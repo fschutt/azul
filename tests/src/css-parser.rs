@@ -1,3 +1,7 @@
+#[cfg(test)]
+use azul_css::parser::*;
+#[cfg(test)]
+use azul_css::*;
 
 #[test]
 fn test_parse_box_shadow_1() {
@@ -13,8 +17,12 @@ fn test_parse_box_shadow_2() {
         parse_style_box_shadow("5px 10px"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 0,
@@ -22,8 +30,12 @@ fn test_parse_box_shadow_2() {
                 b: 0,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Outset,
         })
     );
@@ -35,8 +47,12 @@ fn test_parse_box_shadow_3() {
         parse_style_box_shadow("5px 10px #888888"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 136,
@@ -44,8 +60,12 @@ fn test_parse_box_shadow_3() {
                 b: 136,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Outset,
         })
     );
@@ -57,8 +77,12 @@ fn test_parse_box_shadow_4() {
         parse_style_box_shadow("5px 10px inset"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 0,
@@ -66,8 +90,12 @@ fn test_parse_box_shadow_4() {
                 b: 0,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Inset,
         })
     );
@@ -79,8 +107,12 @@ fn test_parse_box_shadow_5() {
         parse_style_box_shadow("5px 10px outset"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 0,
@@ -88,8 +120,12 @@ fn test_parse_box_shadow_5() {
                 b: 0,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Outset,
         })
     );
@@ -101,8 +137,12 @@ fn test_parse_box_shadow_6() {
         parse_style_box_shadow("5px 10px 5px #888888"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 136,
@@ -110,8 +150,12 @@ fn test_parse_box_shadow_6() {
                 b: 136,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(5.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Outset,
         })
     );
@@ -123,8 +167,12 @@ fn test_parse_box_shadow_7() {
         parse_style_box_shadow("5px 10px #888888 inset"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 136,
@@ -132,8 +180,12 @@ fn test_parse_box_shadow_7() {
                 b: 136,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Inset,
         })
     );
@@ -145,8 +197,12 @@ fn test_parse_box_shadow_8() {
         parse_style_box_shadow("5px 10px 5px #888888 inset"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 136,
@@ -154,8 +210,12 @@ fn test_parse_box_shadow_8() {
                 b: 136,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(5.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0)
+            },
             clip_mode: BoxShadowClipMode::Inset,
         })
     );
@@ -167,8 +227,12 @@ fn test_parse_box_shadow_9() {
         parse_style_box_shadow("5px 10px 5px 10px #888888"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 136,
@@ -176,8 +240,12 @@ fn test_parse_box_shadow_9() {
                 b: 136,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(10.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(5.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(10.0)
+            },
             clip_mode: BoxShadowClipMode::Outset,
         })
     );
@@ -189,8 +257,12 @@ fn test_parse_box_shadow_10() {
         parse_style_box_shadow("5px 10px 5px 10px #888888 inset"),
         Ok(StyleBoxShadow {
             offset: [
-                PixelValueNoPercent { inner: PixelValue::px(5.0) },
-                PixelValueNoPercent { inner: PixelValue::px(10.0) },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(5.0)
+                },
+                PixelValueNoPercent {
+                    inner: PixelValue::px(10.0)
+                },
             ],
             color: ColorU {
                 r: 136,
@@ -198,13 +270,16 @@ fn test_parse_box_shadow_10() {
                 b: 136,
                 a: 255
             },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(10.0) },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(5.0)
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(10.0)
+            },
             clip_mode: BoxShadowClipMode::Inset,
         })
     );
 }
-
 
 #[test]
 fn test_parse_css_border_0() {
@@ -213,7 +288,12 @@ fn test_parse_css_border_0() {
         Ok(StyleBorderSide {
             border_width: PixelValue::px(1.0),
             border_style: BorderStyle::Solid,
-            border_color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            border_color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255
+            },
         })
     );
 }
@@ -225,7 +305,12 @@ fn test_parse_css_border_1() {
         Ok(StyleBorderSide {
             border_width: PixelValue::px(5.0),
             border_style: BorderStyle::Solid,
-            border_color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+            border_color: ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255
+            },
         })
     );
 }
@@ -237,7 +322,12 @@ fn test_parse_css_border_2() {
         Ok(StyleBorderSide {
             border_width: PixelValue::px(3.0),
             border_style: BorderStyle::Double,
-            border_color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            border_color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255
+            },
         })
     );
 }
@@ -249,14 +339,20 @@ fn test_parse_css_border_3() {
         Ok(StyleBorderSide {
             border_width: PixelValue::px(1.0),
             border_style: BorderStyle::Solid,
-            border_color: ColorU { r: 51, g: 153, b: 255, a: 255 },
+            border_color: ColorU {
+                r: 51,
+                g: 153,
+                b: 255,
+                a: 255
+            },
         })
     );
 }
 
 #[test]
 fn test_parse_linear_gradient_1() {
-    assert_eq!(parse_style_background_content("linear-gradient(red, yellow)"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(red, yellow)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
                 from: DirectionCorner::Top,
@@ -266,19 +362,32 @@ fn test_parse_linear_gradient_1() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-        })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_2() {
-    assert_eq!(parse_style_background_content("linear-gradient(red, lime, blue, yellow)"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(red, lime, blue, yellow)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
                 from: DirectionCorner::Top,
@@ -288,50 +397,91 @@ fn test_parse_linear_gradient_2() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(33.333332),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(66.666664),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_3() {
-    assert_eq!(parse_style_background_content("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
+    assert_eq!(
+        parse_style_background_content("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::Angle(AngleValue::deg(50.0)),
             extend_mode: ExtendMode::Repeat,
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(50.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_4() {
-    assert_eq!(parse_style_background_content("linear-gradient(to bottom right, red, yellow)"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(to bottom right, red, yellow)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
                 from: DirectionCorner::TopLeft,
@@ -341,58 +491,98 @@ fn test_parse_linear_gradient_4() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-        })
-    ));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_5() {
-    assert_eq!(parse_style_background_content("linear-gradient(0.42rad, red, yellow)"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(0.42rad, red, yellow)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::Angle(AngleValue::rad(0.42)),
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_6() {
-    assert_eq!(parse_style_background_content("linear-gradient(12.93grad, red, yellow)"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(12.93grad, red, yellow)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::Angle(AngleValue::grad(12.93)),
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_7() {
-    assert_eq!(parse_style_background_content("linear-gradient(to right, rgba(255,0, 0,1) 0%,rgba(0,0,0, 0) 100%)"),
+    assert_eq!(
+        parse_style_background_content(
+            "linear-gradient(to right, rgba(255,0, 0,1) 0%,rgba(0,0,0, 0) 100%)"
+        ),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
                 from: DirectionCorner::Left,
@@ -402,20 +592,32 @@ fn test_parse_linear_gradient_7() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 0, g: 0, b: 0, a: 0 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0
+                    },
                 }
-            ].into(),
-        })
-    ));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_8() {
-    assert_eq!(parse_style_background_content("linear-gradient(to bottom, rgb(255,0, 0),rgb(0,0,0))"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(to bottom, rgb(255,0, 0),rgb(0,0,0))"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
                 from: DirectionCorner::Top,
@@ -425,59 +627,101 @@ fn test_parse_linear_gradient_8() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-        })
-    ));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_9() {
-    assert_eq!(parse_style_background_content("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
+    assert_eq!(
+        parse_style_background_content("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::Angle(AngleValue::deg(10.0)),
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 10, g: 30, b: 20, a: 255 },
+                    color: ColorU {
+                        r: 10,
+                        g: 30,
+                        b: 20,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_10() {
-    assert_eq!(parse_style_background_content("linear-gradient(50deg, rgba(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
+    assert_eq!(
+        parse_style_background_content(
+            "linear-gradient(50deg, rgba(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"
+        ),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::Angle(AngleValue::deg(50.0)),
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 10, g: 30, b: 20, a: 238 },
+                    color: ColorU {
+                        r: 10,
+                        g: 30,
+                        b: 20,
+                        a: 238
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 138, g: 97, b: 15, a: 25 },
+                    color: ColorU {
+                        r: 138,
+                        g: 97,
+                        b: 15,
+                        a: 25
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_linear_gradient_11() {
     // wacky whitespace on purpose
-    assert_eq!(parse_style_background_content("linear-gradient(to bottom,rgb(255,0, 0)0%, rgb( 0 , 255 , 0 ) 10% ,blue   100%  )"),
+    assert_eq!(
+        parse_style_background_content(
+            "linear-gradient(to bottom,rgb(255,0, 0)0%, rgb( 0 , 255 , 0 ) 10% ,blue   100%  )"
+        ),
         Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
                 from: DirectionCorner::Top,
@@ -487,24 +731,41 @@ fn test_parse_linear_gradient_11() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(10.0),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255
+                    },
                 }
-            ].into(),
-        })
-    ));
+            ]
+            .into(),
+        }))
+    );
 }
 
 #[test]
 fn test_parse_radial_gradient_1() {
-    assert_eq!(parse_style_background_content("radial-gradient(circle, lime, blue, yellow)"),
+    assert_eq!(
+        parse_style_background_content("radial-gradient(circle, lime, blue, yellow)"),
         Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
             shape: Shape::Circle,
             extend_mode: ExtendMode::Clamp,
@@ -516,24 +777,41 @@ fn test_parse_radial_gradient_1() {
             stops: vec![
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(0.0),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(50.0),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255
+                    },
                 },
                 NormalizedLinearColorStop {
                     offset: PercentageValue::new(100.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
-
 
 #[test]
 fn test_parse_conic_gradient_1() {
-    assert_eq!(parse_style_background_content("conic-gradient(lime, blue, yellow)"),
+    assert_eq!(
+        parse_style_background_content("conic-gradient(lime, blue, yellow)"),
         Ok(StyleBackgroundContent::ConicGradient(ConicGradient {
             extend_mode: ExtendMode::Clamp,
             center: StyleBackgroundPosition {
@@ -544,18 +822,35 @@ fn test_parse_conic_gradient_1() {
             stops: vec![
                 NormalizedRadialColorStop {
                     angle: AngleValue::deg(0.0),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 },
                 NormalizedRadialColorStop {
                     angle: AngleValue::deg(180.0),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 255,
+                        a: 255
+                    },
                 },
                 NormalizedRadialColorStop {
                     angle: AngleValue::deg(360.0),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    color: ColorU {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                        a: 255
+                    },
                 }
-            ].into(),
-    })));
+            ]
+            .into(),
+        }))
+    );
 }
 
 /*
@@ -595,142 +890,315 @@ fn test_parse_radial_gradient_2() {
 
 #[test]
 fn test_parse_css_color_1() {
-    assert_eq!(parse_css_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
+    assert_eq!(
+        parse_css_color("#F0F8FF"),
+        Ok(ColorU {
+            r: 240,
+            g: 248,
+            b: 255,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_2() {
-    assert_eq!(parse_css_color("#F0F8FF00"), Ok(ColorU { r: 240, g: 248, b: 255, a: 0 }));
+    assert_eq!(
+        parse_css_color("#F0F8FF00"),
+        Ok(ColorU {
+            r: 240,
+            g: 248,
+            b: 255,
+            a: 0
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_3() {
-    assert_eq!(parse_css_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
+    assert_eq!(
+        parse_css_color("#EEE"),
+        Ok(ColorU {
+            r: 238,
+            g: 238,
+            b: 238,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_4() {
-    assert_eq!(parse_css_color("rgb(192, 14, 12)"), Ok(ColorU { r: 192, g: 14, b: 12, a: 255 }));
+    assert_eq!(
+        parse_css_color("rgb(192, 14, 12)"),
+        Ok(ColorU {
+            r: 192,
+            g: 14,
+            b: 12,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_5() {
-    assert_eq!(parse_css_color("rgb(283, 8, 105)"), Err(CssColorParseError::IntValueParseErr("283".parse::<u8>().err().unwrap())));
+    assert_eq!(
+        parse_css_color("rgb(283, 8, 105)"),
+        Err(CssColorParseError::IntValueParseErr(
+            "283".parse::<u8>().err().unwrap()
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_6() {
-    assert_eq!(parse_css_color("rgba(192, 14, 12, 80)"), Err(CssColorParseError::FloatValueOutOfRange(80.0)));
+    assert_eq!(
+        parse_css_color("rgba(192, 14, 12, 80)"),
+        Err(CssColorParseError::FloatValueOutOfRange(80.0))
+    );
 }
 
 #[test]
 fn test_parse_css_color_7() {
-    assert_eq!(parse_css_color("rgba( 0,127,     255   , 0.25  )"), Ok(ColorU { r: 0, g: 127, b: 255, a: 64 }));
+    assert_eq!(
+        parse_css_color("rgba( 0,127,     255   , 0.25  )"),
+        Ok(ColorU {
+            r: 0,
+            g: 127,
+            b: 255,
+            a: 64
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_8() {
-    assert_eq!(parse_css_color("rgba( 1 ,2,3, 1.0)"), Ok(ColorU { r: 1, g: 2, b: 3, a: 255 }));
+    assert_eq!(
+        parse_css_color("rgba( 1 ,2,3, 1.0)"),
+        Ok(ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_9() {
-    assert_eq!(parse_css_color("rgb("), Err(CssColorParseError::UnclosedColor("rgb(")));
+    assert_eq!(
+        parse_css_color("rgb("),
+        Err(CssColorParseError::UnclosedColor("rgb("))
+    );
 }
 
 #[test]
 fn test_parse_css_color_10() {
-    assert_eq!(parse_css_color("rgba("), Err(CssColorParseError::UnclosedColor("rgba(")));
+    assert_eq!(
+        parse_css_color("rgba("),
+        Err(CssColorParseError::UnclosedColor("rgba("))
+    );
 }
 
 #[test]
 fn test_parse_css_color_11() {
-    assert_eq!(parse_css_color("rgba(123, 36, 92, 0.375"), Err(CssColorParseError::UnclosedColor("rgba(123, 36, 92, 0.375")));
+    assert_eq!(
+        parse_css_color("rgba(123, 36, 92, 0.375"),
+        Err(CssColorParseError::UnclosedColor("rgba(123, 36, 92, 0.375"))
+    );
 }
 
 #[test]
 fn test_parse_css_color_12() {
-    assert_eq!(parse_css_color("rgb()"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Red)));
+    assert_eq!(
+        parse_css_color("rgb()"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Red
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_13() {
-    assert_eq!(parse_css_color("rgb(10)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Green)));
+    assert_eq!(
+        parse_css_color("rgb(10)"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Green
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_14() {
-    assert_eq!(parse_css_color("rgb(20, 30)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Blue)));
+    assert_eq!(
+        parse_css_color("rgb(20, 30)"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Blue
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_15() {
-    assert_eq!(parse_css_color("rgb(30, 40,)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Blue)));
+    assert_eq!(
+        parse_css_color("rgb(30, 40,)"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Blue
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_16() {
-    assert_eq!(parse_css_color("rgba(40, 50, 60)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
+    assert_eq!(
+        parse_css_color("rgba(40, 50, 60)"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Alpha
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_17() {
-    assert_eq!(parse_css_color("rgba(50, 60, 70, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
+    assert_eq!(
+        parse_css_color("rgba(50, 60, 70, )"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Alpha
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_18() {
-    assert_eq!(parse_css_color("hsl(0deg, 100%, 100%)"), Ok(ColorU { r: 255, g: 255, b: 255, a: 255 }));
+    assert_eq!(
+        parse_css_color("hsl(0deg, 100%, 100%)"),
+        Ok(ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_19() {
-    assert_eq!(parse_css_color("hsl(0deg, 100%, 50%)"), Ok(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+    assert_eq!(
+        parse_css_color("hsl(0deg, 100%, 50%)"),
+        Ok(ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_20() {
-    assert_eq!(parse_css_color("hsl(170deg, 50%, 75%)"), Ok(ColorU { r: 160, g: 224, b: 213, a: 255 }));
+    assert_eq!(
+        parse_css_color("hsl(170deg, 50%, 75%)"),
+        Ok(ColorU {
+            r: 160,
+            g: 224,
+            b: 213,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_21() {
-    assert_eq!(parse_css_color("hsla(190deg, 50%, 75%, 1.0)"), Ok(ColorU { r: 160, g: 213, b: 224, a: 255 }));
+    assert_eq!(
+        parse_css_color("hsla(190deg, 50%, 75%, 1.0)"),
+        Ok(ColorU {
+            r: 160,
+            g: 213,
+            b: 224,
+            a: 255
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_22() {
-    assert_eq!(parse_css_color("hsla(120deg, 0%, 25%, 0.25)"), Ok(ColorU { r: 64, g: 64, b: 64, a: 64 }));
+    assert_eq!(
+        parse_css_color("hsla(120deg, 0%, 25%, 0.25)"),
+        Ok(ColorU {
+            r: 64,
+            g: 64,
+            b: 64,
+            a: 64
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_23() {
-    assert_eq!(parse_css_color("hsla(120deg, 0%, 0%, 0.5)"), Ok(ColorU { r: 0, g: 0, b: 0, a: 128 }));
+    assert_eq!(
+        parse_css_color("hsla(120deg, 0%, 0%, 0.5)"),
+        Ok(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 128
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_24() {
-    assert_eq!(parse_css_color("hsla(60.9deg, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 182, g: 184, b: 20, a: 128 }));
+    assert_eq!(
+        parse_css_color("hsla(60.9deg, 80.3%, 40%, 0.5)"),
+        Ok(ColorU {
+            r: 182,
+            g: 184,
+            b: 20,
+            a: 128
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_25() {
-    assert_eq!(parse_css_color("hsla(60.9rad, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 184, g: 170, b: 20, a: 128 }));
+    assert_eq!(
+        parse_css_color("hsla(60.9rad, 80.3%, 40%, 0.5)"),
+        Ok(ColorU {
+            r: 184,
+            g: 170,
+            b: 20,
+            a: 128
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_26() {
-    assert_eq!(parse_css_color("hsla(60.9grad, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 45, g: 20, b: 184, a: 128 }));
+    assert_eq!(
+        parse_css_color("hsla(60.9grad, 80.3%, 40%, 0.5)"),
+        Ok(ColorU {
+            r: 45,
+            g: 20,
+            b: 184,
+            a: 128
+        })
+    );
 }
 
 #[test]
 fn test_parse_transform() {
-    assert_eq!(parse_style_transform("rotate(25deg)"), Ok(StyleTransform::Rotate(AngleValue::deg(25.0))));
+    assert_eq!(
+        parse_style_transform("rotate(25deg)"),
+        Ok(StyleTransform::Rotate(AngleValue::deg(25.0)))
+    );
 }
 
 #[test]
 fn test_parse_direction() {
-    assert_eq!(parse_direction("60.9grad"), Ok(Direction::Angle(AngleValue::grad(60.9))));
+    assert_eq!(
+        parse_direction("60.9grad"),
+        Ok(Direction::Angle(AngleValue::grad(60.9)))
+    );
 }
 
 #[test]
@@ -740,52 +1208,106 @@ fn test_parse_float_value() {
 
 #[test]
 fn test_parse_css_color_27() {
-    assert_eq!(parse_css_color("hsla(240, 0%, 0%, 0.5)"), Ok(ColorU { r: 0, g: 0, b: 0, a: 128 }));
+    assert_eq!(
+        parse_css_color("hsla(240, 0%, 0%, 0.5)"),
+        Ok(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 128
+        })
+    );
 }
 
 #[test]
 fn test_parse_css_color_28() {
-    assert_eq!(parse_css_color("hsla(240deg, 0, 0%, 0.5)"), Err(CssColorParseError::InvalidPercentage(PercentageParseError::NoPercentSign)));
+    assert_eq!(
+        parse_css_color("hsla(240deg, 0, 0%, 0.5)"),
+        Err(CssColorParseError::InvalidPercentage(
+            PercentageParseError::NoPercentSign
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_29() {
-    assert_eq!(parse_css_color("hsla(240deg, 0%, 0, 0.5)"), Err(CssColorParseError::InvalidPercentage(PercentageParseError::NoPercentSign)));
+    assert_eq!(
+        parse_css_color("hsla(240deg, 0%, 0, 0.5)"),
+        Err(CssColorParseError::InvalidPercentage(
+            PercentageParseError::NoPercentSign
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_30() {
-    assert_eq!(parse_css_color("hsla(240deg, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
+    assert_eq!(
+        parse_css_color("hsla(240deg, 0%, 0%, )"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Alpha
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_31() {
-    assert_eq!(parse_css_color("hsl(, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Hue)));
+    assert_eq!(
+        parse_css_color("hsl(, 0%, 0%, )"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Hue
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_32() {
-    assert_eq!(parse_css_color("hsl(240deg ,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Saturation)));
+    assert_eq!(
+        parse_css_color("hsl(240deg ,  )"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Saturation
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_33() {
-    assert_eq!(parse_css_color("hsl(240deg, 0%,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Lightness)));
+    assert_eq!(
+        parse_css_color("hsl(240deg, 0%,  )"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Lightness
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_34() {
-    assert_eq!(parse_css_color("hsl(240deg, 0%, 0%,  )"), Err(CssColorParseError::ExtraArguments("")));
+    assert_eq!(
+        parse_css_color("hsl(240deg, 0%, 0%,  )"),
+        Err(CssColorParseError::ExtraArguments(""))
+    );
 }
 
 #[test]
 fn test_parse_css_color_35() {
-    assert_eq!(parse_css_color("hsla(240deg, 0%, 0%  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
+    assert_eq!(
+        parse_css_color("hsla(240deg, 0%, 0%  )"),
+        Err(CssColorParseError::MissingColorComponent(
+            CssColorComponent::Alpha
+        ))
+    );
 }
 
 #[test]
 fn test_parse_css_color_36() {
-    assert_eq!(parse_css_color("rgb(255,0, 0)"), Ok(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+    assert_eq!(
+        parse_css_color("rgb(255,0, 0)"),
+        Ok(ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        })
+    );
 }
 
 #[test]
@@ -805,7 +1327,10 @@ fn test_parse_pixel_value_3() {
 
 #[test]
 fn test_parse_pixel_value_4() {
-    assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(CssPixelValueParseError::InvalidPixelValue("aslkfdjasdflk")));
+    assert_eq!(
+        parse_pixel_value("aslkfdjasdflk"),
+        Err(CssPixelValueParseError::InvalidPixelValue("aslkfdjasdflk"))
+    );
 }
 
 #[test]
@@ -863,22 +1388,27 @@ fn test_parse_style_border_radius_4() {
 #[test]
 fn test_parse_style_font_family_1() {
     use azul_css::{AzString, StringVec};
+
     use crate::alloc::string::ToString;
     let fonts0: Vec<StyleFontFamily> = vec![
-        StyleFontFamily::Native("Webly Sleeky UI".to_string().into()),
-        StyleFontFamily::Native("monospace".to_string().into()),
+        StyleFontFamily::System("Webly Sleeky UI".to_string().into()),
+        StyleFontFamily::System("monospace".to_string().into()),
     ];
     let fonts0: StyleFontFamilyVec = fonts0.into();
-    assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(fonts0));
+    assert_eq!(
+        parse_style_font_family("\"Webly Sleeky UI\", monospace"),
+        Ok(fonts0)
+    );
 }
 
 #[test]
 fn test_parse_style_font_family_2() {
     use azul_css::{AzString, StringVec};
+
     use crate::alloc::string::ToString;
-    let fonts0: Vec<StyleFontFamily> = vec![
-        StyleFontFamily::Native("Webly Sleeky UI".to_string().into()),
-    ];
+    let fonts0: Vec<StyleFontFamily> = vec![StyleFontFamily::System(
+        "Webly Sleeky UI".to_string().into(),
+    )];
     let fonts0: StyleFontFamilyVec = fonts0.into();
     assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(fonts0));
 }
@@ -946,10 +1476,7 @@ fn test_parse_padding_4() {
 
 #[test]
 fn test_parse_percentage_value_1() {
-    assert_eq!(
-        parse_percentage_value("5%"),
-        Ok(PercentageValue::new(5.0))
-    );
+    assert_eq!(parse_percentage_value("5%"), Ok(PercentageValue::new(5.0)));
 }
 
 #[test]
@@ -962,24 +1489,15 @@ fn test_parse_percentage_value_2() {
 
 #[test]
 fn test_parse_angle_value_1() {
-    assert_eq!(
-        parse_angle_value("20deg"),
-        Ok(AngleValue::deg(20.0))
-    );
+    assert_eq!(parse_angle_value("20deg"), Ok(AngleValue::deg(20.0)));
 }
 
 #[test]
 fn test_parse_angle_value_2() {
-    assert_eq!(
-        parse_angle_value("20.4rad"),
-        Ok(AngleValue::rad(20.4))
-    );
+    assert_eq!(parse_angle_value("20.4rad"), Ok(AngleValue::rad(20.4)));
 }
 
 #[test]
 fn test_parse_angle_value_3() {
-    assert_eq!(
-        parse_angle_value("20.4grad"),
-        Ok(AngleValue::grad(20.4))
-    );
+    assert_eq!(parse_angle_value("20.4grad"), Ok(AngleValue::grad(20.4)));
 }

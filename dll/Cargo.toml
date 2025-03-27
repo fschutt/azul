@@ -11,16 +11,8 @@ repository = "https://github.com/maps4print/azul"
 edition = "2021"
 autoexamples = false
 
-[[bin]]
-name = "azul-dll"
-path = "main.rs"
-edition = "2021"
-
 [lib]
-name = "azul"
-edition = "2021"
 crate-type = ["cdylib", "staticlib", "rlib"]
-doc = false
 
 [dependencies]
 azul-core = { path = "../core", version = "0.0.5", default-features = false }

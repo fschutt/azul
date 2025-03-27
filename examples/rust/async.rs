@@ -72,7 +72,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
     ",
     );
 
-    let mut data_clone = data.clone();
+    let data_clone = data.clone();
     let downcasted = match data.downcast_ref::<MyDataModel>() {
         Some(f) => f,
         None => return body.style(Css::empty()), // error
@@ -96,8 +96,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
                 ]),
                 InProgress {
                     stage,
-                    start_time,
-                    estimated_wait,
+
                     data_in_progress,
                     ..
                 } => {
@@ -189,7 +188,7 @@ extern "C" fn start_background_thread(data: &mut RefAny, event: &mut CallbackInf
         None => return Update::DoNothing, // error
     };
 
-    let mut database_to_connect_to = match &data_mut.connection_status {
+    let database_to_connect_to = match &data_mut.connection_status {
         NotConnected { database } => database.clone(),
         _ => return Update::DoNothing, // error
     };
