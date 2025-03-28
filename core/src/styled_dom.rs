@@ -1290,6 +1290,7 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_background_content())
     }
+
     // Method for getting hyphens property
     pub fn get_hyphens<'a>(
         &'a self,
@@ -2154,6 +2155,270 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleBoxShadowValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextShadow)
             .and_then(|p| p.as_text_shadow())
+    }
+
+    // Width calculation methods
+    pub fn calc_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_width(node_data, node_id, styled_node_state)
+            .and_then(|w| Some(w.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_min_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_min_width(node_data, node_id, styled_node_state)
+            .and_then(|w| Some(w.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_max_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> Option<f32> {
+        self.get_max_width(node_data, node_id, styled_node_state)
+            .and_then(|w| Some(w.get_property()?.inner.to_pixels(reference_width)))
+    }
+
+    // Height calculation methods
+    pub fn calc_height(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_height(node_data, node_id, styled_node_state)
+            .and_then(|h| Some(h.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_min_height(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_min_height(node_data, node_id, styled_node_state)
+            .and_then(|h| Some(h.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_max_height(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> Option<f32> {
+        self.get_max_height(node_data, node_id, styled_node_state)
+            .and_then(|h| Some(h.get_property()?.inner.to_pixels(reference_height)))
+    }
+
+    // Position calculation methods
+    pub fn calc_left(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> Option<f32> {
+        self.get_left(node_data, node_id, styled_node_state)
+            .and_then(|l| Some(l.get_property()?.inner.to_pixels(reference_width)))
+    }
+
+    pub fn calc_right(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> Option<f32> {
+        self.get_right(node_data, node_id, styled_node_state)
+            .and_then(|r| Some(r.get_property()?.inner.to_pixels(reference_width)))
+    }
+
+    pub fn calc_top(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> Option<f32> {
+        self.get_top(node_data, node_id, styled_node_state)
+            .and_then(|t| Some(t.get_property()?.inner.to_pixels(reference_height)))
+    }
+
+    pub fn calc_bottom(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> Option<f32> {
+        self.get_bottom(node_data, node_id, styled_node_state)
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_height)))
+    }
+
+    // Border calculation methods
+    pub fn calc_border_left_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_border_left_width(node_data, node_id, styled_node_state)
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_border_right_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_border_right_width(node_data, node_id, styled_node_state)
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_border_top_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_border_top_width(node_data, node_id, styled_node_state)
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_border_bottom_width(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_border_bottom_width(node_data, node_id, styled_node_state)
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    // Padding calculation methods
+    pub fn calc_padding_left(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_padding_left(node_data, node_id, styled_node_state)
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_padding_right(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_padding_right(node_data, node_id, styled_node_state)
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_padding_top(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_padding_top(node_data, node_id, styled_node_state)
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_padding_bottom(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_padding_bottom(node_data, node_id, styled_node_state)
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    // Margin calculation methods
+    pub fn calc_margin_left(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_margin_left(node_data, node_id, styled_node_state)
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_margin_right(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_width: f32,
+    ) -> f32 {
+        self.get_margin_right(node_data, node_id, styled_node_state)
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_width)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_margin_top(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_margin_top(node_data, node_id, styled_node_state)
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn calc_margin_bottom(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        styled_node_state: &StyledNodeState,
+        reference_height: f32,
+    ) -> f32 {
+        self.get_margin_bottom(node_data, node_id, styled_node_state)
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_height)))
+            .unwrap_or(0.0)
     }
 }
 

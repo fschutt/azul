@@ -8,7 +8,10 @@ use azul_core::{
     display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths},
     dom::{NodeData, NodeDataInlineCssProperty, NodeType},
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
-    styled_dom::{DomId, NodeHierarchyItem, ParentWithNodeDepth, StyleFontFamiliesHash, StyledDom},
+    styled_dom::{
+        CssPropertyCache, DomId, NodeHierarchyItem, ParentWithNodeDepth, StyleFontFamiliesHash,
+        StyledDom,
+    },
     ui_solver::{
         FormattingContext, InlineTextLayout, InlineTextLayoutRustInternal, IntrinsicSizes,
         LayoutResult, PositionInfo, PositionInfoInner, PositionedRectangle, ResolvedOffsets,
@@ -1667,7 +1670,7 @@ fn find_positioned_ancestor(
 }
 
 /// Position an absolutely positioned element
-fn position_absolute_element(
+pub fn position_absolute_element(
     node_id: NodeId,
     positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
     styled_dom: &StyledDom,
@@ -1684,115 +1687,110 @@ fn position_absolute_element(
 
     // For fixed elements, ensure we get the correct size from CSS properties
     if position_type == LayoutPosition::Fixed {
-        // Get CSS width and height directly
-        let width = css_property_cache
-            .get_width(node_data, &node_id, styled_node_state)
-            .and_then(|w| {
-                Some(
-                    w.get_property()?
-                        .inner
-                        .to_pixels(containing_block.size.width),
-                )
-            })
-            .unwrap_or(element_size.width);
+        let width = css_property_cache.calc_width(
+            node_data,
+            &node_id,
+            styled_node_state,
+            containing_block.size.width,
+        );
 
-        let height = css_property_cache
-            .get_height(node_data, &node_id, styled_node_state)
-            .and_then(|h| {
-                Some(
-                    h.get_property()?
-                        .inner
-                        .to_pixels(containing_block.size.height),
-                )
-            })
-            .unwrap_or(element_size.height);
+        let height = css_property_cache.calc_height(
+            node_data,
+            &node_id,
+            styled_node_state,
+            containing_block.size.height,
+        );
 
-        // Update size with the CSS values - ensure fixed elements get their size
-        element_size = LogicalSize::new(width, height);
+        // Only update if values were provided (non-zero)
+        if width > 0.0 {
+            element_size.width = width;
+        }
+
+        if height > 0.0 {
+            element_size.height = height;
+        }
     }
 
-    // Get CSS positioning properties (left, right, top, bottom)
-    let left = css_property_cache
-        .get_left(node_data, &node_id, styled_node_state)
-        .and_then(|l| {
-            Some(
-                l.get_property()?
-                    .inner
-                    .to_pixels(containing_block.size.width),
-            )
-        });
+    let left = css_property_cache.calc_left(
+        node_data,
+        &node_id,
+        styled_node_state,
+        containing_block.size.width,
+    );
 
-    let right = css_property_cache
-        .get_right(node_data, &node_id, styled_node_state)
-        .and_then(|r| {
-            Some(
-                r.get_property()?
-                    .inner
-                    .to_pixels(containing_block.size.width),
-            )
-        });
+    let right = css_property_cache.calc_right(
+        node_data,
+        &node_id,
+        styled_node_state,
+        containing_block.size.width,
+    );
 
-    let top = css_property_cache
-        .get_top(node_data, &node_id, styled_node_state)
-        .and_then(|t| {
-            Some(
-                t.get_property()?
-                    .inner
-                    .to_pixels(containing_block.size.height),
-            )
-        });
+    let top = css_property_cache.calc_top(
+        node_data,
+        &node_id,
+        styled_node_state,
+        containing_block.size.height,
+    );
 
-    let bottom = css_property_cache
-        .get_bottom(node_data, &node_id, styled_node_state)
-        .and_then(|b| {
-            Some(
-                b.get_property()?
-                    .inner
-                    .to_pixels(containing_block.size.height),
-            )
-        });
+    let bottom = css_property_cache.calc_bottom(
+        node_data,
+        &node_id,
+        styled_node_state,
+        containing_block.size.height,
+    );
 
-    // Get the static position - where the element would be in normal flow
-    // This is important for fixed elements without explicit positioning
+    // Get parent offsets for fixed elements
+    let parent_offsets = if position_type == LayoutPosition::Fixed {
+        get_fixed_element_parent_offsets(node_id, styled_dom, &css_property_cache)
+    } else {
+        LogicalPosition::zero()
+    };
+
+    // Get the static position
     let static_position = if position_type == LayoutPosition::Fixed {
-        // For fixed elements, static position is relative to initial containing block
-        LogicalPosition::new(containing_block.origin.x, containing_block.origin.y)
+        // For fixed elements, adjust for parent's border and padding
+        LogicalPosition::new(
+            containing_block.origin.x + parent_offsets.x,
+            containing_block.origin.y + parent_offsets.y,
+        )
     } else {
         // For absolute elements, use the stored static position
         positioned_rects[node_id].position.get_static_offset()
     };
 
-    // Calculate the position
-    let mut position = LogicalPosition::new(static_position.x, static_position.y);
+    let mut position = static_position;
 
     // Apply horizontal positioning (left/right)
     if let Some(left_value) = left {
-        position.x = containing_block.origin.x + left_value;
+        position.x = containing_block.origin.x + left_value + parent_offsets.x;
     } else if let Some(right_value) = right {
         position.x = containing_block.origin.x + containing_block.size.width
             - element_size.width
-            - right_value;
+            - right_value
+            + parent_offsets.x;
     }
 
     // Apply vertical positioning (top/bottom)
     if let Some(top_value) = top {
-        position.y = containing_block.origin.y + top_value;
+        position.y = containing_block.origin.y + top_value + parent_offsets.y;
     } else if let Some(bottom_value) = bottom {
         position.y = containing_block.origin.y + containing_block.size.height
             - element_size.height
-            - bottom_value;
+            - bottom_value
+            + parent_offsets.y;
     }
 
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: format!(
                 "Positioned absolute element {}: position={:?}, size={:?}, type={:?}, \
-                 static_pos={:?}",
+                 static_pos={:?}, parent_offsets={:?}",
                 node_id.index(),
                 position,
                 element_size,
                 position_type,
-                static_position
+                static_position,
+                parent_offsets
             )
             .into(),
             location: "position_absolute_element".to_string().into(),
@@ -1801,8 +1799,6 @@ fn position_absolute_element(
 
     // Update the positioned rectangle
     let mut rect = positioned_rects[node_id].clone();
-
-    // Update the size - crucial for fixed elements
     rect.size = element_size;
 
     // Update the position
@@ -1822,6 +1818,41 @@ fn position_absolute_element(
         _ => rect.position, // Shouldn't happen
     };
     positioned_rects[node_id] = rect;
+}
+
+/// Helper function to calculate offsets for fixed-position elements
+fn get_fixed_element_parent_offsets(
+    node_id: NodeId,
+    styled_dom: &StyledDom,
+    css_property_cache: &CssPropertyCache,
+) -> LogicalPosition {
+    // Get parent node ID
+    let parent_id = styled_dom.node_hierarchy.as_container()[node_id].parent_id();
+
+    if let Some(parent_id) = parent_id {
+        // Get parent node data and style state
+        let node_data = &styled_dom.node_data.as_container()[parent_id];
+        let styled_node_state = &styled_dom.styled_nodes.as_container()[parent_id].state;
+
+        // Calculate border and padding in a cleaner way using our new extension methods
+        let border_left = css_property_cache.calc_border_left_width(
+            node_data,
+            &parent_id,
+            styled_node_state,
+            0.0,
+        );
+        let border_top =
+            css_property_cache.calc_border_top_width(node_data, &parent_id, styled_node_state, 0.0);
+        let padding_left =
+            css_property_cache.calc_padding_left(node_data, &parent_id, styled_node_state, 0.0);
+        let padding_top =
+            css_property_cache.calc_padding_top(node_data, &parent_id, styled_node_state, 0.0);
+
+        // Return the offsets
+        LogicalPosition::new(border_left + padding_left, border_top + padding_top)
+    } else {
+        LogicalPosition::zero()
+    }
 }
 
 /// Finalize scrollable areas
