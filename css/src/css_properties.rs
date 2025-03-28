@@ -4104,16 +4104,26 @@ impl PixelValue {
 
     /// Returns the value of the SizeMetric in pixels
     #[inline]
+    pub fn to_pixels_no_percent(&self) -> Option<f32> {
+        // to_pixels always assumes 96 DPI
+        match self.metric {
+            SizeMetric::Px => Some(self.number.get()),
+            SizeMetric::Pt => Some(self.number.get() * PT_TO_PX),
+            SizeMetric::Em => Some(self.number.get() * EM_HEIGHT),
+            SizeMetric::In => Some(self.number.get() * 96.0),
+            SizeMetric::Cm => Some(self.number.get() * 96.0 / 2.54),
+            SizeMetric::Mm => Some(self.number.get() * 96.0 / 25.4),
+            SizeMetric::Percent => None,
+        }
+    }
+
+    /// Returns the value of the SizeMetric in pixels
+    #[inline]
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
         // to_pixels always assumes 96 DPI
         match self.metric {
-            SizeMetric::Px => self.number.get(),
-            SizeMetric::Pt => self.number.get() * PT_TO_PX,
-            SizeMetric::Em => self.number.get() * EM_HEIGHT,
-            SizeMetric::In => self.number.get() * 96.0,
-            SizeMetric::Cm => self.number.get() * 96.0 / 2.54,
-            SizeMetric::Mm => self.number.get() * 96.0 / 25.4,
             SizeMetric::Percent => self.number.get() / 100.0 * percent_resolve,
+            _ => self.to_pixels_no_percent().unwrap_or(0.0),
         }
     }
 }
@@ -5677,21 +5687,82 @@ pub enum LayoutAxis {
     Vertical,
 }
 
-/// Represents a `display` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Represents a `display` CSS property value
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutDisplay {
+    // Basic display types
     None,
+    #[default]
     Block,
     Inline,
     InlineBlock,
+    
+    // Flex layout
     Flex,
     InlineFlex,
+    
+    // Table layout
+    Table,
+    InlineTable,
+    TableRowGroup,
+    TableHeaderGroup,
+    TableFooterGroup,
+    TableRow,
+    TableColumnGroup,
+    TableColumn,
+    TableCell,
+    TableCaption,
+    
+    // List layout
+    ListItem,
+    
+    // Special displays
+    RunIn,
+    Marker,
+    
+    // CSS3 additions
+    Grid,
+    InlineGrid,
+    
+    // Initial/Inherit values
+    Initial,
+    Inherit,
 }
 
-impl Default for LayoutDisplay {
-    fn default() -> Self {
-        LayoutDisplay::Flex
+impl LayoutDisplay {
+    /// Returns whether this display type creates a block formatting context
+    pub fn creates_block_context(&self) -> bool {
+        matches!(
+            self,
+            LayoutDisplay::Block | 
+            LayoutDisplay::Flex | 
+            LayoutDisplay::Grid | 
+            LayoutDisplay::Table |
+            LayoutDisplay::ListItem
+        )
+    }
+    
+    /// Returns whether this display type creates a flex formatting context
+    pub fn creates_flex_context(&self) -> bool {
+        matches!(self, LayoutDisplay::Flex | LayoutDisplay::InlineFlex)
+    }
+    
+    /// Returns whether this display type creates a table formatting context
+    pub fn creates_table_context(&self) -> bool {
+        matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
+    }
+    
+    /// Returns whether this is an inline-level display type
+    pub fn is_inline_level(&self) -> bool {
+        matches!(
+            self,
+            LayoutDisplay::Inline | 
+            LayoutDisplay::InlineBlock | 
+            LayoutDisplay::InlineFlex |
+            LayoutDisplay::InlineTable |
+            LayoutDisplay::InlineGrid
+        )
     }
 }
 

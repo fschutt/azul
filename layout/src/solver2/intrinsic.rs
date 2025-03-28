@@ -229,7 +229,7 @@ fn calculate_parent_intrinsic_sizes(
             // Out-of-flow elements (absolute/fixed) have same intrinsic sizing as blocks
             calculate_block_intrinsic_sizes(&children, intrinsic_sizes)
         }
-        None => {
+        _ => { // TODO: other formatting contexts, table, etc.
             // Elements with display:none have no intrinsic size
             IntrinsicSizes::default()
         }

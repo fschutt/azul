@@ -332,12 +332,84 @@ fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
 
 fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
+        // Block elements
         NodeTypeTag::Body => "NodeTypeTag::Body",
         NodeTypeTag::Div => "NodeTypeTag::Div",
-        NodeTypeTag::Br => "NodeTypeTag::Br",
         NodeTypeTag::P => "NodeTypeTag::P",
+        NodeTypeTag::H1 => "NodeTypeTag::H1",
+        NodeTypeTag::H2 => "NodeTypeTag::H2",
+        NodeTypeTag::H3 => "NodeTypeTag::H3",
+        NodeTypeTag::H4 => "NodeTypeTag::H4",
+        NodeTypeTag::H5 => "NodeTypeTag::H5",
+        NodeTypeTag::H6 => "NodeTypeTag::H6",
+        NodeTypeTag::Br => "NodeTypeTag::Br",
+        NodeTypeTag::Hr => "NodeTypeTag::Hr",
+        NodeTypeTag::Pre => "NodeTypeTag::Pre",
+        NodeTypeTag::BlockQuote => "NodeTypeTag::BlockQuote",
+        NodeTypeTag::Address => "NodeTypeTag::Address",
+        
+        // List elements
+        NodeTypeTag::Ul => "NodeTypeTag::Ul",
+        NodeTypeTag::Ol => "NodeTypeTag::Ol",
+        NodeTypeTag::Li => "NodeTypeTag::Li",
+        NodeTypeTag::Dl => "NodeTypeTag::Dl",
+        NodeTypeTag::Dt => "NodeTypeTag::Dt",
+        NodeTypeTag::Dd => "NodeTypeTag::Dd",
+        
+        // Table elements
+        NodeTypeTag::Table => "NodeTypeTag::Table",
+        NodeTypeTag::Caption => "NodeTypeTag::Caption",
+        NodeTypeTag::THead => "NodeTypeTag::THead",
+        NodeTypeTag::TBody => "NodeTypeTag::TBody",
+        NodeTypeTag::TFoot => "NodeTypeTag::TFoot",
+        NodeTypeTag::Tr => "NodeTypeTag::Tr",
+        NodeTypeTag::Th => "NodeTypeTag::Th",
+        NodeTypeTag::Td => "NodeTypeTag::Td",
+        NodeTypeTag::ColGroup => "NodeTypeTag::ColGroup",
+        NodeTypeTag::Col => "NodeTypeTag::Col",
+        
+        // Form elements
+        NodeTypeTag::Form => "NodeTypeTag::Form",
+        NodeTypeTag::FieldSet => "NodeTypeTag::FieldSet",
+        NodeTypeTag::Legend => "NodeTypeTag::Legend",
+        NodeTypeTag::Label => "NodeTypeTag::Label",
+        NodeTypeTag::Input => "NodeTypeTag::Input",
+        NodeTypeTag::Button => "NodeTypeTag::Button",
+        NodeTypeTag::Select => "NodeTypeTag::Select",
+        NodeTypeTag::OptGroup => "NodeTypeTag::OptGroup",
+        NodeTypeTag::SelectOption => "NodeTypeTag::SelectOption",
+        NodeTypeTag::TextArea => "NodeTypeTag::TextArea",
+        
+        // Inline elements
+        NodeTypeTag::Span => "NodeTypeTag::Span",
+        NodeTypeTag::A => "NodeTypeTag::A",
+        NodeTypeTag::Em => "NodeTypeTag::Em",
+        NodeTypeTag::Strong => "NodeTypeTag::Strong",
+        NodeTypeTag::B => "NodeTypeTag::B",
+        NodeTypeTag::I => "NodeTypeTag::I",
+        NodeTypeTag::Code => "NodeTypeTag::Code",
+        NodeTypeTag::Samp => "NodeTypeTag::Samp",
+        NodeTypeTag::Kbd => "NodeTypeTag::Kbd",
+        NodeTypeTag::Var => "NodeTypeTag::Var",
+        NodeTypeTag::Cite => "NodeTypeTag::Cite",
+        NodeTypeTag::Abbr => "NodeTypeTag::Abbr",
+        NodeTypeTag::Acronym => "NodeTypeTag::Acronym",
+        NodeTypeTag::Q => "NodeTypeTag::Q",
+        NodeTypeTag::Sub => "NodeTypeTag::Sub",
+        NodeTypeTag::Sup => "NodeTypeTag::Sup",
+        NodeTypeTag::Small => "NodeTypeTag::Small",
+        NodeTypeTag::Big => "NodeTypeTag::Big",
+        
+        // Content elements
+        NodeTypeTag::Text => "NodeTypeTag::Text",
         NodeTypeTag::Img => "NodeTypeTag::Img",
         NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
+        
+        // Pseudo-elements
+        NodeTypeTag::Before => "NodeTypeTag::Before",
+        NodeTypeTag::After => "NodeTypeTag::After",
+        NodeTypeTag::Marker => "NodeTypeTag::Marker",
+        NodeTypeTag::Placeholder => "NodeTypeTag::Placeholder",
     }
 }
 
@@ -1080,11 +1152,28 @@ impl FormatAsRustCode for StyleBackgroundRepeatVec {
 impl_enum_fmt!(
     LayoutDisplay,
     None,
-    Flex,
     Block,
-    InlineBlock,
     Inline,
-    InlineFlex
+    InlineBlock,
+    Flex,
+    InlineFlex,
+    Table,
+    InlineTable,
+    TableRowGroup,
+    TableHeaderGroup,
+    TableFooterGroup,
+    TableRow,
+    TableColumnGroup,
+    TableColumn,
+    TableCell,
+    TableCaption,
+    ListItem,
+    RunIn,
+    Marker,
+    Grid,
+    InlineGrid,
+    Initial,
+    Inherit
 );
 
 impl_enum_fmt!(LayoutFloat, Left, Right, None);

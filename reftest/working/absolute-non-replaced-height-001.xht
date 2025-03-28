@@ -6,7 +6,7 @@
         <link rel="help" href="http://www.w3.org/TR/CSS21/visudet.html#abs-non-replaced-height" />
         <meta name="flags" content="" />
         <meta name="assert" content="The calculation of static position is based on initial containing block when there is a fixed positioned element." />
-        <style type="text/css">
+        <style type="text/css">* { margin: 0; padding: 0 }
             html, body, p
             {
                 margin: 0;
@@ -14,7 +14,7 @@
             }
             #div1
             {
-                border: 10px solid red;
+                border: solid black;
                 height: 2in;
                 position: absolute;
                 top: 1in;
@@ -30,7 +30,7 @@
         </style>
     </head>
     <body>
-        <p>Test passes if the a filled blue square touches the upper-left corner of the black box.</p>
+        <p>Test passes the a filled blue square touches the upper-left corner of the black box.</p>
         <div id="div1">
             <div></div>
         </div>

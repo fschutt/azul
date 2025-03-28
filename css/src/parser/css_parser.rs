@@ -2423,8 +2423,28 @@ const DEFAULT_BORDER_COLOR: ColorU = ColorU {
     b: 0,
     a: 255,
 };
-// Default border thickness on the web seems to be 1px
-const DEFAULT_BORDER_THICKNESS: PixelValue = PixelValue::const_px(1);
+
+// border-width: thin = 0.5px
+const THIN_BORDER_THICKNESS: PixelValue = PixelValue {
+    metric: SizeMetric::Px,
+    number: FloatValue {
+        number: 500,
+    }
+};
+// border-width: medium = 1.5px (default)
+const MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue {
+    metric: SizeMetric::Px,
+    number: FloatValue {
+        number: 1500,
+    }
+};
+// border-width: thick = 2.5px (default)
+const THICK_BORDER_THICKNESS: PixelValue = PixelValue {
+    metric: SizeMetric::Px,
+    number: FloatValue {
+        number: 2500,
+    }
+};
 
 use core::str::CharIndices;
 
@@ -2467,17 +2487,22 @@ pub fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBord
             Ok(StyleBorderSide {
                 border_style: parse_style_border_style(&oi[0])
                     .map_err(|e| InvalidBorderStyle(e))?,
-                border_width: DEFAULT_BORDER_THICKNESS,
+                border_width: MEDIUM_BORDER_THICKNESS,
                 border_color: DEFAULT_BORDER_COLOR,
             })
         }
         2 => Ok(StyleBorderSide {
             border_style: parse_style_border_style(&oi[0]).map_err(|e| InvalidBorderStyle(e))?,
-            border_width: DEFAULT_BORDER_THICKNESS,
+            border_width: MEDIUM_BORDER_THICKNESS,
             border_color: parse_css_color(&oi[1]).map_err(|e| ColorParseError(e))?,
         }),
         _ => Ok(StyleBorderSide {
-            border_width: parse_pixel_value(&oi[0]).map_err(|e| ThicknessParseError(e))?,
+            border_width: match oi[0].trim() {
+                "medium" => MEDIUM_BORDER_THICKNESS,
+                "thin" => THIN_BORDER_THICKNESS,
+                "thick" => THICK_BORDER_THICKNESS,
+                _ => parse_pixel_value(&oi[0]).map_err(|e| ThicknessParseError(e))?,
+            },
             border_style: parse_style_border_style(&oi[1]).map_err(|e| InvalidBorderStyle(e))?,
             border_color: parse_css_color(&oi[2]).map_err(|e| ColorParseError(e))?,
         }),
@@ -5718,7 +5743,24 @@ multi_type_parser!(
     ["inline", Inline],
     ["inline-block", InlineBlock],
     ["flex", Flex],
-    ["inline-flex", InlineFlex]
+    ["inline-flex", InlineFlex],
+    ["table", Table],
+    ["inline-table", InlineTable],
+    ["table-row-group", TableRowGroup],
+    ["table-header-group", TableHeaderGroup],
+    ["table-footer-group", TableFooterGroup],
+    ["table-row", TableRow],
+    ["table-column-group", TableColumnGroup],
+    ["table-column", TableColumn],
+    ["table-cell", TableCell],
+    ["table-caption", TableCaption],
+    ["list-item", ListItem],
+    ["run-in", RunIn],
+    ["marker", Marker],
+    ["grid", Grid],
+    ["inline-grid", InlineGrid],
+    ["initial", Initial],
+    ["inherit", Inherit]
 );
 
 multi_type_parser!(

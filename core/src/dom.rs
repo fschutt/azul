@@ -9,18 +9,14 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use azul_css::{AzString, Css, CssProperty, FontRef, NodeTypeTag, OptionAzString};
+use azul_css::{AzString, Css, CssProperty, FontRef, LayoutDisplay, NodeTypeTag, OptionAzString};
 
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
 use crate::{
-    app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
-    callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny},
-    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
-    styled_dom::{
+    app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources}, callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny}, id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut}, styled_dom::{
         CssPropertyCache, CssPropertyCachePtr, NodeHierarchyItemId, StyleFontFamilyHash, StyledDom,
         StyledNode, StyledNodeState,
-    },
-    window::{Menu, OptionVirtualKeyCodeCombo},
+    }, ui_solver::FormattingContext, window::{Menu, OptionVirtualKeyCodeCombo}
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -90,33 +86,288 @@ impl ::core::fmt::Debug for DomNodeHash {
 }
 
 /// List of core DOM node types built-into by `azul`.
+/// List of core DOM node types built into `azul`.
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeType {
-    /// Same as div, but only for the root node
+    // Root and container elements
+    /// Root element of the document
     Body,
-    /// Regular div with no particular type of data attached
+    /// Generic block-level container
     Div,
-    /// Creates a line break in an inline text layout
+    /// Paragraph
+    P,
+    /// Headings
+    H1, H2, H3, H4, H5, H6,
+    /// Line break
     Br,
-    /// A string of text
+    /// Horizontal rule
+    Hr,
+    /// Preformatted text
+    Pre,
+    /// Block quote
+    BlockQuote,
+    /// Address
+    Address,
+    
+    // List elements
+    /// Unordered list
+    Ul,
+    /// Ordered list
+    Ol,
+    /// List item
+    Li,
+    /// Definition list
+    Dl,
+    /// Definition term
+    Dt,
+    /// Definition description
+    Dd,
+    
+    // Table elements
+    /// Table container
+    Table,
+    /// Table caption
+    Caption,
+    /// Table header
+    THead,
+    /// Table body
+    TBody,
+    /// Table footer
+    TFoot,
+    /// Table row
+    Tr,
+    /// Table header cell
+    Th,
+    /// Table data cell
+    Td,
+    /// Table column group
+    ColGroup,
+    /// Table column
+    Col,
+    
+    // Form elements
+    /// Form container
+    Form,
+    /// Form fieldset
+    FieldSet,
+    /// Fieldset legend
+    Legend,
+    /// Label for form controls
+    Label,
+    /// Input control
+    Input,
+    /// Button control
+    Button,
+    /// Select dropdown
+    Select,
+    /// Option group
+    OptGroup,
+    /// Select option
+    SelectOption,
+    /// Multiline text input
+    TextArea,
+    
+    // Inline elements
+    /// Generic inline container
+    Span,
+    /// Anchor/hyperlink
+    A,
+    /// Emphasized text
+    Em,
+    /// Strongly emphasized text
+    Strong,
+    /// Bold text
+    B,
+    /// Italic text
+    I,
+    /// Code
+    Code,
+    /// Sample output
+    Samp,
+    /// Keyboard input
+    Kbd,
+    /// Variable
+    Var,
+    /// Citation
+    Cite,
+    /// Abbreviation
+    Abbr,
+    /// Acronym
+    Acronym,
+    /// Quotation
+    Q,
+    /// Subscript
+    Sub,
+    /// Superscript
+    Sup,
+    /// Small text
+    Small,
+    /// Big text
+    Big,
+    
+    // Pseudo-elements (transformed into real elements)
+    /// ::before pseudo-element
+    Before,
+    /// ::after pseudo-element
+    After,
+    /// ::marker pseudo-element
+    Marker,
+    /// ::placeholder pseudo-element
+    Placeholder,
+
+    // Special content types
+    /// Text content
     Text(AzString),
-    /// An image of an opaque type. Images can be cached
-    /// in the RendererResources or recreated on every redraw.
+    /// Image element
     Image(ImageRef),
-    /// Callback that renders a DOM which gets passed its
-    /// width / height after the layout step, necessary to render
-    /// infinite datastructures
+    /// IFrame (embedded content)
     IFrame(IFrameNode),
 }
 
 impl NodeType {
+    /// Determines the default display value for a node type according to HTML standards
+    pub fn get_default_display(&self) -> LayoutDisplay {
+    match self {
+        // Block-level elements
+        NodeType::Body | NodeType::Div | NodeType::P | 
+        NodeType::H1 | NodeType::H2 | NodeType::H3 | NodeType::H4 | NodeType::H5 | NodeType::H6 |
+        NodeType::Pre | NodeType::BlockQuote | NodeType::Address | NodeType::Hr |
+        NodeType::Ul | NodeType::Ol | NodeType::Li | NodeType::Dl | NodeType::Dt | NodeType::Dd |
+        NodeType::Form | NodeType::FieldSet | NodeType::Legend => LayoutDisplay::Block,
+        
+        // Table elements
+        NodeType::Table => LayoutDisplay::Table,
+        NodeType::Caption => LayoutDisplay::TableCaption,
+        NodeType::THead | NodeType::TBody | NodeType::TFoot => LayoutDisplay::TableRowGroup,
+        NodeType::Tr => LayoutDisplay::TableRow,
+        NodeType::Th | NodeType::Td => LayoutDisplay::TableCell,
+        NodeType::ColGroup => LayoutDisplay::TableColumnGroup,
+        NodeType::Col => LayoutDisplay::TableColumn,
+        
+        // Inline elements
+        NodeType::Text(_) | NodeType::Br | NodeType::Image(_) |
+        NodeType::Span | NodeType::A | NodeType::Em | NodeType::Strong | 
+        NodeType::B | NodeType::I | NodeType::Code | NodeType::Samp | NodeType::Kbd |
+        NodeType::Var | NodeType::Cite | NodeType::Abbr | NodeType::Acronym | NodeType::Q | 
+        NodeType::Sub | NodeType::Sup | NodeType::Small | NodeType::Big |
+        NodeType::Label | NodeType::Input | NodeType::Button | NodeType::Select | 
+        NodeType::OptGroup | NodeType::SelectOption | NodeType::TextArea => LayoutDisplay::Inline,
+        
+        // Special cases
+        NodeType::IFrame(_) => LayoutDisplay::Block,
+        
+        // Pseudo-elements
+        NodeType::Before | NodeType::After => LayoutDisplay::Inline,
+        NodeType::Marker => LayoutDisplay::Marker,
+        NodeType::Placeholder => LayoutDisplay::Inline,
+    }
+    }
+    /// Returns the formatting context that this node type establishes by default.
+    pub fn default_formatting_context(&self) -> FormattingContext {
+        use self::NodeType::*;
+        
+        match self {
+            // Regular block elements
+            Body | Div | P | H1 | H2 | H3 | H4 | H5 | H6 | 
+            Pre | BlockQuote | Address | Hr |
+            Ul | Ol | Li | Dl | Dt | Dd |
+            Form | FieldSet | Legend => FormattingContext::Block { 
+                establishes_new_context: false 
+            },
+            
+            // Table elements with specific formatting contexts
+            Table => FormattingContext::Table,
+            Caption => FormattingContext::TableCaption,
+            THead | TBody | TFoot => FormattingContext::TableRowGroup,
+            Tr => FormattingContext::TableRow,
+            Th | Td => FormattingContext::TableCell,
+            ColGroup => FormattingContext::TableColumnGroup,
+            Col => FormattingContext::TableColumnGroup,
+            
+            // Inline elements
+            Span | A | Em | Strong | B | I | Code | Samp | Kbd |
+            Var | Cite | Abbr | Acronym | Q | Sub | Sup |
+            Small | Big | Label | Input | Button | Select | 
+            OptGroup | SelectOption | TextArea | Text(_) | Br => FormattingContext::Inline,
+            
+            // Special elements
+            Image(_) => FormattingContext::Inline,
+            IFrame(_) => FormattingContext::Block { 
+                establishes_new_context: true 
+            },
+            
+            // Pseudo-elements
+            Before | After | Marker | Placeholder => FormattingContext::Inline,
+        }
+    }
+
     fn into_library_owned_nodetype(&self) -> Self {
         use self::NodeType::*;
         match self {
-            Div => Div,
             Body => Body,
+            Div => Div,
+            P => P,
+            H1=> H1,
+            H2 => H2, 
+            H3 => H3, 
+            H4 => H4, 
+            H5 => H5, 
+            H6 => H6,
             Br => Br,
+            Hr => Hr,
+            Pre => Pre,
+            BlockQuote => BlockQuote,
+            Address => Address,
+            Ul => Ul,
+            Ol => Ol,
+            Li => Li,
+            Dl => Dl,
+            Dt => Dt,
+            Dd => Dd,
+            Table => Table,
+            Caption => Caption,
+            THead => THead,
+            TBody => TBody,
+            TFoot => TFoot,
+            Tr => Tr,
+            Th => Th,
+            Td => Td,
+            ColGroup => ColGroup,
+            Col => Col,
+            Form => Form,
+            FieldSet => FieldSet,
+            Legend => Legend,
+            Label => Label,
+            Input => Input,
+            Button => Button,
+            Select => Select,
+            OptGroup => OptGroup,
+            SelectOption => SelectOption,
+            TextArea => TextArea,
+            Span => Span,
+            A => A,
+            Em => Em,
+            Strong => Strong,
+            B => B,
+            I => I,
+            Code => Code,
+            Samp => Samp,
+            Kbd => Kbd,
+            Var => Var,
+            Cite => Cite,
+            Abbr => Abbr,
+            Acronym => Acronym,
+            Q => Q,
+            Sub => Sub,
+            Sup => Sup,
+            Small => Small,
+            Big => Big,
+            Before => Before,
+            After => After,
+            Marker => Marker,
+            Placeholder => Placeholder,
+
             Text(s) => Text(s.clone_self()),
             Image(i) => Image(i.clone()), // note: shallow clone
             IFrame(i) => IFrame(IFrameNode {
@@ -129,23 +380,81 @@ impl NodeType {
     pub(crate) fn format(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
-            Div | Body | Br => None,
             Text(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
             IFrame(i) => Some(format!("iframe({:?})", i)),
+            _ => None,
         }
     }
 
-    #[inline]
+    /// Returns the NodeTypeTag for CSS selector matching
     pub fn get_path(&self) -> NodeTypeTag {
-        use self::NodeType::*;
         match self {
-            Div => NodeTypeTag::Div,
-            Body => NodeTypeTag::Body,
-            Br => NodeTypeTag::Br,
-            Text(_) => NodeTypeTag::P,
-            Image(_) => NodeTypeTag::Img,
-            IFrame(_) => NodeTypeTag::IFrame,
+            Self::Body => NodeTypeTag::Body,
+            Self::Div => NodeTypeTag::Div,
+            Self::P => NodeTypeTag::P,
+            Self::H1 => NodeTypeTag::H1,
+            Self::H2 => NodeTypeTag::H2,
+            Self::H3 => NodeTypeTag::H3,
+            Self::H4 => NodeTypeTag::H4,
+            Self::H5 => NodeTypeTag::H5,
+            Self::H6 => NodeTypeTag::H6,
+            Self::Br => NodeTypeTag::Br,
+            Self::Hr => NodeTypeTag::Hr,
+            Self::Pre => NodeTypeTag::Pre,
+            Self::BlockQuote => NodeTypeTag::BlockQuote,
+            Self::Address => NodeTypeTag::Address,
+            Self::Ul => NodeTypeTag::Ul,
+            Self::Ol => NodeTypeTag::Ol,
+            Self::Li => NodeTypeTag::Li,
+            Self::Dl => NodeTypeTag::Dl,
+            Self::Dt => NodeTypeTag::Dt,
+            Self::Dd => NodeTypeTag::Dd,
+            Self::Table => NodeTypeTag::Table,
+            Self::Caption => NodeTypeTag::Caption,
+            Self::THead => NodeTypeTag::THead,
+            Self::TBody => NodeTypeTag::TBody, 
+            Self::TFoot => NodeTypeTag::TFoot,
+            Self::Tr => NodeTypeTag::Tr,
+            Self::Th => NodeTypeTag::Th,
+            Self::Td => NodeTypeTag::Td,
+            Self::ColGroup => NodeTypeTag::ColGroup,
+            Self::Col => NodeTypeTag::Col,
+            Self::Form => NodeTypeTag::Form,
+            Self::FieldSet => NodeTypeTag::FieldSet,
+            Self::Legend => NodeTypeTag::Legend,
+            Self::Label => NodeTypeTag::Label,
+            Self::Input => NodeTypeTag::Input,
+            Self::Button => NodeTypeTag::Button,
+            Self::Select => NodeTypeTag::Select,
+            Self::OptGroup => NodeTypeTag::OptGroup,
+            Self::SelectOption => NodeTypeTag::SelectOption,
+            Self::TextArea => NodeTypeTag::TextArea,
+            Self::Span => NodeTypeTag::Span,
+            Self::A => NodeTypeTag::A,
+            Self::Em => NodeTypeTag::Em,
+            Self::Strong => NodeTypeTag::Strong,
+            Self::B => NodeTypeTag::B,
+            Self::I => NodeTypeTag::I,
+            Self::Code => NodeTypeTag::Code,
+            Self::Samp => NodeTypeTag::Samp,
+            Self::Kbd => NodeTypeTag::Kbd,
+            Self::Var => NodeTypeTag::Var,
+            Self::Cite => NodeTypeTag::Cite,
+            Self::Abbr => NodeTypeTag::Abbr,
+            Self::Acronym => NodeTypeTag::Acronym,
+            Self::Q => NodeTypeTag::Q,
+            Self::Sub => NodeTypeTag::Sub,
+            Self::Sup => NodeTypeTag::Sup,
+            Self::Small => NodeTypeTag::Small,
+            Self::Big => NodeTypeTag::Big,
+            Self::Text(_) => NodeTypeTag::Text,
+            Self::Image(_) => NodeTypeTag::Img,
+            Self::IFrame(_) => NodeTypeTag::IFrame,
+            Self::Before => NodeTypeTag::Before,
+            Self::After => NodeTypeTag::After,
+            Self::Marker => NodeTypeTag::Marker,
+            Self::Placeholder => NodeTypeTag::Placeholder,
         }
     }
 }

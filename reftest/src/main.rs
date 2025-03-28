@@ -388,8 +388,10 @@ fn generate_azul_rendering(
         dom_xml.parsed_dom.get_html_string("", "", true),
     );
 
+    let xml_formatting_time = start.elapsed().as_millis() as u64;
+
     // Generate and save PNG
-    let warnings = styled_dom_to_png_with_debug(
+    let (warnings, layout_time_ms, render_time_ms) = styled_dom_to_png_with_debug(
         &dom_xml.parsed_dom,
         output_file,
         WIDTH,
@@ -399,8 +401,7 @@ fn generate_azul_rendering(
     )?;
 
     // Record rendering time
-    let elapsed = start.elapsed();
-    debug_collector.set_render_info(elapsed.as_millis() as u64, warnings);
+    debug_collector.set_render_info(xml_formatting_time, layout_time_ms, render_time_ms, warnings);
 
     // Save debug data to JSON
     let debug_data = debug_collector.get_data();
@@ -415,7 +416,10 @@ fn styled_dom_to_png_with_debug(
     height: u32,
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
-) -> Result<Vec<String>, Box<dyn Error>> {
+) -> Result<(Vec<String>, u64, u64), Box<dyn Error>> {
+
+    let start_time_layout = std::time::Instant::now();
+
     // Create document ID and epoch for layout
     let document_id = DocumentId {
         namespace_id: IdNamespace(0),
@@ -464,6 +468,10 @@ fn styled_dom_to_png_with_debug(
     let display_list_debug = format_display_list_for_debug(&cached_display_list);
     debug_collector.set_display_list_debug_info(display_list_debug);
 
+    let layout_time_ms = start_time_layout.elapsed().as_millis() as u64;
+
+    let start_time_render = std::time::Instant::now();
+
     // Create a pixmap with a white background
     let mut pixmap = Pixmap::new(
         (width as f32 * dpi_factor) as u32,
@@ -480,6 +488,8 @@ fn styled_dom_to_png_with_debug(
     let pixmap_data = pixmap.data();
     let width = pixmap.width();
     let height = pixmap.height();
+
+    let rendering_time_ms = start_time_render.elapsed().as_millis() as u64;
 
     // Use image crate to save webp image
     let rgba = image::RgbaImage::from_raw(width, height, pixmap_data.to_vec())
@@ -498,7 +508,7 @@ fn styled_dom_to_png_with_debug(
     // Write the WebP data to file
     std::fs::write(output_file, webp_data)?;
 
-    Ok(debug_msg)
+    Ok((debug_msg, layout_time_ms, rendering_time_ms))
 }
 
 fn render_display_list(
@@ -1947,6 +1957,8 @@ pub struct DebugData {
     pub display_list: String,
 
     // Rendering information
+    pub xml_formatting_time_ms: u64,
+    pub layout_time_ms: u64,
     pub render_time_ms: u64,
     pub render_warnings: Vec<String>,
 }
@@ -2067,8 +2079,10 @@ impl DebugDataCollector {
     }
 
     /// Add rendering information
-    pub fn set_render_info(&mut self, time_ms: u64, warnings: Vec<String>) {
-        self.data.render_time_ms = time_ms;
+    pub fn set_render_info(&mut self, xml_formatting_time_ms: u64, layout_time_ms: u64, render_time_ms: u64, warnings: Vec<String>) {
+        self.data.xml_formatting_time_ms = xml_formatting_time_ms;
+        self.data.layout_time_ms = layout_time_ms;
+        self.data.render_time_ms = render_time_ms;
         self.data.render_warnings = warnings;
     }
 
@@ -2319,6 +2333,8 @@ pub struct EnhancedTestResult {
     pub display_list: String,
 
     // Additional stats
+    pub xml_formatting_time_ms: u64,
+    pub layout_time_ms: u64,
     pub render_time_ms: u64,
     pub render_warnings: Vec<String>,
 }
@@ -2342,6 +2358,8 @@ impl EnhancedTestResult {
             solved_layout: String::new(),
             display_list: String::new(),
             render_warnings: Vec::new(),
+            xml_formatting_time_ms: 0,
+            layout_time_ms: 0,
             render_time_ms: 0,
         }
     }
@@ -2369,6 +2387,8 @@ impl EnhancedTestResult {
             styled_dom: debug_data.styled_dom,
             solved_layout: debug_data.solved_layout,
             display_list: debug_data.display_list,
+            xml_formatting_time_ms: debug_data.xml_formatting_time_ms,
+            layout_time_ms: debug_data.layout_time_ms,
             render_time_ms: debug_data.render_time_ms,
         }
     }

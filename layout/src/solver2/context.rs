@@ -18,10 +18,7 @@ pub fn determine_formatting_contexts(
         let styled_node_state = &styled_nodes[node_id].state;
 
         // Default display based on node type
-        let default_display = match node_data.get_node_type() {
-            NodeType::Text(_) | NodeType::Image(_) | NodeType::Br => LayoutDisplay::Inline,
-            NodeType::Div | NodeType::Body | NodeType::IFrame(_) => LayoutDisplay::Block,
-        };
+        let default_display = node_data.get_node_type().get_default_display();
 
         // Get relevant CSS properties
         let display = css_property_cache

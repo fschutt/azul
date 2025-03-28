@@ -338,17 +338,77 @@ impl CssRuleBlock {
 
 pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 
-/// Signifies the type (i.e. the discriminant value) of a DOM node
-/// without carrying any of its associated data
+/// Signifies the type of a DOM node without carrying any associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum NodeTypeTag {
     Body,
     Div,
-    Br,
     P,
+    H1, H2, H3, H4, H5, H6,
+    Br,
+    Hr,
+    Pre,
+    BlockQuote,
+    Address,
+    
+    Ul,
+    Ol,
+    Li,
+    Dl,
+    Dt,
+    Dd,
+    
+    Table,
+    Caption,
+    THead,
+    TBody,
+    TFoot,
+    Tr,
+    Th,
+    Td,
+    ColGroup,
+    Col,
+    
+    Form,
+    FieldSet,
+    Legend,
+    Label,
+    Input,
+    Button,
+    Select,
+    OptGroup,
+    SelectOption,
+    TextArea,
+    
+    Span,
+    A,
+    Em,
+    Strong,
+    B,
+    I,
+    Code,
+    Samp,
+    Kbd,
+    Var,
+    Cite,
+    Abbr,
+    Acronym,
+    Q,
+    Sub,
+    Sup,
+    Small,
+    Big,
+    
+    Text,
     Img,
     IFrame,
+    
+    // Pseudo-elements
+    Before,
+    After,
+    Marker,
+    Placeholder,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -401,12 +461,84 @@ impl NodeTypeTag {
 impl fmt::Display for NodeTypeTag {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            // Block elements
             NodeTypeTag::Body => write!(f, "body"),
             NodeTypeTag::Div => write!(f, "div"),
-            NodeTypeTag::Br => write!(f, "br"),
             NodeTypeTag::P => write!(f, "p"),
+            NodeTypeTag::H1 => write!(f, "h1"),
+            NodeTypeTag::H2 => write!(f, "h2"),
+            NodeTypeTag::H3 => write!(f, "h3"),
+            NodeTypeTag::H4 => write!(f, "h4"),
+            NodeTypeTag::H5 => write!(f, "h5"),
+            NodeTypeTag::H6 => write!(f, "h6"),
+            NodeTypeTag::Br => write!(f, "br"),
+            NodeTypeTag::Hr => write!(f, "hr"),
+            NodeTypeTag::Pre => write!(f, "pre"),
+            NodeTypeTag::BlockQuote => write!(f, "blockquote"),
+            NodeTypeTag::Address => write!(f, "address"),
+            
+            // List elements
+            NodeTypeTag::Ul => write!(f, "ul"),
+            NodeTypeTag::Ol => write!(f, "ol"),
+            NodeTypeTag::Li => write!(f, "li"),
+            NodeTypeTag::Dl => write!(f, "dl"),
+            NodeTypeTag::Dt => write!(f, "dt"),
+            NodeTypeTag::Dd => write!(f, "dd"),
+            
+            // Table elements
+            NodeTypeTag::Table => write!(f, "table"),
+            NodeTypeTag::Caption => write!(f, "caption"),
+            NodeTypeTag::THead => write!(f, "thead"),
+            NodeTypeTag::TBody => write!(f, "tbody"),
+            NodeTypeTag::TFoot => write!(f, "tfoot"),
+            NodeTypeTag::Tr => write!(f, "tr"),
+            NodeTypeTag::Th => write!(f, "th"),
+            NodeTypeTag::Td => write!(f, "td"),
+            NodeTypeTag::ColGroup => write!(f, "colgroup"),
+            NodeTypeTag::Col => write!(f, "col"),
+            
+            // Form elements
+            NodeTypeTag::Form => write!(f, "form"),
+            NodeTypeTag::FieldSet => write!(f, "fieldset"),
+            NodeTypeTag::Legend => write!(f, "legend"),
+            NodeTypeTag::Label => write!(f, "label"),
+            NodeTypeTag::Input => write!(f, "input"),
+            NodeTypeTag::Button => write!(f, "button"),
+            NodeTypeTag::Select => write!(f, "select"),
+            NodeTypeTag::OptGroup => write!(f, "optgroup"),
+            NodeTypeTag::SelectOption => write!(f, "option"),
+            NodeTypeTag::TextArea => write!(f, "textarea"),
+            
+            // Inline elements
+            NodeTypeTag::Span => write!(f, "span"),
+            NodeTypeTag::A => write!(f, "a"),
+            NodeTypeTag::Em => write!(f, "em"),
+            NodeTypeTag::Strong => write!(f, "strong"),
+            NodeTypeTag::B => write!(f, "b"),
+            NodeTypeTag::I => write!(f, "i"),
+            NodeTypeTag::Code => write!(f, "code"),
+            NodeTypeTag::Samp => write!(f, "samp"),
+            NodeTypeTag::Kbd => write!(f, "kbd"),
+            NodeTypeTag::Var => write!(f, "var"),
+            NodeTypeTag::Cite => write!(f, "cite"),
+            NodeTypeTag::Abbr => write!(f, "abbr"),
+            NodeTypeTag::Acronym => write!(f, "acronym"),
+            NodeTypeTag::Q => write!(f, "q"),
+            NodeTypeTag::Sub => write!(f, "sub"),
+            NodeTypeTag::Sup => write!(f, "sup"),
+            NodeTypeTag::Small => write!(f, "small"),
+            NodeTypeTag::Big => write!(f, "big"),
+            
+            // Content elements
+            NodeTypeTag::Text => write!(f, "text"),
             NodeTypeTag::Img => write!(f, "img"),
             NodeTypeTag::IFrame => write!(f, "iframe"),
+            
+            // Pseudo-elements
+            NodeTypeTag::Before => write!(f, "::before"),
+            NodeTypeTag::After => write!(f, "::after"),
+            NodeTypeTag::Marker => write!(f, "::marker"),
+            NodeTypeTag::Placeholder => write!(f, "::placeholder"),
         }
     }
 }

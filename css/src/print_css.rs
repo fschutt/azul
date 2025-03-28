@@ -177,12 +177,42 @@ impl PrintAsCssValue for StyleCursor {
 impl PrintAsCssValue for LayoutDisplay {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
+            // Basic display types
             LayoutDisplay::None => "none",
-            LayoutDisplay::Flex => "flex",
             LayoutDisplay::Block => "block",
-            LayoutDisplay::InlineBlock => "inline-block",
             LayoutDisplay::Inline => "inline",
+            LayoutDisplay::InlineBlock => "inline-block",
+            
+            // Flex layout
+            LayoutDisplay::Flex => "flex",
             LayoutDisplay::InlineFlex => "inline-flex",
+            
+            // Table layout
+            LayoutDisplay::Table => "table",
+            LayoutDisplay::InlineTable => "inline-table",
+            LayoutDisplay::TableRowGroup => "table-row-group",
+            LayoutDisplay::TableHeaderGroup => "table-header-group",
+            LayoutDisplay::TableFooterGroup => "table-footer-group",
+            LayoutDisplay::TableRow => "table-row",
+            LayoutDisplay::TableColumnGroup => "table-column-group",
+            LayoutDisplay::TableColumn => "table-column",
+            LayoutDisplay::TableCell => "table-cell",
+            LayoutDisplay::TableCaption => "table-caption",
+            
+            // List layout
+            LayoutDisplay::ListItem => "list-item",
+            
+            // Special displays
+            LayoutDisplay::RunIn => "run-in",
+            LayoutDisplay::Marker => "marker",
+            
+            // CSS3 additions
+            LayoutDisplay::Grid => "grid",
+            LayoutDisplay::InlineGrid => "inline-grid",
+            
+            // Initial/Inherit values
+            LayoutDisplay::Initial => "initial",
+            LayoutDisplay::Inherit => "inherit",
         })
     }
 }

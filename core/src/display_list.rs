@@ -478,6 +478,7 @@ pub struct StyleBorderWidths {
 
 impl StyleBorderWidths {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        // apparently, the DPI does not influence the border width
         self.top.as_mut().map(|s| s.scale_for_dpi(scale_factor));
         self.right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
         self.bottom.as_mut().map(|s| s.scale_for_dpi(scale_factor));
@@ -1188,7 +1189,6 @@ pub fn displaylist_handle_rect<'a>(
     }
 
     match html_node.get_node_type() {
-        Div | Body | Br => {}
         Text(_) => {
             use crate::app_resources::get_inline_text;
 
@@ -1338,6 +1338,7 @@ pub fn displaylist_handle_rect<'a>(
                 ));
             }
         }
+        _ => { },
     };
 
     if layout_result

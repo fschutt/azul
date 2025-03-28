@@ -252,7 +252,7 @@ fn build_text_caches(
 }
 
 /// Calculate layout for a single node and its descendants
-fn layout_node_recursive(
+pub fn layout_node_recursive(
     node_id: NodeId,
     positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
     styled_dom: &StyledDom,
@@ -373,7 +373,7 @@ fn layout_node_recursive(
 
             size
         }
-        FormattingContext::None => {
+        _ => { // TODO: other formatting contexts, etc.
             // Elements with display:none contribute nothing to layout
             LogicalSize::zero()
         }
@@ -1892,7 +1892,7 @@ fn update_inline_element_position(
 }
 
 /// Calculate padding for a node
-fn calculate_padding(
+pub fn calculate_padding(
     node_id: NodeId,
     styled_dom: &StyledDom,
     available_space: LogicalRect,
@@ -1934,7 +1934,7 @@ fn calculate_padding(
 }
 
 /// Calculate border for a node
-fn calculate_border(
+pub fn calculate_border(
     node_id: NodeId,
     styled_dom: &StyledDom,
     available_space: LogicalRect,
@@ -1975,7 +1975,7 @@ fn calculate_border(
     }
 }
 
-fn calculate_padding_and_border(
+pub fn calculate_padding_and_border(
     padding: &ResolvedOffsets,
     border: &ResolvedOffsets,
 ) -> ResolvedOffsets {
@@ -1988,7 +1988,7 @@ fn calculate_padding_and_border(
 }
 
 /// Calculate margin for a node
-fn calculate_margin(
+pub fn calculate_margin(
     node_id: NodeId,
     styled_dom: &StyledDom,
     available_space: LogicalRect,

@@ -18,7 +18,7 @@ use azul_css::{
 
 use crate::{
     css::VecContents,
-    dom::Dom,
+    dom::{Dom, NodeType},
     styled_dom::StyledDom,
     window::{AzStringPair, StringPairVec},
 };
@@ -689,6 +689,11 @@ impl Default for XmlComponentMap {
             renderer: Box::new(TextRenderer::new()),
             inherit_vars: true,
         });
+        map.register_component(XmlComponent {
+            id: normalize_casing("br"),
+            renderer: Box::new(BrRenderer::new()),
+            inherit_vars: true,
+        });
         map
     }
 }
@@ -1031,6 +1036,48 @@ impl XmlComponentTrait for BodyRenderer {
     }
 }
 
+/// Render for a `br` component
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BrRenderer {
+    node: XmlNode,
+}
+
+impl BrRenderer {
+    pub fn new() -> Self {
+        Self {
+            node: XmlNode::new("br"),
+        }
+    }
+}
+
+impl XmlComponentTrait for BrRenderer {
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
+
+    fn render_dom(
+        &self,
+        _: &XmlComponentMap,
+        _: &FilteredComponentArguments,
+        _: &XmlTextContent,
+    ) -> Result<StyledDom, RenderDomError> {
+        Ok(Dom::new(NodeType::Br).style(CssApiWrapper::empty()))
+    }
+
+    fn compile_to_rust_code(
+        &self,
+        _: &XmlComponentMap,
+        _: &ComponentArguments,
+        _: &XmlTextContent,
+    ) -> Result<String, CompileError> {
+        Ok("Dom::new(NodeType::Br)".into())
+    }
+
+    fn get_xml_node(&self) -> XmlNode {
+        self.node.clone()
+    }
+}
+
 /// Render for a `p` component
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextRenderer {
@@ -1063,7 +1110,11 @@ impl XmlComponentTrait for TextRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        Ok(Dom::text(content).style(CssApiWrapper::empty()))
+        Ok(
+            Dom::new(NodeType::P).with_children(vec![
+                Dom::text(content)
+            ].into()).style(CssApiWrapper::empty())
+        )
     }
 
     fn compile_to_rust_code(
@@ -1072,7 +1123,7 @@ impl XmlComponentTrait for TextRenderer {
         args: &ComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::text(text)"))
+        Ok(String::from("Dom::new(NodeType::P).with_children(vec![Dom::text(content)].into())"))
     }
 
     fn get_xml_node(&self) -> XmlNode {
@@ -2648,6 +2699,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
         "br" => NodeTypeTag::Br,
         "p" => NodeTypeTag::P,
         "img" => NodeTypeTag::Img,
+        "br" => NodeTypeTag::Br,
         other => {
             return Err(CompileError::Dom(RenderDomError::Component(
                 ComponentError::UnknownComponent(other.to_string().into()),
