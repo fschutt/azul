@@ -6,7 +6,7 @@ on:
       deploy:
         description: 'Deploy to GitHub Pages'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 env:
