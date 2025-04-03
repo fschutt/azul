@@ -1,15 +1,16 @@
+use std::collections::BTreeMap;
+
 use indexmap::IndexMap; // Use IndexMap for ordered fields where necessary
-use serde_derive::Deserialize;
-use std::collections::BTreeMap; // Use BTreeMap for sorted keys (versions)
+use serde_derive::{Deserialize, Serialize}; // Use BTreeMap for sorted keys (versions)
 
 // Renaming fields to be idiomatic Rust (snake_case)
 // Serde handles the mapping from potential camelCase/other cases in JSON
 // if you need specific renames use #[serde(rename = "...")]
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiData(
     // BTreeMap ensures versions are sorted alphabetically/numerically by key.
-    pub BTreeMap<String, VersionData>
+    pub BTreeMap<String, VersionData>,
 );
 
 impl ApiData {
@@ -23,29 +24,34 @@ impl ApiData {
         self.0.get(version)
     }
 
-     // Helper to get the latest version string (assuming BTreeMap sorting works)
-     pub fn get_latest_version_str(&self) -> Option<&str> {
-         self.0.keys().last().map(|s| s.as_str())
-     }
+    // Helper to get the latest version string (assuming BTreeMap sorting works)
+    pub fn get_latest_version_str(&self) -> Option<&str> {
+        self.0.keys().last().map(|s| s.as_str())
+    }
 
-     // Search across all versions and modules for a class definition by name.
-     // Returns Option<(version_str, module_name, class_name, &ClassData)>
-     pub fn find_class_definition<'a>(&'a self, search_class_name: &str) -> Option<(&'a str, &'a str, &'a str, &'a ClassData)> {
+    // Search across all versions and modules for a class definition by name.
+    // Returns Option<(version_str, module_name, class_name, &ClassData)>
+    pub fn find_class_definition<'a>(
+        &'a self,
+        search_class_name: &str,
+    ) -> Option<(&'a str, &'a str, &'a str, &'a ClassData)> {
         for (version_str, version_data) in &self.0 {
-            if let Some((module_name, class_name, class_data)) = version_data.find_class(search_class_name) {
+            if let Some((module_name, class_name, class_data)) =
+                version_data.find_class(search_class_name)
+            {
                 return Some((version_str, module_name, class_name, class_data));
             }
         }
         None
     }
-    
+
     /// Create ApiData from a JSON string
     pub fn from_str(json_str: &str) -> anyhow::Result<Self> {
         serde_json::from_str(json_str).map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VersionData {
     // Using IndexMap to preserve module order as read from JSON
     #[serde(flatten)] // Assumes modules are directly under the version key like "app": { ... }
@@ -57,7 +63,10 @@ pub struct VersionData {
 impl VersionData {
     // Find a class definition within this specific version.
     // Returns Option<(module_name, class_name, &ClassData)>
-    pub fn find_class<'a>(&'a self, search_class_name: &str) -> Option<(&'a str, &'a str, &'a ClassData)> {
+    pub fn find_class<'a>(
+        &'a self,
+        search_class_name: &str,
+    ) -> Option<(&'a str, &'a str, &'a ClassData)> {
         for (module_name, module_data) in &self.modules {
             if let Some((class_name, class_data)) = module_data.find_class(search_class_name) {
                 return Some((module_name.as_str(), class_name, class_data));
@@ -72,7 +81,7 @@ impl VersionData {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModuleData {
     pub doc: Option<String>,
     // Using IndexMap to preserve class order within a module
@@ -83,14 +92,14 @@ impl ModuleData {
     // Find a class within this specific module.
     // Returns Option<(class_name, &ClassData)>
     pub fn find_class<'a>(&'a self, search_class_name: &str) -> Option<(&'a str, &'a ClassData)> {
-        self.classes.iter()
+        self.classes
+            .iter()
             .find(|(name, _)| *name == search_class_name)
             .map(|(name, data)| (name.as_str(), data))
     }
 }
 
-
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")] // Handles fields like isBoxedObject -> is_boxed_object
 pub struct ClassData {
     pub doc: Option<String>,
@@ -106,7 +115,8 @@ pub struct ClassData {
     #[serde(rename = "const")]
     pub const_value_type: Option<String>,
     #[serde(default)]
-    pub constants: Option<Vec<IndexMap<String, ConstantData>>>, // Use IndexMap if field order matters
+    pub constants: Option<Vec<IndexMap<String, ConstantData>>>, /* Use IndexMap if field order
+                                                                 * matters */
     #[serde(default)]
     pub struct_fields: Option<Vec<IndexMap<String, FieldData>>>,
     #[serde(default)]
@@ -123,14 +133,13 @@ pub struct ClassData {
     pub repr: Option<String>, // For things like #[repr(transparent)]
 }
 
-
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConstantData {
     pub r#type: String, // r# to allow "type" as field name
-    pub value: String, // Keep value as string, parsing depends on type context
+    pub value: String,  // Keep value as string, parsing depends on type context
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FieldData {
     pub r#type: String,
     pub doc: Option<String>,
@@ -138,14 +147,14 @@ pub struct FieldData {
     pub derive: Option<Vec<String>>, // For field-level derives like #[pyo3(get, set)]
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct EnumVariantData {
     // Variants might not have an associated type (e.g., simple enums like MsgBoxIcon)
     pub r#type: Option<String>,
     pub doc: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")] // For fnArgs
 pub struct FunctionData {
     pub doc: Option<String>,
@@ -159,22 +168,21 @@ pub struct FunctionData {
     pub use_patches: Option<Vec<String>>, // Which languages this patch applies to
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReturnTypeData {
     pub r#type: String,
     pub doc: Option<String>,
 }
 
-
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CallbackDefinition {
-     #[serde(default)]
+    #[serde(default)]
     pub fn_args: Vec<CallbackArgData>,
     pub returns: Option<ReturnTypeData>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CallbackArgData {
     pub r#type: String,
     // Renamed from "ref" which is a keyword

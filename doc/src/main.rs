@@ -1,79 +1,145 @@
-mod codegen;
-mod docgen;
-mod utils;
 mod api;
+mod build;
+mod codegen;
+mod deploy;
+mod docgen;
 mod license;
+mod utils;
 
-use std::error::Error;
-use std::env;
+use std::{env, fs, path::PathBuf};
+
 use anyhow::Context;
+use deploy::Config;
 
 fn main() -> anyhow::Result<()> {
-    println!("Starting Azul Build Runner...");
+    println!("Starting Azul Build and Deploy System...");
 
-    // Parse the api.json file
+    // Parse the API definition
     let api_data = api::ApiData::from_str(include_str!("../../api.json"))
-        .context("Failed to parse api.json")?;
+        .context("Failed to parse API definition")?;
 
+    // Set up configuration
+    let config = Config::from_env();
+
+    // Create output directory structure
+    let output_dir = PathBuf::from("target").join("deploy");
+    let releases_dir = output_dir.join("release");
+
+    fs::create_dir_all(&output_dir)?;
+    fs::create_dir_all(&releases_dir)?;
+
+    // Get all available versions
     let versions = api_data.get_sorted_versions();
-    if versions.is_empty() {
-        anyhow::bail!("No versions found in api.json");
+    println!("Found versions: {:?}", versions);
+
+    // Process each version
+    for version in &versions {
+        println!("Processing version: {}", version);
+
+        // Create version directory structure
+        let version_dir = releases_dir.join(version);
+        let files_dir = version_dir.clone();
+        fs::create_dir_all(&version_dir)?;
+        fs::create_dir_all(&files_dir)?;
+
+        // Generate API bindings
+        println!("  Generating API bindings...");
+
+        // Generate C API header
+        let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
+        fs::write(output_dir.join("azul.h"), &c_api_code)?;
+        println!("  - Generated C API header");
+
+        // Generate C++ API header
+        let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
+        fs::write(output_dir.join("azul.hpp"), &cpp_api_code)?;
+        println!("  - Generated C++ API header");
+
+        // Create Git repository for Rust bindings
+        let lib_rs = codegen::rust_api::generate_rust_api(&api_data, version);
+        deploy::create_git_repository(version, &output_dir, &lib_rs)?;
+
+        // Export API.json
+        let api_json = serde_json::to_string_pretty(api_data.get_version(version).unwrap())?;
+        fs::write(output_dir.join("api.json"), api_json)?;
+        println!("  - Exported API.json");
+
+        // Build binaries for each platform
+        println!("  Building binaries...");
+
+        if config.build_windows {
+            println!("  - Building Windows binaries");
+            // Create DLL for Windows
+            fs::write(
+                output_dir.join("azul.dll"),
+                format!("Windows DLL v{}", version),
+            )?;
+        }
+
+        if config.build_python {
+            println!("  - Building Python .pyd binaries");
+
+            // Generate Python API
+            let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
+            fs::write(output_dir.join("azul.py"), python_api_code)?;
+
+            // Create Python extension for Windows  // TODO: compile python API
+            fs::write(
+                output_dir.join("azul.pyd"),
+                format!("Windows Python Extension v{}", version),
+            )?;
+        }
+
+        if config.build_linux {
+            println!("  - Building Linux binaries");
+            // Create shared library for Linux
+            fs::write(
+                output_dir.join("libazul.so"),
+                format!("Linux Shared Library v{}", version),
+            )?;
+        }
+
+        if config.build_macos {
+            println!("  - Building macOS binaries");
+            // Create dynamic library for macOS
+            fs::write(
+                output_dir.join("libazul.dylib"),
+                format!("macOS Dynamic Library v{}", version),
+            )?;
+        }
+
+        // Generate license files
+        deploy::generate_license_files(version, &files_dir)?;
+
+        // Create examples
+        deploy::create_examples(version, &files_dir, &c_api_code, &cpp_api_code)?; // TODO: compile examples
+
+        // Generate version-specific HTML
+        let release_html = deploy::generate_release_html(version, "<p>Release notes go here</p>");
+        fs::write(releases_dir.join(&format!("{version}.html")), release_html)?;
     }
-    
-    let latest_version = api_data.get_latest_version_str().unwrap_or("unknown");
-    println!("Latest version detected: {}", latest_version);
 
-    // Generate the Rust DLL code
-    println!("Generating Rust DLL code...");
-    let rust_dll_code = codegen::rust_dll::generate_rust_dll(&api_data);
-    
-    // Generate the Rust API code
-    println!("Generating Rust API code...");
-    let rust_api_code = codegen::rust_api::generate_rust_api(&api_data);
-    
-    // Generate the C API code
-    println!("Generating C API code...");
-    let c_api_code = codegen::c_api::generate_c_api(&api_data);
-    
-    // Generate the C++ API code
-    println!("Generating C++ API code...");
-    let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data);
-    
-    // Generate the Python API code
-    println!("Generating Python API code...");
-    let python_api_code = codegen::python_api::generate_python_api(&api_data);
-    
-    // Generate the tests
-    println!("Generating tests...");
-    let test_code = codegen::tests::generate_size_test(&api_data);
-    
-    // Generate the documentation
-    println!("Generating documentation...");
-    
-    // Generate the documentation
-    println!("Generating documentation...");
-    let docs = docgen::generate_docs(&api_data);
-    
-    // Generate license files
-    println!("Generating license files...");
-    let licenses = license::generate_license();
+    // Generate releases index
+    let releases_index = deploy::generate_releases_index(&versions);
+    fs::write(output_dir.join("releases.html"), &releases_index)?;
 
-    // Print the generated code - in a real application, you would write this to files
-    if env::var("PRINT_OUTPUT").is_ok() {
-        
-        println!("--- Rust DLL Code ---\n{}", rust_dll_code);
-        println!("--- Rust API Code ---\n{}", rust_api_code);
-        println!("--- C API Code ---\n{}", c_api_code);
-        println!("--- C++ API Code ---\n{}", cpp_api_code);
-        println!("--- Python API Code ---\n{}", python_api_code);
-        println!("--- Test Code ---\n{}", test_code);
-        
-        // Print license files
-        for (name, content) in &licenses {
-            println!("--- License: {} ---\n{}", name, content);
+    // Copy static assets
+    deploy::copy_static_assets(&output_dir)?;
+
+    // Open the result in browser if not in CI
+    if env::var("GITHUB_CI").is_err() {
+        if let Ok(_) = open::that(
+            output_dir
+                .join("releases.html")
+                .to_string_lossy()
+                .to_string(),
+        ) {
+            println!("Opened releases page in browser");
+        } else {
+            println!("Failed to open browser, but files were created successfully");
         }
     }
 
-    println!("Build runner completed successfully!");
+    println!("Build and deployment preparation completed!");
     Ok(())
 }

@@ -2,18 +2,20 @@
 pub fn snake_case_to_lower_camel(snake_str: &str) -> String {
     let mut parts = snake_str.split('_');
     let first = parts.next().unwrap_or("");
-    let rest: String = parts.map(|s| {
-        let mut c = s.chars();
-        match c.next() {
-            None => String::new(),
-            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        }
-    }).collect();
+    let rest: String = parts
+        .map(|s| {
+            let mut c = s.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        })
+        .collect();
     format!("{}{}", first, rest)
 }
 
 /// Strip function argument types for mem_transmute
-/// 
+///
 /// Transforms "mut dom: AzDom, event: AzEventFilter" to "transmute(dom), transmute(event)"
 pub fn strip_fn_arg_types_mem_transmute(arg_list: &str) -> String {
     if arg_list.is_empty() {
@@ -41,7 +43,7 @@ pub fn strip_fn_arg_types_mem_transmute(arg_list: &str) -> String {
 }
 
 /// Strip function argument types
-/// 
+///
 /// Transforms "mut dom: AzDom, event: AzEventFilter" to "_: AzDom, _: AzEventFilter"
 pub fn strip_fn_arg_types(arg_list: &str) -> String {
     if arg_list.is_empty() {
@@ -69,12 +71,14 @@ pub fn strip_fn_arg_types(arg_list: &str) -> String {
 /// Format a docstring for HTML
 pub fn format_doc(docstring: &str) -> String {
     let mut newdoc = docstring.replace('<', "&lt;").replace('>', "&gt;");
-    newdoc = newdoc.replace("```rust", "<code>").replace("```", "</code>");
-    
+    newdoc = newdoc
+        .replace("```rust", "<code>")
+        .replace("```", "</code>");
+
     // Replace inline code marks
     let mut processed = String::new();
     let parts: Vec<&str> = newdoc.split('`').collect();
-    
+
     for (i, part) in parts.iter().enumerate() {
         if i % 2 == 0 {
             processed.push_str(part);
@@ -82,11 +86,11 @@ pub fn format_doc(docstring: &str) -> String {
             processed.push_str(&format!("<code>{}</code>", part));
         }
     }
-    
+
     // Replace bold marks
     let mut final_doc = String::new();
     let parts: Vec<&str> = processed.split("**").collect();
-    
+
     for (i, part) in parts.iter().enumerate() {
         if i % 2 == 0 {
             final_doc.push_str(part);
@@ -94,7 +98,7 @@ pub fn format_doc(docstring: &str) -> String {
             final_doc.push_str(&format!("<strong>{}</strong>", part));
         }
     }
-    
+
     final_doc.replace("\r\n", "<br/>")
 }
 
@@ -102,7 +106,8 @@ pub fn format_doc(docstring: &str) -> String {
 pub fn render_example_description(descr: &str, replace: bool) -> String {
     let descr = descr.trim();
     if replace {
-        descr.replace("\"", "&quot;")
+        descr
+            .replace("\"", "&quot;")
             .replace("\n", "")
             .replace("\r\n", "")
             .replace("#", "&pound;")

@@ -1,17 +1,17 @@
-use crate::api::ApiData;
 use super::HTML_ROOT;
+use crate::api::ApiData;
 
 /// Generate HTML for a specific release version
 pub fn generate_release_html(version: &str) -> String {
     let mut html = String::new();
-    
+
     // Load the HTML template - in a real implementation, this would be read from a file
     html.push_str("<!DOCTYPE html>\n<html><head><title>Release Notes - ");
     html.push_str(version);
     html.push_str("</title></head><body>\n");
-    
+
     html.push_str(&format!("<h1>Release Notes - Version {}</h1>\n", version));
-    
+
     // Load release notes - in a real implementation, this would be read from a file
     let release_content = match version {
         "1.0.0-alpha1" => {
@@ -58,36 +58,38 @@ pub fn generate_release_html(version: &str) -> String {
               <li><a href="./1.0.0-alpha/files/examples-windows.zip">Windows examples with source code (.zip - 154KB)</a></li>
             </ul>
             "#
-        },
+        }
         // Add more versions as needed
         _ => "<p>Release notes not available for this version.</p>",
     };
-    
+
     html.push_str(release_content);
     html.push_str("</body></html>");
-    
+
     html
 }
 
 /// Generate a combined releases index page
 pub fn generate_releases_index(api_data: &ApiData) -> String {
     let mut html = String::new();
-    
+
     // Load the HTML template - in a real implementation, this would be read from a file
     html.push_str("<!DOCTYPE html>\n<html><head><title>Releases</title></head><body>\n");
-    
+
     html.push_str("<h1>Choose release version</h1>\n");
-    
+
     // Create a list of releases
     html.push_str("<ul>\n");
-    
+
     for version in api_data.get_sorted_versions() {
-        html.push_str(&format!("<li><a href=\"{}/release/{}\">{}</a></li>\n", 
-                             HTML_ROOT, version, version));
+        html.push_str(&format!(
+            "<li><a href=\"{}/release/{}\">{}</a></li>\n",
+            HTML_ROOT, version, version
+        ));
     }
-    
+
     html.push_str("</ul>\n");
     html.push_str("</body></html>");
-    
+
     html
 }
