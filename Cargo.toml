@@ -5,6 +5,7 @@ members = [
     "dll",
     # "workbench",
     # "tests",
+    "doc",
     "css",
     "core",
     "layout",

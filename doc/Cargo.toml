@@ -1,0 +1,20 @@
+[package]
+name = "azul-docs"
+version = "0.0.5"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Builds the azul documentation for azul.rs"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user-interface", "svg", "graphics"]
+categories = ["gui"]
+repository = "https://github.com/fschutt/azul"
+readme = "../README.md"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", default-features = false }
+serde_derive = { version = "1", default-features = false }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+anyhow = "1.0"
+indexmap = { version = "1.9", features = ["serde"] } # For ordered maps
