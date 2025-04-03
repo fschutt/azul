@@ -38,6 +38,11 @@ impl ApiData {
         }
         None
     }
+    
+    /// Create ApiData from a JSON string
+    pub fn from_str(json_str: &str) -> anyhow::Result<Self> {
+        serde_json::from_str(json_str).map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
