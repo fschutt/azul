@@ -419,6 +419,10 @@ impl Window {
 
     // functions necessary for the az_ event handling
 
+    pub fn get_id(&self) -> WindowId {
+        self.id.clone()
+    }
+
     /// Utility for making the GL context current, returning a guard that resets it afterwards
     pub(crate) fn make_current_gl(gl_context: *mut Object) -> GlContextGuard {
         unsafe {

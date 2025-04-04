@@ -28,7 +28,7 @@ pub mod win32;
 pub mod x11;
 
 // TODO: Cache compiled shaders between renderers
-const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
+pub const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
 
 fn default_renderer_options(options: &WindowCreateOptions) -> WrRendererOptions {
     use crate::desktop::wr_translate::wr_translate_debug_flags;

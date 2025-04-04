@@ -6,12 +6,24 @@ use anyhow::{Context, Result};
 
 pub fn build_all_configs(version: &str, output_dir: &Path) -> Result<()> {
     let all_configs = &[
-        /*
-        ("windows", vec!["--no-default-features", "--features", "desktop-cdylib"], "azul_dll.dll", "azul.dll"),
-        ("windows", vec!["--no-default-features", "--features", "python-extension"], "libazul_dll.dll", "windows.pyd"),
-        ("windows", vec!["--no-default-features", "--features", "desktop-staticlib"], "azul_dll.lib", "azul.lib"),
-        */
-
+        (
+            "windows",
+            vec!["--no-default-features", "--features", "desktop-cdylib"],
+            "azul_dll.dll",
+            "azul.dll",
+        ),
+        (
+            "windows",
+            vec!["--no-default-features", "--features", "python-extension"],
+            "libazul_dll.dll",
+            "windows.pyd",
+        ),
+        (
+            "windows",
+            vec!["--no-default-features", "--features", "desktop-staticlib"],
+            "azul_dll.lib",
+            "azul.lib",
+        ),
         /*
         (
             "linux",

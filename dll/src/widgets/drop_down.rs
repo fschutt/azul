@@ -1036,6 +1036,7 @@ extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> U
 
     #[cfg(target_os = "windows")]
     {
+        use azul_core::window::{OptionHwndHandle, RawWindowHandle, WindowsHandle};
         let raw_window_handle = match info.get_current_window_handle() {
             RawWindowHandle::Windows(WindowsHandle { hwnd, hinstance }) => {
                 OptionHwndHandle::Some(hwnd)

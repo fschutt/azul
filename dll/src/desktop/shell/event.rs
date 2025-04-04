@@ -16,18 +16,12 @@ use webrender::{
     Transaction,
 };
 
-use super::{
-    appkit::GlContextGuard, CommandMap, MenuTarget, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM,
-};
+use super::{CommandMap, MenuTarget, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM};
 use crate::desktop::app::{self, App};
 #[cfg(target_os = "macos")]
-use crate::desktop::shell::appkit::AppData;
-#[cfg(target_os = "macos")]
-use crate::desktop::shell::appkit::Window;
+use crate::desktop::shell::appkit::{AppData, GlContextGuard, Window};
 #[cfg(target_os = "windows")]
-use crate::desktop::shell::win32::AppData;
-#[cfg(target_os = "windows")]
-use crate::desktop::shell::win32::Window;
+use crate::desktop::shell::win32::{AppData, GlContextGuard, Window};
 ///! This module encapsulates the different "event actions" that were formerly
 ///! triggered by Windows messages such as `AZ_REGENERATE_DOM`, `AZ_REDO_HIT_TEST`,
 ///! and so on.
@@ -183,7 +177,7 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
 ///        },
 ///    }
 /// ```
-fn az_redo_hit_test(
+pub fn az_redo_hit_test(
     current_window: &mut Window,
     userdata: &mut App,
     _guard: &GlContextGuard,

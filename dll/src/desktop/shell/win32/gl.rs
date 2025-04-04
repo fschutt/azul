@@ -1,4 +1,13 @@
+use alloc::rc::Rc;
+use core::{fmt, mem, ptr};
+
 use gl_context_loader::GenericGlContext;
+use winapi::shared::{
+    minwindef::{BOOL, HINSTANCE, LOWORD, TRUE},
+    windef::{HDC, HGLRC},
+};
+
+use super::{load_dll, CLASS_NAME};
 
 // OpenGL functions from wglGetProcAddress OR loaded from opengl32.dll
 pub struct GlFunctions {
@@ -15,7 +24,7 @@ impl fmt::Debug for GlFunctions {
 
 impl GlFunctions {
     // Initializes the DLL, but does not load the functions yet
-    fn initialize() -> Self {
+    pub fn initialize() -> Self {
         // zero-initialize all function pointers
         let context: GenericGlContext = unsafe { mem::zeroed() };
 
@@ -28,11 +37,11 @@ impl GlFunctions {
     }
 
     // Assuming the OpenGL context is current, loads the OpenGL function pointers
-    fn load(&mut self) {
+    pub fn load(&mut self) {
         fn get_func(s: &str, opengl32_dll: Option<HINSTANCE>) -> *mut gl_context_loader::c_void {
             use winapi::um::{libloaderapi::GetProcAddress, wingdi::wglGetProcAddress};
 
-            let mut func_name = encode_ascii(s);
+            let mut func_name = super::encode_ascii(s);
             let addr1 = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
             (if addr1 != ptr::null_mut() {
                 addr1
@@ -987,8 +996,8 @@ impl ExtraWglFunctions {
         use self::ExtraWglFunctionsLoadError::*;
 
         unsafe {
-            let mut hidden_class_name = encode_wide(CLASS_NAME);
-            let mut hidden_window_title = encode_wide("Dummy Window");
+            let mut hidden_class_name = super::encode_wide(CLASS_NAME);
+            let mut hidden_window_title = super::encode_wide("Dummy Window");
 
             let dummy_window = CreateWindowExW(
                 0,
@@ -1011,7 +1020,7 @@ impl ExtraWglFunctions {
 
             let dummy_dc = GetDC(dummy_window);
 
-            let mut pfd = get_default_pfd();
+            let mut pfd = super::get_default_pfd();
 
             let pixel_format = ChoosePixelFormat(dummy_dc, &pfd);
             if pixel_format == 0 {
@@ -1034,8 +1043,8 @@ impl ExtraWglFunctions {
             let mut extra_functions = ExtraWglFunctions::default();
 
             extra_functions.wglChoosePixelFormatARB = {
-                let mut func_name_1 = encode_ascii("wglChoosePixelFormatARB");
-                let mut func_name_2 = encode_ascii("wglChoosePixelFormatEXT");
+                let mut func_name_1 = super::encode_ascii("wglChoosePixelFormatARB");
+                let mut func_name_2 = super::encode_ascii("wglChoosePixelFormatEXT");
 
                 let wgl1_result = unsafe { wglGetProcAddress(func_name_1.as_mut_ptr()) };
                 let wgl2_result = unsafe { wglGetProcAddress(func_name_2.as_mut_ptr()) };
@@ -1050,7 +1059,7 @@ impl ExtraWglFunctions {
             };
 
             extra_functions.wglCreateContextAttribsARB = {
-                let mut func_name = encode_ascii("wglCreateContextAttribsARB");
+                let mut func_name = super::encode_ascii("wglCreateContextAttribsARB");
                 let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
                 if proc_address == ptr::null_mut() {
                     None
@@ -1060,7 +1069,7 @@ impl ExtraWglFunctions {
             };
 
             extra_functions.wglSwapIntervalEXT = {
-                let mut func_name = encode_ascii("wglSwapIntervalEXT");
+                let mut func_name = super::encode_ascii("wglSwapIntervalEXT");
                 let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
                 if proc_address == ptr::null_mut() {
                     None

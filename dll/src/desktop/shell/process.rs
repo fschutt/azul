@@ -235,7 +235,7 @@ pub(crate) fn process_callback_results(
 
     if let Some(modified) = callback_results.modified_window_state.as_ref() {
         if modified.flags.is_about_to_close {
-            destroyed_windows.push(window.id.clone());
+            destroyed_windows.push(window.get_id());
         }
         window.internal.current_window_state = FullWindowState::from_window_state(
             modified,
