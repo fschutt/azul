@@ -1841,12 +1841,9 @@ unsafe extern "system" fn WindowProc(
 
                 let cur_hwnd;
 
-                let ab = &mut *app_borrow;
-                let windows = &mut ab.windows;
-                let fc_cache = &mut ab.userdata.fc_cache;
-                let image_cache = &mut ab.userdata.image_cache;
-                let config = &ab.userdata.config;
-                let hinstance = ab.hinstance;
+                let hinstance = app_borrow.hinstance;
+                let windows = &mut app_borrow.windows;
+                let userdata = &mut app_borrow.userdata;
 
                 let mut new_windows = Vec::new();
                 let mut destroyed_windows = Vec::new();
@@ -1890,7 +1887,7 @@ unsafe extern "system" fn WindowProc(
 
                         ret = crate::desktop::shell::event::az_redo_hit_test(
                             current_window,
-                            &mut ab.userdata,
+                            userdata,
                             &guard,
                             &handle,
                         );
@@ -1912,8 +1909,7 @@ unsafe extern "system" fn WindowProc(
                     }
                 };
 
-                let hinstance = ab.hinstance;
-                mem::drop(ab);
+                let hinstance = app_borrow.hinstance;
                 mem::drop(app_borrow);
 
                 create_windows(hinstance, shared_application_data, new_windows);
@@ -1921,8 +1917,6 @@ unsafe extern "system" fn WindowProc(
                 let mut ab = &mut *app_borrow;
 
                 destroy_windows(ab, destroyed_windows);
-
-                mem::drop(ab);
 
                 match ret {
                     ProcessEventResult::DoNothing => {}
@@ -1958,9 +1952,8 @@ unsafe extern "system" fn WindowProc(
             AZ_REGENERATE_DISPLAY_LIST => {
                 use winapi::um::winuser::InvalidateRect;
 
-                let ab = &mut *app_borrow;
-                let image_cache = &ab.userdata.image_cache;
-                let windows = &mut ab.windows;
+                let image_cache = &app_borrow.userdata.image_cache;
+                let windows = &mut app_borrow.windows;
 
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
                     rebuild_display_list(
@@ -2023,6 +2016,9 @@ unsafe extern "system" fn WindowProc(
                 1
             }
             WM_SETFOCUS => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2031,23 +2027,25 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_set_focus(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_set_focus(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
 
                     mem::drop(guard);
-
                     mem::drop(app_borrow);
                     0
                 } else {
@@ -2056,6 +2054,9 @@ unsafe extern "system" fn WindowProc(
                 }
             }
             WM_KILLFOCUS => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2064,23 +2065,25 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_kill_focus(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_kill_focus(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
 
                     mem::drop(guard);
-
                     mem::drop(app_borrow);
                     0
                 } else {
@@ -2094,6 +2097,8 @@ unsafe extern "system" fn WindowProc(
 
                 let x = GET_X_LPARAM(lparam);
                 let y = GET_Y_LPARAM(lparam);
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
 
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let dpi_factor = current_window
@@ -2111,28 +2116,31 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
                     let ret = wm_mousemove(
                         current_window,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                         newpos,
                     );
-
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
 
                     mem::drop(guard);
-
                     mem::drop(app_borrow);
                     0
                 } else {
@@ -2145,6 +2153,9 @@ unsafe extern "system" fn WindowProc(
                     mem::drop(app_borrow);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 } else {
+                    let hinstance = app_borrow.hinstance;
+                    let mut userdata = &mut app_borrow.userdata;
+                    
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                         if let Some((scancode, vk)) =
                             self::event::process_key_params(wparam, lparam)
@@ -2158,30 +2169,34 @@ unsafe extern "system" fn WindowProc(
 
                             let handle = RawWindowHandle::Windows(WindowsHandle {
                                 hwnd: hwnd as *mut c_void,
-                                hinstance: app_borrow.hinstance as *mut c_void,
+                                hinstance: hinstance as *mut c_void,
                             });
 
                             let ret = wm_keydown(
                                 current_window,
-                                &mut app_borrow.userdata,
+                                userdata,
                                 &guard,
                                 &handle,
                                 scancode,
                                 vk,
                             );
-
+                            
+                            // Now process the result without borrowing conflicts
+                            let windows = &mut app_borrow.windows;
+                            userdata = &mut app_borrow.userdata;
+                            
                             let r = handle_process_event_result(
                                 ret,
-                                &mut app_borrow.windows,
+                                windows,
                                 hwnd_key,
-                                &mut app_borrow.userdata,
+                                userdata,
                                 &guard,
                                 &handle,
                             );
 
                             mem::drop(guard);
-
                             mem::drop(app_borrow);
+                            
                             // NOTE: due to a Win32 bug, the WM_CHAR message gets sent immediately
                             // after the WM_KEYDOWN: this would mess
                             // with the event handling in the window state
@@ -2205,6 +2220,9 @@ unsafe extern "system" fn WindowProc(
                 }
             }
             WM_CHAR | WM_SYSCHAR => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     use std::char;
 
@@ -2237,28 +2255,31 @@ unsafe extern "system" fn WindowProc(
 
                             let handle = RawWindowHandle::Windows(WindowsHandle {
                                 hwnd: hwnd as *mut c_void,
-                                hinstance: app_borrow.hinstance as *mut c_void,
+                                hinstance: hinstance as *mut c_void,
                             });
 
                             let ret = wm_char(
                                 current_window,
-                                &mut app_borrow.userdata,
+                                userdata,
                                 &guard,
                                 &handle,
                                 c,
                             );
-
+                            
+                            // Now process the result without borrowing conflicts
+                            let windows = &mut app_borrow.windows;
+                            userdata = &mut app_borrow.userdata;
+                            
                             let r = handle_process_event_result(
                                 ret,
-                                &mut app_borrow.windows,
+                                windows,
                                 hwnd_key,
-                                &mut app_borrow.userdata,
+                                userdata,
                                 &guard,
                                 &handle,
                             );
 
                             mem::drop(guard);
-
                             mem::drop(app_borrow);
                             0
                         } else {
@@ -2276,6 +2297,10 @@ unsafe extern "system" fn WindowProc(
             }
             WM_KEYUP | WM_SYSKEYUP => {
                 use self::event::process_key_params;
+                
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some((scancode, vk)) = process_key_params(wparam, lparam) {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                         let guard = GlContextGuard {
@@ -2285,29 +2310,32 @@ unsafe extern "system" fn WindowProc(
 
                         let handle = RawWindowHandle::Windows(WindowsHandle {
                             hwnd: hwnd as *mut c_void,
-                            hinstance: app_borrow.hinstance as *mut c_void,
+                            hinstance: hinstance as *mut c_void,
                         });
 
                         let ret = wm_keyup(
                             current_window,
-                            &mut app_borrow.userdata,
+                            userdata,
                             &guard,
                             &handle,
                             scancode,
                             vk,
                         );
-
+                        
+                        // Now process the result without borrowing conflicts
+                        let windows = &mut app_borrow.windows;
+                        userdata = &mut app_borrow.userdata;
+                        
                         let r = handle_process_event_result(
                             ret,
-                            &mut app_borrow.windows,
+                            windows,
                             hwnd_key,
-                            &mut app_borrow.userdata,
+                            userdata,
                             &guard,
                             &handle,
                         );
 
                         mem::drop(guard);
-
                         mem::drop(app_borrow);
                         0
                     } else {
@@ -2320,6 +2348,9 @@ unsafe extern "system" fn WindowProc(
                 }
             }
             WM_MOUSELEAVE => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2328,23 +2359,25 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_mouseleave(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_mouseleave(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
 
                     mem::drop(guard);
-
                     mem::drop(app_borrow);
                     0
                 } else {
@@ -2353,6 +2386,9 @@ unsafe extern "system" fn WindowProc(
                 }
             }
             WM_RBUTTONDOWN => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2361,17 +2397,20 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_rbuttondown(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_rbuttondown(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2382,6 +2421,10 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_RBUTTONUP => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                let mut active_menus = &mut app_borrow.active_menus;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2390,22 +2433,26 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
                     let ret = wm_rbuttonup(
                         current_window,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
-                        &mut app_borrow.active_menus,
+                        active_menus,
                     );
-
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2416,6 +2463,9 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_MBUTTONDOWN => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2424,17 +2474,20 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_mbuttondown(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_mbuttondown(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2445,6 +2498,9 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_MBUTTONUP => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2453,17 +2509,20 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_mbuttonup(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_mbuttonup(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2474,6 +2533,9 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_LBUTTONDOWN => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2482,17 +2544,20 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
-                    let ret =
-                        wm_lbuttondown(current_window, &mut app_borrow.userdata, &guard, &handle);
-
+                    let ret = wm_lbuttondown(current_window, userdata, &guard, &handle);
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2503,6 +2568,10 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_LBUTTONUP => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                let mut active_menus = &mut app_borrow.active_menus;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2511,22 +2580,26 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
                     let ret = wm_lbuttonup(
                         current_window,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
-                        &mut app_borrow.active_menus,
+                        active_menus,
                     );
-
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2537,6 +2610,9 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_MOUSEWHEEL => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let value = (wparam >> 16) as i16;
                     let value = value as i32;
@@ -2549,28 +2625,31 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
                     let ret = wm_mousewheel(
                         current_window,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                         value,
                     );
-
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
 
                     mem::drop(guard);
-
                     mem::drop(app_borrow);
                     0
                 } else {
@@ -2582,7 +2661,9 @@ unsafe extern "system" fn WindowProc(
                 use winapi::shared::minwindef::LOWORD;
 
                 let dpi = LOWORD(wparam as u32);
-
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -2591,22 +2672,26 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
                     let ret = wm_dpichanged(
                         current_window,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                         dpi as u32,
                     );
-
+                    
+                    // Now process the result without borrowing conflicts
+                    let windows = &mut app_borrow.windows;
+                    userdata = &mut app_borrow.userdata;
+                    
                     let r = handle_process_event_result(
                         ret,
-                        &mut app_borrow.windows,
+                        windows,
                         hwnd_key,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
                     );
@@ -2633,10 +2718,9 @@ unsafe extern "system" fn WindowProc(
                     height: new_height as u32,
                 };
 
-                let mut ab = &mut *app_borrow;
-                let fc_cache = &mut ab.userdata.fc_cache;
-                let windows = &mut ab.windows;
-                let image_cache = &ab.userdata.image_cache;
+                let fc_cache = &mut app_borrow.userdata.fc_cache;
+                let windows = &mut app_borrow.windows;
+                let image_cache = &app_borrow.userdata.image_cache;
 
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
                     fc_cache.apply_closure(|fc_cache| {
@@ -2764,8 +2848,8 @@ unsafe extern "system" fn WindowProc(
                     return DefWindowProcW(hwnd, msg, wparam, lparam);
                 }
 
-                let mut app = &mut *app_borrow;
-                let mut current_window = match app.windows.get_mut(&hwnd_key) {
+                let windows = &mut app_borrow.windows;
+                let mut current_window = match windows.get_mut(&hwnd_key) {
                     Some(s) => s,
                     None => {
                         // message fired before window was created: ignore
@@ -2831,13 +2915,12 @@ unsafe extern "system" fn WindowProc(
             WM_TIMER => {
                 use winapi::um::winuser::{GetDC, ReleaseDC};
 
-                let mut ab = &mut *app_borrow;
-                let hinstance = ab.hinstance;
-                let windows = &mut ab.windows;
-                let data = &mut ab.userdata.data;
-                let image_cache = &mut ab.userdata.image_cache;
-                let fc_cache = &mut ab.userdata.fc_cache;
-                let config = &ab.userdata.config;
+                let hinstance = app_borrow.hinstance;
+                let windows = &mut app_borrow.windows;
+                let data = &mut app_borrow.userdata.data;
+                let image_cache = &mut app_borrow.userdata.image_cache;
+                let fc_cache = &mut app_borrow.userdata.fc_cache;
+                let config = &app_borrow.userdata.config;
 
                 let mut ret = ProcessEventResult::DoNothing;
                 let mut new_windows = Vec::new();
@@ -2978,13 +3061,11 @@ unsafe extern "system" fn WindowProc(
 
                 // create_windows needs to clone the SharedAppData RefCell
                 // drop the borrowed variables and restore them immediately after
-                let hinstance = ab.hinstance;
-                mem::drop(ab);
+                let hinstance = app_borrow.hinstance;
                 mem::drop(app_borrow);
                 create_windows(hinstance, shared_application_data, new_windows);
                 let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
-                let mut ab = &mut *app_borrow;
-                destroy_windows(ab, destroyed_windows);
+                destroy_windows(&mut *app_borrow, destroyed_windows);
 
                 match ret {
                     ProcessEventResult::DoNothing => {}
@@ -2992,7 +3073,7 @@ unsafe extern "system" fn WindowProc(
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
                     }
                     ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                        for window in ab.windows.values() {
+                        for window in app_borrow.windows.values() {
                             PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
                         }
                     }
@@ -3000,7 +3081,7 @@ unsafe extern "system" fn WindowProc(
                         PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                     }
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        if let Some(w) = ab.windows.get_mut(&hwnd_key) {
+                        if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
                             w.internal.previous_window_state =
                                 Some(w.internal.current_window_state.clone());
                             // TODO: submit display list, wait for new hit-tester and update
@@ -3014,7 +3095,6 @@ unsafe extern "system" fn WindowProc(
                     }
                 }
 
-                mem::drop(ab);
                 mem::drop(app_borrow);
                 0
             }
@@ -3030,13 +3110,12 @@ unsafe extern "system" fn WindowProc(
                     return DefWindowProcW(hwnd, msg, wparam, lparam);
                 }
 
-                let mut ab = &mut *app_borrow;
-                let hinstance = ab.hinstance;
-                let windows = &mut ab.windows;
-                let data = &mut ab.userdata.data;
-                let image_cache = &mut ab.userdata.image_cache;
-                let fc_cache = &mut ab.userdata.fc_cache;
-                let config = &ab.userdata.config;
+                let hinstance = app_borrow.hinstance;
+                let windows = &mut app_borrow.windows;
+                let data = &mut app_borrow.userdata.data;
+                let image_cache = &mut app_borrow.userdata.image_cache;
+                let fc_cache = &mut app_borrow.userdata.fc_cache;
+                let config = &app_borrow.userdata.config;
 
                 // execute menu callback
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
@@ -3122,12 +3201,10 @@ unsafe extern "system" fn WindowProc(
 
                     // same as invoke_timers(), invoke_threads(), ...
 
-                    mem::drop(ab);
                     mem::drop(app_borrow);
                     create_windows(hinstance, shared_application_data, new_windows);
                     let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
-                    let mut ab = &mut *app_borrow;
-                    destroy_windows(ab, destroyed_windows);
+                    destroy_windows(&mut *app_borrow, destroyed_windows);
 
                     match ret {
                         ProcessEventResult::DoNothing => {}
@@ -3165,6 +3242,9 @@ unsafe extern "system" fn WindowProc(
                 }
             }
             WM_QUIT => {
+                let hinstance = app_borrow.hinstance;
+                let mut userdata = &mut app_borrow.userdata;
+                
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let guard = GlContextGuard {
                         hdc: unsafe { winapi::um::winuser::GetDC(hwnd) },
@@ -3173,15 +3253,17 @@ unsafe extern "system" fn WindowProc(
 
                     let handle = RawWindowHandle::Windows(WindowsHandle {
                         hwnd: hwnd as *mut c_void,
-                        hinstance: app_borrow.hinstance as *mut c_void,
+                        hinstance: hinstance as *mut c_void,
                     });
 
+                    let functions = current_window.gl_functions.functions.clone();
+                    
                     wm_quit(
                         current_window,
-                        &mut app_borrow.userdata,
+                        userdata,
                         &guard,
                         &handle,
-                        current_window.gl_functions.functions.clone(),
+                        functions,
                     );
 
                     mem::drop(guard);
@@ -3195,15 +3277,14 @@ unsafe extern "system" fn WindowProc(
                 // make OpenGL context current in case there are
                 // OpenGL objects stored in the windows' RefAny data
 
-                let mut ab = &mut *app_borrow;
                 let mut windows_is_empty = false;
 
-                if let Ok(mut o) = ab.active_hwnds.try_borrow_mut() {
+                if let Ok(mut o) = app_borrow.active_hwnds.try_borrow_mut() {
                     o.remove(&hwnd);
                     windows_is_empty = o.is_empty();
                 }
 
-                if let Some(mut current_window) = ab.windows.remove(&WindowId { id: hwnd as i64 }) {
+                if let Some(mut current_window) = app_borrow.windows.remove(&WindowId { id: hwnd as i64 }) {
                     let hDC = GetDC(hwnd);
                     if let Some(c) = current_window.gl_context {
                         if !hDC.is_null() {
@@ -3225,13 +3306,6 @@ unsafe extern "system" fn WindowProc(
                         }
                     }
 
-                    mem::drop(ab);
-                    if let Some(c) = current_window.gl_context.as_mut() {
-                        if !hDC.is_null() {
-                            wglMakeCurrent(hDC, *c);
-                        }
-                    }
-
                     mem::drop(app_borrow);
                     if let Some(c) = current_window.gl_context.as_mut() {
                         if !hDC.is_null() {
@@ -3246,6 +3320,8 @@ unsafe extern "system" fn WindowProc(
                     if !hDC.is_null() {
                         ReleaseDC(hwnd, hDC);
                     }
+                } else {
+                    mem::drop(app_borrow);
                 }
 
                 if windows_is_empty {
