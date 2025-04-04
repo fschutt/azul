@@ -1,155 +1,83 @@
-<h2>Using a precompiled binary release</h2>
+## Using a precompiled binary release
 
-  <p>
-    In order to use Azul from languages other than Rust you need to use a
-    pre-compiled binary release from
-    <a href="$$ROOT_RELATIVE$$/releases">$$ROOT_RELATIVE$$/releases</a>.
-    <br/>
-    <br/>
-    Even for Rust it is recommended to use the precompiled binary to avoid
-    compilation issues (missing build-dependencies, long compilation time).
-    The precompiled library is dependency-free, you do not need to install or
-    extra system libraries in order to get started.
-  </p>
+In order to use Azul from languages other than Rust you need to use a 
+pre-compiled binary release from [/releases](https://azul.rs/releases). 
+Even for Rust it is recommended to use the precompiled binary to avoid compilation 
+issues (missing build-dependencies, long compilation time). The precompiled 
+library is dependency-free, you do not need to install or extra 
+system libraries in order to get started.
 
-  <br/>
+### Rust
 
-  <h3>Python</h3>
+Initialize a new cargo project with `cargo new my-project` and 
+edit your `Cargo.toml` file:
 
-  <p>
-    In order to use Azul from Python, download the <code>azul.pyd</code> file
-    (or <code>azul.so</code> on Linux / Mac) and put it in to the same directory as your
-    <code>main.py</code> file. Note that because of Python extension
-    conventions the name of the file must match the name of the library (i.e.
-    <code>azul.so</code> instead of <code>libazul.so</code>).
-  </p>
+```
+[dependencies]
+azul = "1.0.0-alpha"
+# or: azul = { git = "https://azul.rs/1.0.0-alpha.git" }
+```
 
-  <p>Create a main.py file with the following contents:</p>
+Run cargo with: `cargo build --release`. 
 
-  <code class="expand">from azul import *</code>
+### Rust: dynamic linking
 
-  <p>Your project directory should now look like this:</p>
+In order to improve iteration time, it is highly recommended to use the .dll
+for dynamic linking. Download the azul.dll / libazul.so and put it in your 
+`myproject/target/debug` (or `target/release`) folder. The library has to be 
+in the same directory as the binary, in order to be found when launching.
 
-  <code class="expand">/my-project:
-   azul.pyd (or: azul.so)
-   main.py</code>
+Then, export the path to the DLL file via 
 
-  <p>Now you should be able to run the code with</p>
+```sh
+export AZUL_LINK_PATH=/path/to/target/release/azul.dll
+```
+On Windows, use `set AZUL_LINK_PATH`. Internally, the azul crate has 
+a build script, which will pick up on this environment variable
+and tell the Rust compiler where the DLL is.
 
-  <code class="expand">python ./main.py</code>
+Now, enable the feature `link_dynamic` in your Cargo.toml:
 
-  <br/>
-  <div class="warning">
-    <i><h4>"I received a weird Python error"</h4></i>
+```toml
+[dependencies.azul]
+version = "1.0.0-alpha1"
+default-features = false
+features = ["link_dynamic"]
+```
 
-    <p>Azul only supports <strong>Python 3</strong>.
-    Make sure you are using the correct Python version or explicitly use <code>python3 ./main.py</code>.</p>
-  </div>
+If you see an error like this:
 
-  <br/>
-  <h3>C / C++</h3>
-
-  <p>For C or C++ you will need to download the regular
-  library without Python support:</p>
-
-  <br/>
-
-  <ul>
-    <li><p>&nbsp;&nbsp;Windows:&nbsp;<code>azul.dll</code> and <code>azul.dll.lib</code></p></li>
-    <li><p>&nbsp;&nbsp;Linux:&nbsp;<code>libazul.so</code></p></li>
-    <li><p>&nbsp;&nbsp;Mac:&nbsp;<code>libazul.dylib</code></p></li>
-  </ul>
-
-  <p>Create a main.c or main.cpp file with the following contents:</p>
-
-  <code class="expand">#include "azul.h"
-
-int main() {
-  return 0;
-}
-</code>
-
-  <p>Your project directory should now look like this:</p>
-
-  <code class="expand">/my-project:
-   azul.dll / libazul.so / libazul.dylib
-   azul.dll.lib // windows only!
-   azul.h / azul.hpp
-   main.c / main.cpp</code>
-
-  <p>Compile with:</p>
-
-  <code class="expand">gcc -O3 -lazul -L/path/to/my-project ./main.c</code>
-
-  <br/>
-  <div class="warning">
-    <i><h4>Compatibility</h4></i>
-    <p>Azul is compatible with either <strong>C99</strong> or <strong>C++11</strong> and newer.</p>
-  </div>
-
-  <p>Now you can run the example with </p>
-  <code class="expand">./main</code>
-
-  <br/>
-
-  <div class="warning">
-    <i><h4>Running on Linux: libazul not found</h4></i>
-    <p>
-      On Linux the binary won't immediately start because Linux expects the library
-      in the <code>LD_PRELOAD</code> path. To fix this, copy the <code>libazul.so</code>
-      either into <code>/usr/lib</code> or into <code>usr/x86_64-linux-gnu/lib</code>:
-      <code class="expand">sudo copy ./libazul.so /usr/lib</code>
-    </p>
-  </div>
-
-  <br/>
-  <h3>Rust</h3>
-
-  <p>
-    Initialize a new cargo project with <code>cargo new my-project</code> and edit your
-    <code>Cargo.toml</code> file:
-  </p>
-
-<code class="expand">[dependencies]
-azul = "1.0.0-alpha"</code>
-
-  <p>Run cargo with:</p>
-  <code class="expand">cargo build --release</code>
-  <p style="font-weight: bold;font-size:14px;">This will throw an error because the compiler doesn't know where the azul.dll file is:</p>
-  <code class="expand">Compiling azul v0.0.1
+```rust
+Compiling azul v0.0.1
 error: environment variable `AZUL_LINK_PATH` not defined
  --> [...]\api\rust\build.rs:4:48
   |
-4 |         println!("cargo:rustc-link-search={}", env!("AZUL_LINK_PATH"));
+4 |  println!("cargo:rustc-link-search={}", env!("AZUL_LINK_PATH"));
   |                                                ^^^^^^^^^^^^^^^^^^^^^^
-  |</code>
+```
 
-  <p>
-    In order to tell rustc about the library, you will need to set the environment
-    variable <code>AZUL_LINK_PATH</code> to the path of the downloaded library.
-  </p>
+... it means you forgot to set the `AZUL_LINK_PATH` as explained above.
 
-  <p>On Linux or Mac the operating system needs the library to be in the
-    <code>LD_PRELOAD</code> path, so you can just <code>AZUL_LINK_PATH</code>
-    to the same path:
-  </p>
+On Linux or Mac the operating system needs the library to be in the `LD_PRELOAD` 
+path, so you can just `AZUL_LINK_PATH` to the same path:
 
-  <code class="expand">sudo cp ./libazul.so /usr/lib
-export AZUL_LINK_PATH=/usr/lib
-cargo run --release</code>
+```
+sudo cp ./libazul.so /usr/lib
+export AZUL_LINK_PATH=/usr/lib/libazul.so
+cargo run --release
+```
 
-  <p>
-    On Windows things are different: First, you will also need to put the
-    <code>azul.dll.lib</code> file into the same directory as the
-    <code>azul.dll</code>file and second,
-    in order to run the binary, the <code>azul.dll</code> file has
-    to be in the same directory as the .exe.
-  </p>
-  <p>
-    For Rust development it makes the most sense to put both files into the
-    <code>/target/release</code> directory:
-  </p>
-  <code class="expand">/my-project
+On Windows things are different: First, you will also need to put the
+`azul.dll.lib` file into the same directory as the `azul.dll` file 
+and second, in order to run the binary, the `azul.dll` file has
+to be in the same directory as the .exe.
+
+Note that the DLL is built in release mode, so you can iterate on your binary
+in debug mode, and when you're done programming your library, you can switch back
+to static linking.
+
+```bash
+/my-project
     /src
         main.rs
     /target
@@ -158,76 +86,122 @@ cargo run --release</code>
             azul.dll
             azul.dll.lib
     Cargo.toml
-</code>
-<code class="expand">SET AZUL_LINK_PATH=/path/to/my-project/target/release
+```
+
+```bash
+SET AZUL_LINK_PATH=/path/to/my-project/target/release
 cargo run --release
-</code>
+```
 
-<p>Now your code should run (if it doesn't, file a bug).
-  You can now continue with the next tutorial which will teach you how to
-  <a href="$$ROOT_RELATIVE$$/guide">create a window.</a></p>
+Now your code should run (if it doesn't, file a bug).
+You can now continue with the [next tutorial](..), 
+which will teach you how to create a window.
 
-<br/>
-<h2>Static linking</h2>
+### Python
 
-  <h3>C / C++</h3>
+In order to use Azul from Python, download the `windows.pyd` / 
+`linux.pyd` or `mac.pyd` and put it in to the same directory as 
+your `main.py` file. 
 
-  <p>In order to link azul staticall from C or C++, apply the same procedure
-    as for the dynamically linked version, but use the <code>libazul.a</code>
-    file to link statically (as a single binary) instead of dynamically (as a
-    split binary + azul.dll).
-  </p>
+Note that because of Python extension conventions the name of the file 
+must match the name of the library (i.e. `azul.so` instead of `libazul.so`).
 
-  <h3>Rust</h3>
-    <p>In order to link Rust as a regular crates.io dependency, you need to enable the
-      <code>link-static</code> feature:</p>
-    <code class="expand">[dependencies]
-azul = { version = "1.0.0-alpha", features = ["link-static", "rlib"]}</code>
-    <p>By default this feature is disabled because re-linking the application can
-    take a long time (even if compilation is fast). Usually you'd only want to do
-  this when you are finished with the development of your application.</p>
+Create a main.py file with the following contents:
 
-  <br/>
+```python
+from azul import *
+```
 
+Your project directory should now look like this:
 
-<h2>Building the library from source</h2>
+```
+/my-project:
+   azul.pyd (or: azul.so)
+   main.py
+```
 
-  <p>Azul is mostly self-contained and using a default Rust installation you should
-    be able to just compile it with:</p>
-    <code class="expand">git clone https://github.com/fschutt/azul
-cd azul-dll
-cargo build --release
-    # --features="python3": optional Python support
-    # --features="cdylib": compile as cdylib (.dll)
-    # --features="staticlib": compile as static library (.a)</code>
+Now you should be able to run the code with `python3 ./main.py`.
 
-    <br/>
+> [!WARNING]
+> Azul only supports **Python 3**. Make sure you are 
+> using the correct Python version or explicitly use `python3 ./main.py`
 
-    <h3>Development</h3>
-  <p>Since Azul targets many languages, the bindings are auto-generated by a combination of a
-    Python script (<code>build.py</code>) and a <code>api.json</code> file describing every class
-    with the respective C field layout:
-  </p>
+### C / C++
 
-  <code class="expand">{
-  "App": {
-    "external": "azul_impl::app::AzAppPtr",
-    "doc": "Main application class",
-    "struct_fields": [
-        {"ptr": {"type": "*const c_void"}}
-    ],
-    "constructors": {
-        "new": {
-            ...
-        }
-    },
-    ...
-}</code>
+For C or C++ you will need to download the 
+regular library without Python support:
 
-  <p>The script then creates the proper API bindings. The API bindings only have
-  to be refreshed when they are changed - which should happen infrequently.</p>
+- Windows: azul.dll and azul.dll.lib
+- Linux: libazul.so
+- MacOS: libazul.dylib
 
-  <br/>
-  <br/>
+Then, create a main.c or main.cpp file with the following contents:
 
-  <a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
+```c
+#include "azul.h"
+
+int main() {
+  return 0;
+}
+```
+
+Download the `azul.h` or `azul.hpp` file and put it in the same directory.
+Your project directory should now look like this:
+
+```sh
+/my-project:
+   azul.dll | libazul.so | libazul.dylib
+   azul.dll.lib # windows only!
+   azul.h | azul.hpp
+   main.c | main.cpp
+```
+
+Compile with:
+
+```sh
+gcc -O3 -lazul -L/path/to/my-project ./main.c
+```
+
+> [!WARNING]
+> Azul is compatible with either **C99** or **C++11** and newer.
+
+Now you can run the example with `.main`.
+
+> [!WARNING]
+> On Linux the binary won't immediately start because Linux expects the library
+> in the `LD_PRELOAD` path. To fix this, copy the `libazul.so`
+> either into `/usr/lib` or into `/usr/x86_64-linux-gnu/lib`:
+> ```sh 
+> sudo copy ./libazul.so /usr/lib
+> ```
+
+### C / C++: static linking
+
+In order to statically link from C / C++, simply use the `.a` or `.lib` files
+(`libazul.lib`, `libazul.linux.a` or `libazul.macos.a`), remove the OS-specific
+naming and link the project statically with GCC.
+
+### Building the DLL
+
+libazul is being built by the `doc` binary in /doc, which automatically
+builds the azul.rs website, the binaries and generates documentation:
+
+```sh
+git clone https://github.com/fschutt/azul && cd azul
+cargo build --release --manifest-path doc/Cargo.toml
+```
+
+If you only want to build the dll for your current operating system,
+you can alternatively do:
+
+```sh
+cargo build \
+  --release \
+  --manifest-path dll/Cargo.toml \
+  --no-default-features \
+  --features desktop-dynamic
+```
+
+The API is versioned in the `api.json`, including all examples, guides and examples
+on a per-version basis. Newer APIs never replace older APIs, but get versioned with
+a new number (i.e. `AzV1Class_function(AzV1Struct)`)

@@ -347,7 +347,7 @@ fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Pre => "NodeTypeTag::Pre",
         NodeTypeTag::BlockQuote => "NodeTypeTag::BlockQuote",
         NodeTypeTag::Address => "NodeTypeTag::Address",
-        
+
         // List elements
         NodeTypeTag::Ul => "NodeTypeTag::Ul",
         NodeTypeTag::Ol => "NodeTypeTag::Ol",
@@ -355,7 +355,7 @@ fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Dl => "NodeTypeTag::Dl",
         NodeTypeTag::Dt => "NodeTypeTag::Dt",
         NodeTypeTag::Dd => "NodeTypeTag::Dd",
-        
+
         // Table elements
         NodeTypeTag::Table => "NodeTypeTag::Table",
         NodeTypeTag::Caption => "NodeTypeTag::Caption",
@@ -367,7 +367,7 @@ fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Td => "NodeTypeTag::Td",
         NodeTypeTag::ColGroup => "NodeTypeTag::ColGroup",
         NodeTypeTag::Col => "NodeTypeTag::Col",
-        
+
         // Form elements
         NodeTypeTag::Form => "NodeTypeTag::Form",
         NodeTypeTag::FieldSet => "NodeTypeTag::FieldSet",
@@ -379,7 +379,7 @@ fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::OptGroup => "NodeTypeTag::OptGroup",
         NodeTypeTag::SelectOption => "NodeTypeTag::SelectOption",
         NodeTypeTag::TextArea => "NodeTypeTag::TextArea",
-        
+
         // Inline elements
         NodeTypeTag::Span => "NodeTypeTag::Span",
         NodeTypeTag::A => "NodeTypeTag::A",
@@ -399,12 +399,12 @@ fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Sup => "NodeTypeTag::Sup",
         NodeTypeTag::Small => "NodeTypeTag::Small",
         NodeTypeTag::Big => "NodeTypeTag::Big",
-        
+
         // Content elements
         NodeTypeTag::Text => "NodeTypeTag::Text",
         NodeTypeTag::Img => "NodeTypeTag::Img",
         NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
-        
+
         // Pseudo-elements
         NodeTypeTag::Before => "NodeTypeTag::Before",
         NodeTypeTag::After => "NodeTypeTag::After",

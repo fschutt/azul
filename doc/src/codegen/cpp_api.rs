@@ -67,7 +67,7 @@ pub fn generate_cpp_api(api_data: &ApiData, version: &str) -> String {
                             field_name
                         ));
                     } else if let Some((_, type_class_name)) =
-                        search_for_class_by_class_name(api_data, &base_type)
+                        search_for_class_by_class_name(version_data, &base_type)
                     {
                         code.push_str(&format!(
                             "        {}{}{} {};\r\n",
@@ -150,7 +150,7 @@ pub fn generate_cpp_api(api_data: &ApiData, version: &str) -> String {
                                     suffix
                                 ));
                             } else if let Some((_, type_class_name)) =
-                                search_for_class_by_class_name(api_data, &base_type)
+                                search_for_class_by_class_name(version_data, &base_type)
                             {
                                 code.push_str(&format!(
                                     " {}{}{} payload;",
@@ -186,7 +186,7 @@ pub fn generate_cpp_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("    /* FUNCTIONS */\r\n\r\n");
     code.push_str("    extern \"C\" {\r\n");
 
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             let class_ptr_name = format!("{}", class_name); // No prefix in C++
             let c_is_stack_allocated = class_is_stack_allocated(class_data);
@@ -194,7 +194,7 @@ pub fn generate_cpp_api(api_data: &ApiData, version: &str) -> String {
                 .derive
                 .as_ref()
                 .map_or(false, |d| d.contains(&"Copy".to_string()));
-            let class_has_recursive_destructor = has_recursive_destructor(api_data, class_data);
+            let class_has_recursive_destructor = has_recursive_destructor(version_data, class_data);
             let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
             let treat_external_as_ptr = class_data.external.is_some() && class_data.is_boxed_object;
             let class_can_be_cloned = class_data.clone.unwrap_or(true);
@@ -285,7 +285,7 @@ fn collect_structs(api_data: &ApiData) -> IndexMap<String, &crate::api::ClassDat
     let version_data = api_data.get_version(latest_version).unwrap();
 
     // Collect all classes from all modules
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             // In C++, we don't use the prefix in the type name
             structs.insert(class_name.clone(), class_data);

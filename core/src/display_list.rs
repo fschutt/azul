@@ -1338,7 +1338,7 @@ pub fn displaylist_handle_rect<'a>(
                 ));
             }
         }
-        _ => { },
+        _ => {}
     };
 
     if layout_result

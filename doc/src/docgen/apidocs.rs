@@ -1,6 +1,6 @@
 use super::HTML_ROOT;
 use crate::{
-    api::ApiData,
+    api::{ApiData, VersionData},
     utils::{
         analyze::{
             analyze_type, class_is_stack_allocated, enum_is_union, has_recursive_destructor,
@@ -14,38 +14,74 @@ const PREFIX: &str = "Az";
 
 /// Generate API documentation HTML for a specific version
 pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
+    let version_data = api_data.get_version(version).unwrap();
+
+    let notes = vec![
+        "<div style='box-shadow:none;padding: 0px; max-width: 700px;'>",
+        "<h2>Notes for non-Rust languages</h2>",
+        "<br/>",
+        "<a href='https://azul.rs/guide/NotesForPython'>Notes for Python</a>",
+        "<br/>",
+        "<a href='https://azul.rs/guide/NotesForC'>Notes for C</a>",
+        "<br/>",
+        "<a href='https://azul.rs/guide/NotesForC++'>Notes for C++</a>",
+        "</div>",
+    ]
+    .join("\r\n");
+
+    let title = format!("Azul API docs for version {version}");
+    let content = generate_api_content(&version_data);
+    let header_tags = crate::docgen::get_common_head_tags();
+    let sidebar = crate::docgen::get_sidebar();
+
+    format!(
+        "<!DOCTYPE html>
+        <html lang='en'>
+        <head>
+        <title>{title}</title>
+
+        {header_tags}
+        </head>
+
+        <body>
+        <div class='center'>
+
+        <aside>
+            <header>
+            <h1 style='display:none;'>Azul GUI Framework</h1>
+            <a href='{HTML_ROOT}'>
+                <img src='{HTML_ROOT}/logo.svg'>
+            </a>
+            </header>
+            <nav>
+            {sidebar}
+            </nav>
+        </aside>
+
+        <main>
+            <h1>{title}</h1>
+            <div id='api'>
+            {notes}
+            {content}
+            </div>
+            <p style='font-size:1.2em;margin-top:20px;'>
+            <a href='{HTML_ROOT}/api/{version}'>Back to API index</a>
+            </p>
+        </main>
+
+        </div>
+        </body>
+        </html>"
+    )
+}
+
+fn generate_api_content(version_data: &VersionData) -> String {
     let mut html = String::new();
-
-    // Load the HTML template - in a real implementation, this would be read from a file
-    html.push_str("<!DOCTYPE html>\n<html><head><title>API Documentation</title></head><body>\n");
-
-    // Get the version data
-    let version_data = match api_data.get_version(version) {
-        Some(data) => data,
-        None => {
-            html.push_str("<h1>Error: Version not found</h1>");
-            html.push_str("</body></html>");
-            return html;
-        }
-    };
-
-    html.push_str(&format!(
-        "<h1>API Documentation - Version {}</h1>\n",
-        version
-    ));
-
-    // Add version documentation if available
-    if let Some(doc) = &version_data.doc {
-        html.push_str(&format!(
-            "<p class=\"version doc\">{}</p>\n",
-            format_doc(doc)
-        ));
-    }
 
     html.push_str("<ul>\n");
 
     // Process each module
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         html.push_str(&format!("<li class=\"m\" id=\"m.{}\">", module_name));
 
         // Add module documentation if available
@@ -64,7 +100,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
             let is_boxed_object = class_data.is_boxed_object;
             let treat_external_as_ptr = class_data.external.is_some() && is_boxed_object;
             let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
-            let class_has_recursive_destructor = has_recursive_destructor(api_data, class_data);
+            let class_has_recursive_destructor = has_recursive_destructor(version_data, class_data);
 
             let destructor_warning = if class_has_custom_destructor
                 || treat_external_as_ptr
@@ -113,7 +149,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                     variant_name, variant_type
                                 ));
                             } else if let Some((_, class_name)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 html.push_str(&format!(
                                     "<p class=\"f\">{}({}<a href=\"#st.{}\">{}</a>{})</p>",
@@ -162,7 +198,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                 field_name, field_type
                             ));
                         } else if let Some((_, class_name)) =
-                            search_for_class_by_class_name(api_data, &type_name)
+                            search_for_class_by_class_name(version_data, &type_name)
                         {
                             html.push_str(&format!(
                                 "<p class=\"f\">{}: {}<a href=\"#st.{}\">{}</a>{}</p>",
@@ -218,7 +254,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                 type_name
                             ));
                         } else if let Some((_, class_name)) =
-                            search_for_class_by_class_name(api_data, &type_name)
+                            search_for_class_by_class_name(version_data, &type_name)
                         {
                             html.push_str(&format!(
                                 "<li><p class=\"fnty arg\">arg {} <a \
@@ -245,7 +281,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                     if is_primitive_arg(&type_name) {
                         html.push_str(&format!("<p class=\"fnty ret\">->&nbsp;{}</p>", type_name));
                     } else if let Some((_, class_name)) =
-                        search_for_class_by_class_name(api_data, &type_name)
+                        search_for_class_by_class_name(version_data, &type_name)
                     {
                         html.push_str(&format!(
                             "<p class=\"fnty ret\">->&nbsp;<a href=\"#st.{}\">{}</a></p>",
@@ -294,7 +330,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                     arg_name, arg_type
                                 ));
                             } else if let Some((_, class_name)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 html.push_str(&format!(
                                     "<li><p class=\"arg\">arg {}: {}<a \
@@ -327,7 +363,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                 type_name
                             ));
                         } else if let Some((_, class_name)) =
-                            search_for_class_by_class_name(api_data, &type_name)
+                            search_for_class_by_class_name(version_data, &type_name)
                         {
                             html.push_str(&format!(
                                 "<p class=\"cn ret\">->&nbsp;{}<a href=\"#st.{}\">{}</a>{}</p>",
@@ -409,7 +445,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                     arg_name, arg_type
                                 ));
                             } else if let Some((_, class_name)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 html.push_str(&format!(
                                     "<li><p class=\"arg\">arg {}: {}<a \
@@ -442,7 +478,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                                 type_name
                             ));
                         } else if let Some((_, class_name)) =
-                            search_for_class_by_class_name(api_data, &type_name)
+                            search_for_class_by_class_name(version_data, &type_name)
                         {
                             html.push_str(&format!(
                                 "<p class=\"fn ret\">->&nbsp;{}<a href=\"#st.{}\">{}</a>{}</p>",
@@ -473,32 +509,60 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     }
 
     html.push_str("</ul>");
-    html.push_str("</body></html>");
 
-    html
+    return html;
 }
 
 /// Generate a combined API index page
 pub fn generate_api_index(api_data: &ApiData) -> String {
-    let mut html = String::new();
+    let title = format!("Select API version");
 
-    // Load the HTML template - in a real implementation, this would be read from a file
-    html.push_str("<!DOCTYPE html>\n<html><head><title>API Versions</title></head><body>\n");
-
-    html.push_str("<h1>Choose API version</h1>\n");
-
-    // Create a sidebar with API version links
-    html.push_str("<ul>\n");
-
+    let mut content = String::new();
     for version in api_data.get_sorted_versions() {
-        html.push_str(&format!(
+        content.push_str(&format!(
             "<li><a href=\"{}/api/{}\">{}</a></li>\n",
             HTML_ROOT, version, version
         ));
     }
 
-    html.push_str("</ul>\n");
-    html.push_str("</body></html>");
+    let header_tags = crate::docgen::get_common_head_tags();
+    let sidebar = crate::docgen::get_sidebar();
 
-    html
+    format!(
+        "<!DOCTYPE html>
+        <html lang='en'>
+        <head>
+        <title>{title}</title>
+
+        {header_tags}
+        </head>
+
+        <body>
+        <div class='center'>
+
+        <aside>
+            <header>
+            <h1 style='display:none;'>Azul GUI Framework</h1>
+            <a href='{HTML_ROOT}'>
+                <img src='{HTML_ROOT}/logo.svg'>
+            </a>
+            </header>
+            <nav>
+            {sidebar}
+            </nav>
+        </aside>
+
+        <main>
+            <h1>{title}</h1>
+            <div>
+            <ul style='margin-left:20px;'>
+            {content}
+            </ul>
+            </div>
+        </main>
+
+        </div>
+        </body>
+        </html>"
+    )
 }

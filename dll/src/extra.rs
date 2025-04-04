@@ -10,6 +10,9 @@ pub fn coloru_from_str(s: &str) -> ColorU {
 // extra functions that can't be implemented in azul_core
 #[cfg(not(feature = "xml"))]
 pub fn styled_dom_from_file(_: &str) -> StyledDom {
+    use azul_core::dom::Dom;
+    use azul_css::parser::CssApiWrapper;
+
     Dom::body()
         .with_children(
             vec![Dom::text(format!(
@@ -17,7 +20,7 @@ pub fn styled_dom_from_file(_: &str) -> StyledDom {
             ))]
             .into(),
         )
-        .style(&mut Css::empty())
+        .style(CssApiWrapper::empty())
 }
 
 #[cfg(feature = "xml")]
@@ -28,6 +31,9 @@ pub fn styled_dom_from_file(path: &str) -> StyledDom {
 
 #[cfg(not(feature = "xml"))]
 pub fn styled_dom_from_str(_: &str) -> StyledDom {
+    use azul_core::dom::Dom;
+    use azul_css::parser::CssApiWrapper;
+
     Dom::body()
         .with_children(
             vec![Dom::text(format!(
@@ -35,7 +41,7 @@ pub fn styled_dom_from_str(_: &str) -> StyledDom {
             ))]
             .into(),
         )
-        .style(&mut Css::empty())
+        .style(CssApiWrapper::empty())
 }
 
 #[cfg(feature = "xml")]

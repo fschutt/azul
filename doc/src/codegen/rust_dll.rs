@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use indexmap::IndexMap;
 
 use crate::{
-    api::ApiData,
+    api::{ApiData, VersionData},
     utils::{
         analyze::{
             analyze_type, class_is_small_enum, class_is_small_struct, class_is_stack_allocated,
@@ -45,7 +45,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
     let mut rust_functions_map = IndexMap::new();
 
     // Process all modules and classes
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             code.push_str("\r\n");
 
@@ -189,7 +189,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                             if is_primitive_arg(&type_name) {
                                 returns = return_type.clone();
                             } else if let Some((_, return_class)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 returns = format!("{}{}{}{}", prefix, PREFIX, return_class, suffix);
                             }
@@ -201,7 +201,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                             class_name,
                             &class_ptr_name,
                             false,
-                            api_data,
+                            version_data,
                         );
 
                         // Store function signature in map
@@ -238,8 +238,13 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                         }
 
                         // Generate function arguments
-                        let fn_args =
-                            fn_args_c_api(function, class_name, &class_ptr_name, true, api_data);
+                        let fn_args = fn_args_c_api(
+                            function,
+                            class_name,
+                            &class_ptr_name,
+                            true,
+                            version_data,
+                        );
 
                         // Determine return type
                         let mut returns = String::new();
@@ -250,7 +255,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                             if is_primitive_arg(&type_name) {
                                 returns = return_type.clone();
                             } else if let Some((_, return_class)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 returns = format!("{}{}{}{}", prefix, PREFIX, return_class, suffix);
                             }
@@ -283,7 +288,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                     // No destructor needed for copyable types
                 } else if class_has_custom_destructor
                     || treat_external_as_ptr
-                    || has_recursive_destructor(api_data, class_data)
+                    || has_recursive_destructor(version_data, class_data)
                 {
                     // Generate destructor
                     code.push_str(&format!(
@@ -393,7 +398,7 @@ fn fn_args_c_api(
     class_name: &str,
     class_ptr_name: &str,
     self_as_first_arg: bool,
-    api_data: &ApiData,
+    version_data: &VersionData,
 ) -> String {
     let mut fn_args = String::new();
 
@@ -445,7 +450,7 @@ fn fn_args_c_api(
                     arg_name, prefix, type_name, suffix
                 ));
             } else if let Some((_, class_name)) =
-                search_for_class_by_class_name(api_data, &type_name)
+                search_for_class_by_class_name(version_data, &type_name)
             {
                 fn_args.push_str(&format!(
                     "{}: {}{}{}{}, ",

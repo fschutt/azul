@@ -2,17 +2,7 @@
 <html lang="en">
 <head>
   <title>Azul GUI Framework</title>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta name="description" content="Cross-platform Desktop GUI framework for C, C++, Python and Rust, using the Mozilla WebRender rendering engine, licensed MPL-2.0">
-  <meta name="keywords" content="gui, rust, user interface">
-
-  <link rel="preload" as="font" crossorigin='anonymous' href="./fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
-  <link rel="preload" as="font" crossorigin='anonymous' href="./fonts/Morris Jenson Initialen.ttf" type="font/ttf">
-
-  <link rel="shortcut icon" type="image/x-icon" href="./favicon.ico">
-  <link rel="stylesheet" type="text/css" href="./main.css">
+  <!-- HEAD -->
   <!-- index.css -->
   <style>
     section.feature {
@@ -48,7 +38,7 @@
       margin-bottom: 40px;
       font-size: 40px;
       font-weight: 100;
-      line-height: 1;
+      line-height: 0.9;
       font-family: "EB Garamond SemiBold", serif;
     }
     main header h2 .first-letter {
@@ -180,31 +170,80 @@
       <h1 style="display:none;">Azul GUI Framework</h1>
       <img src="./logo.svg">
     </header>
-    <nav>
-      <ul>
-        <li class="active"><a href="$$ROOT_RELATIVE$$">overview</a></li>
-        <li><a href="$$ROOT_RELATIVE$$/releases">releases</a></li>
-        <li><a href="https://github.com/fschutt/azul">code</a></li>
-        <li><a href="https://matrix.to/#/#azul-gui:matrix.org">chat</a></li>
-        <li><a href="$$ROOT_RELATIVE$$/guide">guide</a></li>
-        <li><a href="$$ROOT_RELATIVE$$/api">api</a></li>
-      </ul>
-    </nav>
+
+    <!-- SIDEBAR -->
+
   </aside>
   <main>
     <header>
+      <div>
       <h2><span class="first-letter">B</span>uilt for beauty<br/>and speed</h2>
-      <h3>Cross-platform Desktop GUI framework for C, C++, Python and Rust,
-      using the Mozilla WebRender rendering engine, licensed MPL-2.0</h3>
+      <h3>Cross-platform MIT-licensed Desktop GUI framework for C, C++, Python and Rust,
+      using the Mozilla WebRender rendering engine</h3>
+      </div>
+      <div id="latestrelease">
+        <p>Latest release: $$LATEST_VERSION$$ ($$LATEST_DATE$$)</p>
+        <a href="https://azul.rs/release/$$LATEST_VERSION$$">release notes</a>
+        <a href="https://azul.rs/api/$$LATEST_VERSION$$">api docs</a>
+        <a href="https://azul.rs/guide/$$LATEST_VERSION$$">user guide</a>
+      </div>
     </header>
     $$INDEX_SECTION_EXAMPLES$$
   </main>
   </div>
+  <script type="text/javascript">
+    // https://stackoverflow.com/a/38241481/5317180
+    function getOS() {
+      const userAgent = window.navigator.userAgent,
+          platform = window.navigator?.userAgentData?.platform || window.navigator.platform,
+          macosPlatforms = ['macOS', 'Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'],
+          windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'],
+          iosPlatforms = ['iPhone', 'iPad', 'iPod'];
+      let os = null;
+
+      if (macosPlatforms.indexOf(platform) !== -1) {
+        os = 'mac';
+      } else if (iosPlatforms.indexOf(platform) !== -1) {
+        os = 'ios';
+      } else if (windowsPlatforms.indexOf(platform) !== -1) {
+        os = 'windows';
+      } else if (/Android/.test(userAgent)) {
+        os = 'android';
+      } else if (/Linux/.test(platform)) {
+        os = 'linux';
+      }
+
+      return os;
+    }
+
+    function activateImages() {
+      var classes = document.getElementsByClassName("showcase");
+      for (let i = 0; i < classes.length; i++) {
+        var e = classes[i];
+        e.style.display = 'none';
+      }
+      var windowsImages = document.querySelectorAll(".showcase.windows");
+      var linuxImages = document.querySelectorAll(".showcase.linux");
+      var macImages = document.querySelectorAll(".showcase.mac");
+      var selectedImages = windowsImages;
+      var os = getOS();
+      if (os === 'mac' || os === 'ios') {
+        selectedImages = macImages;
+      } else if (os === 'linux' || os == 'android') {
+        selectedImages = linuxImages;
+      }
+      for (let i = 0; i < selectedImages.length; i++) {
+        var e = selectedImages[i];
+        e.style.display = 'initial';
+      }
+    }
+    document.addEventListener("DOMContentLoaded", function(event) {
+      activateImages();
+    });
+  </script>
   <!-- <script async type="text/javascript" src="./prism_code_highlighter.js"></script> -->
   <script type="text/javascript" async>
-    var examples = [
-      $$JAVASCRIPT_EXAMPLES$$
-    ];
+    var examples = $$JAVASCRIPT_EXAMPLES$$;
 
     function render_example(id, new_lang) {
       var language_buttons = document.getElementsByClassName("select-language-btn-" + id);
@@ -213,16 +252,16 @@
       }
 
       if (new_lang === "c") {
-        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:c"];
+        document.getElementById("code-" + id).innerHTML = examples[id]["code:c"];
         document.getElementById("select-language-c-" + id).classList.add("active");
       } else if (new_lang === "cpp") {
-        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:cpp"];
+        document.getElementById("code-" + id).innerHTML = examples[id]["code:cpp"];
         document.getElementById("select-language-cpp-" + id).classList.add("active");
       } else if (new_lang === "rust") {
-        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:rust"];
+        document.getElementById("code-" + id).innerHTML = examples[id]["code:rust"];
         document.getElementById("select-language-rust-" + id).classList.add("active");
       } else {
-        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:python"];
+        document.getElementById("code-" + id).innerHTML = examples[id]["code:python"];
         document.getElementById("select-language-python-" + id).classList.add("active");
       }
     }

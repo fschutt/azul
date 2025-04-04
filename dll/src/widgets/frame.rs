@@ -1,11 +1,8 @@
 use azul_css::*;
 
-use crate::desktop::{
-    css::AzString,
-    dom::{
-        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssPropertyVec,
-    },
+use crate::desktop::dom::{
+    Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+    NodeDataInlineCssPropertyVec,
 };
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");

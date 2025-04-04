@@ -1110,11 +1110,9 @@ impl XmlComponentTrait for TextRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        Ok(
-            Dom::new(NodeType::P).with_children(vec![
-                Dom::text(content)
-            ].into()).style(CssApiWrapper::empty())
-        )
+        Ok(Dom::new(NodeType::P)
+            .with_children(vec![Dom::text(content)].into())
+            .style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1123,7 +1121,9 @@ impl XmlComponentTrait for TextRenderer {
         args: &ComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::new(NodeType::P).with_children(vec![Dom::text(content)].into())"))
+        Ok(String::from(
+            "Dom::new(NodeType::P).with_children(vec![Dom::text(content)].into())",
+        ))
     }
 
     fn get_xml_node(&self) -> XmlNode {

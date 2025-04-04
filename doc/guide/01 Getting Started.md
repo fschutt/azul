@@ -1,8 +1,9 @@
-<h2>A simple window</h2>
+## A simple window
 
-  <p>The code to create a simple application with an empty window looks like this:</p>
+The code to create a simple application with an empty window looks like this:
 
-<code class="expand">#include "azul.h"
+```c
+#include "azul.h"
 
 typedef { } struct MyModel;
 void MyModel_destructor(MyModel* instance) { }
@@ -17,11 +18,13 @@ int main() {
     AzApp app = AzApp_new(initial_data, AzAppConfig_default());
     AzApp_run(app, AzWindowCreateOptions_new(layoutFunc));
     return 0;
-}</code>
+}
+```
 
-<p>or in Python, where up-and downcasting isn't necessary:</p>
+or in Python, where up-and downcasting isn't necessary:
 
-<code class="expand">from azul import *
+```python
+from azul import *
 
 class MyModel:
     def __init__():
@@ -32,38 +35,28 @@ def layoutFunc(data, info):
 
 inital_data = MyModel()
 app = App(initial_data, AppConfig.default())
-app.run(WindowCreateOptions(layoutFunc))</code>
+app.run(WindowCreateOptions(layoutFunc))
+```
 
-<br/>
+![Simple window](https://i.imgur.com/eY3ra97.png)
 
-<img src="https://i.imgur.com/eY3ra97.png"/ style="width:100%">
+Even at this stage, Azul forces your application structure to conform to a certain style:
 
-<p>Even at this stage, Azul forces your application structure to conform to a certain style:</p>
+- One application data model (`MyModel`)
+- A function callback that takes an renders a `MyModel` into a `StyledDom`
+- Setup code to intialize the `MyModel` and run the app
 
-<br/>
-<ul>
-    <li><p>&nbsp;&nbsp;One application data model (<code>MyModel</code>)</p></li>
-    <li><p>&nbsp;&nbsp;A function callback that takes an renders a <code>MyModel</code> into a <code>StyledDom</code></p></li>
-    <li><p>&nbsp;&nbsp;Setup code to intialize the <code>MyModel</code> and run the app</code></p></li>
-</ul>
+Internally, Azul runs a loop processing the input events and calls the 
+`layoutFunc` provided to the framework in the `WindowCreateOptions` once 
+on startup, then it caches the resulting `StyledDom`.
 
-<p>
-    Internally, Azul runs a loop processing the input events
-    and calls the <code>layoutFunc</code> provided to the framework
-    in the <code>WindowCreateOptions</code> once on startup, then
-    it caches the resulting <code>StyledDom</code>.
-</p>
+## Adding callbacks
 
-<br/>
+While an empty window is nice to look at, it's not a user
+interface if the application is not interactive. So let's add a callback:
 
-<h2>Adding callbacks</h2>
-
-<p>
-    While an empty window is nice to look at, it's not a user
-    interface if the application is not interactive. So let's add a callback:
-</p>
-
-<code class="expand">def layoutFunc(data, info):
+```python
+def layoutFunc(data, info):
     event = EventFilter.Hover(HoverEventFilter.MouseUp)
     dom = Dom.body()
     dom.add_callback(event, data, myCallback)
@@ -71,48 +64,49 @@ app.run(WindowCreateOptions(layoutFunc))</code>
 
 def myCallback(data, callbackinfo):
     print("hello", flush=True)
-    return Update.DoNothing</code>
+    return Update.DoNothing
+```
 
-<p>Now the console will print "hello" if you click anywhere on the window. By
-default, the <code>body</code> node type is expanded to its maximum size
-(so it covers the entire window).</p>
+Now the console will print "hello" if you click anywhere on the window. 
+By default, the `body` node type is expanded to its maximum size
+(so it covers the entire window).
 
-<p>In this case the callback returns <code>Update.DoNothing</code>, which
-to azul signifies that nothing in the UI has changed and calling the
-<code>layoutFunc</code> again is unnecessary.
-    If any callbacks change the UI, they need to return
-    <code>Update.RefreshDom</code>, which will trigger Azul to call
-    <code>layoutFunc</code> again. Since <code>Update.RefreshDom</code> is
-    invoked infrequently, the <code>layoutFunc</code> only gets called a few
-    times per second at most: fast enough to be considered "reactive",
-    but not fast enough to stress the users CPU.
-</p>
+In this case the callback returns `Update.DoNothing`</code>`, which
+to Azul signifies that nothing in the UI has changed and calling the
+`layoutFunc` again is unnecessary.
 
-<p>
-    It is important to note that the callbacks have no
-    direct access to the UI objects or the UI hierarchy.
-    All changes that modify the DOM hierarchy must be done
-    via the data model (there are some exceptions for
-    style-only changes, animations and changes to the
-    text content of a node).
-</p>
+If any callbacks change the UI, they need to return
+`Update.RefreshDom`, which will trigger Azul to call
+`layoutFunc` again. Since `Update.RefreshDom`</code>` is
+invoked infrequently, the `layoutFunc`</code>` only gets called a few
+times per second at most: fast enough to be considered "reactive",
+but not fast enough to stress the users CPU.
 
-<img src="https://i.imgur.com/cTTULrP.png"/ style="width:100%">
+It is important to note that the callbacks have no
+direct access to the UI objects or the UI hierarchy.
+All changes that modify the DOM hierarchy must be done
+via the data model (there are some exceptions for
+style-only changes, animations and changes to the
+text content of a node).
 
-<h2>The data model</h2>
+![Azul Application model](https://i.imgur.com/cTTULrP.png)
 
-<code class="expand">class DataModel:
+## The data model
+
+```python
+class DataModel:
     def __init__():
-        pass</code>
+        pass
+```
 
-<p>
+
 This is where you store application-relevant data: database connections,
 email content, passwords, user names, you name it. The model is custom to the
 application that you are building and in the end it will probably look like
 this:
-</p>
 
-<code class="expand">class MyDataModel:
+```python
+class MyDataModel:
     def __init__():
         self.users = [
             User("Anne", "Shirley", photo=None),
@@ -120,15 +114,16 @@ this:
         ]
         self.app_config = AppConfig()
         self.database_connection = None
-        // ... etc.</code>
-<p>
+        // ... etc.
+```
+
 Azul itself never accesses this struct. It only needs it to hand it to the user-defined
 callbacks. It wraps the data model in an <code>RefAny</code> struct which is then
 "cloned" onto the callback (so that the callback has mutable access to the application
 data via the <code>data</code> field in the callback). "Cloning" a <code>RefAny</code>
 performs a shallow clone: The data is reference-counted, the actual data only exists once.
 But be careful: Modifying the data will change it for all callbacks that have a reference
-to the data.</p>
+to the data.
 
 <br/>
 <h2>Layout</h2>

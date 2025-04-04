@@ -23,3 +23,4 @@ cargo_metadata = "0.18.1"
 zip = "2.5.0"
 open = "5.3.2"
 tempfile = "3.19.1"
+comrak = { version = "0.37.0", features = ["syntect"] }

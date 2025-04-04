@@ -30,12 +30,9 @@ rust-fontconfig         = { version = "1.0.0", default-features = false, feature
 strfmt                  = { version = "0.1.6", default-features = false, optional = true }
 libm                    = { version = "0.2.2", default-features = false, optional = true }
 gl-context-loader       = { version ="0.1.8", default-features = false, optional = true }
-webrender               = { version = "0.62.2", package = "azul-webrender", default-features = false, features = ["freetype-lib"], optional = true }
+webrender               = { version = "0.62.2", package = "azul-webrender", default-features = false, optional = true } # todo
 once_cell = { version = "1.17.1", optional = true }
-dispatch2 = { version = "0.2.0", optional = true }
 bitflags = { version = "2.8.0", optional = true }
-block2 = { version = "0.6.0", optional = true }
-
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", default-features = false, features = [
@@ -56,6 +53,7 @@ dispatch2 = { version = "0.2.0", default-features = false, features = [
     "objc2",
 ] }
 objc2 = "0.6.0"
+block2 = "0.6.0"
 objc2-core-foundation = { version = "0.3.0", default-features = true, features = [
     "std",
     "CFBase",
@@ -90,7 +88,7 @@ use_fern_logger = ["logging"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "jpeg", "png", "tiff", "bmp"]
-desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "dispatch2", "bitflags", "block2"]
+desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
 png = ["azul-layout", "azul-layout/png"]
@@ -112,8 +110,8 @@ link-static = ["rlib"]
 link-dynamic = ["cdylib", "staticlib"]
 
 # Predefined target configurations
-desktop-cdylib = ["desktop", "cdylib", "use_fern_logger"]
-desktop-staticlib = ["desktop", "staticlib", "use_fern_logger"]
+desktop-cdylib = ["desktop", "cdylib", "all_img_formats", "svg", "xml"]
+desktop-staticlib = ["desktop", "staticlib", "all_img_formats", "svg", "xml"]
 rust-static = ["desktop", "rlib", "use_fern_logger"]
 python-extension = ["desktop", "cdylib", "pyo3", "use_pyo3_logger"]
 

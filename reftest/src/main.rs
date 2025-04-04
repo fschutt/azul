@@ -401,7 +401,12 @@ fn generate_azul_rendering(
     )?;
 
     // Record rendering time
-    debug_collector.set_render_info(xml_formatting_time, layout_time_ms, render_time_ms, warnings);
+    debug_collector.set_render_info(
+        xml_formatting_time,
+        layout_time_ms,
+        render_time_ms,
+        warnings,
+    );
 
     // Save debug data to JSON
     let debug_data = debug_collector.get_data();
@@ -417,7 +422,6 @@ fn styled_dom_to_png_with_debug(
     dpi_factor: f32,
     debug_collector: &mut DebugDataCollector,
 ) -> Result<(Vec<String>, u64, u64), Box<dyn Error>> {
-
     let start_time_layout = std::time::Instant::now();
 
     // Create document ID and epoch for layout
@@ -2079,7 +2083,13 @@ impl DebugDataCollector {
     }
 
     /// Add rendering information
-    pub fn set_render_info(&mut self, xml_formatting_time_ms: u64, layout_time_ms: u64, render_time_ms: u64, warnings: Vec<String>) {
+    pub fn set_render_info(
+        &mut self,
+        xml_formatting_time_ms: u64,
+        layout_time_ms: u64,
+        render_time_ms: u64,
+        warnings: Vec<String>,
+    ) {
         self.data.xml_formatting_time_ms = xml_formatting_time_ms;
         self.data.layout_time_ms = layout_time_ms;
         self.data.render_time_ms = render_time_ms;

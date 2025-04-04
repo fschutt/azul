@@ -40,13 +40,21 @@
 * {
     padding: 0px;
     margin: 0px;
-    font-family: "EB Garamond", "Source Serif Pro", serif;
+}
+
+ul, ol {
+  margin-left: 20px;
 }
 
 html {
     overflow-x: hidden;
     min-height: 100%;
     width: 100%;
+}
+
+#guide a, #guide a:visited, #guide a:focus, #guide a:hover,
+#latestrelease a, #latestrelease a:visited, #latestrelease a:hover, #latestrelease a:focus {
+  color: #0446bf;
 }
 
 body {
@@ -57,6 +65,7 @@ body {
     background: linear-gradient(135deg, #004e92 0%,#000428 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#004e92', endColorstr='#000428',GradientType=1 ); /* IE6-9 fallback on horizontal gradient */
     min-height: 100%;
+    font-family: "EB Garamond", "Source Serif Pro", serif;
 }
 
 body .center {
@@ -67,6 +76,11 @@ body .center {
 }
 
 aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex-grow: 1;
+  align-items: center;
   max-width: 200px;
   padding: 50px;
   float: left;
@@ -75,8 +89,35 @@ aside {
   top: 0;
 }
 
+body .center main header {
+  display: flex;
+  flex-direction: row;
+}
+
+#latestrelease {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  background: aliceblue;
+  font-size: 1.2em;
+  margin: 20px;
+  margin-left: 60px;
+  border-radius: 10px;
+  font-weight: bold;
+  line-height: 1.5;
+}
+
+img.showcase {
+  display: none;
+}
+
+img.showcase.windows {
+  display: initial;
+}
+
 @media screen and (max-width: 720px) {
-  aside { position: static; }
+  aside { position: static; flex-direction: row; }
   body main { padding: 37.5px; clear: both; }
   body .center aside { min-height: 150px; min-width: 100%; padding: 25px; }
   body .center aside header { display: inline-block; width: 75px; height: 75px; padding: 12.5px; }
@@ -85,6 +126,8 @@ aside {
   body .center aside nav ul li { display: inline-block; width: 50px; font-size: 1em; }
   body .center aside nav ul li:nth-child(odd) { float: right; }
   body .center aside nav ul li ul { display: none; }
+  body .center main header { flex-direction: column; }
+  #latestrelease { margin: 0px; margin-top: 20px; margin-bottom: 20px; }
 }
 
 aside header {
@@ -95,7 +138,7 @@ aside header {
 aside nav {
   padding: 10px;
   max-width: 230px;
-  margin-top: 50px;
+  margin-top: 10px;
 }
 
 aside nav ul {
@@ -136,11 +179,10 @@ aside nav ul li ul {
 main {
   background: white;
   overflow:hidden;
-  min-height: 100%;
+  min-height: 100vh;
   box-shadow: 0px 0px 100px 0px rgba(0, 0, 0, 0.5);
   padding: 50px;
   box-sizing: border-box;
-  min-height: 100%;
 }
 
 @media print {
@@ -187,7 +229,8 @@ code {
     background: #f5f2f0;
     padding: 0px;
     text-shadow: 0 1px white;
-    font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+    font-family: monospace;
+    font-weight: bolder;
     font-size: 10pt;
     text-align: left;
     vertical-align: middle;

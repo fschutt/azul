@@ -230,7 +230,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     }
 
     // Generate Python methods
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             let class_name_with_prefix = format!("{}{}", PREFIX, class_name);
 
@@ -395,7 +395,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
                                         variant_name, variant_type, wrapper_name
                                     ));
                                 } else if let Some((_, type_class_name)) =
-                                    search_for_class_by_class_name(api_data, &base_type)
+                                    search_for_class_by_class_name(version_data, &base_type)
                                 {
                                     code.push_str(&format!(
                                         "    fn {}(v: {}{}) -> {} {{\r\n",
@@ -470,10 +470,10 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
                                     if is_primitive_arg(&base_type) {
                                         "v"
                                     } else if let Some((_, type_class_name)) =
-                                        search_for_class_by_class_name(api_data, &base_type)
+                                        search_for_class_by_class_name(version_data, &base_type)
                                     {
                                         if let Some(found_class) =
-                                            get_class(api_data, &type_class_name, &base_type)
+                                            get_class(version_data, &type_class_name, &base_type)
                                         {
                                             if found_class.callback_typedef.is_some() {
                                                 "()" // Function pointer
@@ -629,7 +629,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("\r\n");
 
     // Add all classes to the module
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             let class_name_with_prefix = format!("{}{}", PREFIX, class_name);
 
@@ -670,7 +670,7 @@ fn collect_structs_and_enums<'a>(
     let version_data = api_data.get_version(latest_version).unwrap();
 
     // Collect all classes from all modules
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             let class_name_with_prefix = format!("{}{}", PREFIX, class_name);
 

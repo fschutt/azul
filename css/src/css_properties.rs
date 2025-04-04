@@ -5697,11 +5697,11 @@ pub enum LayoutDisplay {
     Block,
     Inline,
     InlineBlock,
-    
+
     // Flex layout
     Flex,
     InlineFlex,
-    
+
     // Table layout
     Table,
     InlineTable,
@@ -5713,18 +5713,18 @@ pub enum LayoutDisplay {
     TableColumn,
     TableCell,
     TableCaption,
-    
+
     // List layout
     ListItem,
-    
+
     // Special displays
     RunIn,
     Marker,
-    
+
     // CSS3 additions
     Grid,
     InlineGrid,
-    
+
     // Initial/Inherit values
     Initial,
     Inherit,
@@ -5735,33 +5735,33 @@ impl LayoutDisplay {
     pub fn creates_block_context(&self) -> bool {
         matches!(
             self,
-            LayoutDisplay::Block | 
-            LayoutDisplay::Flex | 
-            LayoutDisplay::Grid | 
-            LayoutDisplay::Table |
-            LayoutDisplay::ListItem
+            LayoutDisplay::Block
+                | LayoutDisplay::Flex
+                | LayoutDisplay::Grid
+                | LayoutDisplay::Table
+                | LayoutDisplay::ListItem
         )
     }
-    
+
     /// Returns whether this display type creates a flex formatting context
     pub fn creates_flex_context(&self) -> bool {
         matches!(self, LayoutDisplay::Flex | LayoutDisplay::InlineFlex)
     }
-    
+
     /// Returns whether this display type creates a table formatting context
     pub fn creates_table_context(&self) -> bool {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
     }
-    
+
     /// Returns whether this is an inline-level display type
     pub fn is_inline_level(&self) -> bool {
         matches!(
             self,
-            LayoutDisplay::Inline | 
-            LayoutDisplay::InlineBlock | 
-            LayoutDisplay::InlineFlex |
-            LayoutDisplay::InlineTable |
-            LayoutDisplay::InlineGrid
+            LayoutDisplay::Inline
+                | LayoutDisplay::InlineBlock
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::InlineTable
+                | LayoutDisplay::InlineGrid
         )
     }
 }

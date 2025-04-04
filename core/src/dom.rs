@@ -13,10 +13,15 @@ use azul_css::{AzString, Css, CssProperty, FontRef, LayoutDisplay, NodeTypeTag, 
 
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
 use crate::{
-    app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources}, callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny}, id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut}, styled_dom::{
+    app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
+    callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny},
+    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
+    styled_dom::{
         CssPropertyCache, CssPropertyCachePtr, NodeHierarchyItemId, StyleFontFamilyHash, StyledDom,
         StyledNode, StyledNodeState,
-    }, ui_solver::FormattingContext, window::{Menu, OptionVirtualKeyCodeCombo}
+    },
+    ui_solver::FormattingContext,
+    window::{Menu, OptionVirtualKeyCodeCombo},
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -98,7 +103,12 @@ pub enum NodeType {
     /// Paragraph
     P,
     /// Headings
-    H1, H2, H3, H4, H5, H6,
+    H1,
+    H2,
+    H3,
+    H4,
+    H5,
+    H6,
     /// Line break
     Br,
     /// Horizontal rule
@@ -109,7 +119,7 @@ pub enum NodeType {
     BlockQuote,
     /// Address
     Address,
-    
+
     // List elements
     /// Unordered list
     Ul,
@@ -123,7 +133,7 @@ pub enum NodeType {
     Dt,
     /// Definition description
     Dd,
-    
+
     // Table elements
     /// Table container
     Table,
@@ -145,7 +155,7 @@ pub enum NodeType {
     ColGroup,
     /// Table column
     Col,
-    
+
     // Form elements
     /// Form container
     Form,
@@ -167,7 +177,7 @@ pub enum NodeType {
     SelectOption,
     /// Multiline text input
     TextArea,
-    
+
     // Inline elements
     /// Generic inline container
     Span,
@@ -205,7 +215,7 @@ pub enum NodeType {
     Small,
     /// Big text
     Big,
-    
+
     // Pseudo-elements (transformed into real elements)
     /// ::before pseudo-element
     Before,
@@ -228,54 +238,90 @@ pub enum NodeType {
 impl NodeType {
     /// Determines the default display value for a node type according to HTML standards
     pub fn get_default_display(&self) -> LayoutDisplay {
-    match self {
-        // Block-level elements
-        NodeType::Body | NodeType::Div | NodeType::P | 
-        NodeType::H1 | NodeType::H2 | NodeType::H3 | NodeType::H4 | NodeType::H5 | NodeType::H6 |
-        NodeType::Pre | NodeType::BlockQuote | NodeType::Address | NodeType::Hr |
-        NodeType::Ul | NodeType::Ol | NodeType::Li | NodeType::Dl | NodeType::Dt | NodeType::Dd |
-        NodeType::Form | NodeType::FieldSet | NodeType::Legend => LayoutDisplay::Block,
-        
-        // Table elements
-        NodeType::Table => LayoutDisplay::Table,
-        NodeType::Caption => LayoutDisplay::TableCaption,
-        NodeType::THead | NodeType::TBody | NodeType::TFoot => LayoutDisplay::TableRowGroup,
-        NodeType::Tr => LayoutDisplay::TableRow,
-        NodeType::Th | NodeType::Td => LayoutDisplay::TableCell,
-        NodeType::ColGroup => LayoutDisplay::TableColumnGroup,
-        NodeType::Col => LayoutDisplay::TableColumn,
-        
-        // Inline elements
-        NodeType::Text(_) | NodeType::Br | NodeType::Image(_) |
-        NodeType::Span | NodeType::A | NodeType::Em | NodeType::Strong | 
-        NodeType::B | NodeType::I | NodeType::Code | NodeType::Samp | NodeType::Kbd |
-        NodeType::Var | NodeType::Cite | NodeType::Abbr | NodeType::Acronym | NodeType::Q | 
-        NodeType::Sub | NodeType::Sup | NodeType::Small | NodeType::Big |
-        NodeType::Label | NodeType::Input | NodeType::Button | NodeType::Select | 
-        NodeType::OptGroup | NodeType::SelectOption | NodeType::TextArea => LayoutDisplay::Inline,
-        
-        // Special cases
-        NodeType::IFrame(_) => LayoutDisplay::Block,
-        
-        // Pseudo-elements
-        NodeType::Before | NodeType::After => LayoutDisplay::Inline,
-        NodeType::Marker => LayoutDisplay::Marker,
-        NodeType::Placeholder => LayoutDisplay::Inline,
-    }
+        match self {
+            // Block-level elements
+            NodeType::Body
+            | NodeType::Div
+            | NodeType::P
+            | NodeType::H1
+            | NodeType::H2
+            | NodeType::H3
+            | NodeType::H4
+            | NodeType::H5
+            | NodeType::H6
+            | NodeType::Pre
+            | NodeType::BlockQuote
+            | NodeType::Address
+            | NodeType::Hr
+            | NodeType::Ul
+            | NodeType::Ol
+            | NodeType::Li
+            | NodeType::Dl
+            | NodeType::Dt
+            | NodeType::Dd
+            | NodeType::Form
+            | NodeType::FieldSet
+            | NodeType::Legend => LayoutDisplay::Block,
+
+            // Table elements
+            NodeType::Table => LayoutDisplay::Table,
+            NodeType::Caption => LayoutDisplay::TableCaption,
+            NodeType::THead | NodeType::TBody | NodeType::TFoot => LayoutDisplay::TableRowGroup,
+            NodeType::Tr => LayoutDisplay::TableRow,
+            NodeType::Th | NodeType::Td => LayoutDisplay::TableCell,
+            NodeType::ColGroup => LayoutDisplay::TableColumnGroup,
+            NodeType::Col => LayoutDisplay::TableColumn,
+
+            // Inline elements
+            NodeType::Text(_)
+            | NodeType::Br
+            | NodeType::Image(_)
+            | NodeType::Span
+            | NodeType::A
+            | NodeType::Em
+            | NodeType::Strong
+            | NodeType::B
+            | NodeType::I
+            | NodeType::Code
+            | NodeType::Samp
+            | NodeType::Kbd
+            | NodeType::Var
+            | NodeType::Cite
+            | NodeType::Abbr
+            | NodeType::Acronym
+            | NodeType::Q
+            | NodeType::Sub
+            | NodeType::Sup
+            | NodeType::Small
+            | NodeType::Big
+            | NodeType::Label
+            | NodeType::Input
+            | NodeType::Button
+            | NodeType::Select
+            | NodeType::OptGroup
+            | NodeType::SelectOption
+            | NodeType::TextArea => LayoutDisplay::Inline,
+
+            // Special cases
+            NodeType::IFrame(_) => LayoutDisplay::Block,
+
+            // Pseudo-elements
+            NodeType::Before | NodeType::After => LayoutDisplay::Inline,
+            NodeType::Marker => LayoutDisplay::Marker,
+            NodeType::Placeholder => LayoutDisplay::Inline,
+        }
     }
     /// Returns the formatting context that this node type establishes by default.
     pub fn default_formatting_context(&self) -> FormattingContext {
         use self::NodeType::*;
-        
+
         match self {
             // Regular block elements
-            Body | Div | P | H1 | H2 | H3 | H4 | H5 | H6 | 
-            Pre | BlockQuote | Address | Hr |
-            Ul | Ol | Li | Dl | Dt | Dd |
-            Form | FieldSet | Legend => FormattingContext::Block { 
-                establishes_new_context: false 
+            Body | Div | P | H1 | H2 | H3 | H4 | H5 | H6 | Pre | BlockQuote | Address | Hr | Ul
+            | Ol | Li | Dl | Dt | Dd | Form | FieldSet | Legend => FormattingContext::Block {
+                establishes_new_context: false,
             },
-            
+
             // Table elements with specific formatting contexts
             Table => FormattingContext::Table,
             Caption => FormattingContext::TableCaption,
@@ -284,19 +330,18 @@ impl NodeType {
             Th | Td => FormattingContext::TableCell,
             ColGroup => FormattingContext::TableColumnGroup,
             Col => FormattingContext::TableColumnGroup,
-            
+
             // Inline elements
-            Span | A | Em | Strong | B | I | Code | Samp | Kbd |
-            Var | Cite | Abbr | Acronym | Q | Sub | Sup |
-            Small | Big | Label | Input | Button | Select | 
-            OptGroup | SelectOption | TextArea | Text(_) | Br => FormattingContext::Inline,
-            
+            Span | A | Em | Strong | B | I | Code | Samp | Kbd | Var | Cite | Abbr | Acronym
+            | Q | Sub | Sup | Small | Big | Label | Input | Button | Select | OptGroup
+            | SelectOption | TextArea | Text(_) | Br => FormattingContext::Inline,
+
             // Special elements
             Image(_) => FormattingContext::Inline,
-            IFrame(_) => FormattingContext::Block { 
-                establishes_new_context: true 
+            IFrame(_) => FormattingContext::Block {
+                establishes_new_context: true,
             },
-            
+
             // Pseudo-elements
             Before | After | Marker | Placeholder => FormattingContext::Inline,
         }
@@ -308,11 +353,11 @@ impl NodeType {
             Body => Body,
             Div => Div,
             P => P,
-            H1=> H1,
-            H2 => H2, 
-            H3 => H3, 
-            H4 => H4, 
-            H5 => H5, 
+            H1 => H1,
+            H2 => H2,
+            H3 => H3,
+            H4 => H4,
+            H5 => H5,
             H6 => H6,
             Br => Br,
             Hr => Hr,
@@ -413,7 +458,7 @@ impl NodeType {
             Self::Table => NodeTypeTag::Table,
             Self::Caption => NodeTypeTag::Caption,
             Self::THead => NodeTypeTag::THead,
-            Self::TBody => NodeTypeTag::TBody, 
+            Self::TBody => NodeTypeTag::TBody,
             Self::TFoot => NodeTypeTag::TFoot,
             Self::Tr => NodeTypeTag::Tr,
             Self::Th => NodeTypeTag::Th,

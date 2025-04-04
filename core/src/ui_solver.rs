@@ -661,18 +661,18 @@ impl fmt::Debug for FormattingContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FormattingContext::Block {
-                        establishes_new_context,
-                    } => write!(
-                        f,
-                        "Block {{ establishes_new_context: {establishes_new_context:?} }}"
-                    ),
+                establishes_new_context,
+            } => write!(
+                f,
+                "Block {{ establishes_new_context: {establishes_new_context:?} }}"
+            ),
             FormattingContext::Inline => write!(f, "Inline"),
             FormattingContext::InlineBlock => write!(f, "InlineBlock"),
             FormattingContext::Flex => write!(f, "Flex"),
             FormattingContext::Float(layout_float) => write!(f, "Float({layout_float:?})"),
             FormattingContext::OutOfFlow(layout_position) => {
-                        write!(f, "OutOfFlow({layout_position:?})")
-                    }
+                write!(f, "OutOfFlow({layout_position:?})")
+            }
             FormattingContext::None => write!(f, "None"),
             FormattingContext::Table => write!(f, "Table"),
             FormattingContext::TableRowGroup => write!(f, "TableRowGroup"),

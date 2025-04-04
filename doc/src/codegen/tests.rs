@@ -31,7 +31,7 @@ pub fn generate_size_test(api_data: &ApiData) -> String {
     test_str.push_str("        use core::alloc::Layout;\r\n");
 
     // Loop through all classes in all modules
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             if let Some(external) = &class_data.external {
                 let struct_name = format!("Az{}", class_name);

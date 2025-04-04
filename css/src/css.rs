@@ -345,20 +345,25 @@ pub enum NodeTypeTag {
     Body,
     Div,
     P,
-    H1, H2, H3, H4, H5, H6,
+    H1,
+    H2,
+    H3,
+    H4,
+    H5,
+    H6,
     Br,
     Hr,
     Pre,
     BlockQuote,
     Address,
-    
+
     Ul,
     Ol,
     Li,
     Dl,
     Dt,
     Dd,
-    
+
     Table,
     Caption,
     THead,
@@ -369,7 +374,7 @@ pub enum NodeTypeTag {
     Td,
     ColGroup,
     Col,
-    
+
     Form,
     FieldSet,
     Legend,
@@ -380,7 +385,7 @@ pub enum NodeTypeTag {
     OptGroup,
     SelectOption,
     TextArea,
-    
+
     Span,
     A,
     Em,
@@ -399,11 +404,11 @@ pub enum NodeTypeTag {
     Sup,
     Small,
     Big,
-    
+
     Text,
     Img,
     IFrame,
-    
+
     // Pseudo-elements
     Before,
     After,
@@ -476,7 +481,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Pre => write!(f, "pre"),
             NodeTypeTag::BlockQuote => write!(f, "blockquote"),
             NodeTypeTag::Address => write!(f, "address"),
-            
+
             // List elements
             NodeTypeTag::Ul => write!(f, "ul"),
             NodeTypeTag::Ol => write!(f, "ol"),
@@ -484,7 +489,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Dl => write!(f, "dl"),
             NodeTypeTag::Dt => write!(f, "dt"),
             NodeTypeTag::Dd => write!(f, "dd"),
-            
+
             // Table elements
             NodeTypeTag::Table => write!(f, "table"),
             NodeTypeTag::Caption => write!(f, "caption"),
@@ -496,7 +501,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Td => write!(f, "td"),
             NodeTypeTag::ColGroup => write!(f, "colgroup"),
             NodeTypeTag::Col => write!(f, "col"),
-            
+
             // Form elements
             NodeTypeTag::Form => write!(f, "form"),
             NodeTypeTag::FieldSet => write!(f, "fieldset"),
@@ -508,7 +513,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::OptGroup => write!(f, "optgroup"),
             NodeTypeTag::SelectOption => write!(f, "option"),
             NodeTypeTag::TextArea => write!(f, "textarea"),
-            
+
             // Inline elements
             NodeTypeTag::Span => write!(f, "span"),
             NodeTypeTag::A => write!(f, "a"),
@@ -528,12 +533,12 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Sup => write!(f, "sup"),
             NodeTypeTag::Small => write!(f, "small"),
             NodeTypeTag::Big => write!(f, "big"),
-            
+
             // Content elements
             NodeTypeTag::Text => write!(f, "text"),
             NodeTypeTag::Img => write!(f, "img"),
             NodeTypeTag::IFrame => write!(f, "iframe"),
-            
+
             // Pseudo-elements
             NodeTypeTag::Before => write!(f, "::before"),
             NodeTypeTag::After => write!(f, "::after"),

@@ -373,7 +373,8 @@ pub fn layout_node_recursive(
 
             size
         }
-        _ => { // TODO: other formatting contexts, etc.
+        _ => {
+            // TODO: other formatting contexts, etc.
             // Elements with display:none contribute nothing to layout
             LogicalSize::zero()
         }

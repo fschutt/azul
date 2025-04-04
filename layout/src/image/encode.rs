@@ -198,6 +198,6 @@ pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError
 }
 
 #[cfg(not(feature = "jpeg"))]
-pub fn encode_jpeg(image: &RawImage) -> ResultU8VecEncodeImageError {
+pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
     ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
 }

@@ -2427,23 +2427,17 @@ const DEFAULT_BORDER_COLOR: ColorU = ColorU {
 // border-width: thin = 0.5px
 const THIN_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
-    number: FloatValue {
-        number: 500,
-    }
+    number: FloatValue { number: 500 },
 };
 // border-width: medium = 1.5px (default)
 const MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
-    number: FloatValue {
-        number: 1500,
-    }
+    number: FloatValue { number: 1500 },
 };
 // border-width: thick = 2.5px (default)
 const THICK_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
-    number: FloatValue {
-        number: 2500,
-    }
+    number: FloatValue { number: 2500 },
 };
 
 use core::str::CharIndices;

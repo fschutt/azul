@@ -9,7 +9,12 @@ use std::{
 use anyhow::{Context, Result};
 use zip::write::FileOptions;
 
-use crate::{api, codegen, docgen, license::License, utils};
+use crate::{
+    api::{self, ApiData},
+    codegen, docgen,
+    license::License,
+    utils,
+};
 
 pub struct Config {
     pub build_windows: bool,
@@ -38,7 +43,7 @@ pub fn generate_license_files(version: &str, output_dir: &Path) -> Result<()> {
 
     let targets = &[
         ("LICENSE-WINDOWS.txt", "x86_64-pc-windows-msvc"),
-        ("LICENSE-MAC.txt", "aarch64-apple-darwin"),
+        ("LICENSE-MACOS.txt", "aarch64-apple-darwin"),
         ("LICENSE-LINUX.txt", "x86_64-unknown-linux-gnu"),
     ];
 
@@ -66,7 +71,7 @@ pub fn generate_license_files(version: &str, output_dir: &Path) -> Result<()> {
                 authors: s
                     .authors
                     .unwrap_or_default()
-                    .split(",")
+                    .split("|")
                     .map(|s| s.to_string())
                     .collect(),
             })
@@ -110,7 +115,7 @@ pub fn create_examples(
     println!("  Creating example packages...");
 
     // Create a temporary directory for the examples
-    let source_zip_path = output_dir.join("sourcecode.zip");
+    let source_zip_path = output_dir.join("examples.zip");
     let source_zip_file = File::create(&source_zip_path)?;
 
     let mut source_zip = zip::ZipWriter::new(source_zip_file);
@@ -118,54 +123,54 @@ pub fn create_examples(
 
     // -- c
 
-    source_zip.start_file("hello-world.c", options)?;
+    source_zip.start_file("c/hello-world.c", options)?;
     source_zip.write_all(include_bytes!("./../../examples/c/hello-world.c"))?;
-    source_zip.start_file("calculator.c", options)?;
+    source_zip.start_file("c/calculator.c", options)?;
     source_zip.write_all(include_bytes!("./../../examples/c/calculator.c"))?;
-    source_zip.start_file("svg.c", options)?;
+    source_zip.start_file("c/svg.c", options)?;
     source_zip.write_all(include_bytes!("./../../examples/c/svg.c"))?;
-    source_zip.start_file("table.c", options)?;
+    source_zip.start_file("c/table.c", options)?;
     source_zip.write_all(include_bytes!("./../../examples/c/table.c"))?;
-    source_zip.start_file("xhtml.c", options)?;
+    source_zip.start_file("c/xhtml.c", options)?;
     source_zip.write_all(include_bytes!("./../../examples/c/xhtml.c"))?;
 
     // -- cpp
 
-    source_zip.start_file("hello-world.cpp", options)?;
+    source_zip.start_file("cpp/hello-world.cpp", options)?;
     source_zip.write_all(include_bytes!("./../../examples/cpp/hello-world.cpp"))?;
-    source_zip.start_file("calculator.cpp", options)?;
+    source_zip.start_file("cpp/calculator.cpp", options)?;
     source_zip.write_all(include_bytes!("./../../examples/cpp/calculator.cpp"))?;
-    source_zip.start_file("svg.cpp", options)?;
+    source_zip.start_file("cpp/svg.cpp", options)?;
     source_zip.write_all(include_bytes!("./../../examples/cpp/svg.cpp"))?;
-    source_zip.start_file("table.cpp", options)?;
+    source_zip.start_file("cpp/table.cpp", options)?;
     source_zip.write_all(include_bytes!("./../../examples/cpp/table.cpp"))?;
-    source_zip.start_file("xhtml.cpp", options)?;
+    source_zip.start_file("cpp/xhtml.cpp", options)?;
     source_zip.write_all(include_bytes!("./../../examples/cpp/xhtml.cpp"))?;
 
     // -- rust
 
-    source_zip.start_file("hello-world.rs", options)?;
+    source_zip.start_file("rust/hello-world.rs", options)?;
     source_zip.write_all(include_bytes!("./../../examples/rust/hello-world.rs"))?;
-    source_zip.start_file("calculator.rs", options)?;
+    source_zip.start_file("rust/calculator.rs", options)?;
     source_zip.write_all(include_bytes!("./../../examples/rust/calculator.rs"))?;
-    source_zip.start_file("svg.rs", options)?;
+    source_zip.start_file("rust/svg.rs", options)?;
     source_zip.write_all(include_bytes!("./../../examples/rust/svg.rs"))?;
-    source_zip.start_file("table.rs", options)?;
+    source_zip.start_file("rust/table.rs", options)?;
     source_zip.write_all(include_bytes!("./../../examples/rust/table.rs"))?;
-    source_zip.start_file("xhtml.rs", options)?;
+    source_zip.start_file("rust/xhtml.rs", options)?;
     source_zip.write_all(include_bytes!("./../../examples/rust/xhtml.rs"))?;
 
     // -- python
 
-    source_zip.start_file(&"hello-world.py", options)?;
+    source_zip.start_file("python/hello-world.py", options)?;
     source_zip.write_all(include_bytes!("./../../examples/python/hello-world.py"))?;
-    source_zip.start_file("calculator.py", options)?;
+    source_zip.start_file("python/calculator.py", options)?;
     source_zip.write_all(include_bytes!("./../../examples/python/calculator.py"))?;
-    source_zip.start_file("svg.py", options)?;
+    source_zip.start_file("python/svg.py", options)?;
     source_zip.write_all(include_bytes!("./../../examples/python/svg.py"))?;
-    source_zip.start_file("table.py", options)?;
+    source_zip.start_file("python/table.py", options)?;
     source_zip.write_all(include_bytes!("./../../examples/python/table.py"))?;
-    source_zip.start_file("xhtml.py", options)?;
+    source_zip.start_file("python/xhtml.py", options)?;
     source_zip.write_all(include_bytes!("./../../examples/python/xhtml.py"))?;
 
     source_zip.start_file("include/azul.h", options)?;
@@ -293,126 +298,119 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
     Ok(())
 }
 
-pub fn generate_release_html(version: &str, releasenotes_html: &str) -> String {
+pub fn generate_release_html(version: &str, api_data: &ApiData) -> String {
+    let versiondata = api_data.get_version(version).unwrap();
+    let common_head_tags = crate::docgen::get_common_head_tags();
+    let sidebar = crate::docgen::get_sidebar();
+    let releasenotes =
+        comrak::markdown_to_html(&versiondata.notes.join("\r\n"), &comrak::Options::default());
+    let git = &versiondata.git;
+
     format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <title>Release notes - Azul GUI v{version}</title>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta name="description" content="Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
-  <meta name="keywords" content="gui, rust, user interface">
+    "<!DOCTYPE html>
+    <html lang='en'>
+    <head>
+        <title>Azul GUI v{version} (git {git}) - Release Notes</title>
+        {common_head_tags}
+    </head>
 
-  <link rel="preload" as="font" href="../fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
-  <link rel="preload" as="font" href="../fonts/Morris Jenson Initialen.ttf" type="font/ttf">
+    <body>
+      <div class='center'>
 
-  <link rel="shortcut icon" type="image/x-icon" href="https://azul.rs/favicon.ico">
-  <link rel="stylesheet" type="text/css" href="https://azul.rs/main.css">
-</head>
+        <aside>
+          <header>
+            <a href='https://azul.rs/'>
+              <img src='https://azul.rs/logo.svg'>
+            </a>
+          </header>
+          {sidebar}
+        </aside>
 
-<body>
-  <div class="center">
-  <aside>
-    <header>
-      <h1 style="display:none;">Azul GUI Framework</h1>
-      <a href="https://azul.rs/">
-        <img src="https://azul.rs/logo.svg">
-      </a>
-    </header>
-    <nav>
-      <ul>
-        <li><a href="https://azul.rs">overview</a></li>
-        <li>
-          <a href="https://azul.rs/releases">releases</a>
-        </li>
-        <li><a href="https://github.com/fschutt/azul">code</a></li>
-        <li><a href="https://matrix.to/#/#azul-gui:matrix.org">chat</a></li>
-        <li>
-          <a href="https://azul.rs/guide">guide</a>
-        </li>
-        <li>
-          <a href="https://azul.rs/api">api</a>
-        </li>
-      </ul>
-    </nav>
-  </aside>
-  <main>
-    <h1>Azul GUI v{version}</h1>
-    <style>ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }} nav ul {{ margin: 0px; }}</style>
-    <div>
-      
-        {releasenotes_html}
+        <main>
+          <h1>Azul GUI v{version}</h1>
+          <a href='https://github.com/fschutt/azul/commit/{git}'>(git {git})</a>
+          <style>
+            main h1 {{ margin-bottom: none; }}
+            ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
+            nav ul {{ margin: 0px; }} 
+            #releasenotes {{ margin-top: 20px; max-width: 700px; }}
+            #releasenotes ul {{ list-style-type: initial; }} 
+            #releasenotes ul li {{ margin-bottom: 2px; }} 
+            #releasenotes p {{ margin-bottom: 10px; margin-top: 10px; }}
+            </style>
+          <div>
+              
+              <div id='releasenotes'>
+              {releasenotes}
+              </div>
 
-        <br/>
+              <br/>
 
-        <strong>Links:</strong>
-        <ul>
-        <li><a href="https://azul.rs/api/{version}">Documentation for this release</a></li>
-        <li><a href="https://azul.rs/guide/{version}">Guide for this release</a></li>
-        <br/>
-        <li><a href="https://github.com/fschutt/azul/releases/tag/{version}">GitHub release</a></li>
-        <li><a href="https://crates.io/crates/azul/{version}">Crates.io</a></li>
-        <li><a href="https://docs.rs/azul/{version}">Docs.rs</a></li>
-        </ul>
+              <strong>Links:</strong>
+              <ul>
+                <li><a href='https://azul.rs/api/{version}'>Documentation for this release</a></li>
+                <li><a href='https://azul.rs/guide/{version}'>Guide for this release</a></li>
+                <br/>
 
-        <br/>
+                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>
+                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
+                <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
+              </ul>
 
-        <strong>Files:</strong>
-        <br/>
-        <ul>
-        <li><a href="https://azul.rs/release/{version}/azul.dll">Windows 64-bit DLL (azul.dll - 2.6Mb)</a></li>
-        <li><a href="https://azul.rs/release/{version}/azul.dll">Windows 64-bit DLL (azul.dll - 2.6Mb)</a></li>
-        <li><a href="https://azul.rs/release/{version}/LICENSE-WINDOWS.txt">LICENSE-WINDOWS.txt (19KB)</a></li>
-        </ul>
-        <ul>
-        <li><a href="https://azul.rs/release/{version}/azul.dll">Linux 64-bit .so (libazul.so - 2.6Mb)</a></li>
-        <li><a href="https://azul.rs/release/{version}/azul.dll">Linux 64-bit .a (libazul.a - 2.6Mb)</a></li>
-        <li><a href="https://azul.rs/release/{version}/LICENSE-LINUX.txt">LICENSE-LINUX.txt (19KB)</a></li>
-        </ul>
-        <ul>
-        <li><a href="https://azul.rs/release/{version}/azul.dll">MacOS 64-bit SO (libazul.so - 2.6Mb)</a></li>
-        <li><a href="https://azul.rs/release/{version}/azul.">MacOS 64-bit .a (libazul.a - 2.6Mb)</a></li>
-        <li><a href="https://azul.rs/release/{version}/LICENSE-MACOS.txt">LICENSE-MACOS.txt (19KB)</a></li>
-        </ul>
-        <ul>
-        <li><a href="https://azul.rs/release/{version}/azul.h">C Header (azul.h - 978KB)</a></li>
-        <li><a href="https://azul.rs/release/{version}/azul.hpp">CPP Header (azul.hpp - 978KB)</a></li>
-        <li><a href="https://azul.rs/release/{version}/azul.pyd">Python Extension (azul.pyd - 978KB)</a></li>
-        </ul>
+              <br/>
 
-        <br/>
+              <strong>Files:</strong>
+              <br/>
+              <ul>
+                <li><a href='https://azul.rs/release/{version}/azul.dll'>Windows 64-bit dynamic library (azul.dll - 2.6Mb)</a></li>
+                <li><a href='https://azul.rs/release/{version}/azul.lib'>Windows 64-bit static library (azul.lib - 67Mb)</a></li>
+                <li><a href='https://azul.rs/release/{version}/windows.pyd'>Python Extension (windows.pyd - 978KB)</a></li>
+                <li><a href='https://azul.rs/release/{version}/LICENSE-WINDOWS.txt'>LICENSE-WINDOWS.txt (19KB)</a></li>
+              </ul>
+              <ul>
+                <li><a href='https://azul.rs/release/{version}/libazul.so'>Linux 64-bit .so (libazul.so - 2.6Mb)</a></li>
+                <li><a href='https://azul.rs/release/{version}/libazul.linux.a'>Linux 64-bit .a (libazul.linux.a - 2.6Mb)</a></li>
+                <li><a href='https://azul.rs/release/{version}/linux.pyd'>Python Extension (linux.pyd - 978KB)</a></li>
+                <li><a href='https://azul.rs/release/{version}/LICENSE-LINUX.txt'>LICENSE-LINUX.txt (19KB)</a></li>
+              </ul>
+              <ul>
+                <li><a href='https://azul.rs/release/{version}/libazul.dylib'>MacOS 64-bit SO (libazul.dylib - 2.6Mb)</a></li>
+                <li><a href='https://azul.rs/release/{version}/libazul.macos.a'>MacOS 64-bit .a (libazul.macos.a - 2.6Mb)</a></li>
+                <li><a href='https://azul.rs/release/{version}/macos.pyd'>Python Extension (macos.pyd - 978KB)</a></li>
+                <li><a href='https://azul.rs/release/{version}/LICENSE-MACOS.txt'>LICENSE-MACOS.txt (19KB)</a></li>
+              </ul>
 
-        <strong>Other links:</strong>
+              <br/>
 
-        <br/>
+              <strong>Other links:</strong>
 
-        <ul>
-        <li><a href="https://azul.rs/release/{version}/api.json">API Description - api.json (714KB)</a></li>
-        <li><a href="./files/examples-windows.zip">Windows examples with source code (.zip - 154KB)</a></li>
-        </ul>
+              <br/>
 
-        <br/>
-        <strong>Rust dependency:</strong>
-        <br/>
-        <div style="padding:20px;background:rgb(236, 236, 236);margin-top: 20px;">
-            <p style="color:grey;font-family:monospace;"># Cargo.toml</p>
-            <p style="color:black;font-family:monospace;">[dependencies.azul]</p>
-            <p style="color:black;font-family:monospace;">git = "https://azul.rs/{version}.git"</p>
-            <br/>
-            <p style="color:grey;font-family:monospace;"># Dynamic linking:</p>
-            <p style="color:grey;font-family:monospace;"># export AZUL_LINK_PATH=/path/to/azul.dll</p>
-            <p style="color:grey;font-family:monospace;"># features = ["link-dynamic"]</p>
+              <ul>
+                <li><a href='https://azul.rs/release/{version}/azul.h'>C Header (azul.h - 978KB)</a></li>
+                <li><a href='https://azul.rs/release/{version}/azul.hpp'>CPP Header (azul.hpp - 978KB)</a></li>
+                <li><a href='https://azul.rs/release/{version}/api.json'>API Description - api.json (714KB)</a></li>
+                <li><a href='https://azul.rs/release/{version}/examples.zip'>Compiled examples w. source code (examples.zip - 154KB)</a></li>
+              </ul>
 
-        </pre>
-    </div>
-    </div>
-  </main>
-</div>
-</body>
-</html>"#
-    )
+              <br/>
+              <strong>Use Azul as Rust dependency:</strong>
+              <br/>
+
+              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;'>
+                  <p style='color:grey;font-family:monospace;'># Cargo.toml</p>
+                  <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
+                  <p style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
+                  <br/>
+                  <p style='color:grey;font-family:monospace;'># Dynamic linking:</p>
+                  <p style='color:grey;font-family:monospace;'># export AZUL_LINK_PATH=/path/to/azul.dll</p>
+                  <p style='color:grey;font-family:monospace;'># features = ['link-dynamic']</p>
+              </div>
+          </div>
+        </main>
+      </div>
+    </body>
+    </html>")
 }
 
 pub fn generate_releases_index(versions: &[String]) -> String {
@@ -424,22 +422,16 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         ));
     }
 
+    let header_tags = crate::docgen::get_common_head_tags();
+    let sidebar = crate::docgen::get_sidebar();
+
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <title>Choose release version</title>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta name="description" content="Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
-  <meta name="keywords" content="gui, rust, user interface">
 
-  <link rel="preload" as="font" href="fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
-  <link rel="preload" as="font" href="fonts/Morris Jenson Initialen.ttf" type="font/ttf">
-
-  <link rel="shortcut icon" type="image/x-icon" href="https://azul.rs/favicon.ico">
-  <link rel="stylesheet" type="text/css" href="https://azul.rs/main.css">
+  {header_tags}
 </head>
 
 <body>
@@ -452,20 +444,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
       </a>
     </header>
     <nav>
-      <ul>
-        <li><a href="https://azul.rs">overview</a></li>
-        <li>
-          <a href="https://azul.rs/releases">releases</a>
-        </li>
-        <li><a href="https://github.com/fschutt/azul">code</a></li>
-        <li><a href="https://matrix.to/#/#azul-gui:matrix.org">chat</a></li>
-        <li>
-          <a href="https://azul.rs/guide">guide</a>
-        </li>
-        <li>
-          <a href="https://azul.rs/api">api</a>
-        </li>
-      </ul>
+      {sidebar}
     </nav>
   </aside>
   <main>
@@ -515,23 +494,18 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         include_str!("../templates/fleur-de-lis.svg"),
     )?;
 
-    // Copy font files - in a real implementation, we'd copy actual font files
+    // Copy font files
     fs::write(
         fonts_dir.join("SourceSerifPro-Regular.ttf"),
-        "Font file placeholder",
+        include_bytes!("../fonts/SourceSerifPro-Regular.ttf"),
     )?;
     fs::write(
         fonts_dir.join("Morris Jenson Initialen.ttf"),
-        "Font file placeholder",
+        include_bytes!("../fonts/Morris Jenson Initialen.ttf"),
     )?;
 
     // Create favicon
     fs::write(output_dir.join("favicon.ico"), "Favicon placeholder")?;
-
-    // Copy minimal index.html
-    let index_html =
-        include_str!("../templates/index.template.html").replace("$$ROOT_RELATIVE$$", "");
-    fs::write(output_dir.join("index.html"), index_html)?;
 
     println!("Static assets copied successfully");
     Ok(())

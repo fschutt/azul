@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::api::{ApiData, ClassData, ModuleData};
+use cargo_metadata::semver::Version;
+
+use crate::api::{ApiData, ClassData, ModuleData, VersionData};
 
 // Basic Rust types that are treated as primitives
 const BASIC_TYPES: [&str; 19] = [
@@ -100,7 +102,11 @@ pub fn search_imports_arg_type(
 }
 
 /// Get all imports needed for a module
-pub fn get_all_imports(api_data: &ApiData, module: &ModuleData, module_name: &str) -> String {
+pub fn get_all_imports(
+    version_data: &VersionData,
+    module: &ModuleData,
+    module_name: &str,
+) -> String {
     let mut imports = HashMap::new();
     let mut arg_types_to_search = Vec::new();
 
@@ -122,7 +128,9 @@ pub fn get_all_imports(api_data: &ApiData, module: &ModuleData, module_name: &st
             continue;
         }
 
-        if let Some((found_module, found_class)) = search_for_class_by_class_name(api_data, &arg) {
+        if let Some((found_module, found_class)) =
+            search_for_class_by_class_name(version_data, &arg)
+        {
             if found_module != module_name {
                 imports
                     .entry(found_module.to_string())
@@ -162,14 +170,11 @@ pub fn get_all_imports(api_data: &ApiData, module: &ModuleData, module_name: &st
 
 /// Search for a class by name in all modules
 pub fn search_for_class_by_class_name<'a>(
-    api_data: &'a ApiData,
+    version_data: &'a VersionData,
     searched_class_name: &str,
 ) -> Option<(&'a str, &'a str)> {
     // Get the latest version
-    let latest_version = api_data.get_latest_version_str()?;
-    let version_data = api_data.get_version(latest_version)?;
-
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         for (class_name, _) in &module.classes {
             if class_name == searched_class_name {
                 return Some((module_name, class_name));
@@ -182,18 +187,11 @@ pub fn search_for_class_by_class_name<'a>(
 
 /// Get a class by module name and class name
 pub fn get_class<'a>(
-    api_data: &'a ApiData,
+    version_data: &'a VersionData,
     module_name: &str,
     class_name: &str,
 ) -> Option<&'a ClassData> {
-    let latest_version = api_data.get_latest_version_str()?;
-    let version_data = api_data.get_version(latest_version)?;
-
-    version_data
-        .modules
-        .get(module_name)?
-        .classes
-        .get(class_name)
+    version_data.api.get(module_name)?.classes.get(class_name)
 }
 
 /// Check if a class is stack allocated
@@ -222,7 +220,7 @@ pub fn class_is_typedef(class: &ClassData) -> bool {
 }
 
 /// Check if a class has a recursive destructor
-pub fn has_recursive_destructor(api_data: &ApiData, class: &ClassData) -> bool {
+pub fn has_recursive_destructor(version_data: &VersionData, class: &ClassData) -> bool {
     // Simple typedef has no destructor
     if class_is_typedef(class) {
         return false;
@@ -246,10 +244,11 @@ pub fn has_recursive_destructor(api_data: &ApiData, class: &ClassData) -> bool {
 
                 if !is_primitive_arg(&field_type_base) {
                     if let Some((module_name, class_name)) =
-                        search_for_class_by_class_name(api_data, &field_type_base)
+                        search_for_class_by_class_name(version_data, &field_type_base)
                     {
-                        if let Some(field_class) = get_class(api_data, module_name, class_name) {
-                            if has_recursive_destructor(api_data, field_class) {
+                        if let Some(field_class) = get_class(version_data, module_name, class_name)
+                        {
+                            if has_recursive_destructor(version_data, field_class) {
                                 return true;
                             }
                         }
@@ -268,12 +267,12 @@ pub fn has_recursive_destructor(api_data: &ApiData, class: &ClassData) -> bool {
 
                     if !is_primitive_arg(&variant_type_base) {
                         if let Some((module_name, class_name)) =
-                            search_for_class_by_class_name(api_data, &variant_type_base)
+                            search_for_class_by_class_name(version_data, &variant_type_base)
                         {
                             if let Some(variant_class) =
-                                get_class(api_data, module_name, class_name)
+                                get_class(version_data, module_name, class_name)
                             {
-                                if has_recursive_destructor(api_data, variant_class) {
+                                if has_recursive_destructor(version_data, variant_class) {
                                     return true;
                                 }
                             }

@@ -182,11 +182,11 @@ impl PrintAsCssValue for LayoutDisplay {
             LayoutDisplay::Block => "block",
             LayoutDisplay::Inline => "inline",
             LayoutDisplay::InlineBlock => "inline-block",
-            
+
             // Flex layout
             LayoutDisplay::Flex => "flex",
             LayoutDisplay::InlineFlex => "inline-flex",
-            
+
             // Table layout
             LayoutDisplay::Table => "table",
             LayoutDisplay::InlineTable => "inline-table",
@@ -198,18 +198,18 @@ impl PrintAsCssValue for LayoutDisplay {
             LayoutDisplay::TableColumn => "table-column",
             LayoutDisplay::TableCell => "table-cell",
             LayoutDisplay::TableCaption => "table-caption",
-            
+
             // List layout
             LayoutDisplay::ListItem => "list-item",
-            
+
             // Special displays
             LayoutDisplay::RunIn => "run-in",
             LayoutDisplay::Marker => "marker",
-            
+
             // CSS3 additions
             LayoutDisplay::Grid => "grid",
             LayoutDisplay::InlineGrid => "inline-grid",
-            
+
             // Initial/Inherit values
             LayoutDisplay::Initial => "initial",
             LayoutDisplay::Inherit => "inherit",

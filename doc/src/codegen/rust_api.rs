@@ -43,7 +43,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     );
 
     // Process all modules
-    for (module_name, module) in &version_data.modules {
+    for (module_name, module) in &version_data.api {
         let mut code = String::new();
 
         code.push_str("    #![allow(dead_code, unused_imports, unused_unsafe)]\r\n");
@@ -65,7 +65,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
         }
 
         // Add imports
-        code.push_str(&get_all_imports(api_data, module, module_name));
+        code.push_str(&get_all_imports(version_data, module, module_name));
 
         // Process all classes in this module
         for (class_name, class_data) in &module.classes {
@@ -203,7 +203,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
                             if is_primitive_arg(&type_name) {
                                 returns = return_type.clone();
                             } else if let Some((return_module, return_class)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 returns = format!(
                                     "{} crate::{}::{}{}",
@@ -262,7 +262,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
                             if is_primitive_arg(&type_name) {
                                 returns = format!(" -> {}", return_type);
                             } else if let Some((return_module, return_class)) =
-                                search_for_class_by_class_name(api_data, &type_name)
+                                search_for_class_by_class_name(version_data, &type_name)
                             {
                                 returns = format!(
                                     " ->{} crate::{}::{}{}",
@@ -313,7 +313,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     final_code.push_str("// LICENSE header would be included here\r\n\r\n");
 
     // Add Rust header - in a real implementation you'd read this from a file
-    final_code.push_str("// Header would be included here from _patches/azul.rs/header.rs\r\n\r\n");
+    final_code.push_str(include_str!("./api-patch/header.rs"));
 
     // Add all modules
     for module_name in module_file_map.keys() {

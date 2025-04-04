@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
+use anyhow::Context;
 use indexmap::IndexMap; // Use IndexMap for ordered fields where necessary
 use serde_derive::{Deserialize, Serialize}; // Use BTreeMap for sorted keys (versions)
 
@@ -53,11 +54,127 @@ impl ApiData {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VersionData {
+    /// Required: all API calls specific to this version are going to be prefixed with
+    /// "Az[version]"
+    pub apiversion: usize,
+    /// Required: git revision hash, so that we know which tag this version was deployed from
+    pub git: String,
+    /// Required: release date
+    pub date: String,
+    /// Examples to view on the frontpage
+    #[serde(default)]
+    pub examples: Vec<Example>,
+    /// Release notes as GitHub Markdown (used both on the website and on the GitHub release page)
+    #[serde(default)]
+    pub notes: Vec<String>,
     // Using IndexMap to preserve module order as read from JSON
-    #[serde(flatten)] // Assumes modules are directly under the version key like "app": { ... }
-    pub modules: IndexMap<String, ModuleData>,
-    // Capture top-level doc if it exists for a version
-    pub doc: Option<String>,
+    pub api: IndexMap<String, ModuleData>,
+}
+
+pub type OsId = String;
+pub type ImageFilePathRelative = String;
+pub type ExampleSrcFileRelative = String;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Example {
+    pub name: String,
+    pub alt: String,
+    pub code: LangDepFilesPaths,
+    pub screenshot: OsDepFilesPaths,
+    pub description: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LangDepFilesPaths {
+    pub c: String,
+    pub cpp: String,
+    pub rust: String,
+    pub python: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OsDepFilesPaths {
+    pub windows: String,
+    pub linux: String,
+    pub mac: String,
+}
+
+impl Example {
+    pub fn load(
+        &self,
+        filerelativepath: &str,
+        imagerelativepath: &str,
+    ) -> anyhow::Result<LoadedExample> {
+        Ok(LoadedExample {
+            name: self.name.clone(),
+            alt: self.alt.clone(),
+            description: self.description.clone(),
+            code: LangDepFiles {
+                c: std::fs::read(&Path::new(filerelativepath).join(&self.code.c)).context(
+                    format!("failed to load c code for example {}", self.name.clone()),
+                )?,
+                cpp: std::fs::read(&Path::new(filerelativepath).join(&self.code.cpp)).context(
+                    format!("failed to load cpp code for example {}", self.name.clone()),
+                )?,
+                rust: std::fs::read(&Path::new(filerelativepath).join(&self.code.rust)).context(
+                    format!("failed to load rust code for example {}", self.name.clone()),
+                )?,
+                python: std::fs::read(&Path::new(filerelativepath).join(&self.code.python))
+                    .context(format!(
+                        "failed to load python code for example {}",
+                        self.name.clone()
+                    ))?,
+            },
+            screenshot: OsDepFiles {
+                windows: std::fs::read(
+                    &Path::new(imagerelativepath).join(&self.screenshot.windows),
+                )
+                .context(format!(
+                    "failed to load windows screenshot for example {}",
+                    self.name.clone()
+                ))?,
+                linux: std::fs::read(&Path::new(imagerelativepath).join(&self.screenshot.linux))
+                    .context(format!(
+                        "failed to load linux screenshot for example {}",
+                        self.name.clone()
+                    ))?,
+                mac: std::fs::read(&Path::new(imagerelativepath).join(&self.screenshot.mac))
+                    .context(format!(
+                        "failed to load mac screenshot for example {}",
+                        self.name.clone()
+                    ))?,
+            },
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LoadedExample {
+    /// Id of the examples
+    pub name: String,
+    /// Short description of the image
+    pub alt: String,
+    /// Markdown description of the example
+    pub description: Vec<String>,
+    /// Code example loaded to string
+    pub code: LangDepFiles,
+    /// Image file loaded to string
+    pub screenshot: OsDepFiles,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OsDepFiles {
+    pub windows: Vec<u8>,
+    pub linux: Vec<u8>,
+    pub mac: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LangDepFiles {
+    pub c: Vec<u8>,
+    pub cpp: Vec<u8>,
+    pub rust: Vec<u8>,
+    pub python: Vec<u8>,
 }
 
 impl VersionData {
@@ -67,7 +184,7 @@ impl VersionData {
         &'a self,
         search_class_name: &str,
     ) -> Option<(&'a str, &'a str, &'a ClassData)> {
-        for (module_name, module_data) in &self.modules {
+        for (module_name, module_data) in &self.api {
             if let Some((class_name, class_data)) = module_data.find_class(search_class_name) {
                 return Some((module_name.as_str(), class_name, class_data));
             }
@@ -77,7 +194,7 @@ impl VersionData {
 
     // Get a specific class if module and class name are known for this version.
     pub fn get_class(&self, module_name: &str, class_name: &str) -> Option<&ClassData> {
-        self.modules.get(module_name)?.classes.get(class_name)
+        self.api.get(module_name)?.classes.get(class_name)
     }
 }
 
