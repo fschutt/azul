@@ -30,3 +30,4 @@ azul-css = { version = "0.0.5", path = "../css", default-features = false, featu
 chrono = "0.4.40"
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 base64 = "0.22.1"
+serde_yaml = "0.9"

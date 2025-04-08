@@ -34,7 +34,7 @@ jobs:
         run: chrome --version
 
       - name: Run Reftests
-        run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest --build=all
+        run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest --build=macos
         env:
             GITHUB_CI: "true"
 

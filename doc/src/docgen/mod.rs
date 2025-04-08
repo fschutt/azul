@@ -1,6 +1,6 @@
 mod apidocs;
 mod guide;
-
+pub mod donate;
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,

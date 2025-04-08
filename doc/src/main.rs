@@ -100,6 +100,19 @@ fn main() -> anyhow::Result<()> {
     // Copy static assets
     deploy::copy_static_assets(&output_dir)?;
 
+    // Generate donation page
+    println!("Generating donation page...");
+    let funding_yaml_bytes = include_str!("../../.github/FUNDING.yml");
+    match docgen::donate::generate_donation_page(funding_yaml_bytes) {
+        Ok(donation_html) => {
+            fs::write(output_dir.join("donate.html"), &donation_html)?;
+            println!("  - Generated donation page");
+        },
+        Err(e) => {
+            eprintln!("Warning: Failed to generate donation page: {}", e);
+        }
+    }
+
     if config.reftest {
         let config = RunRefTestsConfig {
             test_dir: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/working")),
