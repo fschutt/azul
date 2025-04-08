@@ -81,21 +81,21 @@ jobs:
 
       # Download all platform artifacts with error handling
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: deploy-linux
           path: temp-linux
         continue-on-error: true
 
       - name: Download macOS artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: deploy-macos
           path: temp-macos
         continue-on-error: true
 
       - name: Download Windows artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: deploy-windows
           path: temp-windows
