@@ -33,6 +33,12 @@ jobs:
       - name: Check Chrome Installation
         run: chrome --version
 
+      - name: Run tree
+        run: tree doc -d
+
+      - name: Inspect guide
+        run: tree doc/guide
+
       - name: Run Reftests
         run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest --build=macos
         env:
