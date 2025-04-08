@@ -20,62 +20,62 @@ pub fn get_guide_list() -> Vec<Guide> {
         Guide {
             title: "Installation".to_string(),
             file_name: "Installation".to_string(),
-            content: include_str!("../../guide/00 Installation.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/00 Installation.md")).to_string(),
         },
         Guide {
             title: "Getting Started".to_string(),
             file_name: "GettingStarted".to_string(),
-            content: include_str!("../../guide/01 Getting Started.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/01 Getting Started.md")).to_string(),
         },
         Guide {
             title: "Application Architecture".to_string(),
             file_name: "ApplicationArchitecture".to_string(),
-            content: include_str!("../../guide/02 Application Architecture.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/02 Application Architecture.md")).to_string(),
         },
         Guide {
             title: "CSS Styling".to_string(),
             file_name: "CssStyling".to_string(),
-            content: include_str!("../../guide/03 CSS Styling.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/03 CSS Styling.md")).to_string(),
         },
         Guide {
             title: "Images, SVG and Charts".to_string(),
             file_name: "ImagesSvgAndCharts".to_string(),
-            content: include_str!("../../guide/04 Images, SVG and charts.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/04 Images, SVG and charts.md")).to_string(),
         },
         Guide {
             title: "Timers, Threads and Animations".to_string(),
             file_name: "TimersThreadsAndAnimations".to_string(),
-            content: include_str!("../../guide/05 Timers, Threads and Animations.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/05 Timers, Threads and Animations.md")).to_string(),
         },
         Guide {
             title: "OpenGL".to_string(),
             file_name: "OpenGL".to_string(),
-            content: include_str!("../../guide/06 OpenGL.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/06 OpenGL.md")).to_string(),
         },
         Guide {
             title: "Unit Testing".to_string(),
             file_name: "UnitTesting".to_string(),
-            content: include_str!("../../guide/07 Unit testing.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/07 Unit testing.md")).to_string(),
         },
         Guide {
             title: "XHTML and azul-workbench".to_string(),
             file_name: "XhtmlAndAzulWorkbench".to_string(),
-            content: include_str!("../../guide/08 XHTML and azul-workbench.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/08 XHTML and azul-workbench.md")).to_string(),
         },
         Guide {
             title: "Notes for C".to_string(),
             file_name: "NotesForC".to_string(),
-            content: include_str!("../../guide/09 Notes for C.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/09 Notes for C.md")).to_string(),
         },
         Guide {
             title: "Notes for C++".to_string(),
             file_name: "NotesForCpp".to_string(),
-            content: include_str!("../../guide/10 Notes for C++.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/10 Notes for C++.md")).to_string(),
         },
         Guide {
             title: "Notes for Python".to_string(),
             file_name: "NotesForPython".to_string(),
-            content: include_str!("../../guide/11 Notes for Python.md").to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/11 Notes for Python.md")).to_string(),
         },
     ]
 }
