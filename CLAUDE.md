@@ -4,7 +4,7 @@
 - Build project: `python3 ./build.py && cargo build --release`
 - Run tests: `cargo test --no-fail-fast`
 - Run single test: `cargo test test_name`
-- Run reftests: `cargo run --manifest-path reftest/Cargo.toml --release` (outputs reftest/reftest_output/results.json)
+- Run reftests: `cargo run --manifest-path reftest/Cargo.toml --release` (outputs doc/target/deploy/reftest.html and doc/target/deploy/reftest.json)
 - Check specific package: `cargo check --manifest-path path/to/Cargo.toml`
 
 ## Code Style

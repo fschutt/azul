@@ -304,6 +304,21 @@ pub enum XmlError {
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(AzString, AzString),
     ParserError(XmlParseError),
+    UnclosedRootNode,
+    UnexpectedDeclaration(XmlTextPos),
+    NodesLimitReached,
+    AttributesLimitReached,
+    NamespacesLimitReached,
+    InvalidName(XmlTextPos),
+    NonXmlChar(XmlTextPos),
+    InvalidChar(XmlTextPos),
+    InvalidChar2(XmlTextPos),
+    InvalidString(XmlTextPos),
+    InvalidExternalID(XmlTextPos),
+    InvalidComment(XmlTextPos),
+    InvalidCharacterData(XmlTextPos),
+    UnknownToken(XmlTextPos),
+    UnexpectedEndOfStream,
 }
 
 impl fmt::Display for XmlError {
@@ -389,6 +404,21 @@ impl fmt::Display for XmlError {
                 got.as_str()
             ),
             ParserError(p) => write!(f, "{}", p),
+            UnclosedRootNode => write!(f, "unclosed root node"),
+            UnexpectedDeclaration(tp) => write!(f, "unexpected declaration at {tp}"),
+            NodesLimitReached => write!(f, "nodes limit reached"),
+            AttributesLimitReached => write!(f, "attributes limit reached"),
+            NamespacesLimitReached => write!(f, "namespaces limit reached"),
+            InvalidName(tp) => write!(f, "invalid name at {tp}"),
+            NonXmlChar(tp) => write!(f, "non xml char at {tp}"),
+            InvalidChar(tp) => write!(f, "invalid char at {tp}"),
+            InvalidChar2(tp) => write!(f, "invalid char2 at {tp}"),
+            InvalidString(tp) => write!(f, "invalid string at {tp}"),
+            InvalidExternalID(tp) => write!(f, "invalid externalid at {tp}"),
+            InvalidComment(tp) => write!(f, "invalid comment at {tp}"),
+            InvalidCharacterData(tp) => write!(f, "invalid character data at {tp}"),
+            UnknownToken(tp) => write!(f, "unknown token at {tp}"),
+            UnexpectedEndOfStream => todo!(),
         }
     }
 }

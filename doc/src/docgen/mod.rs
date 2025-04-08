@@ -221,23 +221,20 @@ pub fn get_sidebar() -> String {
           <li><a \
          href='https://github.com/fschutt/azul'>code</a>
           </li>
-          <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a>\
+          <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a></li>\
          
-          </li>
 
           <li><a href='https://azul.rs/guide'>guide</a>
           </li>
-         \
          <li>
-            <a href='https://azul.rs/api'>api</a>
+            \
+         <a href='https://azul.rs/api'>api</a>
           </li>
           <li>
-         \
-         <a href='https://azul.rs/reftest'>reftests</a></li>
-          <li>
-            <a href='https://azul.rs/donate'>donate</a>\
+         <a href='https://azul.rs/reftest'>reftests</a></li>\
          
-          </li>
+          <li>
+            <a href='https://azul.rs/donate'>donate</a></li>
         </ul>
 
       </nav>

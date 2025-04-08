@@ -2408,6 +2408,21 @@ pub struct GlyphInfo {
     pub placement: Placement,
 }
 
+#[derive(Debug, PartialEq, Default)]
+pub struct ShapedTextBufferUnsized {
+    pub infos: Vec<GlyphInfo>,
+}
+
+impl ShapedTextBufferUnsized {
+    /// Get the word width in unscaled units (respects kerning)
+    pub fn get_word_visual_width_unscaled(&self) -> usize {
+        self.infos
+            .iter()
+            .map(|s| s.size.get_x_advance_total_unscaled() as usize)
+            .sum()
+    }
+}
+
 pub fn get_inline_text(
     words: &Words,
     shaped_words: &ShapedWords,
@@ -2937,6 +2952,83 @@ impl ExternalImageId {
             inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u64,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum GlyphOutlineOperation {
+    MoveTo(OutlineMoveTo),
+    LineTo(OutlineLineTo),
+    QuadraticCurveTo(OutlineQuadTo),
+    CubicCurveTo(OutlineCubicTo),
+    ClosePath,
+}
+
+// MoveTo in em units
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineMoveTo {
+    pub x: i16,
+    pub y: i16,
+}
+
+// LineTo in em units
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineLineTo {
+    pub x: i16,
+    pub y: i16,
+}
+
+// QuadTo in em units
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineQuadTo {
+    pub ctrl_1_x: i16,
+    pub ctrl_1_y: i16,
+    pub end_x: i16,
+    pub end_y: i16,
+}
+
+// CubicTo in em units
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineCubicTo {
+    pub ctrl_1_x: i16,
+    pub ctrl_1_y: i16,
+    pub ctrl_2_x: i16,
+    pub ctrl_2_y: i16,
+    pub end_x: i16,
+    pub end_y: i16,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct GlyphOutline {
+    pub operations: GlyphOutlineOperationVec,
+}
+
+azul_css::impl_vec!(
+    GlyphOutlineOperation,
+    GlyphOutlineOperationVec,
+    GlyphOutlineOperationVecDestructor
+);
+azul_css::impl_vec_clone!(
+    GlyphOutlineOperation,
+    GlyphOutlineOperationVec,
+    GlyphOutlineOperationVecDestructor
+);
+azul_css::impl_vec_debug!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+azul_css::impl_vec_partialord!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+azul_css::impl_vec_partialeq!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct OwnedGlyphBoundingBox {
+    pub max_x: i16,
+    pub max_y: i16,
+    pub min_x: i16,
+    pub min_y: i16,
 }
 
 /// Specifies the type of texture target in driver terms.

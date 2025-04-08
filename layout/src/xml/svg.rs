@@ -172,7 +172,10 @@ fn svg_multipolygon_to_lyon_path(polygon: &SvgMultiPolygon) -> Path {
 
 #[cfg(feature = "svg")]
 fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
-    use lyon::path::{traits::PathBuilder, Winding};
+    use lyon::{
+        geom::Box2D,
+        path::{traits::PathBuilder, Winding},
+    };
 
     let mut builder = Path::builder();
 
@@ -230,13 +233,19 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
             }
             SvgSimpleNode::Rect(c) => {
                 builder.add_rectangle(
-                    &Rect::new(Point::new(c.x, c.y), Size2D::new(c.width, c.height)),
+                    &Box2D::from_origin_and_size(
+                        Point::new(c.x, c.y),
+                        Size2D::new(c.width, c.height),
+                    ),
                     Winding::Positive,
                 );
             }
             SvgSimpleNode::RectHole(c) => {
                 builder.add_rectangle(
-                    &Rect::new(Point::new(c.x, c.y), Size2D::new(c.width, c.height)),
+                    &Box2D::from_origin_and_size(
+                        Point::new(c.x, c.y),
+                        Size2D::new(c.width, c.height),
+                    ),
                     Winding::Negative,
                 );
             }
@@ -1228,8 +1237,11 @@ pub fn tessellate_circle_stroke(c: &SvgCircle, stroke_style: SvgStrokeStyle) -> 
 
 // TODO: radii not respected on latest version of lyon
 #[cfg(feature = "svg")]
-fn get_radii(r: &SvgRect) -> Rect<f32, UnknownUnit> {
-    let rect = Rect::new(Point2D::new(r.x, r.y), Size2D::new(r.width, r.height));
+fn get_radii(r: &SvgRect) -> lyon::geom::Box2D<f32> {
+    let rect = lyon::geom::Box2D::from_origin_and_size(
+        Point2D::new(r.x, r.y),
+        Size2D::new(r.width, r.height),
+    );
     /*
     let radii = BorderRadii {
         top_left: r.radius_top_left,
@@ -1957,7 +1969,10 @@ pub fn render_node_clipmask_cpu(
                             build_path!(path_builder, p);
                         }
                         SvgSimpleNode::Rect(r) => {
-                            path_builder.push_rect(r.x, r.y, r.width, r.height);
+                            if let Some(r) = tiny_skia::Rect::from_xywh(r.x, r.y, r.width, r.height)
+                            {
+                                path_builder.push_rect(r);
+                            }
                         }
                         SvgSimpleNode::Circle(c) => {
                             path_builder.push_circle(c.center_x, c.center_y, c.radius);
@@ -1966,7 +1981,10 @@ pub fn render_node_clipmask_cpu(
                             path_builder.push_circle(c.center_x, c.center_y, c.radius);
                         }
                         SvgSimpleNode::RectHole(r) => {
-                            path_builder.push_rect(r.x, r.y, r.width, r.height);
+                            if let Some(r) = tiny_skia::Rect::from_xywh(r.x, r.y, r.width, r.height)
+                            {
+                                path_builder.push_rect(r);
+                            }
                         }
                     }
                 }
@@ -2005,7 +2023,7 @@ pub fn render_node_clipmask_cpu(
                 },
                 transform,
                 clip_mask,
-            )?;
+            );
         }
         SvgStyle::Stroke(ss) => {
             let stroke = SkStroke {
@@ -2031,7 +2049,7 @@ pub fn render_node_clipmask_cpu(
                     )
                 }),
             };
-            pixmap.stroke_path(&path, &paint, &stroke, transform, clip_mask)?;
+            pixmap.stroke_path(&path, &paint, &stroke, transform, clip_mask);
         }
     }
 
@@ -2064,7 +2082,7 @@ pub fn render_node_clipmask_cpu(
 #[derive(Debug)]
 #[repr(C)]
 pub struct SvgXmlNode {
-    node: Box<usvg::Node>, // usvg::Node
+    node: Box<usvg::Group>, // usvg::Node
     pub run_destructor: bool,
 }
 
@@ -2089,7 +2107,7 @@ impl Drop for SvgXmlNode {
 pub use azul_core::svg::SvgXmlNode;
 
 #[cfg(feature = "svg")]
-fn svgxmlnode_new(node: usvg::Node) -> SvgXmlNode {
+fn svgxmlnode_new(node: usvg::Group) -> SvgXmlNode {
     SvgXmlNode {
         node: Box::new(node),
         run_destructor: true,
@@ -2166,11 +2184,8 @@ fn svg_new(tree: usvg::Tree) -> Svg {
 /// NOTE: SVG file data may be Zlib compressed
 #[cfg(feature = "svg")]
 pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, SvgParseError> {
-    let rtree = usvg::Tree::from_data(
-        svg_file_data,
-        &translate_to_usvg_parseoptions(options).to_ref(),
-    )
-    .map_err(translate_usvg_svgparserror)?;
+    let rtree = usvg::Tree::from_data(svg_file_data, &translate_to_usvg_parseoptions(options))
+        .map_err(translate_usvg_svgparserror)?;
 
     Ok(svg_new(rtree))
 }
@@ -2182,7 +2197,7 @@ pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, 
 
 #[cfg(feature = "svg")]
 pub fn svg_root(s: &Svg) -> SvgXmlNode {
-    svgxmlnode_new(s.tree.root())
+    svgxmlnode_new(s.tree.root().clone())
 }
 
 #[cfg(not(feature = "svg"))]
@@ -2215,13 +2230,11 @@ pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
             .unwrap_or(tiny_skia::Color::TRANSPARENT),
     );
 
-    let _ = resvg::render_node(
+    let _ = resvg::render(
         &s.tree,
-        &s.tree.root(),
-        translate_fit_to(options.fit),
         translate_transform(options.transform),
-        pixmap.as_mut(),
-    )?;
+        &mut pixmap.as_mut(),
+    );
 
     Some(RawImage {
         tag: Vec::new().into(),
@@ -2259,14 +2272,16 @@ pub fn svg_to_string(s: &Svg, options: SvgXmlOptions) -> String {
 #[cfg(feature = "svg")]
 fn svgrenderoptions_get_width_height_node(
     s: &SvgRenderOptions,
-    node: &usvg::Node,
+    node: &usvg::Group,
 ) -> Option<(u32, u32)> {
     match s.target_size.as_ref() {
         None => {
-            use usvg::NodeExt;
-            let bbox = node.calculate_bbox()?;
-            let size = usvg::Size::new(bbox.width(), bbox.height())?.to_screen_size();
-            Some((size.width(), size.height()))
+            let bbox = node.bounding_box();
+            let size = usvg::Size::from_wh(bbox.width(), bbox.height())?;
+            Some((
+                size.width().round().max(0.0) as u32,
+                size.height().round().max(0.0) as u32,
+            ))
         }
         Some(s) => Some((s.width as u32, s.height as u32)),
     }
@@ -2317,22 +2332,13 @@ fn translate_color(i: ColorU) -> tiny_skia::Color {
 }
 
 #[cfg(feature = "svg")]
-#[allow(dead_code)]
-const fn translate_fit_to(i: SvgFitTo) -> usvg::FitTo {
-    match i {
-        SvgFitTo::Original => usvg::FitTo::Original,
-        SvgFitTo::Width(w) => usvg::FitTo::Width(w),
-        SvgFitTo::Height(h) => usvg::FitTo::Height(h),
-        SvgFitTo::Zoom(z) => usvg::FitTo::Zoom(z),
-    }
-}
+fn translate_to_usvg_parseoptions<'a>(e: SvgParseOptions) -> usvg::Options<'a> {
+    use usvg::ImageHrefResolver;
 
-#[cfg(feature = "svg")]
-fn translate_to_usvg_parseoptions(e: SvgParseOptions) -> usvg::Options {
     let mut options = usvg::Options {
         // path: e.relative_image_path.into_option().map(|e| { let p: String = e.clone().into();
         // PathBuf::from(p) }),
-        dpi: e.dpi as f64,
+        dpi: e.dpi,
         font_family: e.default_font_family.clone().into_library_owned_string(),
         font_size: e.font_size.into(),
         languages: e
@@ -2344,8 +2350,10 @@ fn translate_to_usvg_parseoptions(e: SvgParseOptions) -> usvg::Options {
         shape_rendering: translate_to_usvg_shaperendering(e.shape_rendering),
         text_rendering: translate_to_usvg_textrendering(e.text_rendering),
         image_rendering: translate_to_usvg_imagerendering(e.image_rendering),
-        keep_named_groups: e.keep_named_groups,
-        ..usvg::Options::default()
+        resources_dir: None,                                      // TODO
+        default_size: usvg::Size::from_wh(100.0, 100.0).unwrap(), // TODO
+        style_sheet: None,                                        // TODO
+        image_href_resolver: ImageHrefResolver::default(),        // TODO
     };
 
     /*
@@ -2363,14 +2371,15 @@ fn translate_to_usvg_parseoptions(e: SvgParseOptions) -> usvg::Options {
 }
 
 #[cfg(feature = "svg")]
-fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::XmlOptions {
-    usvg::XmlOptions {
+fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::WriteOptions {
+    usvg::WriteOptions {
         id_prefix: None,
-        writer_opts: xmlwriter::Options {
-            use_single_quote: f.use_single_quote,
-            indent: translate_xmlwriter_indent(f.indent),
-            attributes_indent: translate_xmlwriter_indent(f.attributes_indent),
-        },
+        preserve_text: false,
+        coordinates_precision: 8,
+        transforms_precision: 8,
+        use_single_quote: f.use_single_quote,
+        indent: translate_xmlwriter_indent(f.indent),
+        attributes_indent: translate_xmlwriter_indent(f.attributes_indent),
     }
 }
 

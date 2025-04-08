@@ -719,7 +719,7 @@
   
   <script>
     // Test data in JSON format
-    const testData = []{{test_data_json}};
+    const testData = JSON.parse(atob("{TEST_DATA_BASE64}"));
     
     // DOM elements
     const testGrid = document.getElementById('testGrid');
@@ -832,12 +832,12 @@
           
           <div class="test-content">
             <div class="test-image-container">
-              <img class="test-image" src="${test.test_name}_chrome.webp" alt="Chrome Reference">
+              <img class="test-image" src="./reftest_img/${test.test_name}_chrome.webp" alt="Chrome Reference">
               <div class="test-image-label">Chrome Reference</div>
             </div>
             
             <div class="test-image-container">
-              <img class="test-image" src="${test.test_name}_azul.webp" alt="Azul Rendering">
+              <img class="test-image" src="./reftest_img/${test.test_name}_azul.webp" alt="Azul Rendering">
               <div class="test-image-label">Azul Rendering</div>
             </div>
           </div>

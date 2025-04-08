@@ -38,6 +38,7 @@ use self::{
 
 /// Main entry point for the layout system
 /// Adds the image and font resources to the app_resources but does NOT add them to the RenderAPI
+#[cfg(feature = "text_layout")]
 pub fn do_the_layout(
     styled_dom: StyledDom,
     image_cache: &ImageCache,

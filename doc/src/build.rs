@@ -4,65 +4,94 @@ use std::{env, ffi::OsStr, fs, path::Path, process::Command};
 
 use anyhow::{Context, Result};
 
-pub fn build_all_configs(version: &str, output_dir: &Path) -> Result<()> {
-    let all_configs = &[
-        (
-            "windows",
-            vec!["--no-default-features", "--features", "desktop-cdylib"],
-            "azul_dll.dll",
-            "azul.dll",
-        ),
-        (
-            "windows",
-            vec!["--no-default-features", "--features", "python-extension"],
-            "libazul_dll.dll",
-            "windows.pyd",
-        ),
-        (
-            "windows",
-            vec!["--no-default-features", "--features", "desktop-staticlib"],
-            "azul_dll.lib",
-            "azul.lib",
-        ),
-        /*
-        (
-            "linux",
-            vec!["--no-default-features", "--features", "desktop-cdylib"],
-            "libazul_dll.so",
-            "libazul.so",
-        ),
-        (
-            "linux",
-            vec!["--no-default-features", "--features", "python-extension"],
-            "libazul_dll.so",
-            "linux.pyd",
-        ),
-        (
-            "linux",
-            vec!["--no-default-features", "--features", "desktop-staticlib"],
-            "libazul_dll.a",
-            "libazul.linux.a",
-        ),
-        */
-        (
-            "macos",
-            vec!["--no-default-features", "--features", "desktop-cdylib"],
-            "libazul_dll.dylib",
-            "libazul.dylib",
-        ),
-        (
-            "macos",
-            vec!["--no-default-features", "--features", "python-extension"],
-            "libazul_dll.dylib",
-            "macos.pyd",
-        ),
-        (
-            "macos",
-            vec!["--no-default-features", "--features", "desktop-staticlib"],
-            "libazul_dll.a",
-            "libazul.macos.a",
-        ),
-    ];
+use crate::deploy::Config;
+
+pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Result<()> {
+    let mut all_configs = Vec::new();
+
+    if cfg.build_windows {
+        all_configs.extend_from_slice(&[
+            (
+                "windows",
+                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                "azul_dll.dll",
+                "azul.dll",
+            ),
+            (
+                "windows",
+                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                "azul_dll.dll.lib",
+                "azul.dll.lib",
+            ),
+            (
+                "windows",
+                vec!["--no-default-features", "--features", "desktop-staticlib"],
+                "azul_dll.lib",
+                "azul.lib",
+            ),
+        ]);
+
+        if cfg.build_python {
+            all_configs.push((
+                "windows",
+                vec!["--no-default-features", "--features", "python-extension"],
+                "libazul_dll.dll",
+                "windows.pyd",
+            ));
+        }
+    }
+
+    if cfg.build_linux {
+        all_configs.extend_from_slice(&[
+            (
+                "linux",
+                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                "libazul_dll.so",
+                "libazul.so",
+            ),
+            (
+                "linux",
+                vec!["--no-default-features", "--features", "desktop-staticlib"],
+                "libazul_dll.a",
+                "libazul.linux.a",
+            ),
+        ]);
+
+        if cfg.build_python {
+            all_configs.push((
+                "linux",
+                vec!["--no-default-features", "--features", "python-extension"],
+                "libazul_dll.so",
+                "linux.pyd",
+            ));
+        }
+    }
+
+    if cfg.build_macos {
+        all_configs.extend_from_slice(&[
+            (
+                "macos",
+                vec!["--no-default-features", "--features", "desktop-cdylib"],
+                "libazul_dll.dylib",
+                "libazul.dylib",
+            ),
+            (
+                "macos",
+                vec!["--no-default-features", "--features", "desktop-staticlib"],
+                "libazul_dll.a",
+                "libazul.macos.a",
+            ),
+        ]);
+
+        if cfg.build_python {
+            all_configs.push((
+                "macos",
+                vec!["--no-default-features", "--features", "python-extension"],
+                "libazul_dll.dylib",
+                "macos.pyd",
+            ));
+        }
+    }
 
     for (platform, env_vars, target_path, output_path) in all_configs.iter() {
         let file = build_dll(version, platform, env_vars, &target_path)?;

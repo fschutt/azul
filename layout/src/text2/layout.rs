@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use azul_core::{
     app_resources::{
         ExclusionSide, LineCaretIntersection, RendererResources, RendererResourcesTrait,
-        ShapedWord, ShapedWords, TextExclusionArea, Word, WordPosition, WordPositions, WordType,
-        Words,
+        ShapedTextBufferUnsized, ShapedWord, ShapedWords, TextExclusionArea, Word, WordPosition,
+        WordPositions, WordType, Words,
     },
     callbacks::InlineText,
     dom::{NodeData, NodeType},
@@ -31,10 +31,8 @@ use azul_core::{
 };
 use azul_css::*;
 
-use super::{
-    shaping::{ParsedFont, ShapedTextBufferUnsized},
-    FontImpl, TextLayoutOffsets,
-};
+use super::{FontImpl, TextLayoutOffsets};
+use crate::parsedfont::ParsedFont;
 
 pub fn shape_text(font: &FontRef, text: &str, options: &ResolvedTextLayoutOptions) -> InlineText {
     let font_data = font.get_data();
@@ -1827,7 +1825,7 @@ pub fn layout_text_node<T: RendererResourcesTrait>(
     }
 
     // Process text with hyphenation
-    // Using lazy_static pattern for the hyphenation cache
+    // Using lazy initialization pattern for the hyphenation cache
     static mut HYPHENATION_CACHE: Option<HyphenationCache> = None;
     let hyphenation_cache = unsafe {
         if HYPHENATION_CACHE.is_none() {

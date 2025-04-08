@@ -21,15 +21,87 @@ pub struct Config {
     pub build_linux: bool,
     pub build_macos: bool,
     pub build_python: bool,
+    pub reftest: bool,
+    pub open: bool,
 }
 
 impl Config {
-    pub fn from_env() -> Self {
-        Self {
-            build_windows: env::var("BUILD_WINDOWS").unwrap_or_else(|_| "1".to_string()) != "0",
-            build_linux: env::var("BUILD_LINUX").unwrap_or_else(|_| "1".to_string()) != "0",
-            build_macos: env::var("BUILD_MACOS").unwrap_or_else(|_| "1".to_string()) != "0",
-            build_python: env::var("BUILD_PYTHON").unwrap_or_else(|_| "1".to_string()) != "0",
+    pub fn print(&self) -> String {
+        let mut v = Vec::new();
+        let mut build = Vec::new();
+        if self.build_windows {
+            build.push("windows");
+        }
+        if self.build_linux {
+            build.push("linux");
+        }
+        if self.build_macos {
+            build.push("mac");
+        }
+        v.push(format!("build={}", build.join(",")));
+        if self.build_python {
+            v.push("python=true".to_string());
+        }
+        if self.open {
+            v.push("open=true".to_string());
+        }
+        if self.reftest {
+            v.push("run-reftest=true".to_string());
+        }
+        v.join(" ")
+    }
+
+    pub fn from_args() -> Self {
+        let args: Vec<String> = env::args().collect();
+        let mut config = Self {
+            build_windows: false,
+            build_linux: false,
+            build_macos: false,
+            build_python: false,
+            reftest: false,
+            open: false,
+        };
+
+        for arg in &args[1..] {
+            if let Some(value) = arg.strip_prefix("--build=") {
+                config.parse_build_arg(value);
+                continue;
+            }
+
+            if arg == "--reftest" {
+                config.reftest = true;
+                continue;
+            }
+
+            if arg == "--open" {
+                config.open = true;
+            }
+        }
+
+        config
+    }
+
+    fn parse_build_arg(&mut self, value: &str) {
+        if value == "all" {
+            self.build_windows = true;
+            self.build_linux = true;
+            self.build_macos = true;
+            self.build_python = true;
+            return;
+        }
+
+        if value == "none" {
+            return;
+        }
+
+        for target in value.split(',') {
+            match target {
+                "windows" => self.build_windows = true,
+                "linux" => self.build_linux = true,
+                "macos" => self.build_macos = true,
+                "python" => self.build_python = true,
+                _ => {}
+            }
         }
     }
 }

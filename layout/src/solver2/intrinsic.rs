@@ -8,6 +8,8 @@ use azul_core::{
 };
 use azul_css::*;
 
+use crate::parsedfont::ParsedFont;
+
 /// Calculate the intrinsic sizes for all elements in the DOM
 pub fn calculate_intrinsic_sizes<T: RendererResourcesTrait>(
     styled_dom: &StyledDom,
@@ -30,6 +32,7 @@ pub fn calculate_intrinsic_sizes<T: RendererResourcesTrait>(
         match node_data_ref.get_node_type() {
             NodeType::Text(text) => {
                 // Calculate text dimensions
+                #[cfg(feature = "text_layout")]
                 if let Some(text_sizes) = calculate_text_intrinsic_sizes(
                     node_id,
                     text.as_str(),
@@ -103,6 +106,7 @@ pub fn calculate_intrinsic_sizes<T: RendererResourcesTrait>(
 }
 
 /// Calculate intrinsic sizes for text nodes
+#[cfg(feature = "text_layout")]
 fn calculate_text_intrinsic_sizes<T: RendererResourcesTrait>(
     node_id: azul_core::id_tree::NodeId,
     text: &str,
@@ -111,10 +115,7 @@ fn calculate_text_intrinsic_sizes<T: RendererResourcesTrait>(
 ) -> Option<IntrinsicSizes> {
     use azul_core::{styled_dom::StyleFontFamiliesHash, ui_solver::DEFAULT_FONT_SIZE_PX};
 
-    use crate::text2::{
-        layout::{shape_words, split_text_into_words},
-        shaping::ParsedFont,
-    };
+    use crate::text2::layout::{shape_words, split_text_into_words};
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].state;

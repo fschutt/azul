@@ -10,9 +10,12 @@
 extern crate alloc;
 extern crate core;
 
+#[cfg(feature = "cpurender")]
+pub mod cpurender;
 #[cfg(feature = "font_loading")]
 pub mod font;
 pub mod image;
+pub mod parsedfont;
 pub mod solver2;
 #[cfg(feature = "text_layout")]
 pub mod text2;
@@ -27,7 +30,7 @@ pub fn parse_font_fn(
 ) -> Option<azul_css::FontRef> {
     use core::ffi::c_void;
 
-    use crate::text2::shaping::ParsedFont;
+    use crate::parsedfont::ParsedFont;
 
     fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {

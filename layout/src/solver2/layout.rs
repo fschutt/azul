@@ -21,6 +21,8 @@ use azul_core::{
 };
 use azul_css::{parser::CssApiWrapper, *};
 
+use crate::parsedfont::ParsedFont;
+#[cfg(feature = "text_layout")]
 use crate::text2::layout::{position_words, shape_words, split_text_into_words, HyphenationCache};
 
 /// Main layout calculation function
@@ -104,11 +106,19 @@ pub fn calculate_layout(
     }
 
     // Process and cache word and text layout information
+    #[cfg(feature = "text_layout")]
     let (words_cache, shaped_words_cache, positioned_words_cache) = build_text_caches(
         styled_dom,
         &positioned_rects.as_ref(),
         renderer_resources,
         debug_messages,
+    );
+
+    #[cfg(not(feature = "text_layout"))]
+    let (words_cache, shaped_words_cache, positioned_words_cache) = (
+        BTreeMap::default(),
+        BTreeMap::default(),
+        BTreeMap::default(),
     );
 
     // Create the final LayoutResult
@@ -155,6 +165,7 @@ fn collect_float_exclusions(
 
 /// Build caches for words, shaped words, and positioned words that are
 /// needed for the final LayoutResult
+#[cfg(feature = "text_layout")]
 fn build_text_caches(
     styled_dom: &StyledDom,
     positioned_rects: &NodeDataContainerRef<PositionedRectangle>,
@@ -165,8 +176,6 @@ fn build_text_caches(
     BTreeMap<NodeId, ShapedWords>,
     BTreeMap<NodeId, WordPositions>,
 ) {
-    use crate::text2::shaping::ParsedFont;
-
     let mut words_cache = BTreeMap::new();
     let mut shaped_words_cache = BTreeMap::new();
     let mut positioned_words_cache = BTreeMap::new();
@@ -1254,6 +1263,7 @@ fn process_text_layout(
         let available_rect = LogicalRect::new(rect.position.get_static_offset(), rect.size);
 
         // Process the text node
+        #[cfg(feature = "text_layout")]
         process_text_node(
             node_id,
             positioned_rects,
@@ -1268,6 +1278,7 @@ fn process_text_layout(
 }
 
 /// Process a text node for layout
+#[cfg(feature = "text_layout")]
 fn process_text_node(
     node_id: NodeId,
     positioned_rects: &mut NodeDataContainerRefMut<PositionedRectangle>,
@@ -1280,12 +1291,9 @@ fn process_text_node(
 ) {
     use azul_core::ui_solver::ScriptType;
 
-    use crate::text2::{
-        layout::{
-            layout_text_node as text2_layout_text_node, position_words, shape_words,
-            split_text_into_words_with_hyphenation, HyphenationCache,
-        },
-        shaping::ParsedFont,
+    use crate::text2::layout::{
+        layout_text_node as text2_layout_text_node, position_words, shape_words,
+        split_text_into_words_with_hyphenation, HyphenationCache,
     };
 
     let node_data = &styled_dom.node_data.as_container()[node_id];

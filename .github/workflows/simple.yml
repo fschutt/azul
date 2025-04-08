@@ -34,7 +34,7 @@ jobs:
         run: chrome --version
 
       - name: Run Reftests
-        run: cargo run --manifest-path reftest/Cargo.toml --release
+        run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest --build=all
         env:
             GITHUB_CI: "true"
 
@@ -45,7 +45,7 @@ jobs:
         id: deployment
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'reftest/output'
+          path: 'doc/target/deploy'
 
   # Deployment job
   deploy:

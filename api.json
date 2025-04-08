@@ -104,7 +104,7 @@
             "This is the first release of the Azul GUI toolkit.",
             "Version 1.0.0-alpha1 is the first stable version of Azul since 2018 and implements:",
             "",
-            "- CSS2.1 support + flexbox (CSS3), tested against Google Chrome (see [report.html](https://azul.rs/report))",
+            "- CSS2.1 support + flexbox (CSS3), tested against Google Chrome (see [reftest.html](https://azul.rs/reftest))",
             "- GPU rendering (using servo/webrender) in pure Rust",
             "- Software fallback rendering (using tiny-skia), also in pure Rust",
             "- `azul-workbench` WYSIWYG GUI editor including a \"HTML to C / Rust\" transpiler",

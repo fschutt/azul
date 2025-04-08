@@ -11,5 +11,4 @@ members = [
     "layout",
     "examples/rust",
     "examples/rust/ios",
-    "reftest"
 ]

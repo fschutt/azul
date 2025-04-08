@@ -4,12 +4,14 @@ mod codegen;
 mod deploy;
 mod docgen;
 mod license;
+mod reftest;
 mod utils;
 
 use std::{env, fs, path::PathBuf};
 
 use anyhow::Context;
 use deploy::Config;
+use reftest::RunRefTestsConfig;
 
 fn main() -> anyhow::Result<()> {
     println!("Starting Azul Build and Deploy System...");
@@ -19,8 +21,9 @@ fn main() -> anyhow::Result<()> {
         .context("Failed to parse API definition")?;
 
     // Set up configuration
-    let config = Config::from_env();
+    let config = Config::from_args();
 
+    println!("CONFIG={}", config.print());
     // Create output directory structure
     let output_dir = PathBuf::from("target").join("deploy");
     let releases_dir = output_dir.join("release");
@@ -87,7 +90,7 @@ fn main() -> anyhow::Result<()> {
 
         // Build binaries for each platform
         println!("  Building binaries...");
-        crate::build::build_all_configs(version, &version_dir)?;
+        crate::build::build_all_configs(version, &version_dir, &config)?;
     }
 
     // Generate releases index
@@ -97,8 +100,18 @@ fn main() -> anyhow::Result<()> {
     // Copy static assets
     deploy::copy_static_assets(&output_dir)?;
 
+    if config.reftest {
+        let config = RunRefTestsConfig {
+            test_dir: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/working")),
+            output_dir: output_dir.clone(),
+            output_filename: "reftest.html",
+        };
+
+        let _ = crate::reftest::run_reftests(config)?;
+    }
+
     // Open the result in browser if not in CI
-    if env::var("GITHUB_CI").is_err() {
+    if config.open {
         if let Ok(_) = open::that(output_dir.join("index.html").to_string_lossy().to_string()) {
             println!("Opened releases page in browser");
         } else {

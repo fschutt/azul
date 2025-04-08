@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
-    app_resources::{ShapedWords, WordPosition, Words},
+    app_resources::{ShapedTextBufferUnsized, ShapedWords, WordPosition, Words},
     ui_solver::{
         InlineTextLayout, InlineTextLayoutRustInternal, InlineTextLine, ResolvedTextLayoutOptions,
     },
@@ -14,14 +14,16 @@ use azul_core::{
 use azul_css::{LayoutDebugMessage, StyleTextAlign};
 
 pub mod layout;
-pub mod mock;
 pub mod script;
 pub mod shaping;
 
 use azul_core::app_resources::{ExclusionSide, TextExclusionArea};
 
 use self::layout::{position_words, word_positions_to_inline_text_layout};
-use crate::solver2::layout::{adjust_rect_for_floats, get_relevant_floats};
+use crate::{
+    parsedfont::ParsedFont,
+    solver2::layout::{adjust_rect_for_floats, get_relevant_floats},
+};
 
 /// Data structure representing padding for text layout
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,12 +58,7 @@ pub trait FontImpl {
     fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)>;
 
     /// Shapes text using the font
-    fn shape(
-        &self,
-        text: &[u32],
-        script: u32,
-        lang: Option<u32>,
-    ) -> shaping::ShapedTextBufferUnsized;
+    fn shape(&self, text: &[u32], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized;
 
     /// Looks up a glyph index from a Unicode codepoint
     fn lookup_glyph_index(&self, c: u32) -> Option<u16>;
@@ -210,6 +207,6 @@ fn adjust_line_alignment(
 }
 
 pub fn get_font_metrics_fontref(font_ref: &azul_css::FontRef) -> azul_css::FontMetrics {
-    let parsed_font = unsafe { &*(font_ref.get_data().parsed as *const shaping::ParsedFont) };
+    let parsed_font = unsafe { &*(font_ref.get_data().parsed as *const ParsedFont) };
     parsed_font.font_metrics.clone()
 }
