@@ -22,7 +22,7 @@ autoexamples = false
 azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }
 azul-core               = { version = "0.0.5", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false }
-rust-fontconfig         = { version = "1.0.0", default-features = false }
+rust-fontconfig         = { version = "1.0.1", default-features = false }
 
 hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
 unicode-bidi            = { version = "0.3.18", default-features = false, optional = true }
