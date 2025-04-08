@@ -15,8 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Build job that runs on different platforms
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
 
@@ -25,41 +36,84 @@ jobs:
         with:
           toolchain: stable
     
-      - uses: browser-actions/setup-chrome@v1
+      # Run reftests only on Linux
+      - name: Setup Chrome (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: 120
           install-dependencies: true
 
-      - name: Check Chrome Installation
+      - name: Check Chrome Installation (Linux only)
+        if: matrix.os == 'ubuntu-latest'
         run: chrome --version
 
-      - name: Run tree
-        run: tree doc -d
+      - name: Run Reftests (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest
 
-      - name: Inspect guide
-        run: tree doc/guide
+      # Build for each platform
+      - name: Build for ${{ matrix.platform }}
+        run: cargo run --manifest-path doc/Cargo.toml --release -- --build=${{ matrix.platform }}
 
-      - name: Run Reftests
-        run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest --build=macos
-        env:
-            GITHUB_CI: "true"
+      # Upload platform-specific artifacts
+      - name: Upload ${{ matrix.platform }} artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: deploy-${{ matrix.platform }}
+          path: 'doc/target/deploy'
 
+  # Merge artifacts from all platforms
+  merge-artifacts:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      # Download all platform artifacts
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: deploy-linux
+          path: merged-artifacts
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: deploy-macos
+          path: temp-macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: deploy-windows
+          path: temp-windows
+
+      # Merge artifacts, preserving platform-specific binaries
+      - name: Merge artifacts
+        run: |
+          # Use cp -r for MacOS files
+          cp -r temp-macos/* merged-artifacts/
+          # Use cp -r for Windows files
+          cp -r temp-windows/* merged-artifacts/
+          
+          # List contents to verify merge
+          echo "Merged artifact contents:"
+          find merged-artifacts -type f | sort
+
+      # Prepare for GitHub Pages deployment
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Upload static files as artifact
-        id: deployment
+      - name: Upload merged artifacts for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'doc/target/deploy'
+          path: 'merged-artifacts'
 
-  # Deployment job
+  # Deploy merged artifacts to GitHub Pages
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: merge-artifacts
     steps:
     - name: Deploy to GitHub Pages
       id: deployment
