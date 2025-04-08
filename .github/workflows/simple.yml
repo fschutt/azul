@@ -58,7 +58,7 @@ jobs:
 
       # Upload platform-specific artifacts
       - name: Upload ${{ matrix.platform }} artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deploy-${{ matrix.platform }}
           path: 'doc/target/deploy'
