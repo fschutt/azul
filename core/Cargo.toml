@@ -17,7 +17,7 @@ autoexamples = false
 azul-css                = { version = "0.0.5", path = "../css", default-features = false }
 libm                    = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version ="0.1.8", default-features = false }
-highway                 = { version = "0.8.0", default-features = false }
+highway                 = { version = "1.3.0", default-features = false }
 rust-fontconfig         = { version = "1.0.1", features = ["parsing", "std"], default-features = false }
 
 [features]
