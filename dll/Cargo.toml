@@ -23,7 +23,7 @@ log  = { version = "0.4.17",  default-features = false, optional = true }
 pyo3-log = { version = "0.6.0", default-features = false, optional = true }
 tfd         = { version = "0.1.0",  default-features = false, optional = true }
 clipboard2              = { version = "0.1.1",  default-features = false, optional = true }
-raw-window-handle       = { version = "0.5.0", default-features = false, optional = true }
+raw-window-handle       = { version = "0.6.2", default-features = false, optional = true }
 fern                    = { version = "0.6.1",  default-features = false, optional = true }
 backtrace               = { version = "0.3.66", optional = true }
 rust-fontconfig         = { version = "1.0.1", default-features = false, features = ["std", "parsing"], optional = true }
