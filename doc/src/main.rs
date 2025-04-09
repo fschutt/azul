@@ -14,6 +14,11 @@ use deploy::Config;
 use reftest::RunRefTestsConfig;
 
 fn main() -> anyhow::Result<()> {
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+
+    let _ = std::env::set_current_dir(manifest_dir);
+
     println!("Starting Azul Build and Deploy System...");
 
     // Parse the API definition
@@ -23,6 +28,7 @@ fn main() -> anyhow::Result<()> {
     // Set up configuration
     let config = Config::from_args();
 
+    println!("working dir = {manifest_dir}");
     println!("CONFIG={}", config.print());
     // Create output directory structure
     let output_dir = PathBuf::from("target").join("deploy");

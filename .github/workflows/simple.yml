@@ -63,6 +63,16 @@ jobs:
         run: cargo run --manifest-path doc/Cargo.toml --release -- --build=${{ matrix.platform }}
         continue-on-error: true
 
+      - name: Set up Homebrew
+        if: matrix.os == 'macos-latest'
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Run tree (macos)
+        if: matrix.os == 'macos-latest'
+        run: brew install tree
+        continue-on-error: true
+
       - name: List build artifacts
         run: tree doc/target
         continue-on-error: true

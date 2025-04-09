@@ -1,2 +1,4 @@
 reftest_output/
 output/
+deploy/
+target/
