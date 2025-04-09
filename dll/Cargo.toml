@@ -18,7 +18,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 azul-core = { path = "../core", version = "0.0.5", default-features = false }
 azul-css = { path = "../css", version = "0.0.5", default-features = false, optional = true }
 azul-layout = { path = "../layout", version = "0.0.5", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
-pyo3 = { version = "0.16.5", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
+pyo3 = { version = "0.24.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 log  = { version = "0.4.17",  default-features = false, optional = true }
 pyo3-log = { version = "0.6.0", default-features = false, optional = true }
 tfd         = { version = "0.1.0",  default-features = false, optional = true }
