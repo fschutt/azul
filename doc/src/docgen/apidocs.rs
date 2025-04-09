@@ -12,6 +12,73 @@ use crate::{
 
 const PREFIX: &str = "Az";
 
+const API_CSS: &str = "
+    body > .center > main #api > ul * {
+        font-size: 12px;
+        font-weight: normal;
+        list-style-type: none;
+        font-family: monospace;
+    }
+
+    body > .center > main #api > ul > li ul {
+        margin-left: 20px;
+    }
+
+    body > .center > main #api > ul > li.m {
+        margin-top: 40px;
+        margin-bottom: 20px;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li {
+        margin-bottom: 15px;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.st.e {
+        color: #2b6a2d;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.st.s {
+        color: #905;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.fnty, body > .center > main #api > ul > li.m > ul > li .arg {
+        color: #4c1c1a;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.st .f {
+        margin-left: 20px;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.st .v.doc {
+        margin-left: 20px;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.st .cn {
+        margin-left: 20px;
+        color: #07a;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li.st .fn {
+        margin-left: 20px;
+        color: #004e92;
+    }
+
+    body > .center > main #api > ul > li.m > ul > li p.ret, body > .center > main #api > ul > li.m > ul > li p.fn.ret, body > .center > main #api > ul > li.m > ul > li p.ret.doc {
+        margin-left: 0px;
+    }
+
+    body > .center > main #api p.doc {
+        margin-top: 5px !important;
+        color: black !important;
+        max-width: 70ch !important;
+        font-weight: bolder;
+    }
+
+    body > .center > main #api a {
+        color: inherit !important;
+    }       body > .center > main #api a { color: inherit !important; }        
+";
+
 /// Generate API documentation HTML for a specific version
 pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let version_data = api_data.get_version(version).unwrap();
@@ -41,6 +108,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         <title>{title}</title>
 
         {header_tags}
+        <style>{API_CSS}</style>
         </head>
 
         <body>
@@ -295,6 +363,20 @@ fn generate_api_content(version_data: &VersionData) -> String {
                     }
                 }
             }
+            // Handle classes that only have methods but no fields/typedefs
+            else if class_data.constructors.is_some() || class_data.functions.is_some() {
+                html.push_str(&format!("<li class=\"st s pbi\" id=\"st.{}\">", class_name));
+
+                // Add class documentation if available
+                if let Some(doc) = &class_data.doc {
+                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc(doc)));
+                }
+
+                html.push_str(&format!(
+                    "<h4>struct <a href=\"#st.{}\">{}</a>{}</h4>",
+                    class_name, class_name, destructor_warning
+                ));
+            }
 
             // Process constructors
             if let Some(constructors) = &class_data.constructors {
@@ -501,7 +583,14 @@ fn generate_api_content(version_data: &VersionData) -> String {
                 html.push_str("</ul>");
             }
 
-            html.push_str("</li>"); // Close class
+            // Close the class HTML wrapper if we added it
+            if class_data.enum_fields.is_some() 
+               || class_data.struct_fields.is_some() 
+               || class_data.callback_typedef.is_some()
+               || class_data.constructors.is_some()
+               || class_data.functions.is_some() {
+                html.push_str("</li>"); // Close class
+            }
         }
 
         html.push_str("</ul>"); // Close module classes

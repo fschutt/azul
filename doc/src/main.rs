@@ -138,6 +138,8 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    let _ = std::fs::write(output_dir.join("CNAME"), "azul.rs");
+
     println!("Build and deployment preparation completed!");
     Ok(())
 }
