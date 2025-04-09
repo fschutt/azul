@@ -575,6 +575,18 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         fonts_dir.join("Morris Jenson Initialen.ttf"),
         include_bytes!("../fonts/Morris Jenson Initialen.ttf"),
     )?;
+    fs::write(
+        fonts_dir.join("EBGaramond-Medium.ttf"),
+        include_bytes!("../fonts/EBGaramond-Medium.ttf"),
+    )?;
+    fs::write(
+        fonts_dir.join("EBGaramond-SemiBold.ttf"),
+        include_bytes!("../fonts/EBGaramond-SemiBold.ttf"),
+    )?;
+    fs::write(
+        fonts_dir.join("SourceSerifPro-OFL.txt"),
+        include_bytes!("../fonts/SourceSerifPro-OFL.txt"),
+    )?;
 
     // Create favicon
     fs::write(output_dir.join("favicon.ico"), "Favicon placeholder")?;
