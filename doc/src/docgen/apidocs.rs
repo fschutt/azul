@@ -121,9 +121,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
             </header>
-            <nav>
             {sidebar}
-            </nav>
         </aside>
 
         <main>
@@ -636,9 +634,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
             </header>
-            <nav>
             {sidebar}
-            </nav>
         </aside>
 
         <main>

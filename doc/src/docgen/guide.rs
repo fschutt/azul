@@ -193,9 +193,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
             </header>
-            <nav>
             {sidebar}
-            </nav>
         </aside>
 
         <main>
@@ -247,9 +245,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
             </header>
-            <nav>
             {sidebar}
-            </nav>
         </aside>
         <main>
             <h1>User guide for azul v{version}</h1>
@@ -293,9 +289,7 @@ pub fn generate_guide_index(versions: &[String]) -> String {
                 <img src='{HTML_ROOT}/logo.svg'>
             </a>
             </header>
-            <nav>
             {sidebar}
-            </nav>
         </aside>
         <main>
             <h1>Choose guide version</h1>

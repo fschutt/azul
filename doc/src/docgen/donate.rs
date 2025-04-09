@@ -194,9 +194,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
           <img src="{html_root}/logo.svg">
         </a>
       </header>
-      <nav>
-        {sidebar}
-      </nav>
+      {sidebar}
     </aside>
     <main>
       <h1>Support Azul Development</h1>

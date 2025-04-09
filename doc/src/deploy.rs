@@ -515,9 +515,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         <img src="https://azul.rs/logo.svg">
       </a>
     </header>
-    <nav>
-      {sidebar}
-    </nav>
+    {sidebar}
   </aside>
   <main>
     <h1>Choose release version</h1>
