@@ -5772,14 +5772,14 @@ multi_type_parser!(
     ["border-box", BorderBox]
 );
 
-multi_type_parser!(
-    parse_layout_direction,
-    LayoutFlexDirection,
-    ["row", Row],
-    ["row-reverse", RowReverse],
-    ["column", Column],
-    ["column-reverse", ColumnReverse]
-);
+// multi_type_parser!(
+//     parse_layout_direction,
+//     LayoutFlexDirection,
+//     ["row", Row],
+//     ["row-reverse", RowReverse],
+//     ["column", Column],
+//     ["column-reverse", ColumnReverse]
+// );
 
 multi_type_parser!(
     parse_layout_wrap,

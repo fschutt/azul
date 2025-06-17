@@ -1318,7 +1318,7 @@ pub enum CssProperty {
     Left(LayoutLeftValue),
     Bottom(LayoutBottomValue),
     FlexWrap(LayoutFlexWrapValue),
-    FlexDirection(LayoutFlexDirectionValue),
+    FlexDirection(crate::properties::flex_direction::LayoutFlexDirectionValue),
     FlexGrow(LayoutFlexGrowValue),
     FlexShrink(LayoutFlexShrinkValue),
     JustifyContent(LayoutJustifyContentValue),
@@ -1426,7 +1426,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::Bottom => CssProperty::Bottom(LayoutBottomValue::$content_type),
             CssPropertyType::FlexWrap => CssProperty::FlexWrap(LayoutFlexWrapValue::$content_type),
             CssPropertyType::FlexDirection => {
-                CssProperty::FlexDirection(LayoutFlexDirectionValue::$content_type)
+                CssProperty::FlexDirection(crate::properties::flex_direction::LayoutFlexDirectionValue::$content_type)
             }
             CssPropertyType::FlexGrow => CssProperty::FlexGrow(LayoutFlexGrowValue::$content_type),
             CssPropertyType::FlexShrink => {
@@ -1749,8 +1749,8 @@ impl CssProperty {
     pub const fn const_flex_wrap(input: LayoutFlexWrap) -> Self {
         CssProperty::FlexWrap(LayoutFlexWrapValue::Exact(input))
     }
-    pub const fn const_flex_direction(input: LayoutFlexDirection) -> Self {
-        CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(input))
+    pub const fn const_flex_direction(input: crate::properties::flex_direction::LayoutFlexDirection) -> Self {
+        CssProperty::FlexDirection(crate::properties::flex_direction::LayoutFlexDirectionValue::Exact(input))
     }
     pub const fn const_flex_grow(input: LayoutFlexGrow) -> Self {
         CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(input))
@@ -2747,7 +2747,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::Bottom => CssProperty::Bottom(CssPropertyValue::$content_type),
             CssPropertyType::FlexWrap => CssProperty::FlexWrap(CssPropertyValue::$content_type),
             CssPropertyType::FlexDirection => {
-                CssProperty::FlexDirection(CssPropertyValue::$content_type)
+                CssProperty::FlexDirection(crate::properties::flex_direction::LayoutFlexDirectionValue::$content_type)
             }
             CssPropertyType::FlexGrow => CssProperty::FlexGrow(CssPropertyValue::$content_type),
             CssPropertyType::FlexShrink => CssProperty::FlexShrink(CssPropertyValue::$content_type),
@@ -3589,7 +3589,7 @@ impl CssProperty {
             _ => None,
         }
     }
-    pub const fn as_flex_direction(&self) -> Option<&LayoutFlexDirectionValue> {
+    pub const fn as_flex_direction(&self) -> Option<&crate::properties::flex_direction::LayoutFlexDirectionValue> {
         match self {
             CssProperty::FlexDirection(f) => Some(f),
             _ => None,
@@ -3685,7 +3685,8 @@ impl_from_css_prop!(LayoutRight, CssProperty::Right);
 impl_from_css_prop!(LayoutLeft, CssProperty::Left);
 impl_from_css_prop!(LayoutBottom, CssProperty::Bottom);
 impl_from_css_prop!(LayoutFlexWrap, CssProperty::FlexWrap);
-impl_from_css_prop!(LayoutFlexDirection, CssProperty::FlexDirection);
+// TODO: This should be removed after all properties are migrated.
+// impl_from_css_prop!(LayoutFlexDirection, CssProperty::FlexDirection);
 impl_from_css_prop!(LayoutFlexGrow, CssProperty::FlexGrow);
 impl_from_css_prop!(LayoutFlexShrink, CssProperty::FlexShrink);
 impl_from_css_prop!(LayoutJustifyContent, CssProperty::JustifyContent);
@@ -6441,13 +6442,15 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
-pub type LayoutFlexDirectionValue = CssPropertyValue<LayoutFlexDirection>;
-impl_option!(
-    LayoutFlexDirectionValue,
-    OptionLayoutFlexDirectionValue,
-    copy = false,
-    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
-);
+// TODO: This should be removed after all properties are migrated.
+// pub type LayoutFlexDirectionValue = CssPropertyValue<LayoutFlexDirection>;
+// TODO: This should be removed after all properties are migrated.
+// impl_option!(
+//     LayoutFlexDirectionValue,
+//     OptionLayoutFlexDirectionValue,
+//     copy = false,
+//     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+// );
 pub type LayoutFlexWrapValue = CssPropertyValue<LayoutFlexWrap>;
 impl_option!(
     LayoutFlexWrapValue,
