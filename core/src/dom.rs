@@ -2091,104 +2091,120 @@ impl From<Dom> for CompactDom {
     }
 }
 
-pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
-    // note: somehow convert this into a non-recursive form later on!
-    fn convert_dom_into_compact_dom_internal(
-        dom: &mut Dom,
-        node_hierarchy: &mut [Node],
-        node_data: &mut Vec<NodeData>,
-        parent_node_id: NodeId,
-        node: Node,
-        cur_node_id: &mut usize,
-    ) {
-        // - parent [0]
-        //    - child [1]
-        //    - child [2]
-        //        - child of child 2 [2]
-        //        - child of child 2 [4]
-        //    - child [5]
-        //    - child [6]
-        //        - child of child 4 [7]
+// NEW: Helper function to flatten a Dom tree into the arena recursively.
+// It populates `node_hierarchy_arena` and `node_data_arena`.
+fn flatten_dom_to_arena_recursive(
+    dom_node: Dom, // Takes ownership of the Dom subtree.
+    node_hierarchy_arena: &mut [Node],
+    node_data_arena: &mut [NodeData],
+    // This is the arena ID of the *actual parent* in the flattened tree.
+    parent_arena_id_for_linking: NodeId,
+    arena_index_counter: &mut usize, // Global counter for arena indices.
+) {
+    let self_arena_id = NodeId::new(*arena_index_counter);
+    *arena_index_counter += 1; // Claim this index for the current node.
 
-        // Write node into the arena here!
-        node_hierarchy[parent_node_id.index()] = node.clone();
+    // Copy the node's data.
+    node_data_arena[self_arena_id.index()] = dom_node.root; // dom_node.root is NodeData, no copy_special needed as it's moved
 
-        let copy = dom.root.copy_special();
-
-        node_data[parent_node_id.index()] = copy;
-
-        *cur_node_id += 1;
-
-        let mut previous_sibling_id = None;
-        let children_len = dom.children.len();
-        for (child_index, child_dom) in dom.children.as_mut().iter_mut().enumerate() {
-            let child_node_id = NodeId::new(*cur_node_id);
-            let is_last_child = (child_index + 1) == children_len;
-            let child_dom_is_empty = child_dom.children.is_empty();
-            let child_node = Node {
-                parent: Some(parent_node_id),
-                previous_sibling: previous_sibling_id,
-                next_sibling: if is_last_child {
-                    None
-                } else {
-                    Some(child_node_id + child_dom.estimated_total_children + 1)
-                },
-                last_child: if child_dom_is_empty {
-                    None
-                } else {
-                    Some(child_node_id + child_dom.estimated_total_children)
-                },
-            };
-            previous_sibling_id = Some(child_node_id);
-            // recurse BEFORE adding the next child
-            convert_dom_into_compact_dom_internal(
-                child_dom,
-                node_hierarchy,
-                node_data,
-                child_node_id,
-                child_node,
-                cur_node_id,
-            );
-        }
+    // Link the current node (self_arena_id) to its parent in the arena.
+    // The real root (NodeId(0)) has no parent.
+    if self_arena_id.index() != NodeId::ZERO.index() { // NodeId::ZERO is NodeId(0)
+        node_hierarchy_arena[self_arena_id.index()].parent = Some(parent_arena_id_for_linking);
+    } else {
+        node_hierarchy_arena[self_arena_id.index()].parent = None; // Explicit None for the root.
     }
 
-    // Pre-allocate all nodes (+ 1 root node)
-    const DEFAULT_NODE_DATA: NodeData = NodeData::div();
+    let mut prev_child_arena_id_for_linking: Option<NodeId> = None; // Tracks the last child added for sibling linking.
+    let children_vec = dom_node.children.into_library_owned_vec(); // Consume children
 
-    let sum_nodes = dom.fixup_children_estimated();
+    for (child_idx, child_dom_subtree) in children_vec.into_iter().enumerate() {
+        let child_arena_id_will_be = NodeId::new(*arena_index_counter); // The arena ID the child *will* get.
 
-    let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
-    let mut node_data = vec![NodeData::div(); sum_nodes + 1];
-    let mut cur_node_id = 0;
+        // Recursively flatten the child subtree. This call increments `arena_index_counter`.
+        flatten_dom_to_arena_recursive(
+            child_dom_subtree,
+            node_hierarchy_arena,
+            node_data_arena,
+            self_arena_id, // The current node is the parent for this child.
+            arena_index_counter,
+        );
 
-    let root_node_id = NodeId::ZERO;
-    let root_node = Node {
-        parent: None,
-        previous_sibling: None,
-        next_sibling: None,
-        last_child: if dom.children.is_empty() {
-            None
-        } else {
-            Some(root_node_id + dom.estimated_total_children)
-        },
+        // After the child has been flattened, its actual arena ID is `child_arena_id_will_be`.
+
+        // Link the parent (current node) to its children: first_child and last_child.
+        if child_idx == 0 {
+            node_hierarchy_arena[self_arena_id.index()].first_child = Some(child_arena_id_will_be);
+        }
+        // Always update last_child to point to the latest child flattened in this parent's list.
+        node_hierarchy_arena[self_arena_id.index()].last_child = Some(child_arena_id_will_be);
+
+        // Link the children to each other: previous_sibling and next_sibling.
+        if let Some(prev_child_id) = prev_child_arena_id_for_linking {
+            node_hierarchy_arena[prev_child_id.index()].next_sibling = Some(child_arena_id_will_be);
+        }
+        node_hierarchy_arena[child_arena_id_will_be.index()].previous_sibling = prev_child_arena_id_for_linking;
+
+        // Update `prev_child_arena_id_for_linking` for the next iteration.
+        prev_child_arena_id_for_linking = Some(child_arena_id_will_be);
+    }
+}
+
+pub fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
+    // Stage 1: Generate anonymous table elements in the `Dom` tree.
+    // `total_nodes_after_anon` gives the exact size needed for the arena.
+    let (processed_dom, total_nodes_after_anon) = generate_anonymous_table_elements(dom);
+
+    // Initialize arenas with the exact size needed.
+    // The counter starts at 0, so total_nodes_after_anon is the count of nodes.
+    // The arrays need to be sized for 0 to N-1 nodes.
+    // If total_nodes_after_anon is 0 (e.g. empty Dom), create empty arenas.
+    let mut node_hierarchy_arena = if total_nodes_after_anon > 0 {
+        vec![Node::ROOT; total_nodes_after_anon]
+    } else {
+        Vec::new()
+    };
+    let mut node_data_arena = if total_nodes_after_anon > 0 {
+        vec![NodeData::new(NodeType::Div); total_nodes_after_anon] // Use NodeData::new for default
+    } else {
+        Vec::new()
     };
 
-    convert_dom_into_compact_dom_internal(
-        &mut dom,
-        &mut node_hierarchy,
-        &mut node_data,
-        root_node_id,
-        root_node,
-        &mut cur_node_id,
-    );
+    let mut arena_index_counter = 0; // Tracks the next available index for placement.
+
+    // If there are nodes to process (i.e., total_nodes_after_anon > 0),
+    // flatten the processed `Dom` into the arena, starting from the root at index 0.
+    if total_nodes_after_anon > 0 {
+        flatten_dom_to_arena_recursive(
+            processed_dom,
+            &mut node_hierarchy_arena,
+            &mut node_data_arena,
+            NodeId::new(0), // Parent of root is conceptually NodeId(0) for initial call context.
+                            // flatten_dom_to_arena_recursive handles NodeId::ZERO correctly for parent linking.
+            &mut arena_index_counter,
+        );
+    }
 
     CompactDom {
         node_hierarchy: NodeHierarchy {
-            internal: node_hierarchy,
+            internal: node_hierarchy_arena,
         },
         node_data: NodeDataContainer {
-            internal: node_data,
+            internal: node_data_arena,
         },
-        root: root_node_id,
+        // The root is always at index 0 if there are any nodes.
+        // If total_nodes_after_anon is 0, the arenas are empty, and a root of NodeId::ZERO
+        // would be out of bounds. However, CompactDom expects a root.
+        // A truly empty DOM might be better represented by Option<CompactDom> or
+        // CompactDom having Option<NodeId> for root.
+        // For now, assume if total_nodes_after_anon is 0, it implies an empty CompactDom where root is somewhat conceptual.
+        // Let's ensure NodeId::ZERO is valid only if nodes exist.
+        // If no nodes, perhaps root should be a "null" or sentinel NodeId if the type allows,
+        // or the caller handles an empty CompactDom.
+        // Given current CompactDom structure, root must be a NodeId.
+        // If total_nodes_after_anon is 0, this means no nodes, so NodeId::ZERO is technically invalid.
+        // This indicates a potential design consideration for "empty" CompactDoms.
+        // However, generate_anonymous_table_elements always returns at least 1 for the root node itself.
+        root: NodeId::ZERO,
     }
 }

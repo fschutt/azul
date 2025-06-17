@@ -1,5 +1,5 @@
 use azul_core::{dom::{NodeId, NodeType}, id_tree::{NodeDataContainerRef, NodeDataContainerRefMut}, styled_dom::StyledDom, ui_solver::{FormattingContext, IntrinsicSizes, PositionInfo, PositionInfoInner, PositionedRectangle}, window::{LogicalPosition, LogicalRect, LogicalSize}};
-use azul_css::{LayoutDebugMessage, LayoutWidth};
+use azul_css::{LayoutDebugMessage, LayoutWidth, LayoutBorderCollapse};
 
 use super::layout::{calculate_border, calculate_margin, calculate_padding, layout_node_recursive};
 
@@ -55,20 +55,21 @@ impl TableGrid {
         let mut max_columns = 0;
         let mut row_spans: Vec<Vec<usize>> = Vec::new();
         
-        // Process each row
-        for child_id in table_id.az_children(&node_hierarchy) {
-            match styled_dom.node_data.as_container()[child_id].get_node_type() {
+        // Process each row / row group
+        for semantic_node_id in find_semantic_table_rows_or_row_groups(table_id, styled_dom) {
+            match styled_dom.node_data.as_container()[semantic_node_id].get_node_type() {
                 NodeType::Tr => {
-                    process_row(child_id, &mut rows_count, &mut max_columns, &mut row_spans, styled_dom);
+                    process_row(semantic_node_id, &mut rows_count, &mut max_columns, &mut row_spans, styled_dom);
                 },
                 NodeType::THead | NodeType::TBody | NodeType::TFoot => {
-                    for row_id in child_id.az_children(&node_hierarchy) {
+                    for row_id in find_semantic_table_rows_or_row_groups(semantic_node_id, styled_dom) {
+                        // Ensure we only process Tr elements within row groups
                         if let NodeType::Tr = styled_dom.node_data.as_container()[row_id].get_node_type() {
                             process_row(row_id, &mut rows_count, &mut max_columns, &mut row_spans, styled_dom);
                         }
                     }
                 },
-                _ => {}
+                _ => {} // Anonymous blocks are handled by find_semantic_table_rows_or_row_groups
             }
         }
         
@@ -85,21 +86,22 @@ impl TableGrid {
         // Second pass: fill the grid with cell references and handle colspan/rowspan
         let mut current_row = 0;
         
-        for child_id in table_id.az_children(&node_hierarchy) {
-            match styled_dom.node_data.as_container()[child_id].get_node_type() {
+        for semantic_node_id in find_semantic_table_rows_or_row_groups(table_id, styled_dom) {
+            match styled_dom.node_data.as_container()[semantic_node_id].get_node_type() {
                 NodeType::Tr => {
-                    grid.add_row_cells(child_id, current_row, styled_dom);
+                    grid.add_row_cells(semantic_node_id, current_row, styled_dom);
                     current_row += 1;
                 },
                 NodeType::THead | NodeType::TBody | NodeType::TFoot => {
-                    for row_id in child_id.az_children(&node_hierarchy) {
+                    for row_id in find_semantic_table_rows_or_row_groups(semantic_node_id, styled_dom) {
+                        // Ensure we only process Tr elements within row groups
                         if let NodeType::Tr = styled_dom.node_data.as_container()[row_id].get_node_type() {
                             grid.add_row_cells(row_id, current_row, styled_dom);
                             current_row += 1;
                         }
                     }
                 },
-                _ => {}
+                _ => {} // Anonymous blocks are handled by find_semantic_table_rows_or_row_groups
             }
         }
         
@@ -114,13 +116,14 @@ impl TableGrid {
     
     /// Add cells from a row to the grid, handling colspan and rowspan
     fn add_row_cells(&mut self, row_id: NodeId, row_index: usize, styled_dom: &StyledDom) {
-        let node_hierarchy = styled_dom.node_hierarchy.as_container();
         let css_property_cache = styled_dom.get_css_property_cache();
         let mut col_index = 0;
         
-        for cell_id in row_id.az_children(&node_hierarchy) {
+        for cell_id_semantic in find_semantic_table_cells(row_id, styled_dom) {
+            // Ensure the found node is actually a Td or Th.
+            // This should be guaranteed by find_semantic_table_cells, but it's good practice to check.
             if matches!(
-                styled_dom.node_data.as_container()[cell_id].get_node_type(),
+                styled_dom.node_data.as_container()[cell_id_semantic].get_node_type(),
                 NodeType::Td | NodeType::Th
             ) {
                 // Skip cells that are already occupied by previous rowspan
@@ -133,17 +136,17 @@ impl TableGrid {
                 }
                 
                 // Get colspan and rowspan attributes
-                let node_data = &styled_dom.node_data.as_container()[cell_id];
-                let styled_node_state = &styled_dom.styled_nodes.as_container()[cell_id].state;
+                let node_data = &styled_dom.node_data.as_container()[cell_id_semantic];
+                let styled_node_state = &styled_dom.styled_nodes.as_container()[cell_id_semantic].state;
                 
                 let col_span = css_property_cache
-                    .get_colspan(node_data, &cell_id, styled_node_state)
+                    .get_colspan(node_data, &cell_id_semantic, styled_node_state)
                     .and_then(|cs| cs.get_property().copied())
                     .unwrap_or(1)
                     .max(1);
                 
                 let row_span = css_property_cache
-                    .get_rowspan(node_data, &cell_id, styled_node_state)
+                    .get_rowspan(node_data, &cell_id_semantic, styled_node_state)
                     .and_then(|rs| rs.get_property().copied())
                     .unwrap_or(1)
                     .max(1);
@@ -154,7 +157,7 @@ impl TableGrid {
                 
                 // Create the cell entry
                 let cell = TableCell {
-                    node_id: cell_id,
+                    node_id: cell_id_semantic,
                     row_span,
                     col_span,
                 };
@@ -333,7 +336,6 @@ fn process_row(
     row_spans: &mut Vec<Vec<usize>>,
     styled_dom: &StyledDom
 ) {
-    let node_hierarchy = styled_dom.node_hierarchy.as_container();
     let css_property_cache = styled_dom.get_css_property_cache();
     
     // Add any missing row span vectors
@@ -353,23 +355,24 @@ fn process_row(
     }
     
     // Count cells in this row
-    for cell_id in row_id.az_children(&node_hierarchy) {
+    for cell_id_semantic in find_semantic_table_cells(row_id, styled_dom) {
+        // Ensure the found node is actually a Td or Th.
         if matches!(
-            styled_dom.node_data.as_container()[cell_id].get_node_type(),
+            styled_dom.node_data.as_container()[cell_id_semantic].get_node_type(),
             NodeType::Td | NodeType::Th
         ) {
             // Get colspan and rowspan
-            let node_data = &styled_dom.node_data.as_container()[cell_id];
-            let styled_node_state = &styled_dom.styled_nodes.as_container()[cell_id].state;
+            let node_data = &styled_dom.node_data.as_container()[cell_id_semantic];
+            let styled_node_state = &styled_dom.styled_nodes.as_container()[cell_id_semantic].state;
             
             let col_span = css_property_cache
-                .get_colspan(node_data, &cell_id, styled_node_state)
+                .get_colspan(node_data, &cell_id_semantic, styled_node_state)
                 .and_then(|cs| cs.get_property().copied())
                 .unwrap_or(1)
                 .max(1);
             
             let row_span = css_property_cache
-                .get_rowspan(node_data, &cell_id, styled_node_state)
+                .get_rowspan(node_data, &cell_id_semantic, styled_node_state)
                 .and_then(|rs| rs.get_property().copied())
                 .unwrap_or(1)
                 .max(1);
@@ -415,6 +418,56 @@ fn process_row(
     
     // Move to next row
     *rows_count += 1;
+}
+
+/// Finds table cells (Td or Th), including those nested in anonymous blocks.
+fn find_semantic_table_cells(
+    row_node_id: NodeId,
+    styled_dom: &StyledDom,
+) -> Vec<NodeId> {
+    let mut result = Vec::new();
+    let node_hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data_container = styled_dom.node_data.as_container();
+
+    for child_id in row_node_id.az_children(&node_hierarchy) {
+        let child_node_data = &node_data_container[child_id];
+        match child_node_data.get_node_type() {
+            NodeType::Td | NodeType::Th => {
+                result.push(child_id);
+            }
+            _ => {
+                if child_node_data.is_anonymous() {
+                    result.extend(find_semantic_table_cells(child_id, styled_dom));
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Finds table rows or row groups, including those nested in anonymous blocks.
+fn find_semantic_table_rows_or_row_groups(
+    parent_node_id: NodeId,
+    styled_dom: &StyledDom,
+) -> Vec<NodeId> {
+    let mut result = Vec::new();
+    let node_hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data_container = styled_dom.node_data.as_container();
+
+    for child_id in parent_node_id.az_children(&node_hierarchy) {
+        let child_node_data = &node_data_container[child_id];
+        match child_node_data.get_node_type() {
+            NodeType::Tr | NodeType::THead | NodeType::TBody | NodeType::TFoot => {
+                result.push(child_id);
+            }
+            _ => {
+                if child_node_data.is_anonymous() {
+                    result.extend(find_semantic_table_rows_or_row_groups(child_id, styled_dom));
+                }
+            }
+        }
+    }
+    result
 }
 
 /// Handles table layout within the overall layout process
