@@ -10,6 +10,8 @@ extern crate core;
 #[cfg(feature = "parser")]
 pub mod parser;
 
+pub mod debug;
+
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -1135,4 +1137,74 @@ mod css;
 mod css_properties;
 mod print_css;
 
+pub mod properties {
+    pub mod display;
+    pub mod flex_direction;
+    pub mod float;
+    pub mod box_sizing;
+    pub mod width;
+    pub mod height;
+    pub mod min_width;
+    pub mod min_height;
+    pub mod max_width;
+    pub mod max_height;
+    pub mod position;
+    pub mod top;
+    pub mod left;
+    pub mod right;
+    pub mod bottom;
+    pub mod flex_wrap;
+    pub mod flex_grow;
+    pub mod flex_shrink;
+    pub mod justify_content;
+    pub mod align_items;
+    pub mod align_content;
+    pub mod background_content;
+
+    pub use super::display::{LayoutDisplay, LayoutDisplayValue, OptionLayoutDisplayValue};
+    pub use super::flex_direction::{LayoutFlexDirection, LayoutFlexDirectionValue, OptionLayoutFlexDirectionValue};
+    pub use super::float::{LayoutFloat, LayoutFloatValue, OptionLayoutFloatValue};
+    pub use super::box_sizing::{LayoutBoxSizing, LayoutBoxSizingValue, OptionLayoutBoxSizingValue};
+    pub use super::width::{LayoutWidth, LayoutWidthValue, OptionLayoutWidthValue};
+    pub use super::height::{LayoutHeight, LayoutHeightValue, OptionLayoutHeightValue};
+    pub use super::min_width::{LayoutMinWidth, LayoutMinWidthValue, OptionLayoutMinWidthValue};
+    pub use super::min_height::{LayoutMinHeight, LayoutMinHeightValue, OptionLayoutMinHeightValue};
+    pub use super::max_width::{LayoutMaxWidth, LayoutMaxWidthValue, OptionLayoutMaxWidthValue};
+    pub use super::max_height::{LayoutMaxHeight, LayoutMaxHeightValue, OptionLayoutMaxHeightValue};
+    pub use super::position::{LayoutPosition, LayoutPositionValue, OptionLayoutPositionValue};
+    pub use super::top::{LayoutTop, LayoutTopValue, OptionLayoutTopValue};
+    pub use super::left::{LayoutLeft, LayoutLeftValue, OptionLayoutLeftValue};
+    pub use super::right::{LayoutRight, LayoutRightValue, OptionLayoutRightValue};
+    pub use super::bottom::{LayoutBottom, LayoutBottomValue, OptionLayoutBottomValue};
+    pub use super::flex_wrap::{LayoutFlexWrap, LayoutFlexWrapValue, OptionLayoutFlexWrapValue};
+    pub use super::flex_grow::{LayoutFlexGrow, LayoutFlexGrowValue, OptionLayoutFlexGrowValue};
+    pub use super::flex_shrink::{LayoutFlexShrink, LayoutFlexShrinkValue, OptionLayoutFlexShrinkValue};
+    pub use super::justify_content::{LayoutJustifyContent, LayoutJustifyContentValue, OptionLayoutJustifyContentValue};
+    pub use super::align_items::{LayoutAlignItems, LayoutAlignItemsValue, OptionLayoutAlignItemsValue};
+    pub use super::align_content::{LayoutAlignContent, LayoutAlignContentValue, OptionLayoutAlignContentValue};
+    pub use super::background_content::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBackgroundContentVecValue, OptionStyleBackgroundContentVecValue};
+}
+
 pub use crate::{css::*, css_properties::*, print_css::*};
+#[cfg(feature = "parser")]
+pub use crate::parser::{
+    FormatAsCssValue, InvalidValueErr, CssPixelValueParseError, PercentageParseError,
+    CssColorParseError, CssParsingError,
+    // Also owned versions, as they are part of the public API of the error enums
+    InvalidValueErrOwned, CssPixelValueParseErrorOwned, CssColorParseErrorOwned,
+    CssParsingErrorOwned,
+    // Other specific error enums that might be useful if users match errors granularly
+    CssStyleBorderRadiusParseError, CssBorderParseError, CssShadowParseError,
+    CssImageParseError, CssStyleFontFamilyParseError, CssBackgroundParseError,
+    LayoutPaddingParseError, LayoutMarginParseError, FlexShrinkParseError, FlexGrowParseError,
+    CssBackgroundPositionParseError, CssStyleTransformParseError,
+    CssStyleTransformOriginParseError, CssStylePerspectiveOriginParseError, OpacityParseError,
+    CssScrollbarStyleParseError, CssStyleFilterParseError, CssStyleBlurParseError,
+    CssStyleColorMatrixParseError, CssStyleFilterOffsetParseError,
+    CssStyleCompositeFilterParseError, CssDirectionParseError, CssAngleValueParseError,
+    CssDirectionCornerParseError, ParenthesisParseError,
+};
+pub use debug::{clear_debug_logs, format_debug_logs};
+// css_debug_log is exported at crate root by macro_export in debug.rs
+// Also export items from the properties module for easier access if desired by the crate users
+pub use properties::*;
