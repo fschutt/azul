@@ -20,7 +20,7 @@ use crate::{
     LayoutTop, LayoutWidth, LinearColorStop, LinearGradient, NormalizedLinearColorStop,
     NormalizedRadialColorStop, OptionPercentageValue, PercentageValue, PixelValue,
     PixelValueNoPercent, RadialColorStop, RadialGradient, RadialGradientSize, ScrollbarStyle,
-    Shape, SizeMetric, StyleBackfaceVisibility, StyleBackgroundContent, StyleBackgroundContentVec,
+    Shape, SizeMetric, StyleBackfaceVisibility, /* StyleBackgroundContent, StyleBackgroundContentVec, */ // Removed to be explicitly imported
     StyleBackgroundPosition, StyleBackgroundPositionVec, StyleBackgroundRepeat,
     StyleBackgroundRepeatVec, StyleBackgroundSize, StyleBackgroundSizeVec, StyleBorderBottomColor,
     StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderBottomStyle,
@@ -32,6 +32,7 @@ use crate::{
     StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleTransformVec,
     StyleWhiteSpace, StyleWordSpacing,
 };
+use crate::properties::background_content::{StyleBackgroundContent, StyleBackgroundContentVec}; // Explicit import
 
 pub trait FormatAsCssValue {
     fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
@@ -140,16 +141,6 @@ macro_rules! multi_type_parser {
                 _ => Err(InvalidValueErr(input)),
             }
         }
-
-        impl FormatAsCssValue for $return {
-            fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                match self {
-                    $(
-                        $return::$enum_type => write!(f, $identifier_string),
-                    )+
-                }
-            }
-        }
     };
     ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => {
         multi_type_parser!($fn, stringify!($return), $return,
@@ -182,12 +173,6 @@ macro_rules! typed_pixel_value_parser {
         ///```
         pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
             parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
-        }
-
-        impl FormatAsCssValue for $return {
-            fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                self.inner.format_as_css_value(f)
-            }
         }
     };
     ($fn:ident, $return:ident) => {
