@@ -1280,30 +1280,30 @@ pub enum CssProperty {
     BackgroundRepeat(StyleBackgroundRepeatVecValue),
     OverflowX(LayoutOverflowValue),
     OverflowY(LayoutOverflowValue),
-    PaddingTop(LayoutPaddingTopValue),
-    PaddingLeft(LayoutPaddingLeftValue),
-    PaddingRight(LayoutPaddingRightValue),
-    PaddingBottom(LayoutPaddingBottomValue),
-    MarginTop(LayoutMarginTopValue),
-    MarginLeft(LayoutMarginLeftValue),
-    MarginRight(LayoutMarginRightValue),
-    MarginBottom(LayoutMarginBottomValue),
-    BorderTopLeftRadius(StyleBorderTopLeftRadiusValue),
-    BorderTopRightRadius(StyleBorderTopRightRadiusValue),
-    BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue),
-    BorderBottomRightRadius(StyleBorderBottomRightRadiusValue),
-    BorderTopColor(StyleBorderTopColorValue),
-    BorderRightColor(StyleBorderRightColorValue),
-    BorderLeftColor(StyleBorderLeftColorValue),
-    BorderBottomColor(StyleBorderBottomColorValue),
-    BorderTopStyle(StyleBorderTopStyleValue),
-    BorderRightStyle(StyleBorderRightStyleValue),
-    BorderLeftStyle(StyleBorderLeftStyleValue),
-    BorderBottomStyle(StyleBorderBottomStyleValue),
-    BorderTopWidth(LayoutBorderTopWidthValue),
-    BorderRightWidth(LayoutBorderRightWidthValue),
-    BorderLeftWidth(LayoutBorderLeftWidthValue),
-    BorderBottomWidth(LayoutBorderBottomWidthValue),
+    PaddingTop(crate::properties::padding_top::LayoutPaddingTopValue),
+    PaddingLeft(crate::properties::padding_left::LayoutPaddingLeftValue),
+    PaddingRight(crate::properties::padding_right::LayoutPaddingRightValue),
+    PaddingBottom(crate::properties::padding_bottom::LayoutPaddingBottomValue),
+    MarginTop(crate::properties::margin_top::LayoutMarginTopValue),
+    MarginLeft(crate::properties::margin_left::LayoutMarginLeftValue),
+    MarginRight(crate::properties::margin_right::LayoutMarginRightValue),
+    MarginBottom(crate::properties::margin_bottom::LayoutMarginBottomValue),
+    BorderTopLeftRadius(crate::properties::border_top_left_radius::StyleBorderTopLeftRadiusValue),
+    BorderTopRightRadius(crate::properties::border_top_right_radius::StyleBorderTopRightRadiusValue),
+    BorderBottomLeftRadius(crate::properties::border_bottom_left_radius::StyleBorderBottomLeftRadiusValue),
+    BorderBottomRightRadius(crate::properties::border_bottom_right_radius::StyleBorderBottomRightRadiusValue),
+    BorderTopColor(crate::properties::border_top_color::StyleBorderTopColorValue),
+    BorderRightColor(crate::properties::border_right_color::StyleBorderRightColorValue),
+    BorderLeftColor(crate::properties::border_left_color::StyleBorderLeftColorValue),
+    BorderBottomColor(crate::properties::border_bottom_color::StyleBorderBottomColorValue),
+    BorderTopStyle(crate::properties::border_top_style::StyleBorderTopStyleValue),
+    BorderRightStyle(crate::properties::border_right_style::StyleBorderRightStyleValue),
+    BorderLeftStyle(crate::properties::border_left_style::StyleBorderLeftStyleValue),
+    BorderBottomStyle(crate::properties::border_bottom_style::StyleBorderBottomStyleValue),
+    BorderTopWidth(crate::properties::border_top_width::LayoutBorderTopWidthValue),
+    BorderRightWidth(crate::properties::border_right_width::LayoutBorderRightWidthValue),
+    BorderLeftWidth(crate::properties::border_left_width::LayoutBorderLeftWidthValue),
+    BorderBottomWidth(crate::properties::border_bottom_width::LayoutBorderBottomWidthValue),
     BoxShadowLeft(StyleBoxShadowValue),
     BoxShadowRight(StyleBoxShadowValue),
     BoxShadowTop(StyleBoxShadowValue),
@@ -1369,30 +1369,30 @@ macro_rules! css_property_from_type {
             CssPropertyType::BackgroundRepeat => CssProperty::BackgroundRepeat(StyleBackgroundRepeatVecValue::$content_type),
             CssPropertyType::OverflowX => CssProperty::OverflowX(LayoutOverflowValue::$content_type),
             CssPropertyType::OverflowY => CssProperty::OverflowY(LayoutOverflowValue::$content_type),
-            CssPropertyType::PaddingTop => CssProperty::PaddingTop(LayoutPaddingTopValue::$content_type),
-            CssPropertyType::PaddingLeft => CssProperty::PaddingLeft(LayoutPaddingLeftValue::$content_type),
-            CssPropertyType::PaddingRight => CssProperty::PaddingRight(LayoutPaddingRightValue::$content_type),
-            CssPropertyType::PaddingBottom => CssProperty::PaddingBottom(LayoutPaddingBottomValue::$content_type),
-            CssPropertyType::MarginTop => CssProperty::MarginTop(LayoutMarginTopValue::$content_type),
-            CssPropertyType::MarginLeft => CssProperty::MarginLeft(LayoutMarginLeftValue::$content_type),
-            CssPropertyType::MarginRight => CssProperty::MarginRight(LayoutMarginRightValue::$content_type),
-            CssPropertyType::MarginBottom => CssProperty::MarginBottom(LayoutMarginBottomValue::$content_type),
-            CssPropertyType::BorderTopLeftRadius => CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadiusValue::$content_type),
-            CssPropertyType::BorderTopRightRadius => CssProperty::BorderTopRightRadius(StyleBorderTopRightRadiusValue::$content_type),
-            CssPropertyType::BorderBottomLeftRadius => CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue::$content_type),
-            CssPropertyType::BorderBottomRightRadius => CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadiusValue::$content_type),
-            CssPropertyType::BorderTopColor => CssProperty::BorderTopColor(StyleBorderTopColorValue::$content_type),
-            CssPropertyType::BorderRightColor => CssProperty::BorderRightColor(StyleBorderRightColorValue::$content_type),
-            CssPropertyType::BorderLeftColor => CssProperty::BorderLeftColor(StyleBorderLeftColorValue::$content_type),
-            CssPropertyType::BorderBottomColor => CssProperty::BorderBottomColor(StyleBorderBottomColorValue::$content_type),
-            CssPropertyType::BorderTopStyle => CssProperty::BorderTopStyle(StyleBorderTopStyleValue::$content_type),
-            CssPropertyType::BorderRightStyle => CssProperty::BorderRightStyle(StyleBorderRightStyleValue::$content_type),
-            CssPropertyType::BorderLeftStyle => CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::$content_type),
-            CssPropertyType::BorderBottomStyle => CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::$content_type),
-            CssPropertyType::BorderTopWidth => CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::$content_type),
-            CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::$content_type),
-            CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::$content_type),
-            CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::$content_type),
+            CssPropertyType::PaddingTop => CssProperty::PaddingTop(crate::properties::padding_top::LayoutPaddingTopValue::$content_type),
+            CssPropertyType::PaddingLeft => CssProperty::PaddingLeft(crate::properties::padding_left::LayoutPaddingLeftValue::$content_type),
+            CssPropertyType::PaddingRight => CssProperty::PaddingRight(crate::properties::padding_right::LayoutPaddingRightValue::$content_type),
+            CssPropertyType::PaddingBottom => CssProperty::PaddingBottom(crate::properties::padding_bottom::LayoutPaddingBottomValue::$content_type),
+            CssPropertyType::MarginTop => CssProperty::MarginTop(crate::properties::margin_top::LayoutMarginTopValue::$content_type),
+            CssPropertyType::MarginLeft => CssProperty::MarginLeft(crate::properties::margin_left::LayoutMarginLeftValue::$content_type),
+            CssPropertyType::MarginRight => CssProperty::MarginRight(crate::properties::margin_right::LayoutMarginRightValue::$content_type),
+            CssPropertyType::MarginBottom => CssProperty::MarginBottom(crate::properties::margin_bottom::LayoutMarginBottomValue::$content_type),
+            CssPropertyType::BorderTopLeftRadius => CssProperty::BorderTopLeftRadius(crate::properties::border_top_left_radius::StyleBorderTopLeftRadiusValue::$content_type),
+            CssPropertyType::BorderTopRightRadius => CssProperty::BorderTopRightRadius(crate::properties::border_top_right_radius::StyleBorderTopRightRadiusValue::$content_type),
+            CssPropertyType::BorderBottomLeftRadius => CssProperty::BorderBottomLeftRadius(crate::properties::border_bottom_left_radius::StyleBorderBottomLeftRadiusValue::$content_type),
+            CssPropertyType::BorderBottomRightRadius => CssProperty::BorderBottomRightRadius(crate::properties::border_bottom_right_radius::StyleBorderBottomRightRadiusValue::$content_type),
+            CssPropertyType::BorderTopColor => CssProperty::BorderTopColor(crate::properties::border_top_color::StyleBorderTopColorValue::$content_type),
+            CssPropertyType::BorderRightColor => CssProperty::BorderRightColor(crate::properties::border_right_color::StyleBorderRightColorValue::$content_type),
+            CssPropertyType::BorderLeftColor => CssProperty::BorderLeftColor(crate::properties::border_left_color::StyleBorderLeftColorValue::$content_type),
+            CssPropertyType::BorderBottomColor => CssProperty::BorderBottomColor(crate::properties::border_bottom_color::StyleBorderBottomColorValue::$content_type),
+            CssPropertyType::BorderTopStyle => CssProperty::BorderTopStyle(crate::properties::border_top_style::StyleBorderTopStyleValue::$content_type),
+            CssPropertyType::BorderRightStyle => CssProperty::BorderRightStyle(crate::properties::border_right_style::StyleBorderRightStyleValue::$content_type),
+            CssPropertyType::BorderLeftStyle => CssProperty::BorderLeftStyle(crate::properties::border_left_style::StyleBorderLeftStyleValue::$content_type),
+            CssPropertyType::BorderBottomStyle => CssProperty::BorderBottomStyle(crate::properties::border_bottom_style::StyleBorderBottomStyleValue::$content_type),
+            CssPropertyType::BorderTopWidth => CssProperty::BorderTopWidth(crate::properties::border_top_width::LayoutBorderTopWidthValue::$content_type),
+            CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(crate::properties::border_right_width::LayoutBorderRightWidthValue::$content_type),
+            CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(crate::properties::border_left_width::LayoutBorderLeftWidthValue::$content_type),
+            CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(crate::properties::border_bottom_width::LayoutBorderBottomWidthValue::$content_type),
             CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(StyleBoxShadowValue::$content_type),
             CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(StyleBoxShadowValue::$content_type),
             CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(StyleBoxShadowValue::$content_type),
@@ -1479,30 +1479,30 @@ impl CssProperty {
     pub const fn const_background_repeat(input: StyleBackgroundRepeatVec) -> Self { CssProperty::BackgroundRepeat(CssPropertyValue::Exact(input)) }
     pub const fn const_overflow_x(input: LayoutOverflow) -> Self { CssProperty::OverflowX(CssPropertyValue::Exact(input)) }
     pub const fn const_overflow_y(input: LayoutOverflow) -> Self { CssProperty::OverflowY(CssPropertyValue::Exact(input)) }
-    pub const fn const_padding_top(input: LayoutPaddingTop) -> Self { CssProperty::PaddingTop(CssPropertyValue::Exact(input)) }
-    pub const fn const_padding_left(input: LayoutPaddingLeft) -> Self { CssProperty::PaddingLeft(CssPropertyValue::Exact(input)) }
-    pub const fn const_padding_right(input: LayoutPaddingRight) -> Self { CssProperty::PaddingRight(CssPropertyValue::Exact(input)) }
-    pub const fn const_padding_bottom(input: LayoutPaddingBottom) -> Self { CssProperty::PaddingBottom(CssPropertyValue::Exact(input)) }
-    pub const fn const_margin_top(input: LayoutMarginTop) -> Self { CssProperty::MarginTop(CssPropertyValue::Exact(input)) }
-    pub const fn const_margin_left(input: LayoutMarginLeft) -> Self { CssProperty::MarginLeft(CssPropertyValue::Exact(input)) }
-    pub const fn const_margin_right(input: LayoutMarginRight) -> Self { CssProperty::MarginRight(CssPropertyValue::Exact(input)) }
-    pub const fn const_margin_bottom(input: LayoutMarginBottom) -> Self { CssProperty::MarginBottom(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self { CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_top_right_radius(input: StyleBorderTopRightRadius) -> Self { CssProperty::BorderTopRightRadius(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self { CssProperty::BorderBottomLeftRadius(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self { CssProperty::BorderBottomRightRadius(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_top_color(input: StyleBorderTopColor) -> Self { CssProperty::BorderTopColor(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_right_color(input: StyleBorderRightColor) -> Self { CssProperty::BorderRightColor(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_left_color(input: StyleBorderLeftColor) -> Self { CssProperty::BorderLeftColor(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_bottom_color(input: StyleBorderBottomColor) -> Self { CssProperty::BorderBottomColor(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_top_style(input: StyleBorderTopStyle) -> Self { CssProperty::BorderTopStyle(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_right_style(input: StyleBorderRightStyle) -> Self { CssProperty::BorderRightStyle(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_left_style(input: StyleBorderLeftStyle) -> Self { CssProperty::BorderLeftStyle(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_bottom_style(input: StyleBorderBottomStyle) -> Self { CssProperty::BorderBottomStyle(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_top_width(input: LayoutBorderTopWidth) -> Self { CssProperty::BorderTopWidth(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_right_width(input: LayoutBorderRightWidth) -> Self { CssProperty::BorderRightWidth(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_left_width(input: LayoutBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(CssPropertyValue::Exact(input)) }
-    pub const fn const_border_bottom_width(input: LayoutBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(CssPropertyValue::Exact(input)) }
+    pub const fn const_padding_top(input: crate::properties::padding_top::LayoutPaddingTop) -> Self { CssProperty::PaddingTop(CssPropertyValue::Exact(input)) }
+    pub const fn const_padding_left(input: crate::properties::padding_left::LayoutPaddingLeft) -> Self { CssProperty::PaddingLeft(CssPropertyValue::Exact(input)) }
+    pub const fn const_padding_right(input: crate::properties::padding_right::LayoutPaddingRight) -> Self { CssProperty::PaddingRight(CssPropertyValue::Exact(input)) }
+    pub const fn const_padding_bottom(input: crate::properties::padding_bottom::LayoutPaddingBottom) -> Self { CssProperty::PaddingBottom(CssPropertyValue::Exact(input)) }
+    pub const fn const_margin_top(input: crate::properties::margin_top::LayoutMarginTop) -> Self { CssProperty::MarginTop(CssPropertyValue::Exact(input)) }
+    pub const fn const_margin_left(input: crate::properties::margin_left::LayoutMarginLeft) -> Self { CssProperty::MarginLeft(CssPropertyValue::Exact(input)) }
+    pub const fn const_margin_right(input: crate::properties::margin_right::LayoutMarginRight) -> Self { CssProperty::MarginRight(CssPropertyValue::Exact(input)) }
+    pub const fn const_margin_bottom(input: crate::properties::margin_bottom::LayoutMarginBottom) -> Self { CssProperty::MarginBottom(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_top_left_radius(input: crate::properties::border_top_left_radius::StyleBorderTopLeftRadius) -> Self { CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_top_right_radius(input: crate::properties::border_top_right_radius::StyleBorderTopRightRadius) -> Self { CssProperty::BorderTopRightRadius(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_bottom_left_radius(input: crate::properties::border_bottom_left_radius::StyleBorderBottomLeftRadius) -> Self { CssProperty::BorderBottomLeftRadius(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_bottom_right_radius(input: crate::properties::border_bottom_right_radius::StyleBorderBottomRightRadius) -> Self { CssProperty::BorderBottomRightRadius(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_top_color(input: crate::properties::border_top_color::StyleBorderTopColor) -> Self { CssProperty::BorderTopColor(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_right_color(input: crate::properties::border_right_color::StyleBorderRightColor) -> Self { CssProperty::BorderRightColor(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_left_color(input: crate::properties::border_left_color::StyleBorderLeftColor) -> Self { CssProperty::BorderLeftColor(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_bottom_color(input: crate::properties::border_bottom_color::StyleBorderBottomColor) -> Self { CssProperty::BorderBottomColor(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_top_style(input: crate::properties::border_top_style::StyleBorderTopStyle) -> Self { CssProperty::BorderTopStyle(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_right_style(input: crate::properties::border_right_style::StyleBorderRightStyle) -> Self { CssProperty::BorderRightStyle(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_left_style(input: crate::properties::border_left_style::StyleBorderLeftStyle) -> Self { CssProperty::BorderLeftStyle(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_bottom_style(input: crate::properties::border_bottom_style::StyleBorderBottomStyle) -> Self { CssProperty::BorderBottomStyle(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_top_width(input: crate::properties::border_top_width::LayoutBorderTopWidth) -> Self { CssProperty::BorderTopWidth(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_right_width(input: crate::properties::border_right_width::LayoutBorderRightWidth) -> Self { CssProperty::BorderRightWidth(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_left_width(input: crate::properties::border_left_width::LayoutBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(CssPropertyValue::Exact(input)) }
+    pub const fn const_border_bottom_width(input: crate::properties::border_bottom_width::LayoutBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(CssPropertyValue::Exact(input)) }
     pub const fn const_box_shadow_left(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowLeft(CssPropertyValue::Exact(input)) }
     pub const fn const_box_shadow_right(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowRight(CssPropertyValue::Exact(input)) }
     pub const fn const_box_shadow_top(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowTop(CssPropertyValue::Exact(input)) }
@@ -1530,18 +1530,18 @@ impl CssProperty {
     pub const fn as_box_shadow_right(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowRight(f) => Some(f), _ => None } }
     pub const fn as_box_shadow_top(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowTop(f) => Some(f), _ => None } }
     pub const fn as_box_shadow_bottom(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowBottom(f) => Some(f), _ => None } }
-    pub const fn as_border_top_color(&self) -> Option<&StyleBorderTopColorValue> { match self { CssProperty::BorderTopColor(f) => Some(f), _ => None } }
-    pub const fn as_border_left_color(&self) -> Option<&StyleBorderLeftColorValue> { match self { CssProperty::BorderLeftColor(f) => Some(f), _ => None } }
-    pub const fn as_border_right_color(&self) -> Option<&StyleBorderRightColorValue> { match self { CssProperty::BorderRightColor(f) => Some(f), _ => None } }
-    pub const fn as_border_bottom_color(&self) -> Option<&StyleBorderBottomColorValue> { match self { CssProperty::BorderBottomColor(f) => Some(f), _ => None } }
-    pub const fn as_border_top_style(&self) -> Option<&StyleBorderTopStyleValue> { match self { CssProperty::BorderTopStyle(f) => Some(f), _ => None } }
-    pub const fn as_border_left_style(&self) -> Option<&StyleBorderLeftStyleValue> { match self { CssProperty::BorderLeftStyle(f) => Some(f), _ => None } }
-    pub const fn as_border_right_style(&self) -> Option<&StyleBorderRightStyleValue> { match self { CssProperty::BorderRightStyle(f) => Some(f), _ => None } }
-    pub const fn as_border_bottom_style(&self) -> Option<&StyleBorderBottomStyleValue> { match self { CssProperty::BorderBottomStyle(f) => Some(f), _ => None } }
-    pub const fn as_border_top_left_radius(&self) -> Option<&StyleBorderTopLeftRadiusValue> { match self { CssProperty::BorderTopLeftRadius(f) => Some(f), _ => None } }
-    pub const fn as_border_top_right_radius(&self) -> Option<&StyleBorderTopRightRadiusValue> { match self { CssProperty::BorderTopRightRadius(f) => Some(f), _ => None } }
-    pub const fn as_border_bottom_left_radius(&self) -> Option<&StyleBorderBottomLeftRadiusValue> { match self { CssProperty::BorderBottomLeftRadius(f) => Some(f), _ => None } }
-    pub const fn as_border_bottom_right_radius(&self) -> Option<&StyleBorderBottomRightRadiusValue> { match self { CssProperty::BorderBottomRightRadius(f) => Some(f), _ => None } }
+    pub const fn as_border_top_color(&self) -> Option<&crate::properties::border_top_color::StyleBorderTopColorValue> { match self { CssProperty::BorderTopColor(f) => Some(f), _ => None } }
+    pub const fn as_border_left_color(&self) -> Option<&crate::properties::border_left_color::StyleBorderLeftColorValue> { match self { CssProperty::BorderLeftColor(f) => Some(f), _ => None } }
+    pub const fn as_border_right_color(&self) -> Option<&crate::properties::border_right_color::StyleBorderRightColorValue> { match self { CssProperty::BorderRightColor(f) => Some(f), _ => None } }
+    pub const fn as_border_bottom_color(&self) -> Option<&crate::properties::border_bottom_color::StyleBorderBottomColorValue> { match self { CssProperty::BorderBottomColor(f) => Some(f), _ => None } }
+    pub const fn as_border_top_style(&self) -> Option<&crate::properties::border_top_style::StyleBorderTopStyleValue> { match self { CssProperty::BorderTopStyle(f) => Some(f), _ => None } }
+    pub const fn as_border_left_style(&self) -> Option<&crate::properties::border_left_style::StyleBorderLeftStyleValue> { match self { CssProperty::BorderLeftStyle(f) => Some(f), _ => None } }
+    pub const fn as_border_right_style(&self) -> Option<&crate::properties::border_right_style::StyleBorderRightStyleValue> { match self { CssProperty::BorderRightStyle(f) => Some(f), _ => None } }
+    pub const fn as_border_bottom_style(&self) -> Option<&crate::properties::border_bottom_style::StyleBorderBottomStyleValue> { match self { CssProperty::BorderBottomStyle(f) => Some(f), _ => None } }
+    pub const fn as_border_top_left_radius(&self) -> Option<&crate::properties::border_top_left_radius::StyleBorderTopLeftRadiusValue> { match self { CssProperty::BorderTopLeftRadius(f) => Some(f), _ => None } }
+    pub const fn as_border_top_right_radius(&self) -> Option<&crate::properties::border_top_right_radius::StyleBorderTopRightRadiusValue> { match self { CssProperty::BorderTopRightRadius(f) => Some(f), _ => None } }
+    pub const fn as_border_bottom_left_radius(&self) -> Option<&crate::properties::border_bottom_left_radius::StyleBorderBottomLeftRadiusValue> { match self { CssProperty::BorderBottomLeftRadius(f) => Some(f), _ => None } }
+    pub const fn as_border_bottom_right_radius(&self) -> Option<&crate::properties::border_bottom_right_radius::StyleBorderBottomRightRadiusValue> { match self { CssProperty::BorderBottomRightRadius(f) => Some(f), _ => None } }
     pub const fn as_opacity(&self) -> Option<&StyleOpacityValue> { match self { CssProperty::Opacity(f) => Some(f), _ => None } }
     pub const fn as_transform(&self) -> Option<&StyleTransformVecValue> { match self { CssProperty::Transform(f) => Some(f), _ => None } }
     pub const fn as_transform_origin(&self) -> Option<&StyleTransformOriginValue> { match self { CssProperty::TransformOrigin(f) => Some(f), _ => None } }
@@ -1565,18 +1565,18 @@ impl CssProperty {
     pub const fn as_bottom(&self) -> Option<&crate::properties::bottom::LayoutBottomValue> { match self { CssProperty::Bottom(f) => Some(f), _ => None } }
     pub const fn as_right(&self) -> Option<&crate::properties::right::LayoutRightValue> { match self { CssProperty::Right(f) => Some(f), _ => None } }
     pub const fn as_left(&self) -> Option<&crate::properties::left::LayoutLeftValue> { match self { CssProperty::Left(f) => Some(f), _ => None } }
-    pub const fn as_padding_top(&self) -> Option<&LayoutPaddingTopValue> { match self { CssProperty::PaddingTop(f) => Some(f), _ => None } }
-    pub const fn as_padding_bottom(&self) -> Option<&LayoutPaddingBottomValue> { match self { CssProperty::PaddingBottom(f) => Some(f), _ => None } }
-    pub const fn as_padding_left(&self) -> Option<&LayoutPaddingLeftValue> { match self { CssProperty::PaddingLeft(f) => Some(f), _ => None } }
-    pub const fn as_padding_right(&self) -> Option<&LayoutPaddingRightValue> { match self { CssProperty::PaddingRight(f) => Some(f), _ => None } }
-    pub const fn as_margin_top(&self) -> Option<&LayoutMarginTopValue> { match self { CssProperty::MarginTop(f) => Some(f), _ => None } }
-    pub const fn as_margin_bottom(&self) -> Option<&LayoutMarginBottomValue> { match self { CssProperty::MarginBottom(f) => Some(f), _ => None } }
-    pub const fn as_margin_left(&self) -> Option<&LayoutMarginLeftValue> { match self { CssProperty::MarginLeft(f) => Some(f), _ => None } }
-    pub const fn as_margin_right(&self) -> Option<&LayoutMarginRightValue> { match self { CssProperty::MarginRight(f) => Some(f), _ => None } }
-    pub const fn as_border_top_width(&self) -> Option<&LayoutBorderTopWidthValue> { match self { CssProperty::BorderTopWidth(f) => Some(f), _ => None } }
-    pub const fn as_border_left_width(&self) -> Option<&LayoutBorderLeftWidthValue> { match self { CssProperty::BorderLeftWidth(f) => Some(f), _ => None } }
-    pub const fn as_border_right_width(&self) -> Option<&LayoutBorderRightWidthValue> { match self { CssProperty::BorderRightWidth(f) => Some(f), _ => None } }
-    pub const fn as_border_bottom_width(&self) -> Option<&LayoutBorderBottomWidthValue> { match self { CssProperty::BorderBottomWidth(f) => Some(f), _ => None } }
+    pub const fn as_padding_top(&self) -> Option<&crate::properties::padding_top::LayoutPaddingTopValue> { match self { CssProperty::PaddingTop(f) => Some(f), _ => None } }
+    pub const fn as_padding_bottom(&self) -> Option<&crate::properties::padding_bottom::LayoutPaddingBottomValue> { match self { CssProperty::PaddingBottom(f) => Some(f), _ => None } }
+    pub const fn as_padding_left(&self) -> Option<&crate::properties::padding_left::LayoutPaddingLeftValue> { match self { CssProperty::PaddingLeft(f) => Some(f), _ => None } }
+    pub const fn as_padding_right(&self) -> Option<&crate::properties::padding_right::LayoutPaddingRightValue> { match self { CssProperty::PaddingRight(f) => Some(f), _ => None } }
+    pub const fn as_margin_top(&self) -> Option<&crate::properties::margin_top::LayoutMarginTopValue> { match self { CssProperty::MarginTop(f) => Some(f), _ => None } }
+    pub const fn as_margin_bottom(&self) -> Option<&crate::properties::margin_bottom::LayoutMarginBottomValue> { match self { CssProperty::MarginBottom(f) => Some(f), _ => None } }
+    pub const fn as_margin_left(&self) -> Option<&crate::properties::margin_left::LayoutMarginLeftValue> { match self { CssProperty::MarginLeft(f) => Some(f), _ => None } }
+    pub const fn as_margin_right(&self) -> Option<&crate::properties::margin_right::LayoutMarginRightValue> { match self { CssProperty::MarginRight(f) => Some(f), _ => None } }
+    pub const fn as_border_top_width(&self) -> Option<&crate::properties::border_top_width::LayoutBorderTopWidthValue> { match self { CssProperty::BorderTopWidth(f) => Some(f), _ => None } }
+    pub const fn as_border_left_width(&self) -> Option<&crate::properties::border_left_width::LayoutBorderLeftWidthValue> { match self { CssProperty::BorderLeftWidth(f) => Some(f), _ => None } }
+    pub const fn as_border_right_width(&self) -> Option<&crate::properties::border_right_width::LayoutBorderRightWidthValue> { match self { CssProperty::BorderRightWidth(f) => Some(f), _ => None } }
+    pub const fn as_border_bottom_width(&self) -> Option<&crate::properties::border_bottom_width::LayoutBorderBottomWidthValue> { match self { CssProperty::BorderBottomWidth(f) => Some(f), _ => None } }
     pub const fn as_overflow_x(&self) -> Option<&LayoutOverflowValue> { match self { CssProperty::OverflowX(f) => Some(f), _ => None } }
     pub const fn as_overflow_y(&self) -> Option<&LayoutOverflowValue> { match self { CssProperty::OverflowY(f) => Some(f), _ => None } }
     pub const fn as_flex_direction(&self) -> Option<&crate::properties::flex_direction::LayoutFlexDirectionValue> { match self { CssProperty::FlexDirection(f) => Some(f), _ => None } }
@@ -1642,30 +1642,30 @@ impl_from_css_prop!(StyleBackgroundContentVec, CssProperty::BackgroundContent);
 impl_from_css_prop!(StyleBackgroundPositionVec, CssProperty::BackgroundPosition);
 impl_from_css_prop!(StyleBackgroundSizeVec, CssProperty::BackgroundSize);
 impl_from_css_prop!(StyleBackgroundRepeatVec, CssProperty::BackgroundRepeat);
-impl_from_css_prop!(LayoutPaddingTop, CssProperty::PaddingTop);
-impl_from_css_prop!(LayoutPaddingLeft, CssProperty::PaddingLeft);
-impl_from_css_prop!(LayoutPaddingRight, CssProperty::PaddingRight);
-impl_from_css_prop!(LayoutPaddingBottom, CssProperty::PaddingBottom);
-impl_from_css_prop!(LayoutMarginTop, CssProperty::MarginTop);
-impl_from_css_prop!(LayoutMarginLeft, CssProperty::MarginLeft);
-impl_from_css_prop!(LayoutMarginRight, CssProperty::MarginRight);
-impl_from_css_prop!(LayoutMarginBottom, CssProperty::MarginBottom);
-impl_from_css_prop!(StyleBorderTopLeftRadius, CssProperty::BorderTopLeftRadius);
-impl_from_css_prop!(StyleBorderTopRightRadius, CssProperty::BorderTopRightRadius);
-impl_from_css_prop!(StyleBorderBottomLeftRadius, CssProperty::BorderBottomLeftRadius);
-impl_from_css_prop!(StyleBorderBottomRightRadius, CssProperty::BorderBottomRightRadius);
-impl_from_css_prop!(StyleBorderTopColor, CssProperty::BorderTopColor);
-impl_from_css_prop!(StyleBorderRightColor, CssProperty::BorderRightColor);
-impl_from_css_prop!(StyleBorderLeftColor, CssProperty::BorderLeftColor);
-impl_from_css_prop!(StyleBorderBottomColor, CssProperty::BorderBottomColor);
-impl_from_css_prop!(StyleBorderTopStyle, CssProperty::BorderTopStyle);
-impl_from_css_prop!(StyleBorderRightStyle, CssProperty::BorderRightStyle);
-impl_from_css_prop!(StyleBorderLeftStyle, CssProperty::BorderLeftStyle);
-impl_from_css_prop!(StyleBorderBottomStyle, CssProperty::BorderBottomStyle);
-impl_from_css_prop!(LayoutBorderTopWidth, CssProperty::BorderTopWidth);
-impl_from_css_prop!(LayoutBorderRightWidth, CssProperty::BorderRightWidth);
-impl_from_css_prop!(LayoutBorderLeftWidth, CssProperty::BorderLeftWidth);
-impl_from_css_prop!(LayoutBorderBottomWidth, CssProperty::BorderBottomWidth);
+impl_from_css_prop!(crate::properties::padding_top::LayoutPaddingTop, CssProperty::PaddingTop);
+impl_from_css_prop!(crate::properties::padding_left::LayoutPaddingLeft, CssProperty::PaddingLeft);
+impl_from_css_prop!(crate::properties::padding_right::LayoutPaddingRight, CssProperty::PaddingRight);
+impl_from_css_prop!(crate::properties::padding_bottom::LayoutPaddingBottom, CssProperty::PaddingBottom);
+impl_from_css_prop!(crate::properties::margin_top::LayoutMarginTop, CssProperty::MarginTop);
+impl_from_css_prop!(crate::properties::margin_left::LayoutMarginLeft, CssProperty::MarginLeft);
+impl_from_css_prop!(crate::properties::margin_right::LayoutMarginRight, CssProperty::MarginRight);
+impl_from_css_prop!(crate::properties::margin_bottom::LayoutMarginBottom, CssProperty::MarginBottom);
+impl_from_css_prop!(crate::properties::border_top_left_radius::StyleBorderTopLeftRadius, CssProperty::BorderTopLeftRadius);
+impl_from_css_prop!(crate::properties::border_top_right_radius::StyleBorderTopRightRadius, CssProperty::BorderTopRightRadius);
+impl_from_css_prop!(crate::properties::border_bottom_left_radius::StyleBorderBottomLeftRadius, CssProperty::BorderBottomLeftRadius);
+impl_from_css_prop!(crate::properties::border_bottom_right_radius::StyleBorderBottomRightRadius, CssProperty::BorderBottomRightRadius);
+impl_from_css_prop!(crate::properties::border_top_color::StyleBorderTopColor, CssProperty::BorderTopColor);
+impl_from_css_prop!(crate::properties::border_right_color::StyleBorderRightColor, CssProperty::BorderRightColor);
+impl_from_css_prop!(crate::properties::border_left_color::StyleBorderLeftColor, CssProperty::BorderLeftColor);
+impl_from_css_prop!(crate::properties::border_bottom_color::StyleBorderBottomColor, CssProperty::BorderBottomColor);
+impl_from_css_prop!(crate::properties::border_top_style::StyleBorderTopStyle, CssProperty::BorderTopStyle);
+impl_from_css_prop!(crate::properties::border_right_style::StyleBorderRightStyle, CssProperty::BorderRightStyle);
+impl_from_css_prop!(crate::properties::border_left_style::StyleBorderLeftStyle, CssProperty::BorderLeftStyle);
+impl_from_css_prop!(crate::properties::border_bottom_style::StyleBorderBottomStyle, CssProperty::BorderBottomStyle);
+impl_from_css_prop!(crate::properties::border_top_width::LayoutBorderTopWidth, CssProperty::BorderTopWidth);
+impl_from_css_prop!(crate::properties::border_right_width::LayoutBorderRightWidth, CssProperty::BorderRightWidth);
+impl_from_css_prop!(crate::properties::border_left_width::LayoutBorderLeftWidth, CssProperty::BorderLeftWidth);
+impl_from_css_prop!(crate::properties::border_bottom_width::LayoutBorderBottomWidth, CssProperty::BorderBottomWidth);
 impl_from_css_prop!(ScrollbarStyle, CssProperty::ScrollbarStyle);
 impl_from_css_prop!(StyleOpacity, CssProperty::Opacity);
 impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
@@ -1901,53 +1901,21 @@ impl Default for StyleBackgroundRepeat { fn default() -> Self { StyleBackgroundR
 derive_debug_zero!(StyleTextColor); derive_display_zero!(StyleTextColor);
 impl StyleTextColor { pub fn interpolate(&self, other: &Self, t: f32) -> Self { Self { inner: self.inner.interpolate(&other.inner, t) } } }
 
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderTopLeftRadius { pub inner: PixelValue }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderBottomLeftRadius { pub inner: PixelValue }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderTopRightRadius { pub inner: PixelValue }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderBottomRightRadius { pub inner: PixelValue }
-impl_pixel_value!(StyleBorderTopLeftRadius); impl_pixel_value!(StyleBorderBottomLeftRadius); impl_pixel_value!(StyleBorderTopRightRadius); impl_pixel_value!(StyleBorderBottomRightRadius);
-
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct LayoutBorderTopWidth { pub inner: PixelValue }
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct LayoutBorderLeftWidth { pub inner: PixelValue }
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct LayoutBorderRightWidth { pub inner: PixelValue }
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct LayoutBorderBottomWidth { pub inner: PixelValue }
 impl_pixel_value!(LayoutBorderTopWidth); impl_pixel_value!(LayoutBorderLeftWidth); impl_pixel_value!(LayoutBorderRightWidth); impl_pixel_value!(LayoutBorderBottomWidth);
 
-impl CssPropertyValue<StyleBorderTopLeftRadius> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
-impl CssPropertyValue<StyleBorderTopRightRadius> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
-impl CssPropertyValue<StyleBorderBottomLeftRadius> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
-impl CssPropertyValue<StyleBorderBottomRightRadius> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
 impl CssPropertyValue<LayoutBorderTopWidth> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
 impl CssPropertyValue<LayoutBorderRightWidth> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
 impl CssPropertyValue<LayoutBorderBottomWidth> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
 impl CssPropertyValue<LayoutBorderLeftWidth> { pub fn scale_for_dpi(&mut self, scale_factor: f32) { if let CssPropertyValue::Exact(s) = self { s.scale_for_dpi(scale_factor); } } }
 
-impl StyleBorderTopLeftRadius { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
-impl StyleBorderTopRightRadius { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
-impl StyleBorderBottomLeftRadius { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
-impl StyleBorderBottomRightRadius { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
 impl LayoutBorderTopWidth { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
 impl LayoutBorderRightWidth { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
 impl LayoutBorderBottomWidth { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
 impl LayoutBorderLeftWidth { pub fn scale_for_dpi(&mut self, scale_factor: f32) { self.inner.scale_for_dpi(scale_factor); } }
-
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderTopStyle { pub inner: BorderStyle, }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderLeftStyle { pub inner: BorderStyle, }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderRightStyle { pub inner: BorderStyle, }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderBottomStyle { pub inner: BorderStyle, }
-derive_debug_zero!(StyleBorderTopStyle); derive_debug_zero!(StyleBorderLeftStyle); derive_debug_zero!(StyleBorderBottomStyle); derive_debug_zero!(StyleBorderRightStyle);
-derive_display_zero!(StyleBorderTopStyle); derive_display_zero!(StyleBorderLeftStyle); derive_display_zero!(StyleBorderBottomStyle); derive_display_zero!(StyleBorderRightStyle);
-
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderTopColor { pub inner: ColorU, }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderLeftColor { pub inner: ColorU, }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderRightColor { pub inner: ColorU, }
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBorderBottomColor { pub inner: ColorU, }
-impl StyleBorderTopColor { pub fn interpolate(&self, other: &Self, t: f32) -> Self { Self { inner: self.inner.interpolate(&other.inner, t) } } }
-impl StyleBorderLeftColor { pub fn interpolate(&self, other: &Self, t: f32) -> Self { Self { inner: self.inner.interpolate(&other.inner, t) } } }
-impl StyleBorderRightColor { pub fn interpolate(&self, other: &Self, t: f32) -> Self { Self { inner: self.inner.interpolate(&other.inner, t) } } }
-impl StyleBorderBottomColor { pub fn interpolate(&self, other: &Self, t: f32) -> Self { Self { inner: self.inner.interpolate(&other.inner, t) } } }
-derive_debug_zero!(StyleBorderTopColor); derive_debug_zero!(StyleBorderLeftColor); derive_debug_zero!(StyleBorderRightColor); derive_debug_zero!(StyleBorderBottomColor);
-derive_display_zero!(StyleBorderTopColor); derive_display_zero!(StyleBorderLeftColor); derive_display_zero!(StyleBorderRightColor); derive_display_zero!(StyleBorderBottomColor);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] pub struct StyleBorderSide { pub border_width: PixelValue, pub border_style: BorderStyle, pub border_color: ColorU }
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)] #[repr(C)] pub struct StyleBoxShadow { pub offset: [PixelValueNoPercent; 2], pub color: ColorU, pub blur_radius: PixelValueNoPercent, pub spread_radius: PixelValueNoPercent, pub clip_mode: BoxShadowClipMode }
@@ -2095,18 +2063,10 @@ pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
 pub type StyleTabWidthValue = CssPropertyValue<StyleTabWidth>;
 pub type StyleCursorValue = CssPropertyValue<StyleCursor>;
 pub type StyleBoxShadowValue = CssPropertyValue<StyleBoxShadow>;
-pub type StyleBorderTopColorValue = CssPropertyValue<StyleBorderTopColor>;
-pub type StyleBorderLeftColorValue = CssPropertyValue<StyleBorderLeftColor>;
-pub type StyleBorderRightColorValue = CssPropertyValue<StyleBorderRightColor>;
-pub type StyleBorderBottomColorValue = CssPropertyValue<StyleBorderBottomColor>;
-pub type StyleBorderTopStyleValue = CssPropertyValue<StyleBorderTopStyle>;
-pub type StyleBorderLeftStyleValue = CssPropertyValue<StyleBorderLeftStyle>;
-pub type StyleBorderRightStyleValue = CssPropertyValue<StyleBorderRightStyle>;
-pub type StyleBorderBottomStyleValue = CssPropertyValue<StyleBorderBottomStyle>;
-pub type StyleBorderTopLeftRadiusValue = CssPropertyValue<StyleBorderTopLeftRadius>;
-pub type StyleBorderTopRightRadiusValue = CssPropertyValue<StyleBorderTopRightRadius>;
-pub type StyleBorderBottomLeftRadiusValue = CssPropertyValue<StyleBorderBottomLeftRadius>;
-pub type StyleBorderBottomRightRadiusValue = CssPropertyValue<StyleBorderBottomRightRadius>;
+// StyleBorderTopColorValue removed
+// StyleBorderBottomColorValue removed
+// StyleBorderLeftColorValue already removed
+// StyleBorderRightColorValue already removed
 pub type StyleOpacityValue = CssPropertyValue<StyleOpacity>;
 pub type StyleTransformVecValue = CssPropertyValue<StyleTransformVec>;
 pub type StyleTransformOriginValue = CssPropertyValue<StyleTransformOrigin>;
@@ -2123,29 +2083,33 @@ pub type StyleWhiteSpaceValue = CssPropertyValue<StyleWhiteSpace>;
 // e.g. pub type LayoutDisplayValue = CssPropertyValue<crate::properties::display::LayoutDisplay>;
 //      impl_option!(LayoutDisplayValue, OptionLayoutDisplayValue, ...);
 
+use crate::properties::padding_bottom::{LayoutPaddingBottom, LayoutPaddingBottomValue};
+use crate::properties::padding_left::{LayoutPaddingLeft, LayoutPaddingLeftValue};
+use crate::properties::padding_right::{LayoutPaddingRight, LayoutPaddingRightValue};
+use crate::properties::padding_top::{LayoutPaddingTop, LayoutPaddingTopValue};
+use crate::properties::margin_top::{LayoutMarginTop, LayoutMarginTopValue};
+use crate::properties::margin_left::{LayoutMarginLeft, LayoutMarginLeftValue};
+use crate::properties::margin_right::{LayoutMarginRight, LayoutMarginRightValue};
+use crate::properties::margin_bottom::{LayoutMarginBottom, LayoutMarginBottomValue};
+use crate::properties::border_top_width::{LayoutBorderTopWidth, LayoutBorderTopWidthValue};
+use crate::properties::border_left_width::{LayoutBorderLeftWidth, LayoutBorderLeftWidthValue};
+use crate::properties::border_right_width::{LayoutBorderRightWidth, LayoutBorderRightWidthValue};
+use crate::properties::border_bottom_width::{LayoutBorderBottomWidth, LayoutBorderBottomWidthValue};
+use crate::properties::border_top_color::{StyleBorderTopColor, StyleBorderTopColorValue};
+use crate::properties::border_left_color::{StyleBorderLeftColor, StyleBorderLeftColorValue};
+use crate::properties::border_right_color::{StyleBorderRightColor, StyleBorderRightColorValue};
+use crate::properties::border_bottom_color::{StyleBorderBottomColor, StyleBorderBottomColorValue};
+use crate::properties::border_top_style::{StyleBorderTopStyle, StyleBorderTopStyleValue};
+use crate::properties::border_left_style::{StyleBorderLeftStyle, StyleBorderLeftStyleValue};
+use crate::properties::border_right_style::{StyleBorderRightStyle, StyleBorderRightStyleValue};
+use crate::properties::border_bottom_style::{StyleBorderBottomStyle, StyleBorderBottomStyleValue};
+use crate::properties::border_top_left_radius::{StyleBorderTopLeftRadius, StyleBorderTopLeftRadiusValue};
+use crate::properties::border_top_right_radius::{StyleBorderTopRightRadius, StyleBorderTopRightRadiusValue};
+use crate::properties::border_bottom_left_radius::{StyleBorderBottomLeftRadius, StyleBorderBottomLeftRadiusValue};
+use crate::properties::border_bottom_right_radius::{StyleBorderBottomRightRadius, StyleBorderBottomRightRadiusValue};
+
 pub type LayoutOverflowValue = CssPropertyValue<LayoutOverflow>;
 impl_option!(LayoutOverflowValue, OptionLayoutOverflowValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutPaddingTopValue = CssPropertyValue<LayoutPaddingTop>;
-impl_option!(LayoutPaddingTopValue, OptionLayoutPaddingTopValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutPaddingBottomValue = CssPropertyValue<LayoutPaddingBottom>;
-impl_option!(LayoutPaddingBottomValue, OptionLayoutPaddingBottomValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutPaddingLeftValue = CssPropertyValue<LayoutPaddingLeft>;
-impl_option!(LayoutPaddingLeftValue, OptionLayoutPaddingLeftValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutPaddingRightValue = CssPropertyValue<LayoutPaddingRight>;
-impl_option!(LayoutPaddingRightValue, OptionLayoutPaddingRightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutMarginTopValue = CssPropertyValue<LayoutMarginTop>;
-impl_option!(LayoutMarginTopValue, OptionLayoutMarginTopValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutMarginBottomValue = CssPropertyValue<LayoutMarginBottom>;
-impl_option!(LayoutMarginBottomValue, OptionLayoutMarginBottomValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutMarginLeftValue = CssPropertyValue<LayoutMarginLeft>;
-impl_option!(LayoutMarginLeftValue, OptionLayoutMarginLeftValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutMarginRightValue = CssPropertyValue<LayoutMarginRight>;
-impl_option!(LayoutMarginRightValue, OptionLayoutMarginRightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-pub type LayoutBorderTopWidthValue = CssPropertyValue<LayoutBorderTopWidth>;
-pub type LayoutBorderLeftWidthValue = CssPropertyValue<LayoutBorderLeftWidth>;
-pub type LayoutBorderRightWidthValue = CssPropertyValue<LayoutBorderRightWidth>;
-pub type LayoutBorderBottomWidthValue = CssPropertyValue<LayoutBorderBottomWidth>;
 
 // Definitions for LayoutFlexWrap, LayoutFlexGrow, LayoutFlexShrink,
 // LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent, LayoutFlexDirection

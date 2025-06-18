@@ -5,10 +5,11 @@ use crate::{
     css_properties::{parser_input_span, ColorU, CssPropertyType, FloatValue, PixelValue, PercentageValue, AngleValue, AngleMetric, SizeMetric, LayoutRect, LayoutPoint},
     error::Error, // General error type
     parser::{CssParsable, ParenthesisParseError, ParenthesisParseErrorOwned, parse_parentheses, parse_css_color, CssColorParseError, CssColorParseErrorOwned, CssColorComponent}, // CssParsable might need to be adapted for some complex types here.
-    print_css::PrintAsCssValue,
+    css::PrintAsCssValue,
     AzString, OptionAzString, U8Vec, // Basic types
     LayoutDebugMessage, css_debug_log, // Debugging
 };
+use crate::{impl_display, impl_debug_as_display}; // Import the exported macros
 use alloc::{
     string::{String, ToString},
     vec::Vec,

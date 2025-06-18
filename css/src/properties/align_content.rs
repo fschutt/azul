@@ -4,7 +4,7 @@ use crate::{
     css_properties::parser_input_span,
     error::Error,
     parser::{multi_type_parser, CssParsable},
-    print_css::PrintAsCssValue,
+    css::PrintAsCssValue,
 };
 use alloc::string::ToString;
 use cssparser::Parser;
