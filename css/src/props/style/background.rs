@@ -432,5 +432,8 @@ impl_vec_clone!(
 );
 impl_vec_partialeq!(RadialColorStop, RadialColorStopVec);
 
-// TODO: Add parsing functions and error types
-// This file is getting long, so I'll add the parsing functions in a follow-up
+#[cfg(feature = "parser")]
+use crate::parser_ext::{
+    parse_style_background_content_multiple, parse_style_background_position_multiple,
+    parse_style_background_repeat_multiple, parse_style_background_size_multiple,
+};

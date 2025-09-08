@@ -226,7 +226,5 @@ impl FormatAsCssValue for StyleCompositeFilter {
     }
 }
 
-// TODO: Add parsing functions and error types
-// fn parse_style_filter_vec<'a>(input: &'a str) -> Result<StyleFilterVec,
-// CssStyleFilterParseError<'a>> fn parse_style_filter<'a>(input: &'a str) -> Result<StyleFilter,
-// CssStyleFilterParseError<'a>> And all the sub-parsers for individual filter types
+#[cfg(feature = "parser")]
+use crate::parser_ext::{parse_style_filter, parse_style_filter_vec};

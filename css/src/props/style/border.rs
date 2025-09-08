@@ -255,6 +255,5 @@ pub use crate::props::style::border_radius::{
     StyleBorderTopRightRadius,
 };
 
-// TODO: Add parsing functions for border styles
-// fn parse_style_border_style<'a>(input: &'a str) -> Result<BorderStyle, CssParsingError<'a>>
-// fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBorderParseError<'a>>
+#[cfg(feature = "parser")]
+use crate::parser_ext::{parse_style_border, parse_style_border_style};

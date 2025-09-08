@@ -281,7 +281,5 @@ impl Default for FontMetrics {
     }
 }
 
-// TODO: Add parsing functions
-// fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamilyVec,
-// CssStyleFontFamilyParseError<'a>> fn parse_style_font_size<'a>(input: &'a str) ->
-// Result<StyleFontSize, CssPixelValueParseError<'a>>
+#[cfg(feature = "parser")]
+use crate::parser_ext::{parse_style_font_family, parse_style_font_size};

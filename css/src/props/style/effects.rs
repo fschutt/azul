@@ -201,9 +201,8 @@ impl Default for ScrollbarInfo {
     }
 }
 
-// TODO: Add parsing functions
-// fn parse_style_opacity<'a>(input: &'a str) -> Result<StyleOpacity, OpacityParseError<'a>>
-// fn parse_style_mix_blend_mode<'a>(input: &'a str) -> Result<StyleMixBlendMode,
-// CssParsingError<'a>> fn parse_style_backface_visibility<'a>(input: &'a str) ->
-// Result<StyleBackfaceVisibility, CssParsingError<'a>> fn parse_scrollbar_style<'a>(input: &'a str)
-// -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>>
+#[cfg(feature = "parser")]
+use crate::parser_ext::{
+    parse_style_backface_visibility, parse_style_mix_blend_mode, parse_style_opacity,
+    parse_scrollbar_style,
+};

@@ -389,10 +389,8 @@ impl Default for StyleTransformSkew2D {
     }
 }
 
-// TODO: Add parsing functions
-// fn parse_style_transform_vec<'a>(input: &'a str) -> Result<StyleTransformVec,
-// CssStyleTransformParseError<'a>> fn parse_style_transform<'a>(input: &'a str) ->
-// Result<StyleTransform, CssStyleTransformParseError<'a>> fn parse_style_transform_origin<'
-// a>(input: &'a str) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'a>>
-// fn parse_style_perspective_origin<'a>(input: &'a str) -> Result<StylePerspectiveOrigin,
-// CssStylePerspectiveOriginParseError<'a>>
+#[cfg(feature = "parser")]
+use crate::parser_ext::{
+    parse_style_perspective_origin, parse_style_transform, parse_style_transform_origin,
+    parse_style_transform_vec,
+};

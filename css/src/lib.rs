@@ -1280,6 +1280,8 @@ pub mod error;
 pub mod geometry;
 #[cfg(feature = "parser")]
 pub mod parser_new;
+#[cfg(feature = "parser")]
+pub mod parser_ext;
 pub mod props;
 
 // Keep existing structure intact

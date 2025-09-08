@@ -85,5 +85,5 @@ impl FormatAsCssValue for BoxShadowClipMode {
     }
 }
 
-// TODO: Add parsing functions
-// fn parse_style_box_shadow<'a>(input: &'a str) -> Result<StyleBoxShadow, CssShadowParseError<'a>>
+#[cfg(feature = "parser")]
+use crate::parser_ext::parse_style_box_shadow;
