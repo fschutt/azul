@@ -41,7 +41,8 @@ const API_CSS: &str = "
         color: #905;
     }
 
-    body > .center > main #api > ul > li.m > ul > li.fnty, body > .center > main #api > ul > li.m > ul > li .arg {
+    body > .center > main #api > ul > li.m > ul > li.fnty, body > .center > main #api > ul > li.m \
+                       > ul > li .arg {
         color: #4c1c1a;
     }
 
@@ -63,7 +64,9 @@ const API_CSS: &str = "
         color: #004e92;
     }
 
-    body > .center > main #api > ul > li.m > ul > li p.ret, body > .center > main #api > ul > li.m > ul > li p.fn.ret, body > .center > main #api > ul > li.m > ul > li p.ret.doc {
+    body > .center > main #api > ul > li.m > ul > li p.ret, body > .center > main #api > ul > li.m \
+                       > ul > li p.fn.ret, body > .center > main #api > ul > li.m > ul > li \
+                       p.ret.doc {
         margin-left: 0px;
     }
 
@@ -582,11 +585,12 @@ fn generate_api_content(version_data: &VersionData) -> String {
             }
 
             // Close the class HTML wrapper if we added it
-            if class_data.enum_fields.is_some() 
-               || class_data.struct_fields.is_some() 
-               || class_data.callback_typedef.is_some()
-               || class_data.constructors.is_some()
-               || class_data.functions.is_some() {
+            if class_data.enum_fields.is_some()
+                || class_data.struct_fields.is_some()
+                || class_data.callback_typedef.is_some()
+                || class_data.constructors.is_some()
+                || class_data.functions.is_some()
+            {
                 html.push_str("</li>"); // Close class
             }
         }

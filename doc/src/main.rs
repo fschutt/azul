@@ -14,7 +14,6 @@ use deploy::Config;
 use reftest::RunRefTestsConfig;
 
 fn main() -> anyhow::Result<()> {
-
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
     let _ = std::env::set_current_dir(manifest_dir);
@@ -113,7 +112,7 @@ fn main() -> anyhow::Result<()> {
         Ok(donation_html) => {
             fs::write(output_dir.join("donate.html"), &donation_html)?;
             println!("  - Generated donation page");
-        },
+        }
         Err(e) => {
             eprintln!("Warning: Failed to generate donation page: {}", e);
         }
