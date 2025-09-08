@@ -1,6 +1,5 @@
 pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
-    
-    // Parse FUNDING.yml    
+    // Parse FUNDING.yml
     #[derive(serde_derive::Deserialize, Debug)]
     struct FundingConfig {
         github: Option<String>,
@@ -8,11 +7,11 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         liberapay: Option<String>,
         custom: Option<Vec<String>>,
     }
-    
+
     let funding: FundingConfig = serde_yaml::from_str(yaml_str)?;
-    
+
     let mut donation_options = String::new();
-    
+
     // GitHub Sponsors
     if let Some(github_user) = &funding.github {
         donation_options.push_str(&format!(
@@ -26,7 +25,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             github_user
         ));
     }
-    
+
     // Ko-fi
     if let Some(kofi_user) = &funding.ko_fi {
         donation_options.push_str(&format!(
@@ -40,7 +39,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             kofi_user
         ));
     }
-    
+
     // Liberapay
     if let Some(liberapay_user) = &funding.liberapay {
         donation_options.push_str(&format!(
@@ -54,7 +53,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             liberapay_user
         ));
     }
-    
+
     // Custom options
     if let Some(custom_options) = &funding.custom {
         for url in custom_options {
@@ -65,7 +64,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             } else {
                 ("Other", "other")
             };
-            
+
             donation_options.push_str(&format!(
                 r#"<div class="donation-option">
                     <h2>{}</h2>
@@ -78,11 +77,11 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             ));
         }
     }
-    
+
     // Get common head tags and sidebar
     let common_head_tags = crate::docgen::get_common_head_tags();
     let sidebar = crate::docgen::get_sidebar();
-    
+
     // Additional CSS for the donation page
     let donation_css = r#"
         .donation-container {
@@ -173,7 +172,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             }
         }
     "#;
-    
+
     // Generate the full HTML page
     let html = format!(
         r#"<!DOCTYPE html>
@@ -226,6 +225,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         sidebar = sidebar,
         donation_options = donation_options
     );
-    
+
     Ok(html)
 }

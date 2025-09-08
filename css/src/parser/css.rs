@@ -5,10 +5,9 @@ use core::{fmt, num::ParseIntError};
 pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
-pub use crate::parser::{CssParsingError, CssParsingErrorOwned};
 use crate::{
-    AzString, CombinedCssPropertyType, Css, CssDeclaration, CssKeyMap, CssNthChildSelector,
-    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector, CssPropertyType,
+    AzString, Css, CssDeclaration, CssNthChildSelector,
+    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
     CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
     NodeTypeTagParseErrorOwned, Stylesheet,
 };
@@ -200,7 +199,7 @@ impl CssParseErrorInnerOwned {
 impl_display! { CssParseErrorInner<'a>, {
     ParseError(e) => format!("Parse Error: {:?}", e),
     UnclosedBlock => "Unclosed block",
-    MalformedCss => "Malformed Css",
+    MalformedCss => "MalformedCss",
     DynamicCssParseError(e) => format!("{}", e),
     PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
     NodeTypeTag(e) => format!("Failed to parse CSS selector path: {}", e),
@@ -236,10 +235,7 @@ impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
 }
 
 impl_display! { CssPseudoSelectorParseError<'a>, {
-    EmptyNthChild => format!("\
-        Empty :nth-child() selector - nth-child() must at least take a number, \
-        a pattern (such as \"2n+3\") or the values \"even\" or \"odd\"."
-    ),
+    EmptyNthChild => { format!("Empty :nth-child() selector") },
     UnknownSelector(selector, value) => {
         let format_str = match value {
             Some(v) => format!("{}({})", selector, v),
@@ -248,8 +244,8 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
         format!("Invalid or unknown CSS pseudo-selector: ':{}'", format_str)
     },
     InvalidNthChildPattern(selector) => format!(
-        "Invalid pseudo-selector :{} - value has to be a \
-        number, \"even\" or \"odd\" or a pattern such as \"2n+3\"", selector
+        "Invalid pseudo-selector :{selector} - value has to be a \
+        number, \"even\" or \"odd\" or a pattern such as \"2n+3\""
     ),
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
 }}
@@ -378,7 +374,7 @@ pub fn pseudo_selector_from_str<'a>(
     }
 }
 
-/// Parses the inner value of the `:nth-child` selector, including numbers and patterns.
+/// Parses the inner value of the ":nth-child" selector, including numbers and patterns.
 ///
 /// I.e.: `"2n+3"` -> `Pattern { repeat: 2, offset: 3 }`
 fn parse_nth_child_selector<'a>(
@@ -473,7 +469,7 @@ impl<'a> fmt::Display for CssParseError<'a> {
         let end_location = self.location.1.get_line_column_from_error(self.css_string);
         write!(
             f,
-            "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n    reason: {}",
+            "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n reason: {}",
             start_location.0,
             start_location.1,
             end_location.0,
@@ -590,8 +586,11 @@ impl CssPathParseErrorOwned {
 /// # extern crate azul_css;
 /// # use azul_css::parser::parse_css_path;
 /// # use azul_css::{
-/// #     CssPathSelector::*, CssPathPseudoSelector::*, CssPath,
-/// #     NodeTypeTag::*, CssNthChildSelector::*
+/// #     CssPathSelector::*,
+/// #     CssPathPseudoSelector::*,
+/// #     CssPath,
+/// #     NodeTypeTag::*,
+/// #     CssNthChildSelector::*
 /// # };
 ///
 /// assert_eq!(
@@ -837,10 +836,10 @@ impl CssParseWarnMsgInnerOwned {
 impl_display! { CssParseWarnMsgInner<'a>, {
     UnsupportedKeyValuePair { key, value } => format!("Unsupported CSS property: \"{}: {}\"", key, value),
     ParseError(e) => format!("Parse error (recoverable): {}", e),
-    SkippedRule { selector, error } => {
+    SkippedRule { selector, error } => {{
         let sel = selector.unwrap_or("unknown");
         format!("Skipped rule for selector '{}': {}", sel, error)
-    },
+    }},
     SkippedDeclaration { key, value, error } => format!("Skipped declaration '{}:{}': {}", key, value, error),
     MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
 }}
@@ -888,13 +887,7 @@ fn new_from_str_inner<'a>(
         };
 
         macro_rules! warn_and_continue {
-            ($warning:expr) => {{
-                warnings.push(CssParseWarnMsg {
-                    warning: $warning,
-                    location: (last_error_location, get_error_location(tokenizer)),
-                });
-                continue;
-            }};
+            ($warning:expr) => {warnings.push(CssParseWarnMsg { warning: $warning, location: (last_error_location, get_error_location(tokenizer)) }); continue; };
         }
 
         match token {

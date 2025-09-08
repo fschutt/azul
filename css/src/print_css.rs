@@ -1,5 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
+#[cfg(feature = "parser")]
+use crate::parser::{layout::*, style::*};
 use crate::{css::PrintAsCssValue, css_properties::*};
 
 impl PrintAsCssValue for StyleFilter {
@@ -733,7 +735,7 @@ impl PrintAsCssValue for LinearGradient {
     fn print_as_css_value(&self) -> String {
         let t = if self.stops.is_empty() { "" } else { ", " };
         format!(
-            "{}{}{}",
+            "{}{} {}",
             match self.direction {
                 Direction::Angle(a) => format!("{}", a),
                 Direction::FromTo(d) => format!("from {} to {}", d.from, d.to),
@@ -844,9 +846,9 @@ impl PrintAsCssValue for ScrollbarInfo {
     fn print_as_css_value(&self) -> String {
         format!(
             "{} {} {} {} {} {} {} {}",
-            self.width,
-            self.padding_left,
-            self.padding_right,
+            self.width.print_as_css_value(),
+            self.padding_left.print_as_css_value(),
+            self.padding_right.print_as_css_value(),
             self.track.print_as_css_value(),
             self.thumb.print_as_css_value(),
             self.button.print_as_css_value(),

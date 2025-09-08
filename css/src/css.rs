@@ -2,10 +2,7 @@
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 
-use crate::{
-    css_properties::{CssProperty, CssPropertyType},
-    AzString,
-};
+use crate::macros::AzString;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
