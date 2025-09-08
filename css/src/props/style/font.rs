@@ -1,13 +1,14 @@
 //! Font-related CSS properties
 
-use crate::props::basic::value::PixelValue;
-use crate::props::formatter::FormatAsCssValue;
-use crate::{
-    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_ord,
-    impl_vec_partialeq, impl_vec_partialord, AzString, U8Vec,
-};
 use alloc::string::String;
 use core::{ffi::c_void, fmt, sync::atomic::AtomicUsize};
+
+use crate::{
+    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_ord,
+    impl_vec_partialeq, impl_vec_partialord,
+    props::{basic::value::PixelValue, formatter::FormatAsCssValue},
+    AzString, U8Vec,
+};
 
 /// CSS font-size property
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
@@ -281,5 +282,6 @@ impl Default for FontMetrics {
 }
 
 // TODO: Add parsing functions
-// fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'a>>
-// fn parse_style_font_size<'a>(input: &'a str) -> Result<StyleFontSize, CssPixelValueParseError<'a>>
+// fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamilyVec,
+// CssStyleFontFamilyParseError<'a>> fn parse_style_font_size<'a>(input: &'a str) ->
+// Result<StyleFontSize, CssPixelValueParseError<'a>>

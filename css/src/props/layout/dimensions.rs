@@ -1,8 +1,9 @@
 //! Layout dimension properties: width, height, min/max variants
 
-use crate::error::CssPixelValueParseError;
-use crate::props::basic::value::PixelValue;
-use crate::props::formatter::FormatAsCssValue;
+use crate::{
+    error::CssPixelValueParseError,
+    props::{basic::value::PixelValue, formatter::FormatAsCssValue},
+};
 
 /// Layout width property
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -133,11 +134,13 @@ impl FormatAsCssValue for LayoutMaxHeight {
 }
 
 // Parsing functions
+#[cfg(feature = "parser")]
 pub fn parse_layout_width<'a>(input: &'a str) -> Result<LayoutWidth, CssPixelValueParseError<'a>> {
     let pixel_value = crate::props::basic::value::parse_pixel_value(input)?;
     Ok(LayoutWidth { inner: pixel_value })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_height<'a>(
     input: &'a str,
 ) -> Result<LayoutHeight, CssPixelValueParseError<'a>> {
@@ -145,6 +148,7 @@ pub fn parse_layout_height<'a>(
     Ok(LayoutHeight { inner: pixel_value })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_min_width<'a>(
     input: &'a str,
 ) -> Result<LayoutMinWidth, CssPixelValueParseError<'a>> {
@@ -152,6 +156,7 @@ pub fn parse_layout_min_width<'a>(
     Ok(LayoutMinWidth { inner: pixel_value })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_max_width<'a>(
     input: &'a str,
 ) -> Result<LayoutMaxWidth, CssPixelValueParseError<'a>> {
@@ -159,6 +164,7 @@ pub fn parse_layout_max_width<'a>(
     Ok(LayoutMaxWidth { inner: pixel_value })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_min_height<'a>(
     input: &'a str,
 ) -> Result<LayoutMinHeight, CssPixelValueParseError<'a>> {
@@ -166,6 +172,7 @@ pub fn parse_layout_min_height<'a>(
     Ok(LayoutMinHeight { inner: pixel_value })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_max_height<'a>(
     input: &'a str,
 ) -> Result<LayoutMaxHeight, CssPixelValueParseError<'a>> {

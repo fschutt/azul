@@ -12,6 +12,153 @@ use alloc::{
     vec::Vec,
 };
 
+/// Implement `Display` for an enum.
+///
+/// Example usage:
+/// ```no_run,ignore
+/// enum Foo<'a> {
+///     Bar(&'a str),
+///     Baz(i32)
+/// }
+///
+/// impl_display!{ Foo<'a>, {
+///     Bar(s) => s,
+///     Baz(i) => format!("{}", i)
+/// }}
+/// ```
+macro_rules! impl_display {
+    // For a type with a lifetime
+    ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
+
+        impl<$lt> ::core::fmt::Display for $enum<$lt> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                use self::$enum::*;
+                match &self {
+                    $(
+                        $variant => write!(f, "{}", $fmt_string),
+                    )+
+                }
+            }
+        }
+
+    };
+
+    // For a type without a lifetime
+    ($enum:ident, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
+
+        impl ::core::fmt::Display for $enum {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                use self::$enum::*;
+                match &self {
+                    $(
+                        $variant => write!(f, "{}", $fmt_string),
+                    )+
+                }
+            }
+        }
+
+    };
+}
+
+/// Implements `Debug` to use `Display` instead - assumes the that the type has implemented
+/// `Display`
+macro_rules! impl_debug_as_display {
+    // For a type with a lifetime
+    ($enum:ident < $lt:lifetime >) => {
+        impl<$lt> ::core::fmt::Debug for $enum<$lt> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self)
+            }
+        }
+    };
+
+    // For a type without a lifetime
+    ($enum:ident) => {
+        impl ::core::fmt::Debug for $enum {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self)
+            }
+        }
+    };
+}
+
+/// Implement the `From` trait for any type.
+/// Example usage:
+/// ```no_run,ignore
+/// enum MyError<'a> {
+///     Bar(BarError<'a>),
+///     Foo(FooError<'a>)
+/// }
+///
+/// impl_from!(BarError<'a>, Error::Bar);
+/// impl_from!(BarError<'a>, Error::Bar);
+/// ```
+macro_rules! impl_from {
+    // From a type with a lifetime to a type which also has a lifetime
+    ($a:ident < $c:lifetime > , $b:ident:: $enum_type:ident) => {
+        impl<$c> From<$a<$c>> for $b<$c> {
+            fn from(e: $a<$c>) -> Self {
+                $b::$enum_type(e)
+            }
+        }
+    };
+
+    // From a type without a lifetime to a type which also does not have a lifetime
+    ($a:ident, $b:ident:: $enum_type:ident) => {
+        impl From<$a> for $b {
+            fn from(e: $a) -> Self {
+                $b::$enum_type(e)
+            }
+        }
+    };
+}
+
+macro_rules! typed_pixel_value_parser {
+    (
+        $fn:ident, $fn_str:expr, $return:ident, $return_str:expr, $import_str:expr, $test_str:expr
+    ) => {
+        ///Parses a `
+        #[doc = $return_str]
+        ///` attribute from a `&str`
+        ///
+        ///# Example
+        ///
+        ///```rust
+        #[doc = $import_str]
+        #[doc = $test_str]
+        ///```
+        pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
+            parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
+        }
+    };
+    ($fn:ident, $return:ident) => {
+        typed_pixel_value_parser!(
+            $fn,
+            stringify!($fn),
+            $return,
+            stringify!($return),
+            concat!(
+                "# extern crate azul_css;",
+                "\r\n",
+                "# use azul_css::parser::",
+                stringify!($fn),
+                ";",
+                "\r\n",
+                "# use azul_css::{PixelValue, ",
+                stringify!($return),
+                "};"
+            ),
+            concat!(
+                "assert_eq!(",
+                stringify!($fn),
+                "(\"5px\"), Ok(",
+                stringify!($return),
+                " { inner: PixelValue::px(5.0) }));"
+            )
+        );
+    };
+}
+
 #[macro_export]
 macro_rules! impl_vec {
     ($struct_type:ident, $struct_name:ident, $destructor_name:ident) => {
@@ -1131,6 +1278,8 @@ impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 // New modular structure (alongside existing code)
 pub mod error;
 pub mod geometry;
+#[cfg(feature = "parser")]
+pub mod parser_new;
 pub mod props;
 
 // Keep existing structure intact

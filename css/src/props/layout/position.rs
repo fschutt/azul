@@ -1,10 +1,12 @@
 //! Layout positioning properties
 
-use crate::error::{CssParsingError, CssPixelValueParseError};
-use crate::props::basic::value::PixelValue;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::{
+    error::{CssParsingError, CssPixelValueParseError},
+    props::{basic::value::PixelValue, formatter::FormatAsCssValue},
+};
 
 /// CSS position property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -123,6 +125,7 @@ impl FormatAsCssValue for LayoutLeft {
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_position<'a>(input: &'a str) -> Result<LayoutPosition, CssParsingError<'a>> {
     match input.trim() {
         "static" => Ok(LayoutPosition::Static),
@@ -134,18 +137,21 @@ pub fn parse_layout_position<'a>(input: &'a str) -> Result<LayoutPosition, CssPa
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_top<'a>(input: &'a str) -> Result<LayoutTop, CssPixelValueParseError<'a>> {
     Ok(LayoutTop {
         inner: crate::props::basic::value::parse_pixel_value(input)?,
     })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_right<'a>(input: &'a str) -> Result<LayoutRight, CssPixelValueParseError<'a>> {
     Ok(LayoutRight {
         inner: crate::props::basic::value::parse_pixel_value(input)?,
     })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_bottom<'a>(
     input: &'a str,
 ) -> Result<LayoutBottom, CssPixelValueParseError<'a>> {
@@ -154,6 +160,7 @@ pub fn parse_layout_bottom<'a>(
     })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_left<'a>(input: &'a str) -> Result<LayoutLeft, CssPixelValueParseError<'a>> {
     Ok(LayoutLeft {
         inner: crate::props::basic::value::parse_pixel_value(input)?,

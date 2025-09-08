@@ -1,13 +1,16 @@
 //! Visual effects CSS properties (opacity, mix-blend-mode, backface-visibility, scrollbar)
 
-use crate::props::basic::{
-    color::ColorU,
-    value::{PercentageValue, PixelValue},
-};
-use crate::props::formatter::FormatAsCssValue;
-use crate::props::style::background::StyleBackgroundContent;
 use alloc::string::String;
 use core::fmt;
+
+use crate::props::{
+    basic::{
+        color::ColorU,
+        value::{PercentageValue, PixelValue},
+    },
+    formatter::FormatAsCssValue,
+    style::background::StyleBackgroundContent,
+};
 
 /// CSS opacity property
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -200,6 +203,7 @@ impl Default for ScrollbarInfo {
 
 // TODO: Add parsing functions
 // fn parse_style_opacity<'a>(input: &'a str) -> Result<StyleOpacity, OpacityParseError<'a>>
-// fn parse_style_mix_blend_mode<'a>(input: &'a str) -> Result<StyleMixBlendMode, CssParsingError<'a>>
-// fn parse_style_backface_visibility<'a>(input: &'a str) -> Result<StyleBackfaceVisibility, CssParsingError<'a>>
-// fn parse_scrollbar_style<'a>(input: &'a str) -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>>
+// fn parse_style_mix_blend_mode<'a>(input: &'a str) -> Result<StyleMixBlendMode,
+// CssParsingError<'a>> fn parse_style_backface_visibility<'a>(input: &'a str) ->
+// Result<StyleBackfaceVisibility, CssParsingError<'a>> fn parse_scrollbar_style<'a>(input: &'a str)
+// -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>>

@@ -1,19 +1,23 @@
 //! Background-related CSS properties
 
-use crate::error::CssParsingError;
-use crate::props::basic::{
-    angle::AngleValue,
-    color::ColorU,
-    direction::Direction,
-    value::{PercentageValue, PixelValue},
-};
-use crate::props::formatter::FormatAsCssValue;
-use crate::{
-    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_ord,
-    impl_vec_partialeq, impl_vec_partialord, AzString,
-};
 use alloc::{string::String, vec::Vec};
 use core::fmt;
+
+use crate::{
+    error::CssParsingError,
+    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_ord,
+    impl_vec_partialeq, impl_vec_partialord,
+    props::{
+        basic::{
+            angle::AngleValue,
+            color::ColorU,
+            direction::Direction,
+            value::{PercentageValue, PixelValue},
+        },
+        formatter::FormatAsCssValue,
+    },
+    AzString,
+};
 
 /// CSS background-content property (background images, gradients, colors)
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

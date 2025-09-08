@@ -1,9 +1,9 @@
 //! Basic CSS value types: pixels, percentages, floats, and size metrics
 
-use crate::error::CssPixelValueParseError;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::{format, string::String};
 use core::fmt;
+
+use crate::{error::CssPixelValueParseError, props::formatter::FormatAsCssValue};
 
 /// Fixed-point float value for consistent numeric representation
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,7 +83,6 @@ pub const PT_TO_PX: f32 = 96.0 / 72.0;
 /// `1.00001 == 1.0`
 const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
 const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
-
 
 impl FloatValue {
     /// Same as `FloatValue::new()`, but only accepts whole numbers,
@@ -323,7 +322,7 @@ impl PixelValue {
             }
         } else {
             // TODO: how to interpolate between different metrics
-            // (interpolate between % and em? - currently impossible)            
+            // (interpolate between % and em? - currently impossible)
             let self_px_interp = self.to_pixels(0.0, EM_HEIGHT, 0.0, 0.0);
             let other_px_interp = other.to_pixels(0.0, EM_HEIGHT, 0.0, 0.0);
             Self::from_metric(
@@ -352,11 +351,12 @@ impl PixelValue {
 
     /// Returns the value of the SizeMetric in pixels
     #[inline]
-    pub fn to_pixels(&self, 
+    pub fn to_pixels(
+        &self,
         percent_resolve: f32,
         font_size_px: f32,
         viewport_width_px: f32,
-        viewport_height_px: f32
+        viewport_height_px: f32,
     ) -> f32 {
         // to_pixels always assumes 96 DPI
         match self.metric {
@@ -364,7 +364,6 @@ impl PixelValue {
             _ => self.to_pixels_no_percent().unwrap_or(0.0),
         }
     }
-
 }
 
 impl PixelValueNoPercent {
@@ -476,6 +475,7 @@ impl FormatAsCssValue for PixelSize {
 // Parsing functions
 
 /// Parse a pixel value (e.g., "10px", "1.5em", "50%")
+#[cfg(feature = "parser")]
 pub fn parse_pixel_value<'a>(input: &'a str) -> Result<PixelValue, CssPixelValueParseError<'a>> {
     let input = input.trim();
 
@@ -534,6 +534,7 @@ pub fn parse_pixel_value<'a>(input: &'a str) -> Result<PixelValue, CssPixelValue
 }
 
 /// Parse a pixel value that doesn't allow percentages
+#[cfg(feature = "parser")]
 pub fn parse_pixel_value_no_percent<'a>(
     input: &'a str,
 ) -> Result<PixelValueNoPercent, CssPixelValueParseError<'a>> {
@@ -545,6 +546,7 @@ pub fn parse_pixel_value_no_percent<'a>(
 }
 
 /// Parse a percentage value
+#[cfg(feature = "parser")]
 pub fn parse_percentage_value<'a>(
     input: &'a str,
 ) -> Result<PercentageValue, CssPixelValueParseError<'a>> {
@@ -563,6 +565,7 @@ pub fn parse_percentage_value<'a>(
 }
 
 /// Parse a float value
+#[cfg(feature = "parser")]
 pub fn parse_float_value<'a>(input: &'a str) -> Result<FloatValue, CssPixelValueParseError<'a>> {
     let number = input
         .trim()

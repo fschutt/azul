@@ -1,10 +1,11 @@
 //! Main parsing entry points and utility functions
 
+use alloc::{string::String, vec::Vec};
+
 use crate::{
     error::CssParsingError,
     props::{get_css_key_map, CombinedCssPropertyType, CssProperty, CssPropertyType},
 };
-use alloc::{string::String, vec::Vec};
 
 /// Parse a CSS property from a key-value pair
 pub fn parse_css_property<'a>(
@@ -201,68 +202,126 @@ fn parse_combined_property_by_type<'a>(
     }
 }
 
-/// Utility function to parse parentheses-based CSS functions
+/// Checks wheter a given input is enclosed in parentheses, prefixed
+/// by a certain number of stopwords.
+///
+/// On success, returns what the stopword was + the string inside the braces
+/// on failure returns None.
+///
+/// ```rust
+/// # use azul_css::parser::parse_parentheses;
+/// # use azul_css::parser::ParenthesisParseError::*;
+/// // Search for the nearest "abc()" brace
+/// assert_eq!(
+///     parse_parentheses("abc(def(g))", &["abc"]),
+///     Ok(("abc", "def(g)"))
+/// );
+/// assert_eq!(
+///     parse_parentheses("abc(def(g))", &["def"]),
+///     Err(StopWordNotFound("abc"))
+/// );
+/// assert_eq!(
+///     parse_parentheses("def(ghi(j))", &["def"]),
+///     Ok(("def", "ghi(j)"))
+/// );
+/// assert_eq!(
+///     parse_parentheses("abc(def(g))", &["abc", "def"]),
+///     Ok(("abc", "def(g)"))
+/// );
+/// ```
 pub fn parse_parentheses<'a>(
     input: &'a str,
-    expected_functions: &[&str],
-) -> Result<(&'a str, &'a str), ParenthesisParseError<'a>> {
-    let input = input.trim();
+    stopwords: &[&'static str],
+) -> Result<(&'static str, &'a str), ParenthesisParseError<'a>> {
+    use self::ParenthesisParseError::*;
 
-    for &func_name in expected_functions {
-        if input.starts_with(func_name) {
-            let remaining = &input[func_name.len()..].trim();
-            if remaining.starts_with('(') && remaining.ends_with(')') {
-                let inner = &remaining[1..remaining.len() - 1];
-                return Ok((func_name, inner));
-            }
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(EmptyInput);
+    }
+
+    let first_open_brace = input.find('(').ok_or(NoOpeningBraceFound)?;
+    let found_stopword = &input[..first_open_brace];
+
+    // CSS does not allow for space between the ( and the stopword, so no .trim() here
+    let mut validated_stopword = None;
+    for stopword in stopwords {
+        if found_stopword == *stopword {
+            validated_stopword = Some(stopword);
+            break;
         }
     }
 
-    Err(ParenthesisParseError::StopWordNotFound(input))
+    let validated_stopword = validated_stopword.ok_or(StopWordNotFound(found_stopword))?;
+    let last_closing_brace = input.rfind(')').ok_or(NoClosingBraceFound)?;
+
+    Ok((
+        validated_stopword,
+        &input[(first_open_brace + 1)..last_closing_brace],
+    ))
 }
 
 /// Utility function to split strings respecting commas (for parsing multiple values)
-pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
-    let mut result = Vec::new();
-    let mut current = String::new();
-    let mut paren_depth = 0;
-    let mut in_quotes = false;
-    let mut quote_char = '"';
+fn split_string_respect_comma<'a>(input: &'a str) -> Vec<&'a str> {
+    /// Given a string, returns how many characters need to be skipped
+    fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
+        let mut depth = 0;
+        let mut last_character = 0;
+        let mut character_was_found = false;
 
-    for ch in input.chars() {
-        match ch {
-            '"' | '\'' if !in_quotes => {
-                in_quotes = true;
-                quote_char = ch;
-                current.push(ch);
+        if input.is_empty() {
+            return None;
+        }
+
+        for (idx, ch) in input.char_indices() {
+            last_character = idx;
+            match ch {
+                '(' => {
+                    depth += 1;
+                }
+                ')' => {
+                    depth -= 1;
+                }
+                c => {
+                    if c == target_char && depth == 0 {
+                        character_was_found = true;
+                        break;
+                    }
+                }
             }
-            ch if in_quotes && ch == quote_char => {
-                in_quotes = false;
-                current.push(ch);
-            }
-            '(' if !in_quotes => {
-                paren_depth += 1;
-                current.push(ch);
-            }
-            ')' if !in_quotes => {
-                paren_depth -= 1;
-                current.push(ch);
-            }
-            ',' if paren_depth == 0 && !in_quotes => {
-                result.push(current.trim());
-                current.clear();
-            }
-            _ => {
-                current.push(ch);
-            }
+        }
+
+        if last_character == 0 {
+            // No more split by `,`
+            None
+        } else {
+            Some((last_character, character_was_found))
         }
     }
 
-    if !current.trim().is_empty() {
-        result.push(current.trim());
+    let mut comma_separated_items = Vec::<&str>::new();
+    let mut current_input = &input[..];
+
+    'outer: loop {
+        let (skip_next_braces_result, character_was_found) =
+            match skip_next_braces(&current_input, ',') {
+                Some(s) => s,
+                None => break 'outer,
+            };
+        let new_push_item = if character_was_found {
+            &current_input[..skip_next_braces_result]
+        } else {
+            &current_input[..]
+        };
+        let new_current_input = &current_input[(skip_next_braces_result + 1)..];
+        comma_separated_items.push(new_push_item);
+        current_input = new_current_input;
+        if !character_was_found {
+            break 'outer;
+        }
     }
 
-    result.into_iter().collect()
+    comma_separated_items
 }
 
 /// Error type for parenthesis parsing
@@ -297,21 +356,54 @@ macro_rules! multi_type_parser {
 }
 
 // Macro for generating typed pixel value parsers (commonly used pattern)
-#[macro_export]
 macro_rules! typed_pixel_value_parser {
-    ($type_name:ident, $parse_fn_name:ident) => {
-        pub fn $parse_fn_name<'a>(
-            input: &'a str,
-        ) -> Result<$type_name, crate::error::CssPixelValueParseError<'a>> {
-            Ok($type_name {
-                inner: crate::props::basic::value::parse_pixel_value(input)?,
-            })
+    (
+        $fn:ident, $fn_str:expr, $return:ident, $return_str:expr, $import_str:expr, $test_str:expr
+    ) => {
+        ///Parses a `
+        #[doc = $return_str]
+        ///` attribute from a `&str`
+        ///
+        ///# Example
+        ///
+        ///```rust
+        #[doc = $import_str]
+        #[doc = $test_str]
+        ///```
+        pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
+            parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
         }
 
-        impl crate::props::formatter::FormatAsCssValue for $type_name {
-            fn format_as_css_value(&self) -> alloc::string::String {
-                self.inner.format_as_css_value()
+        impl FormatAsCssValue for $return {
+            fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.inner.format_as_css_value(f)
             }
         }
+    };
+    ($fn:ident, $return:ident) => {
+        typed_pixel_value_parser!(
+            $fn,
+            stringify!($fn),
+            $return,
+            stringify!($return),
+            concat!(
+                "# extern crate azul_css;",
+                "\r\n",
+                "# use azul_css::parser::",
+                stringify!($fn),
+                ";",
+                "\r\n",
+                "# use azul_css::{PixelValue, ",
+                stringify!($return),
+                "};"
+            ),
+            concat!(
+                "assert_eq!(",
+                stringify!($fn),
+                "(\"5px\"), Ok(",
+                stringify!($return),
+                " { inner: PixelValue::px(5.0) }));"
+            )
+        );
     };
 }

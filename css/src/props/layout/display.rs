@@ -1,9 +1,9 @@
 //! Layout display property
 
-use crate::error::CssParsingError;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::{error::CssParsingError, props::formatter::FormatAsCssValue};
 
 /// CSS display property values
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -93,6 +93,7 @@ impl FormatAsCssValue for LayoutDisplay {
 }
 
 /// Parse layout display value
+#[cfg(feature = "parser")]
 pub fn parse_layout_display<'a>(input: &'a str) -> Result<LayoutDisplay, CssParsingError<'a>> {
     use self::LayoutDisplay::*;
     let input = input.trim();

@@ -1,9 +1,12 @@
 //! Box shadow CSS properties
 
-use crate::props::basic::{color::ColorU, value::PixelValueNoPercent};
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::props::{
+    basic::{color::ColorU, value::PixelValueNoPercent},
+    formatter::FormatAsCssValue,
+};
 
 /// CSS box-shadow property
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

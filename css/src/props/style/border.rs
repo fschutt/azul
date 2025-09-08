@@ -1,9 +1,12 @@
 //! Border-related CSS properties
 
-use crate::props::basic::{color::ColorU, value::PixelValue};
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::props::{
+    basic::{color::ColorU, value::PixelValue},
+    formatter::FormatAsCssValue,
+};
 
 /// CSS border-style values
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]

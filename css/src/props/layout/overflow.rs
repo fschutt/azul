@@ -1,9 +1,9 @@
 //! Layout overflow properties
 
-use crate::error::CssParsingError;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::{error::CssParsingError, props::formatter::FormatAsCssValue};
 
 /// CSS overflow property values
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -45,6 +45,7 @@ impl FormatAsCssValue for LayoutOverflow {
 }
 
 /// Parse layout overflow value
+#[cfg(feature = "parser")]
 pub fn parse_layout_overflow<'a>(input: &'a str) -> Result<LayoutOverflow, CssParsingError<'a>> {
     use self::LayoutOverflow::*;
     match input.trim() {

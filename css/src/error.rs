@@ -51,7 +51,7 @@ impl<'a> CssParsingError<'a> {
 }
 
 /// Error type for pixel value parsing
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPixelValueParseError<'a> {
     /// Could not parse the numeric part
     InvalidNumber(&'a str),
@@ -63,7 +63,65 @@ pub enum CssPixelValueParseError<'a> {
     ValueOutOfRange(&'a str),
 }
 
+impl_debug_as_display!(CssPixelValueParseError<'a>);
+
+impl_display! { CssPixelValueParseError<'a>, {
+    InvalidNumber(s) =>format!("Invalid number: \"{s}\""),
+    InvalidUnit(s) => format!("Invalid unit: \"{s}\""),
+    NoUnit(s) => format!("No unit: \"{s}\""),
+    ValueOutOfRange(s) => format!("No unit: \"{s}\""),
+}}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CssPixelValueParseErrorOwned {
+    /// Could not parse the numeric part
+    InvalidNumber(String),
+    /// Unknown unit suffix
+    InvalidUnit(String),
+    /// Missing unit
+    NoUnit(String),
+    /// Value is out of valid range
+    ValueOutOfRange(String),
+}
+
+impl<'a> CssPixelValueParseError<'a> {
+    pub fn to_contained(&self) -> CssPixelValueParseErrorOwned {
+        match self {
+            CssPixelValueParseError::InvalidNumber(s) => {
+                CssPixelValueParseErrorOwned::InvalidNumber(s.to_string())
+            }
+            CssPixelValueParseError::InvalidUnit(s) => {
+                CssPixelValueParseErrorOwned::InvalidUnit(s.to_string())
+            }
+            CssPixelValueParseError::NoUnit(s) => {
+                CssPixelValueParseErrorOwned::NoUnit(s.to_string())
+            }
+            CssPixelValueParseError::ValueOutOfRange(s) => {
+                CssPixelValueParseErrorOwned::ValueOutOfRange(s.to_string())
+            }
+        }
+    }
+}
+
+impl CssPixelValueParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssPixelValueParseError<'a> {
+        match self {
+            CssPixelValueParseErrorOwned::InvalidNumber(s) => {
+                CssPixelValueParseError::InvalidNumber(s.as_str())
+            }
+            CssPixelValueParseErrorOwned::InvalidUnit(s) => {
+                CssPixelValueParseError::InvalidUnit(s.as_str())
+            }
+            CssPixelValueParseErrorOwned::NoUnit(s) => CssPixelValueParseError::NoUnit(s.as_str()),
+            CssPixelValueParseErrorOwned::ValueOutOfRange(s) => {
+                CssPixelValueParseError::ValueOutOfRange(s.as_str())
+            }
+        }
+    }
+}
+
 /// Error type for color value parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssColorParseError<'a> {
     /// Invalid color name
@@ -81,6 +139,7 @@ pub enum CssColorParseError<'a> {
 }
 
 /// Error type for angle value parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssAngleValueParseError<'a> {
     /// Could not parse the numeric part
@@ -92,6 +151,7 @@ pub enum CssAngleValueParseError<'a> {
 }
 
 /// Error type for direction parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssDirectionParseError<'a> {
     /// Invalid direction keyword
@@ -101,6 +161,7 @@ pub enum CssDirectionParseError<'a> {
 }
 
 /// Error type for border parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssBorderParseError<'a> {
     /// Invalid border style
@@ -112,6 +173,7 @@ pub enum CssBorderParseError<'a> {
 }
 
 /// Error type for shadow parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssShadowParseError<'a> {
     /// Invalid shadow offset
@@ -127,6 +189,7 @@ pub enum CssShadowParseError<'a> {
 }
 
 /// Error type for background parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssBackgroundParseError<'a> {
     /// Invalid background color
@@ -144,6 +207,7 @@ pub enum CssBackgroundParseError<'a> {
 }
 
 /// Error type for font parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssFontParseError<'a> {
     /// Invalid font family name
@@ -157,6 +221,7 @@ pub enum CssFontParseError<'a> {
 }
 
 /// Error type for transform parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssTransformParseError<'a> {
     /// Invalid transform function
@@ -170,6 +235,7 @@ pub enum CssTransformParseError<'a> {
 }
 
 /// Error type for filter parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssStyleFilterParseError<'a> {
     /// Invalid filter function
@@ -187,6 +253,7 @@ pub enum CssStyleFilterParseError<'a> {
 }
 
 /// Error type for border radius parsing
+#[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssStyleBorderRadiusParseError<'a> {
     /// Invalid border radius value

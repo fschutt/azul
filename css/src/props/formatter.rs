@@ -4,7 +4,6 @@ use alloc::string::String;
 
 /// Trait for formatting CSS property values back to CSS string representation
 pub trait FormatAsCssValue {
-    /// Format this value as a CSS string
     fn format_as_css_value(&self) -> String;
 }
 

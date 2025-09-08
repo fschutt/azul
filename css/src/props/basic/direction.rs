@@ -1,9 +1,9 @@
 //! CSS direction and corner value types
 
-use crate::error::CssDirectionParseError;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::{format, string::String};
 use core::fmt;
+
+use crate::{error::CssDirectionParseError, props::formatter::FormatAsCssValue};
 
 /// Basic direction for gradients and other directional properties
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -160,6 +160,7 @@ impl DirectionCorners {
 }
 
 /// Parse a direction value
+#[cfg(feature = "parser")]
 pub fn parse_direction<'a>(input: &'a str) -> Result<Direction, CssDirectionParseError<'a>> {
     let input_trimmed = input.trim().to_lowercase();
     match input_trimmed.as_str() {
@@ -176,6 +177,7 @@ pub fn parse_direction<'a>(input: &'a str) -> Result<Direction, CssDirectionPars
 }
 
 /// Parse a corner specification
+#[cfg(feature = "parser")]
 pub fn parse_direction_corner<'a>(
     input: &'a str,
 ) -> Result<DirectionCorner, CssDirectionParseError<'a>> {

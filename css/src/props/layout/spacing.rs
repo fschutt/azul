@@ -1,10 +1,12 @@
 //! Layout spacing properties: padding, margin, box-sizing
 
-use crate::error::{CssParsingError, CssPixelValueParseError};
-use crate::props::basic::value::PixelValue;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::{
+    error::{CssParsingError, CssPixelValueParseError},
+    props::{basic::value::PixelValue, formatter::FormatAsCssValue},
+};
 
 /// CSS box-sizing property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -199,6 +201,7 @@ impl FormatAsCssValue for LayoutMargin {
 }
 
 // Parsing functions
+#[cfg(feature = "parser")]
 pub fn parse_layout_box_sizing<'a>(input: &'a str) -> Result<LayoutBoxSizing, CssParsingError<'a>> {
     match input.trim() {
         "content-box" => Ok(LayoutBoxSizing::ContentBox),
@@ -210,6 +213,7 @@ pub fn parse_layout_box_sizing<'a>(input: &'a str) -> Result<LayoutBoxSizing, Cs
 macro_rules! impl_parse_functions {
     ($(($func:ident, $type:ident)),*) => {
         $(
+            #[cfg(feature = "parser")]
             pub fn $func<'a>(input: &'a str) -> Result<$type, CssPixelValueParseError<'a>> {
                 Ok($type { inner: crate::props::basic::value::parse_pixel_value(input)? })
             }
@@ -228,6 +232,7 @@ impl_parse_functions!(
     (parse_layout_margin_left, LayoutMarginLeft)
 );
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_padding<'a>(
     input: &'a str,
 ) -> Result<LayoutPadding, CssPixelValueParseError<'a>> {
@@ -279,6 +284,7 @@ pub fn parse_layout_padding<'a>(
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_margin<'a>(
     input: &'a str,
 ) -> Result<LayoutMargin, CssPixelValueParseError<'a>> {

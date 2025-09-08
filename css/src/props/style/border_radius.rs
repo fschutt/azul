@@ -1,9 +1,11 @@
 //! Border radius CSS properties
 
-use crate::props::basic::value::PixelValue;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::props::{basic::value::PixelValue, formatter::FormatAsCssValue};
+#[cfg(feature = "parser")]
+use crate::{error::CssPixelValueParseError, props::basic::value::parse_pixel_value};
 
 // Macro for creating debug/display implementations for wrapper types
 macro_rules! impl_pixel_value {
@@ -110,7 +112,181 @@ impl FormatAsCssValue for StyleBorderRadius {
     }
 }
 
-// TODO: Add parsing functions
-// fn parse_style_border_radius<'a>(input: &'a str) -> Result<StyleBorderRadius, CssStyleBorderRadiusParseError<'a>>
-// fn parse_style_border_top_left_radius<'a>(input: &'a str) -> Result<StyleBorderTopLeftRadius, CssPixelValueParseError<'a>>
-// etc.
+impl StyleBorderRadius {
+    pub fn uniform(radius: PixelValue) -> Self {
+        Self {
+            top_left: StyleBorderTopLeftRadius { inner: radius },
+            top_right: StyleBorderTopRightRadius { inner: radius },
+            bottom_left: StyleBorderBottomLeftRadius { inner: radius },
+            bottom_right: StyleBorderBottomRightRadius { inner: radius },
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub mod parsing {
+    use alloc::string::String;
+
+    use super::*;
+
+    #[derive(Clone, PartialEq)]
+    pub enum CssStyleBorderRadiusParseError<'a> {
+        TooManyValues(&'a str),
+        CssPixelValueParseError(CssPixelValueParseError<'a>),
+    }
+
+    impl<'a> core::fmt::Display for CssStyleBorderRadiusParseError<'a> {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            match self {
+                CssStyleBorderRadiusParseError::TooManyValues(val) => {
+                    write!(f, "Too many values: \"{}\"", val)
+                }
+                CssStyleBorderRadiusParseError::CssPixelValueParseError(e) => write!(f, "{}", e),
+            }
+        }
+    }
+
+    impl<'a> core::fmt::Debug for CssStyleBorderRadiusParseError<'a> {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            write!(f, "{}", self)
+        }
+    }
+
+    impl<'a> From<CssPixelValueParseError<'a>> for CssStyleBorderRadiusParseError<'a> {
+        fn from(e: CssPixelValueParseError<'a>) -> Self {
+            CssStyleBorderRadiusParseError::CssPixelValueParseError(e)
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum CssStyleBorderRadiusParseErrorOwned {
+        TooManyValues(String),
+        CssPixelValueParseError(crate::error::CssPixelValueParseErrorOwned),
+    }
+
+    impl<'a> CssStyleBorderRadiusParseError<'a> {
+        pub fn to_contained(&self) -> CssStyleBorderRadiusParseErrorOwned {
+            match self {
+                CssStyleBorderRadiusParseError::TooManyValues(s) => {
+                    CssStyleBorderRadiusParseErrorOwned::TooManyValues(s.to_string())
+                }
+                CssStyleBorderRadiusParseError::CssPixelValueParseError(e) => {
+                    CssStyleBorderRadiusParseErrorOwned::CssPixelValueParseError(e.to_contained())
+                }
+            }
+        }
+    }
+
+    impl CssStyleBorderRadiusParseErrorOwned {
+        pub fn to_shared<'a>(&'a self) -> CssStyleBorderRadiusParseError<'a> {
+            match self {
+                CssStyleBorderRadiusParseErrorOwned::TooManyValues(s) => {
+                    CssStyleBorderRadiusParseError::TooManyValues(s)
+                }
+                CssStyleBorderRadiusParseErrorOwned::CssPixelValueParseError(e) => {
+                    CssStyleBorderRadiusParseError::CssPixelValueParseError(e.to_shared())
+                }
+            }
+        }
+    }
+
+    /// Parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
+    #[cfg(feature = "parser")]
+    pub fn parse_style_border_radius<'a>(
+        input: &'a str,
+    ) -> Result<StyleBorderRadius, CssStyleBorderRadiusParseError<'a>> {
+        let mut components = input.split_whitespace();
+        let len = components.clone().count();
+
+        match len {
+            1 => {
+                // One value - border-radius: 15px;
+                // (the value applies to all four corners, which are rounded equally:
+                let uniform_radius = parse_pixel_value(components.next().unwrap())?;
+                Ok(StyleBorderRadius::uniform(uniform_radius))
+            }
+            2 => {
+                // Two values - border-radius: 15px 50px;
+                // (first value applies to top-left and bottom-right corners,
+                // and the second value applies to top-right and bottom-left corners):
+                let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?;
+                let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
+
+                Ok(StyleBorderRadius {
+                    top_left: StyleBorderTopLeftRadius {
+                        inner: top_left_bottom_right,
+                    },
+                    bottom_right: StyleBorderBottomRightRadius {
+                        inner: top_left_bottom_right,
+                    },
+                    top_right: StyleBorderTopRightRadius {
+                        inner: top_right_bottom_left,
+                    },
+                    bottom_left: StyleBorderBottomLeftRadius {
+                        inner: top_right_bottom_left,
+                    },
+                })
+            }
+            3 => {
+                // Three values - border-radius: 15px 50px 30px;
+                // (first value applies to top-left corner,
+                // second value applies to top-right and bottom-left corners,
+                // and third value applies to bottom-right corner):
+                let top_left = parse_pixel_value(components.next().unwrap())?;
+                let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
+                let bottom_right = parse_pixel_value(components.next().unwrap())?;
+
+                Ok(StyleBorderRadius {
+                    top_left: StyleBorderTopLeftRadius { inner: top_left },
+                    bottom_right: StyleBorderBottomRightRadius {
+                        inner: bottom_right,
+                    },
+                    top_right: StyleBorderTopRightRadius {
+                        inner: top_right_bottom_left,
+                    },
+                    bottom_left: StyleBorderBottomLeftRadius {
+                        inner: top_right_bottom_left,
+                    },
+                })
+            }
+            4 => {
+                // Four values - border-radius: 15px 50px 30px 5px;
+                // first value applies to top-left corner,
+                // second value applies to top-right corner,
+                // third value applies to bottom-right corner,
+                // fourth value applies to bottom-left corner
+                let top_left = parse_pixel_value(components.next().unwrap())?;
+                let top_right = parse_pixel_value(components.next().unwrap())?;
+                let bottom_right = parse_pixel_value(components.next().unwrap())?;
+                let bottom_left = parse_pixel_value(components.next().unwrap())?;
+
+                Ok(StyleBorderRadius {
+                    top_left: StyleBorderTopLeftRadius { inner: top_left },
+                    top_right: StyleBorderTopRightRadius { inner: top_right },
+                    bottom_right: StyleBorderBottomRightRadius {
+                        inner: bottom_right,
+                    },
+                    bottom_left: StyleBorderBottomLeftRadius { inner: bottom_left },
+                })
+            }
+            _ => Err(CssStyleBorderRadiusParseError::TooManyValues(input)),
+        }
+    }
+
+    typed_pixel_value_parser!(parse_style_border_top_left_radius, StyleBorderTopLeftRadius);
+    typed_pixel_value_parser!(
+        parse_style_border_top_right_radius,
+        StyleBorderTopRightRadius
+    );
+    typed_pixel_value_parser!(
+        parse_style_border_bottom_left_radius,
+        StyleBorderBottomLeftRadius
+    );
+    typed_pixel_value_parser!(
+        parse_style_border_bottom_right_radius,
+        StyleBorderBottomRightRadius
+    );
+}
+
+#[cfg(feature = "parser")]
+pub use parsing::*;

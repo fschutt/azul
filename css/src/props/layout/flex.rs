@@ -1,10 +1,12 @@
 //! Flexbox layout properties
 
-use crate::error::{CssParsingError, CssPixelValueParseError};
-use crate::props::basic::value::FloatValue;
-use crate::props::formatter::FormatAsCssValue;
 use alloc::string::String;
 use core::fmt;
+
+use crate::{
+    error::{CssParsingError, CssPixelValueParseError},
+    props::{basic::value::FloatValue, formatter::FormatAsCssValue},
+};
 
 /// CSS flex-direction property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -292,6 +294,7 @@ impl FormatAsCssValue for LayoutFlexShrink {
 }
 
 // Parsing functions
+#[cfg(feature = "parser")]
 pub fn parse_layout_flex_direction<'a>(
     input: &'a str,
 ) -> Result<LayoutFlexDirection, CssParsingError<'a>> {
@@ -305,6 +308,7 @@ pub fn parse_layout_flex_direction<'a>(
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_flex_wrap<'a>(input: &'a str) -> Result<LayoutFlexWrap, CssParsingError<'a>> {
     use self::LayoutFlexWrap::*;
     match input.trim() {
@@ -315,6 +319,7 @@ pub fn parse_layout_flex_wrap<'a>(input: &'a str) -> Result<LayoutFlexWrap, CssP
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_justify_content<'a>(
     input: &'a str,
 ) -> Result<LayoutJustifyContent, CssParsingError<'a>> {
@@ -332,6 +337,7 @@ pub fn parse_layout_justify_content<'a>(
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_align_items<'a>(
     input: &'a str,
 ) -> Result<LayoutAlignItems, CssParsingError<'a>> {
@@ -348,6 +354,7 @@ pub fn parse_layout_align_items<'a>(
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_align_content<'a>(
     input: &'a str,
 ) -> Result<LayoutAlignContent, CssParsingError<'a>> {
@@ -366,6 +373,7 @@ pub fn parse_layout_align_content<'a>(
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_flex_grow<'a>(
     input: &'a str,
 ) -> Result<LayoutFlexGrow, CssPixelValueParseError<'a>> {
@@ -373,6 +381,7 @@ pub fn parse_layout_flex_grow<'a>(
     Ok(LayoutFlexGrow { inner: float_value })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_layout_flex_shrink<'a>(
     input: &'a str,
 ) -> Result<LayoutFlexShrink, CssPixelValueParseError<'a>> {

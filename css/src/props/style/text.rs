@@ -1,14 +1,20 @@
 //! Text-related CSS properties
 
-use crate::error::{CssColorParseError, CssParsingError, CssPixelValueParseError};
-use crate::props::basic::{
-    color::ColorU,
-    value::{PercentageValue, PixelValue},
-};
-use crate::props::formatter::FormatAsCssValue;
-use crate::{impl_option, AzString};
 use alloc::string::String;
 use core::fmt;
+
+use crate::{
+    error::{CssColorParseError, CssParsingError, CssPixelValueParseError},
+    impl_option,
+    props::{
+        basic::{
+            color::ColorU,
+            value::{PercentageValue, PixelValue},
+        },
+        formatter::FormatAsCssValue,
+    },
+    AzString,
+};
 
 /// CSS color property (text color)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -481,6 +487,7 @@ impl FormatAsCssValue for StyleLetterSpacing {
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_style_text_color<'a>(
     input: &'a str,
 ) -> Result<StyleTextColor, CssColorParseError<'a>> {
@@ -489,6 +496,7 @@ pub fn parse_style_text_color<'a>(
     })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_style_font_size<'a>(
     input: &'a str,
 ) -> Result<StyleFontSize, CssPixelValueParseError<'a>> {
@@ -497,6 +505,7 @@ pub fn parse_style_font_size<'a>(
     })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_style_text_align<'a>(input: &'a str) -> Result<StyleTextAlign, CssParsingError<'a>> {
     match input.trim() {
         "left" => Ok(StyleTextAlign::Left),
@@ -507,6 +516,7 @@ pub fn parse_style_text_align<'a>(input: &'a str) -> Result<StyleTextAlign, CssP
     }
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_style_line_height<'a>(
     input: &'a str,
 ) -> Result<StyleLineHeight, CssPixelValueParseError<'a>> {
@@ -515,6 +525,7 @@ pub fn parse_style_line_height<'a>(
     })
 }
 
+#[cfg(feature = "parser")]
 pub fn parse_style_letter_spacing<'a>(
     input: &'a str,
 ) -> Result<StyleLetterSpacing, CssPixelValueParseError<'a>> {
