@@ -7,7 +7,7 @@ use alloc::{format, string::String};
 use core::fmt;
 
 /// Represents an angle with its unit
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AngleValue {
     pub metric: AngleMetric,
@@ -66,7 +66,7 @@ impl AngleValue {
     pub const fn zero() -> Self {
         Self {
             metric: AngleMetric::Deg,
-            number: FloatValue::new(0.0),
+            number: FloatValue::const_new(0),
         }
     }
 

@@ -6,7 +6,7 @@ use alloc::{format, string::String};
 use core::fmt;
 
 /// Fixed-point float value for consistent numeric representation
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FloatValue {
     number: isize,
@@ -43,7 +43,7 @@ pub enum SizeMetric {
 }
 
 /// CSS pixel value with unit
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PixelValue {
     pub metric: SizeMetric,
@@ -58,7 +58,7 @@ pub struct PixelValueNoPercent {
 }
 
 /// CSS percentage value
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PercentageValue {
     pub number: FloatValue,
@@ -76,15 +76,43 @@ pub struct PixelSize {
 pub const EM_HEIGHT: f32 = 16.0;
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
+/// Multiplier for floating point accuracy. Elements such as px or %
+/// are only accurate until a certain number of decimal points, therefore
+/// they have to be casted to isizes in order to make the f32 values
+/// hash-able: Css has a relatively low precision here, roughly 5 digits, i.e
+/// `1.00001 == 1.0`
+const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
+const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
+
+
 impl FloatValue {
-    pub const fn new(value: f32) -> Self {
+    /// Same as `FloatValue::new()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_new(value: isize) -> Self {
         Self {
-            number: (value * 1000.0) as isize,
+            number: value * FP_PRECISION_MULTIPLIER_CONST,
         }
     }
 
+    #[inline]
+    pub fn new(value: f32) -> Self {
+        Self {
+            number: (value * FP_PRECISION_MULTIPLIER) as isize,
+        }
+    }
+
+    #[inline]
     pub fn get(&self) -> f32 {
-        self.number as f32 / 1000.0
+        self.number as f32 / FP_PRECISION_MULTIPLIER
+    }
+
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        let self_val_f32 = self.get();
+        let other_val_f32 = other.get();
+        let interpolated = self_val_f32 + ((other_val_f32 - self_val_f32) * t);
+        Self::new(interpolated)
     }
 }
 
@@ -189,13 +217,57 @@ impl PixelValue {
         Self::const_from_metric(SizeMetric::Px, value)
     }
 
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.number = FloatValue::new(self.number.get() * scale_factor);
+    }
+
+    /// Same as `PixelValue::em()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_em(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Em, value)
+    }
+
+    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_pt(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Pt, value)
+    }
+
+    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_percent(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Percent, value)
+    }
+
+    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_in(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::In, value)
+    }
+
+    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_cm(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Cm, value)
+    }
+
+    /// Same as `PixelValue::in()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_mm(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Mm, value)
+    }
+
     #[inline]
     pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
         Self {
             metric,
-            number: FloatValue {
-                number: value * 1000,
-            },
+            number: FloatValue::const_new(value),
         }
     }
 
@@ -205,18 +277,28 @@ impl PixelValue {
     }
 
     #[inline]
-    pub fn pt(value: f32) -> Self {
-        Self::from_metric(SizeMetric::Pt, value)
-    }
-
-    #[inline]
     pub fn em(value: f32) -> Self {
         Self::from_metric(SizeMetric::Em, value)
     }
 
     #[inline]
-    pub fn rem(value: f32) -> Self {
-        Self::from_metric(SizeMetric::Rem, value)
+    pub fn inch(value: f32) -> Self {
+        Self::from_metric(SizeMetric::In, value)
+    }
+
+    #[inline]
+    pub fn cm(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Cm, value)
+    }
+
+    #[inline]
+    pub fn mm(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Mm, value)
+    }
+
+    #[inline]
+    pub fn pt(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Pt, value)
     }
 
     #[inline]
@@ -232,33 +314,57 @@ impl PixelValue {
         }
     }
 
-    /// Convert this value to pixels, given a context for relative units
-    pub fn to_pixels(
-        &self,
-        font_size_px: f32,
-        viewport_width_px: f32,
-        viewport_height_px: f32,
-    ) -> f32 {
-        let value = self.number.get();
-        match self.metric {
-            SizeMetric::Px => value,
-            SizeMetric::Pt => value * PT_TO_PX,
-            SizeMetric::Em => value * font_size_px,
-            SizeMetric::Rem => value * EM_HEIGHT,
-            SizeMetric::In => value * 96.0, // 1 inch = 96px
-            SizeMetric::Cm => value * 37.8, // 1cm ≈ 37.8px
-            SizeMetric::Mm => value * 3.78, // 1mm ≈ 3.78px
-            SizeMetric::Percent => value,   // Percentage needs context-specific handling
-            SizeMetric::Vw => value * viewport_width_px / 100.0,
-            SizeMetric::Vh => value * viewport_height_px / 100.0,
-            SizeMetric::Vmin => value * viewport_width_px.min(viewport_height_px) / 100.0,
-            SizeMetric::Vmax => value * viewport_width_px.max(viewport_height_px) / 100.0,
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        if self.metric == other.metric {
+            Self {
+                metric: self.metric,
+                number: self.number.interpolate(&other.number, t),
+            }
+        } else {
+            // TODO: how to interpolate between different metrics
+            // (interpolate between % and em? - currently impossible)            
+            let self_px_interp = self.to_pixels(0.0, EM_HEIGHT, 0.0, 0.0);
+            let other_px_interp = other.to_pixels(0.0, EM_HEIGHT, 0.0, 0.0);
+            Self::from_metric(
+                SizeMetric::Px,
+                self_px_interp + (other_px_interp - self_px_interp) * t,
+            )
         }
     }
 
-    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        self.number = FloatValue::new(self.number.get() * scale_factor);
+    /// Returns the value of the SizeMetric in pixels
+    #[inline]
+    pub fn to_pixels_no_percent(&self) -> Option<f32> {
+        // to_pixels always assumes 96 DPI
+        match self.metric {
+            SizeMetric::Px => Some(self.number.get()),
+            SizeMetric::Pt => Some(self.number.get() * PT_TO_PX),
+            SizeMetric::Em | SizeMetric::Rem => Some(self.number.get() * EM_HEIGHT),
+            SizeMetric::In => Some(self.number.get() * 96.0),
+            SizeMetric::Cm => Some(self.number.get() * 96.0 / 2.54),
+            SizeMetric::Mm => Some(self.number.get() * 96.0 / 25.4),
+            // TODO - currently impossible to calculate
+            SizeMetric::Vh | SizeMetric::Vmax | SizeMetric::Vmin | SizeMetric::Vw => None,
+            SizeMetric::Percent => None,
+        }
     }
+
+    /// Returns the value of the SizeMetric in pixels
+    #[inline]
+    pub fn to_pixels(&self, 
+        percent_resolve: f32,
+        font_size_px: f32,
+        viewport_width_px: f32,
+        viewport_height_px: f32
+    ) -> f32 {
+        // to_pixels always assumes 96 DPI
+        match self.metric {
+            SizeMetric::Percent => self.number.get() / 100.0 * percent_resolve,
+            _ => self.to_pixels_no_percent().unwrap_or(0.0),
+        }
+    }
+
 }
 
 impl PixelValueNoPercent {
@@ -283,19 +389,43 @@ impl PixelValueNoPercent {
         viewport_height_px: f32,
     ) -> f32 {
         self.inner
-            .to_pixels(font_size_px, viewport_width_px, viewport_height_px)
+            .to_pixels(100.0, font_size_px, viewport_width_px, viewport_height_px)
     }
 }
 
 impl PercentageValue {
+    /// Same as `PercentageValue::new()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_new(value: isize) -> Self {
+        Self {
+            number: FloatValue::const_new(value),
+        }
+    }
+
+    pub const fn zero() -> Self {
+        Self::const_new(0)
+    }
+
+    #[inline]
     pub fn new(value: f32) -> Self {
         Self {
             number: FloatValue::new(value),
         }
     }
 
-    pub fn get(&self) -> f32 {
-        self.number.get()
+    // NOTE: no get() function, to avoid confusion with "150%"
+
+    #[inline]
+    pub fn normalized(&self) -> f32 {
+        self.number.get() / 100.0
+    }
+
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            number: self.number.interpolate(&other.number, t),
+        }
     }
 }
 
