@@ -450,7 +450,7 @@ macro_rules! impl_vec_mut {
             /// Appends elements to `Self` from other buffer.
             #[inline]
             unsafe fn append_elements(&mut self, other: *const [$struct_type]) {
-                let count = (*other).len();
+                let count = (&(*other)).len();
                 self.reserve(count);
                 let len = self.len();
                 core::ptr::copy_nonoverlapping(
