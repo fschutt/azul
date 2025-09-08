@@ -7,9 +7,6 @@
 extern crate alloc;
 extern crate core;
 
-#[cfg(feature = "parser")]
-pub mod parser;
-
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -450,7 +447,7 @@ macro_rules! impl_vec_mut {
             /// Appends elements to `Self` from other buffer.
             #[inline]
             unsafe fn append_elements(&mut self, other: *const [$struct_type]) {
-                let count = (*other).len();
+                let count = (&(*other)).len();
                 self.reserve(count);
                 let len = self.len();
                 core::ptr::copy_nonoverlapping(
@@ -1131,6 +1128,12 @@ impl_option!(
 impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
+// New modular structure (alongside existing code)
+pub mod error;
+pub mod geometry;
+pub mod props;
+
+// Keep existing structure intact
 mod css;
 mod css_properties;
 mod print_css;
