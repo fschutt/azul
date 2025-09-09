@@ -1762,7 +1762,7 @@ pub fn position_absolute_element(
     } else {
         LogicalPosition::zero()
     };
-    
+
     // Get the static position
     let static_position = if position_type == LayoutPosition::Fixed {
         // For fixed elements, the static position is where the element would have been
@@ -1770,7 +1770,7 @@ pub fn position_absolute_element(
         if let Some(parent_id) = styled_dom.node_hierarchy.as_container()[node_id].parent_id() {
             let parent_rect = &positioned_rects[parent_id];
             let parent_absolute_pos = parent_rect.position.get_static_offset();
-            
+
             // The content box starts after the parent's border and padding.
             let parent_border = calculate_border(parent_id, styled_dom, containing_block);
             let parent_padding = calculate_padding(parent_id, styled_dom, containing_block);

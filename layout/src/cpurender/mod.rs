@@ -6,7 +6,7 @@ use azul_core::{
     },
 };
 use azul_css::{BorderStyle, ColorU};
-use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Rect, Transform};
+use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
 
 use crate::parsedfont::ParsedFont;
 
@@ -110,7 +110,7 @@ fn render_frame(
                 // absolute coordinates calculated by the layout engine.
                 let static_offset = child_pos.get_static_offset();
                 Transform::from_translate(static_offset.x, static_offset.y)
-            },
+            }
             _ => {
                 // For all other elements (static, relative, absolute), the existing
                 // logic is sufficient for a hierarchical renderer. Position them
@@ -375,7 +375,7 @@ fn translate_dash(style: &BorderStyle) -> Option<Vec<f32>> {
         BorderStyle::None | BorderStyle::Hidden => None,
         BorderStyle::Solid => None, // No dash pattern for solid lines
         BorderStyle::Dotted => {
-            // Dotted pattern: small on, small off
+            // Dotted pattern: small on, small off. Stroke width is a good measure.
             Some(vec![1.0, 1.0])
         }
         BorderStyle::Dashed => {
@@ -391,6 +391,81 @@ fn translate_dash(style: &BorderStyle) -> Option<Vec<f32>> {
     }
 }
 
+/// Helper function to build a rounded rectangle path.
+/// Can draw clockwise or counter-clockwise.
+fn build_rounded_rect_path(
+    rect: Rect,
+    r_tl: f32,
+    r_tr: f32,
+    r_br: f32,
+    r_bl: f32,
+    clockwise: bool,
+) -> Option<Path> {
+    let mut pb = PathBuilder::new();
+
+    if clockwise {
+        pb.move_to(rect.left() + r_tl, rect.top());
+        pb.line_to(rect.right() - r_tr, rect.top());
+        if r_tr > 0.0 {
+            pb.quad_to(rect.right(), rect.top(), rect.right(), rect.top() + r_tr);
+        }
+        pb.line_to(rect.right(), rect.bottom() - r_br);
+        if r_br > 0.0 {
+            pb.quad_to(
+                rect.right(),
+                rect.bottom(),
+                rect.right() - r_br,
+                rect.bottom(),
+            );
+        }
+        pb.line_to(rect.left() + r_bl, rect.bottom());
+        if r_bl > 0.0 {
+            pb.quad_to(
+                rect.left(),
+                rect.bottom(),
+                rect.left(),
+                rect.bottom() - r_bl,
+            );
+        }
+        pb.line_to(rect.left(), rect.top() + r_tl);
+        if r_tl > 0.0 {
+            pb.quad_to(rect.left(), rect.top(), rect.left() + r_tl, rect.top());
+        }
+    } else {
+        // Counter-clockwise
+        pb.move_to(rect.left() + r_tl, rect.top());
+        if r_tl > 0.0 {
+            pb.quad_to(rect.left(), rect.top(), rect.left(), rect.top() + r_tl);
+        }
+        pb.line_to(rect.left(), rect.bottom() - r_bl);
+        if r_bl > 0.0 {
+            pb.quad_to(
+                rect.left(),
+                rect.bottom(),
+                rect.left() + r_bl,
+                rect.bottom(),
+            );
+        }
+        pb.line_to(rect.right() - r_br, rect.bottom());
+        if r_br > 0.0 {
+            pb.quad_to(
+                rect.right(),
+                rect.bottom(),
+                rect.right(),
+                rect.bottom() - r_br,
+            );
+        }
+        pb.line_to(rect.right(), rect.top() + r_tr);
+        if r_tr > 0.0 {
+            pb.quad_to(rect.right(), rect.top(), rect.right() - r_tr, rect.top());
+        }
+        pb.line_to(rect.left() + r_tl, rect.top());
+    }
+
+    pb.close();
+    pb.finish()
+}
+
 fn render_border(
     widths: StyleBorderWidths,
     colors: StyleBorderColors,
@@ -398,228 +473,184 @@ fn render_border(
     pixmap: &mut Pixmap,
     rect: Rect,
     transform: Transform,
-    _clip_rect: Option<Rect>,
+    _clip_rect: Option<Rect>, // The clip rect is handled by the caller's transform and mask.
 ) -> Result<(), String> {
-    // Helper function to create a rounded corner path
-    fn add_rounded_corner(
-        pb: &mut PathBuilder,
-        cx: f32,
-        cy: f32,
-        radius: f32,
-        start_angle: f32,
-        sweep_angle: f32,
-    ) {
-        if radius <= 0.0 {
-            pb.line_to(cx, cy);
-            return;
-        }
-
-        // Convert angles to radians
-        let start_rad = start_angle * std::f32::consts::PI / 180.0;
-        let end_rad = (start_angle + sweep_angle) * std::f32::consts::PI / 180.0;
-
-        // Approximate a quarter circle with a cubic Bezier curve
-        let kappa = 0.5522847498; // Magic constant for approximating a circle with cubics
-        let control_dist = radius * kappa;
-
-        let start_x = cx + radius * start_rad.cos();
-        let start_y = cy + radius * start_rad.sin();
-
-        let end_x = cx + radius * end_rad.cos();
-        let end_y = cy + radius * end_rad.sin();
-
-        // Calculate control points
-        let ctrl1_x = start_x - control_dist * start_rad.sin();
-        let ctrl1_y = start_y + control_dist * start_rad.cos();
-
-        let ctrl2_x = end_x + control_dist * end_rad.sin();
-        let ctrl2_y = end_y - control_dist * end_rad.cos();
-
-        pb.line_to(start_x, start_y);
-        pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
-    }
-
-    // Helper function to render a border segment
-    fn render_border_segment(
-        width: f32,
-        color: ColorU,
-        style: BorderStyle,
-        start_x: f32,
-        start_y: f32,
-        end_x: f32,
-        end_y: f32,
-        pixmap: &mut Pixmap,
-        transform: Transform,
-    ) -> Result<(), String> {
-        if width <= 0.0 {
-            return Ok(());
-        }
-
-        let mut paint = Paint::default();
-        paint.set_color_rgba8(color.r, color.g, color.b, color.a);
-
-        let mut pb = PathBuilder::new();
-        pb.move_to(start_x, start_y);
-        pb.line_to(end_x, end_y);
-
-        if let Some(path) = pb.finish() {
-            let transformed_path = path
-                .transform(transform)
-                .ok_or_else(|| "Failed to transform path".to_string())?;
-
-            // Create stroke options with or without dash pattern
-            let dash = translate_dash(&style);
-
-            let stroke = tiny_skia::Stroke {
-                width,
-                miter_limit: 4.0,
-                line_cap: tiny_skia::LineCap::Butt,
-                line_join: tiny_skia::LineJoin::Miter,
-                dash: dash.and_then(|sd| tiny_skia::StrokeDash::new(sd, 0.0)),
-            };
-
-            pixmap.stroke_path(
-                &transformed_path,
-                &paint,
-                &stroke,
-                Transform::identity(),
-                None,
-            );
-        }
-
-        Ok(())
-    }
-
-    // Helper to get border radius for a corner (top-left, top-right, etc.)
-    // We should extract this from CSS properties, but for this example we'll use a simple approach
-    let border_radius = 0.0; // Default to no radius
-
-    // Get border widths
+    // 1. Extract border properties (widths, colors, styles)
     let top_width = widths
         .top
         .and_then(|w| w.get_property().cloned())
         .map(|w| w.inner.to_pixels(rect.height()))
         .unwrap_or(0.0);
-
     let right_width = widths
         .right
         .and_then(|w| w.get_property().cloned())
         .map(|w| w.inner.to_pixels(rect.width()))
         .unwrap_or(0.0);
-
     let bottom_width = widths
         .bottom
         .and_then(|w| w.get_property().cloned())
         .map(|w| w.inner.to_pixels(rect.height()))
         .unwrap_or(0.0);
-
     let left_width = widths
         .left
         .and_then(|w| w.get_property().cloned())
         .map(|w| w.inner.to_pixels(rect.width()))
         .unwrap_or(0.0);
 
-    // Get border styles
+    if top_width <= 0.0 && right_width <= 0.0 && bottom_width <= 0.0 && left_width <= 0.0 {
+        return Ok(());
+    }
+
+    let top_color = colors
+        .top
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or_else(|| ColorU::BLACK);
+    let right_color = colors
+        .right
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or_else(|| ColorU::BLACK);
+    let bottom_color = colors
+        .bottom
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or_else(|| ColorU::BLACK);
+    let left_color = colors
+        .left
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or_else(|| ColorU::BLACK);
+
     let top_style = styles
         .top
         .and_then(|s| s.get_property().cloned())
         .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
-
+        .unwrap_or(BorderStyle::Solid);
     let right_style = styles
         .right
         .and_then(|s| s.get_property().cloned())
         .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
-
+        .unwrap_or(BorderStyle::Solid);
     let bottom_style = styles
         .bottom
         .and_then(|s| s.get_property().cloned())
         .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
-
+        .unwrap_or(BorderStyle::Solid);
     let left_style = styles
         .left
         .and_then(|s| s.get_property().cloned())
         .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::BorderStyle::Solid);
+        .unwrap_or(BorderStyle::Solid);
 
-    let top_color = colors
-        .top
-        .and_then(|s| s.get_property().cloned())
-        .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+    // TODO: Extract border radius from the style properties.
+    // For this example, we'll use a hardcoded value. In a real implementation,
+    // this would come from `frame.border_radius` or a similar field.
+    let (r_tl, r_tr, r_br, r_bl) = (5.0, 5.0, 5.0, 5.0);
 
-    let left_color = colors
-        .left
-        .and_then(|s| s.get_property().cloned())
-        .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+    // 2. Create a clipping path that defines the entire border area.
+    // This is done by creating an outer rounded rectangle and subtracting an inner one.
+    let outer_rect = rect;
+    let inner_rect = Rect::from_xywh(
+        rect.x() + left_width,
+        rect.y() + top_width,
+        (rect.width() - left_width - right_width).max(0.0),
+        (rect.height() - top_width - bottom_width).max(0.0),
+    )
+    .unwrap_or_else(|| Rect::from_xywh(0.0, 0.0, 0.0, 0.0).unwrap());
 
-    let right_color = colors
-        .right
-        .and_then(|s| s.get_property().cloned())
-        .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+    // Heuristic for inner radii: `outer_radius - average_adjacent_border_width`.
+    // This is an approximation but works well visually. The CSS spec is more complex.
+    let r_tl_inner = (r_tl - (left_width + top_width) / 2.0).max(0.0);
+    let r_tr_inner = (r_tr - (right_width + top_width) / 2.0).max(0.0);
+    let r_br_inner = (r_br - (right_width + bottom_width) / 2.0).max(0.0);
+    let r_bl_inner = (r_bl - (left_width + bottom_width) / 2.0).max(0.0);
 
-    let bottom_color = colors
-        .bottom
-        .and_then(|s| s.get_property().cloned())
-        .map(|s| s.inner)
-        .unwrap_or_else(|| azul_css::ColorU::BLACK);
+    let outer_path = build_rounded_rect_path(outer_rect, r_tl, r_tr, r_br, r_bl, true)
+        .ok_or("Failed to build outer border path")?;
+    let inner_path = build_rounded_rect_path(
+        inner_rect, r_tl_inner, r_tr_inner, r_br_inner, r_bl_inner,
+        false, // Draw counter-clockwise for subtraction
+    )
+    .ok_or("Failed to build inner border path")?;
 
-    // Render all four borders using our helper function
-    // Top border
-    render_border_segment(
-        top_width,
-        top_color,
-        top_style,
-        rect.x() + border_radius,
-        rect.y() + top_width / 2.0,
-        rect.x() + rect.width() - border_radius,
-        rect.y() + top_width / 2.0,
-        pixmap,
+    let mut clip_pb = PathBuilder::new();
+    clip_pb.push_path(&outer_path);
+    clip_pb.push_path(&inner_path);
+    let clip_path = clip_pb
+        .finish()
+        .ok_or("Failed to build combined clip path")?;
+
+    // 3. Create a mask from the clipping path.
+    let mut mask = tiny_skia::Mask::new(pixmap.width(), pixmap.height())
+        .ok_or("Cannot create border clip mask")?;
+    mask.fill_path(
+        &clip_path,
+        FillRule::Winding, // Winding rule works because inner path is reversed
+        true,
         transform,
-    )?;
+    );
 
-    // Right border
-    render_border_segment(
-        right_width,
-        right_color,
-        right_style,
-        rect.x() + rect.width() - right_width / 2.0,
-        rect.y() + border_radius,
-        rect.x() + rect.width() - right_width / 2.0,
-        rect.y() + rect.height() - border_radius,
-        pixmap,
-        transform,
-    )?;
+    // 4. Render each border side as a thick, clipped line.
+    let sides = [
+        (top_width, top_color, top_style, 'T'),
+        (right_width, right_color, right_style, 'R'),
+        (bottom_width, bottom_color, bottom_style, 'B'),
+        (left_width, left_color, left_style, 'L'),
+    ];
 
-    // Bottom border
-    render_border_segment(
-        bottom_width,
-        bottom_color,
-        bottom_style,
-        rect.x() + rect.width() - border_radius,
-        rect.y() + rect.height() - bottom_width / 2.0,
-        rect.x() + border_radius,
-        rect.y() + rect.height() - bottom_width / 2.0,
-        pixmap,
-        transform,
-    )?;
+    let max_border_width = top_width.max(right_width).max(bottom_width).max(left_width);
 
-    // Left border
-    render_border_segment(
-        left_width,
-        left_color,
-        left_style,
-        rect.x() + left_width / 2.0,
-        rect.y() + rect.height() - border_radius,
-        rect.x() + left_width / 2.0,
-        rect.y() + border_radius,
-        pixmap,
-        transform,
-    )?;
+    for (width, color, style, side) in &sides {
+        if *width <= 0.0 {
+            continue;
+        }
+
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+        paint.anti_alias = true;
+
+        // Create a path for the centerline of the border segment.
+        // We extend it slightly to ensure it covers the corners before clipping.
+        let mut pb = PathBuilder::new();
+        match side {
+            'T' => {
+                pb.move_to(rect.left() - 1.0, rect.top() + width / 2.0);
+                pb.line_to(rect.right() + 1.0, rect.top() + width / 2.0);
+            }
+            'R' => {
+                pb.move_to(rect.right() - width / 2.0, rect.top() - 1.0);
+                pb.line_to(rect.right() - width / 2.0, rect.bottom() + 1.0);
+            }
+            'B' => {
+                pb.move_to(rect.left() - 1.0, rect.bottom() - width / 2.0);
+                pb.line_to(rect.right() + 1.0, rect.bottom() - width / 2.0);
+            }
+            'L' => {
+                pb.move_to(rect.left() + width / 2.0, rect.top() - 1.0);
+                pb.line_to(rect.left() + width / 2.0, rect.bottom() + 1.0);
+            }
+            _ => unreachable!(),
+        }
+
+        if let Some(line_path) = pb.finish() {
+            let dash = translate_dash(style);
+            let stroke = tiny_skia::Stroke {
+                width: *width,
+                line_cap: tiny_skia::LineCap::Butt,
+                dash: dash.and_then(|sd| tiny_skia::StrokeDash::new(sd, 0.0)),
+                ..Default::default()
+            };
+
+            pixmap.stroke_path(
+                &line_path,
+                &paint,
+                &stroke,
+                transform,
+                Some(&mask), // Apply the clip mask here
+            );
+        }
+    }
 
     Ok(())
 }

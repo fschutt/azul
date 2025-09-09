@@ -20,62 +20,107 @@ pub fn get_guide_list() -> Vec<Guide> {
         Guide {
             title: "Installation".to_string(),
             file_name: "Installation".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/00_Installation.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/00_Installation.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Getting Started".to_string(),
             file_name: "GettingStarted".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/01_Getting_Started.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/01_Getting_Started.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Application Architecture".to_string(),
             file_name: "ApplicationArchitecture".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/02_Application_Architecture.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/02_Application_Architecture.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "CSS Styling".to_string(),
             file_name: "CssStyling".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/03_CSS_Styling.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/03_CSS_Styling.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Images, SVG and Charts".to_string(),
             file_name: "ImagesSvgAndCharts".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/04_Images_SVG.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/04_Images_SVG.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Timers, Threads and Animations".to_string(),
             file_name: "TimersThreadsAndAnimations".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/05_Timers_Threads_Animations.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/05_Timers_Threads_Animations.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "OpenGL".to_string(),
             file_name: "OpenGL".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/06_OpenGL.md")).to_string(),
+            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/06_OpenGL.md"))
+                .to_string(),
         },
         Guide {
             title: "Unit Testing".to_string(),
             file_name: "UnitTesting".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/07_Unit_Testing.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/07_Unit_Testing.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "XHTML and azul-workbench".to_string(),
             file_name: "XhtmlAndAzulWorkbench".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/08_XHTML_And_Workbench.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/08_XHTML_And_Workbench.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Notes for C".to_string(),
             file_name: "NotesForC".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/09_NotesForC.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/09_NotesForC.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Notes for C++".to_string(),
             file_name: "NotesForCpp".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/10_NotesForCpp.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/10_NotesForCpp.md"
+            ))
+            .to_string(),
         },
         Guide {
             title: "Notes for Python".to_string(),
             file_name: "NotesForPython".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/11_NotesForPython.md")).to_string(),
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/11_NotesForPython.md"
+            ))
+            .to_string(),
         },
     ]
 }
