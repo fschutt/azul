@@ -12,7 +12,7 @@ use core::{
 };
 use std::{
     ffi::{CString, OsStr},
-    os::raw,
+    os::raw::{self, c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_ushort},
 };
 
 use azul_core::{
@@ -51,9 +51,8 @@ use webrender::{
     Shaders as WrShaders, Transaction as WrTransaction,
 };
 
-use crate::{
+use crate::desktop::{
     app::{App, LazyFcCache},
-    gl::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_ushort},
     wr_translate::{
         generate_frame, rebuild_display_list, scroll_all_nodes, synchronize_gpu_values,
         wr_synchronize_updated_images, AsyncHitTester,
@@ -981,7 +980,7 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
 
     let mut active_windows = BTreeMap::new();
 
-    let app_data_inner = Rc::new(RefCell::new(ApplicationData {
+    let app_data_inner = Rc::new(RefCell::new(AppData {
         data,
         config,
         image_cache,
@@ -1171,13 +1170,13 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
 }
 
 #[derive(Debug, Clone)]
-struct SharedApplicationData {
-    inner: Rc<RefCell<ApplicationData>>,
+pub struct SharedApplicationData {
+    inner: Rc<RefCell<AppData>>,
 }
 
-// ApplicationData struct that is shared across windows
+// AppData struct that is shared across windows
 #[derive(Debug)]
-struct ApplicationData {
+pub struct AppData {
     data: RefAny,
     config: AppConfig,
     image_cache: ImageCache,
@@ -1611,7 +1610,7 @@ impl X11Window {
             LinuxStartupError::Create,
             LinuxWindowCreateError::{Egl as EglError, X},
         };
-        use crate::{
+        use crate::desktop::{
             compositor::Compositor,
             wr_translate::{
                 translate_document_id_wr, translate_id_namespace_wr, wr_translate_debug_flags,
@@ -1907,11 +1906,11 @@ impl X11Window {
                 image_cache,
                 &gl_context_ptr,
                 &mut initial_resource_updates,
-                &crate::app::CALLBACKS,
+                &crate::desktop::app::CALLBACKS,
                 fc_cache,
                 azul_layout::do_the_relayout,
                 |window_state, scroll_states, layout_results| {
-                    crate::wr_translate::fullhittest_new_webrender(
+                    crate::desktop::wr_translate::fullhittest_new_webrender(
                         hit_tester_ref,
                         document_id,
                         window_state.focused_node,
@@ -1932,7 +1931,7 @@ impl X11Window {
         let resize_result = fc_cache.apply_closure(|fc_cache| {
             internal.do_quick_resize(
                 &image_cache,
-                &crate::app::CALLBACKS,
+                &crate::desktop::app::CALLBACKS,
                 azul_layout::do_the_relayout,
                 fc_cache,
                 &gl_context_ptr,
