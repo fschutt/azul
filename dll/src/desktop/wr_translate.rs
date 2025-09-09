@@ -1340,8 +1340,9 @@ fn push_display_list_msg(
             (last_positioned_spatial_id, last_positioned_clip_id)
         }
         Fixed(p) => {
-            relative_x = p.x_offset;
-            relative_y = p.y_offset;
+            relative_x = p.static_x_offset;
+            relative_y = p.static_y_offset;
+
             (
                 WrSpatialId::root_scroll_node(builder.pipeline_id),
                 WrClipId::root(builder.pipeline_id),

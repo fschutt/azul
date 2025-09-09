@@ -102,8 +102,23 @@ fn render_frame(
         let offset_x = rel_offset.x;
         let offset_y = rel_offset.y;
 
-        // Apply transform based on child position
-        let child_transform = transform.pre_translate(offset_x, offset_y);
+        // Determine the transformation matrix based on the child's positioning scheme
+        let child_transform = match child_pos {
+            azul_core::ui_solver::PositionInfo::Fixed(_) => {
+                // For FIXED elements, the transform is ALWAYS relative to the viewport (root).
+                // We ignore the parent's `transform` and create a new one from the
+                // absolute coordinates calculated by the layout engine.
+                let static_offset = child_pos.get_static_offset();
+                Transform::from_translate(static_offset.x, static_offset.y)
+            },
+            _ => {
+                // For all other elements (static, relative, absolute), the existing
+                // logic is sufficient for a hierarchical renderer. Position them
+                // relative to their parent's transform.
+                let rel_offset = child_pos.get_relative_offset();
+                transform.pre_translate(rel_offset.x, rel_offset.y)
+            }
+        };
 
         match child {
             DisplayListMsg::Frame(child_frame) => {

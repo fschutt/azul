@@ -1755,13 +1755,34 @@ pub fn position_absolute_element(
         LogicalPosition::zero()
     };
 
+    // NOTE: The parent_offsets calculation is no longer needed here for static position.
+    // It is still needed for applying explicit top/left values.
+    let parent_offsets = if position_type == LayoutPosition::Fixed {
+        get_fixed_element_parent_offsets(node_id, styled_dom, &css_property_cache)
+    } else {
+        LogicalPosition::zero()
+    };
+    
     // Get the static position
     let static_position = if position_type == LayoutPosition::Fixed {
-        // For fixed elements, adjust for parent's border and padding
-        LogicalPosition::new(
-            containing_block.origin.x + parent_offsets.x,
-            containing_block.origin.y + parent_offsets.y,
-        )
+        // For fixed elements, the static position is where the element would have been
+        // in the normal flow. This is the top-left of the parent's content box.
+        if let Some(parent_id) = styled_dom.node_hierarchy.as_container()[node_id].parent_id() {
+            let parent_rect = &positioned_rects[parent_id];
+            let parent_absolute_pos = parent_rect.position.get_static_offset();
+            
+            // The content box starts after the parent's border and padding.
+            let parent_border = calculate_border(parent_id, styled_dom, containing_block);
+            let parent_padding = calculate_padding(parent_id, styled_dom, containing_block);
+
+            LogicalPosition::new(
+                parent_absolute_pos.x + parent_border.left + parent_padding.left,
+                parent_absolute_pos.y + parent_border.top + parent_padding.top,
+            )
+        } else {
+            // Should not happen for a non-root element, but provide a fallback.
+            LogicalPosition::zero()
+        }
     } else {
         // For absolute elements, use the stored static position
         positioned_rects[node_id].position.get_static_offset()
@@ -1771,22 +1792,21 @@ pub fn position_absolute_element(
 
     // Apply horizontal positioning (left/right)
     if let Some(left_value) = left {
-        position.x = containing_block.origin.x + left_value + parent_offsets.x;
+        // For fixed, explicit offsets are relative to viewport, not parent content box
+        position.x = containing_block.origin.x + left_value;
     } else if let Some(right_value) = right {
         position.x = containing_block.origin.x + containing_block.size.width
             - element_size.width
-            - right_value
-            + parent_offsets.x;
+            - right_value;
     }
 
     // Apply vertical positioning (top/bottom)
     if let Some(top_value) = top {
-        position.y = containing_block.origin.y + top_value + parent_offsets.y;
+        position.y = containing_block.origin.y + top_value;
     } else if let Some(bottom_value) = bottom {
         position.y = containing_block.origin.y + containing_block.size.height
             - element_size.height
-            - bottom_value
-            + parent_offsets.y;
+            - bottom_value;
     }
 
     if let Some(messages) = debug_messages {
@@ -1799,7 +1819,7 @@ pub fn position_absolute_element(
                 element_size,
                 position_type,
                 static_position,
-                parent_offsets
+                parent_offsets // Kept for debugging comparison
             )
             .into(),
             location: "position_absolute_element".to_string().into(),
