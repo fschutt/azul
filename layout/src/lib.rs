@@ -22,6 +22,9 @@ pub mod text2;
 #[cfg(feature = "xml")]
 pub mod xml;
 
+#[cfg(test)]
+mod layout_test;
+
 // #[cfg(feature = "text_layout")]
 // pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
 #[cfg(feature = "text_layout")]
