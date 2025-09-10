@@ -17,6 +17,7 @@ autoexamples = false
 [dependencies]
 libm = { version = "0.2.2", default-features = false }
 azul-simplecss = { version = "0.1.1", default-features = false, optional = true }
+phf = { version = "0.13.1", default-features = false, features = ["macros"], optional = true }
 
 [features]
-parser = ["azul-simplecss"]
+parser = ["azul-simplecss", "phf"]

@@ -38,7 +38,7 @@ impl Css {
 
     #[cfg(feature = "parser")]
     pub fn from_string(s: crate::AzString) -> Self {
-        crate::parser::new_from_str(s.as_str()).0
+        crate::parser_new::new_from_str(s.as_str()).0
     }
 }
 
