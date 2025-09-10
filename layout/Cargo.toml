@@ -24,11 +24,6 @@ azul-core               = { version = "0.0.5", path = "../core", default-feature
 image                   = { version = "0.25", default-features = false }
 rust-fontconfig         = { version = "1.0.1", default-features = false }
 
-hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
-unicode-bidi            = { version = "0.3.18", default-features = false, optional = true }
-unicode-segmentation    = { version = "1.12.0", default-features = false, optional = true }
-unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
-allsorts-subset-browser = { version = "0.16.0",  default-features = false, features = ["flate2_rust"], optional = true  }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
 usvg                    = { version = "0.45.0",   default-features = false, optional = true }
@@ -41,9 +36,14 @@ xmlwriter               = { version = "0.1.0",    default-features = false, opti
 xmlparser               = { version = "0.13.6",   default-features = false, optional = true }
 gl-context-loader       = { version = "0.1.8", default-features = false, optional = true }
 
-
 # text3 features
+unicode-bidi            = { version = "0.3.18", default-features = false, optional = true, features = ["hardcoded-data"]}
 thiserror = { version = "2.0.16", default-features = false }
+hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
+unicode-segmentation    = { version = "1.12.0", default-features = false, optional = true }
+unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
+allsorts-subset-browser = { version = "0.16.0",  default-features = false, features = ["flate2_rust"], optional = true  }
+lru = { version = "0.16.1", default-features = false }
 
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender"]

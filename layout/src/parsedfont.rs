@@ -1,4 +1,5 @@
 use alloc::rc::Rc;
+use core::fmt;
 use std::collections::BTreeMap;
 
 use allsorts_subset_browser::{
@@ -36,6 +37,27 @@ pub struct ParsedFont {
     pub space_width: Option<usize>,
     pub cmap_subtable: Option<OwnedCmapSubtable>,
     pub mock: Option<Box<MockFont>>,
+}
+
+impl fmt::Debug for ParsedFont {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParsedFont")
+            .field("font_metrics", &self.font_metrics)
+            .field("num_glyphs", &self.num_glyphs)
+            .field("hhea_table", &self.hhea_table)
+            .field(
+                "hmtx_data",
+                &format_args!("<{} bytes>", self.hmtx_data.len()),
+            )
+            .field("maxp_table", &self.maxp_table)
+            .field(
+                "glyph_records_decoded",
+                &format_args!("{} entries", self.glyph_records_decoded.len()),
+            )
+            .field("space_width", &self.space_width)
+            .field("cmap_subtable", &self.cmap_subtable)
+            .finish()
+    }
 }
 
 #[cfg(feature = "text_layout")]
