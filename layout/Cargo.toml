@@ -41,6 +41,10 @@ xmlwriter               = { version = "0.1.0",    default-features = false, opti
 xmlparser               = { version = "0.13.6",   default-features = false, optional = true }
 gl-context-loader       = { version = "0.1.8", default-features = false, optional = true }
 
+
+# text3 features
+thiserror = { version = "2.0.16", default-features = false }
+
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender"]
 std = []
