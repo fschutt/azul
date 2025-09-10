@@ -32,6 +32,7 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 use hyphenation::Language;
+use rust_fontconfig::UnicodeRange;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum Script {
@@ -60,6 +61,308 @@ pub enum Script {
     Tamil,
     Telugu,
     Thai,
+}
+
+impl Script {
+    /// Maps a Script to a vector of its representative Unicode character ranges.
+    ///
+    /// The ranges are extracted from the `is_*` functions in the provided source code.
+    pub fn get_unicode_ranges(&self) -> Vec<UnicodeRange> {
+        match self {
+            Script::Arabic => vec![
+                UnicodeRange {
+                    start: 0x0600,
+                    end: 0x06FF,
+                },
+                UnicodeRange {
+                    start: 0x0750,
+                    end: 0x07FF,
+                },
+                UnicodeRange {
+                    start: 0x08A0,
+                    end: 0x08FF,
+                },
+                UnicodeRange {
+                    start: 0xFB50,
+                    end: 0xFDFF,
+                },
+                UnicodeRange {
+                    start: 0xFE70,
+                    end: 0xFEFF,
+                },
+                UnicodeRange {
+                    start: 0x10E60,
+                    end: 0x10E7F,
+                },
+                UnicodeRange {
+                    start: 0x1EE00,
+                    end: 0x1EEFF,
+                },
+            ],
+            Script::Bengali => vec![UnicodeRange {
+                start: 0x0980,
+                end: 0x09FF,
+            }],
+            Script::Cyrillic => vec![
+                UnicodeRange {
+                    start: 0x0400,
+                    end: 0x0484,
+                },
+                UnicodeRange {
+                    start: 0x0487,
+                    end: 0x052F,
+                },
+                UnicodeRange {
+                    start: 0x2DE0,
+                    end: 0x2DFF,
+                },
+                UnicodeRange {
+                    start: 0xA640,
+                    end: 0xA69D,
+                },
+                UnicodeRange {
+                    start: 0x1D2B,
+                    end: 0x1D2B,
+                },
+                UnicodeRange {
+                    start: 0x1D78,
+                    end: 0x1D78,
+                },
+                UnicodeRange {
+                    start: 0xA69F,
+                    end: 0xA69F,
+                },
+            ],
+            Script::Devanagari => vec![
+                UnicodeRange {
+                    start: 0x0900,
+                    end: 0x097F,
+                },
+                UnicodeRange {
+                    start: 0xA8E0,
+                    end: 0xA8FF,
+                },
+                UnicodeRange {
+                    start: 0x1CD0,
+                    end: 0x1CFF,
+                },
+            ],
+            Script::Ethiopic => vec![
+                UnicodeRange {
+                    start: 0x1200,
+                    end: 0x139F,
+                },
+                UnicodeRange {
+                    start: 0x2D80,
+                    end: 0x2DDF,
+                },
+                UnicodeRange {
+                    start: 0xAB00,
+                    end: 0xAB2F,
+                },
+            ],
+            Script::Georgian => vec![UnicodeRange {
+                start: 0x10A0,
+                end: 0x10FF,
+            }],
+            Script::Greek => vec![UnicodeRange {
+                start: 0x0370,
+                end: 0x03FF,
+            }],
+            Script::Gujarati => vec![UnicodeRange {
+                start: 0x0A80,
+                end: 0x0AFF,
+            }],
+            Script::Gurmukhi => vec![UnicodeRange {
+                start: 0x0A00,
+                end: 0x0A7F,
+            }],
+            Script::Hangul => vec![
+                UnicodeRange {
+                    start: 0xAC00,
+                    end: 0xD7AF,
+                },
+                UnicodeRange {
+                    start: 0x1100,
+                    end: 0x11FF,
+                },
+                UnicodeRange {
+                    start: 0x3130,
+                    end: 0x318F,
+                },
+                UnicodeRange {
+                    start: 0x3200,
+                    end: 0x32FF,
+                },
+                UnicodeRange {
+                    start: 0xA960,
+                    end: 0xA97F,
+                },
+                UnicodeRange {
+                    start: 0xD7B0,
+                    end: 0xD7FF,
+                },
+                UnicodeRange {
+                    start: 0xFF00,
+                    end: 0xFFEF,
+                },
+            ],
+            Script::Hebrew => vec![UnicodeRange {
+                start: 0x0590,
+                end: 0x05FF,
+            }],
+            Script::Hiragana => vec![UnicodeRange {
+                start: 0x3040,
+                end: 0x309F,
+            }],
+            Script::Kannada => vec![UnicodeRange {
+                start: 0x0C80,
+                end: 0x0CFF,
+            }],
+            Script::Katakana => vec![UnicodeRange {
+                start: 0x30A0,
+                end: 0x30FF,
+            }],
+            Script::Khmer => vec![
+                UnicodeRange {
+                    start: 0x1780,
+                    end: 0x17FF,
+                },
+                UnicodeRange {
+                    start: 0x19E0,
+                    end: 0x19FF,
+                },
+            ],
+            Script::Latin => vec![
+                UnicodeRange {
+                    start: 0x0041,
+                    end: 0x005A,
+                }, // A-Z
+                UnicodeRange {
+                    start: 0x0061,
+                    end: 0x007A,
+                }, // a-z
+                UnicodeRange {
+                    start: 0x0080,
+                    end: 0x00FF,
+                },
+                UnicodeRange {
+                    start: 0x0100,
+                    end: 0x017F,
+                },
+                UnicodeRange {
+                    start: 0x0180,
+                    end: 0x024F,
+                },
+                UnicodeRange {
+                    start: 0x0250,
+                    end: 0x02AF,
+                },
+                UnicodeRange {
+                    start: 0x1D00,
+                    end: 0x1D7F,
+                },
+                UnicodeRange {
+                    start: 0x1D80,
+                    end: 0x1DBF,
+                },
+                UnicodeRange {
+                    start: 0x1E00,
+                    end: 0x1EFF,
+                },
+                UnicodeRange {
+                    start: 0x2100,
+                    end: 0x214F,
+                },
+                UnicodeRange {
+                    start: 0x2C60,
+                    end: 0x2C7F,
+                },
+                UnicodeRange {
+                    start: 0xA720,
+                    end: 0xA7FF,
+                },
+                UnicodeRange {
+                    start: 0xAB30,
+                    end: 0xAB6F,
+                },
+            ],
+            Script::Malayalam => vec![UnicodeRange {
+                start: 0x0D00,
+                end: 0x0D7F,
+            }],
+            Script::Mandarin => vec![
+                UnicodeRange {
+                    start: 0x2E80,
+                    end: 0x2E99,
+                },
+                UnicodeRange {
+                    start: 0x2E9B,
+                    end: 0x2EF3,
+                },
+                UnicodeRange {
+                    start: 0x2F00,
+                    end: 0x2FD5,
+                },
+                UnicodeRange {
+                    start: 0x3005,
+                    end: 0x3005,
+                },
+                UnicodeRange {
+                    start: 0x3007,
+                    end: 0x3007,
+                },
+                UnicodeRange {
+                    start: 0x3021,
+                    end: 0x3029,
+                },
+                UnicodeRange {
+                    start: 0x3038,
+                    end: 0x303B,
+                },
+                UnicodeRange {
+                    start: 0x3400,
+                    end: 0x4DB5,
+                },
+                UnicodeRange {
+                    start: 0x4E00,
+                    end: 0x9FCC,
+                },
+                UnicodeRange {
+                    start: 0xF900,
+                    end: 0xFA6D,
+                },
+                UnicodeRange {
+                    start: 0xFA70,
+                    end: 0xFAD9,
+                },
+            ],
+            Script::Myanmar => vec![UnicodeRange {
+                start: 0x1000,
+                end: 0x109F,
+            }],
+            Script::Oriya => vec![UnicodeRange {
+                start: 0x0B00,
+                end: 0x0B7F,
+            }],
+            Script::Sinhala => vec![UnicodeRange {
+                start: 0x0D80,
+                end: 0x0DFF,
+            }],
+            Script::Tamil => vec![UnicodeRange {
+                start: 0x0B80,
+                end: 0x0BFF,
+            }],
+            Script::Telugu => vec![UnicodeRange {
+                start: 0x0C00,
+                end: 0x0C7F,
+            }],
+            Script::Thai => vec![UnicodeRange {
+                start: 0x0E00,
+                end: 0x0E7F,
+            }],
+        }
+    }
 }
 
 // Is it space, punctuation or digit?

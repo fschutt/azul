@@ -12,7 +12,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text3::script::Script;
 
-pub trait ParsedFontTrait: Send + Sync {
+pub trait ParsedFontTrait: Send + Sync + Clone {
     fn shape_text(
         &self,
         text: &str,
@@ -28,17 +28,16 @@ pub trait ParsedFontTrait: Send + Sync {
 }
 
 pub trait FontLoaderTrait: Send + Sync + core::fmt::Debug {
-    fn load_font(
+    fn load_font<T: ParsedFontTrait>(
         &self,
         font_bytes: &[u8],
         font_index: usize,
-    ) -> Result<Box<dyn ParsedFontTrait>, LayoutError>;
+    ) -> Result<Arc<T>, LayoutError>;
 }
 
 // Font loading and management
-pub trait FontProviderTrait {
-    fn load_font<T: ParsedFontTrait>(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError>;
-    fn get_fallback_chain(&self, font_ref: &FontRef, script: Script) -> Vec<FontRef>;
+pub trait FontProviderTrait<T: ParsedFontTrait> {
+    fn load_font(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError>;
 }
 
 #[derive(Debug, Clone)]
@@ -133,9 +132,10 @@ pub enum ImageSource {
     Placeholder(Size), // For layout without actual image
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum VerticalAlign {
-    Baseline,    // Align image baseline with text baseline
+    #[default]
+    Baseline, // Align image baseline with text baseline
     Bottom,      // Align image bottom with line bottom
     Top,         // Align image top with line top
     Middle,      // Align image middle with text middle
@@ -243,24 +243,14 @@ pub struct LineSegment {
     pub priority: u8, // For choosing best segment when multiple available
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OverflowBehavior {
     Visible, // Content extends outside shape
     Hidden,  // Content is clipped to shape
     Scroll,  // Scrollable overflow
-    Auto,    // Browser/system decides
+    #[default]
+    Auto, // Browser/system decides
     Break,   // Break into next shape/page
-}
-
-// Content representation for shaped layout
-#[derive(Debug, Clone)]
-pub enum ShapedInlineItem {
-    Glyph(ShapedGlyph),
-    Image(MeasuredImage),
-    Shape(MeasuredShape),
-    Space(InlineSpace),
-    Break(InlineBreak),
-    Custom(InlineSize),
 }
 
 #[derive(Debug, Clone)]
@@ -288,32 +278,20 @@ pub struct InlineSize {
 }
 
 #[derive(Debug, Clone)]
-pub struct PositionedInlineItem {
-    pub content: ShapedInlineItem,
-    pub position: Point,
-    pub bounds: Rect,
-}
-
-#[derive(Debug, Clone)]
-pub struct ShapedLine {
-    pub y: f32,
-    pub content: Vec<PositionedInlineItem>,
-    pub constraints: LineShapeConstraints,
-    pub baseline_y: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct ShapedLayout {
-    pub content: Vec<ShapedLine>,
-    pub bounds: Rect,
-    pub overflow: OverflowInfo,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct OverflowInfo {
+pub struct OverflowInfo<T: ParsedFontTrait> {
     pub has_overflow: bool,
     pub overflow_bounds: Option<Rect>,
-    pub clipped_content: Vec<ShapedInlineItem>,
+    pub clipped_content: Vec<ShapedItem<T>>,
+}
+
+impl<T: ParsedFontTrait> Default for OverflowInfo<T> {
+    fn default() -> Self {
+        Self {
+            has_overflow: false,
+            overflow_bounds: None,
+            clipped_content: Vec::new(),
+        }
+    }
 }
 
 // Path and shape definitions
@@ -375,20 +353,20 @@ pub struct FontFallbackChain {
 }
 
 #[derive(Debug)]
-pub struct FontManager {
+pub struct FontManager<T: ParsedFontTrait, Q: FontLoaderTrait> {
     fc_cache: FcFontCache,
-    parsed_fonts: HashMap<FontId, Arc<ParsedFont>>,
+    parsed_fonts: HashMap<FontId, Arc<T>>,
     fallback_chains: HashMap<FontRef, FontFallbackChain>,
     // Default: System font loader (loads fonts from file - can be intercepted for mocking in
     // tests)
-    font_loader: Arc<dyn FontLoaderTrait>,
+    font_loader: Arc<Q>,
 }
 
 // Stage 1: Collection - Styled runs from DOM traversal
 #[derive(Debug, Clone)]
 pub struct StyledRun {
     pub text: String,
-    pub style: StyleProperties,
+    pub style: Arc<StyleProperties>,
     /// Byte index in the original logical paragraph text
     pub logical_start_byte: usize,
 }
@@ -429,11 +407,11 @@ impl SystemFontLoader {
 }
 
 impl FontLoaderTrait for SystemFontLoader {
-    fn load_font(
+    fn load_font<T: ParsedFontTrait>(
         &self,
         font_bytes: &[u8],
         font_index: usize,
-    ) -> Result<Box<dyn ParsedFontTrait>, LayoutError> {
+    ) -> Result<Arc<T>, LayoutError> {
         // Implementation would load the actual font
         unimplemented!("System font loading")
     }
@@ -448,17 +426,19 @@ pub struct LayoutConstraints {
     pub overflow_behavior: OverflowBehavior,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum WritingMode {
+    #[default]
     HorizontalTb, // horizontal-tb (normal horizontal)
-    VerticalRl,   // vertical-rl (vertical right-to-left)
-    VerticalLr,   // vertical-lr (vertical left-to-right)
-    SidewaysRl,   // sideways-rl (rotated horizontal in vertical context)
-    SidewaysLr,   // sideways-lr (rotated horizontal in vertical context)
+    VerticalRl, // vertical-rl (vertical right-to-left)
+    VerticalLr, // vertical-lr (vertical left-to-right)
+    SidewaysRl, // sideways-rl (rotated horizontal in vertical context)
+    SidewaysLr, // sideways-lr (rotated horizontal in vertical context)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum JustifyContent {
+    #[default]
     None,
     InterWord,      // Expand spaces between words
     InterCharacter, // Expand spaces between all characters (for CJK)
@@ -466,8 +446,9 @@ pub enum JustifyContent {
 }
 
 // Enhanced text alignment with logical directions
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextAlign {
+    #[default]
     Left,
     Right,
     Center,
@@ -478,9 +459,10 @@ pub enum TextAlign {
 }
 
 // Vertical text orientation for individual characters
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextOrientation {
-    Mixed,    // Default: upright for scripts, rotated for others
+    #[default]
+    Mixed, // Default: upright for scripts, rotated for others
     Upright,  // All characters upright
     Sideways, // All characters rotated 90 degrees
 }
@@ -539,7 +521,7 @@ pub enum TextCombineUpright {
 #[derive(Debug, Clone)]
 pub struct ShapedGlyph {
     pub glyph_id: u16,
-    pub style: StyleProperties,
+    pub style: Arc<StyleProperties>,
 
     // Horizontal metrics
     pub advance: f32,
@@ -620,17 +602,17 @@ pub struct MeasuredSpace {
 
 // Information about text runs after initial analysis
 #[derive(Debug, Clone)]
-pub struct TextRunInfo {
-    pub text: String,
-    pub style: StyleProperties,
+pub struct TextRunInfo<'a> {
+    pub text: &'a str,
+    pub style: Arc<StyleProperties>,
     pub logical_start: usize,
     pub content_index: usize,
 }
 
 // Content representation after initial analysis
 #[derive(Debug, Clone)]
-pub struct AnalyzedContent {
-    pub text_runs: Vec<TextRunInfo>,
+pub struct AnalyzedContent<'a> {
+    pub text_runs: Vec<TextRunInfo<'a>>,
     pub non_text_items: Vec<(usize, InlineContent)>,
     pub full_text: String,
     pub base_direction: Direction,
@@ -644,51 +626,8 @@ struct LineMetrics {
     total_height: f32,
 }
 
-#[derive(Debug, Clone)]
-pub struct LineLayout {
-    pub bounds: Rect,
-    pub baseline_y: f32,
-    pub glyph_start: usize,
-    pub glyph_count: usize,
-    pub logical_start_byte: usize,
-    pub logical_end_byte: usize,
-}
-
-// Final layout result
-#[derive(Debug, Clone)]
-pub struct ParagraphLayout {
-    pub glyphs: Vec<PositionedGlyph>,
-    pub lines: Vec<LineLayout>,
-    pub content_size: Size,
-    pub source_text: String,
-    pub base_direction: Direction,
-}
-
-// Stage 4: Positioning - Final positioned glyphs ready for rendering
-#[derive(Debug, Clone)]
-pub struct PositionedGlyph {
-    // Rendering information
-    pub glyph_id: u16,
-    pub style: StyleProperties,
-    pub x: f32,
-    pub y: f32,
-    pub bounds: Rect,
-
-    // Layout information
-    pub advance: f32,
-    pub line_index: usize,
-
-    // Source mapping for editing/selection
-    pub logical_char_byte_index: usize,
-    pub logical_char_byte_count: u8,
-    pub visual_index: usize,
-
-    // Bidi information
-    pub bidi_level: BidiLevel,
-}
-
 /// Unified constraints combining all layout features
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UnifiedConstraints {
     // Shape definition
     pub shape_boundaries: Vec<ShapeBoundary>,
@@ -699,7 +638,7 @@ pub struct UnifiedConstraints {
     pub available_height: Option<f32>,
 
     // Text layout
-    pub writing_mode: WritingMode,
+    pub writing_mode: Option<WritingMode>,
     pub text_orientation: TextOrientation,
     pub text_align: TextAlign,
     pub justify_content: JustifyContent,
@@ -714,6 +653,27 @@ pub struct UnifiedConstraints {
     pub exclusion_margin: f32,
     pub hyphenation: bool,
     pub hyphenation_language: Option<Language>,
+}
+
+impl UnifiedConstraints {
+    fn direction(&self, fallback: Direction) -> Direction {
+        match self.writing_mode {
+            Some(s) => s.get_direction().unwrap_or(fallback),
+            None => fallback,
+        }
+    }
+}
+
+impl WritingMode {
+    fn get_direction(&self) -> Option<Direction> {
+        match self {
+            WritingMode::HorizontalTb => None, // determined by text content
+            WritingMode::VerticalRl => Some(Direction::Rtl),
+            WritingMode::VerticalLr => Some(Direction::Ltr),
+            WritingMode::SidewaysRl => Some(Direction::Rtl),
+            WritingMode::SidewaysLr => Some(Direction::Ltr),
+        }
+    }
 }
 
 // Cache key structure
@@ -750,8 +710,8 @@ pub struct InlineConstraints {
 
 /// Enhanced shaped item that unifies glyphs and inline content
 #[derive(Debug, Clone)]
-pub enum ShapedItem {
-    Glyph(EnhancedGlyph),
+pub enum ShapedItem<T: ParsedFontTrait> {
+    Glyph(EnhancedGlyph<T>),
     Image(MeasuredImage),
     Shape(MeasuredShape),
     LineBreak(InlineBreak),
@@ -793,8 +753,8 @@ pub struct EnhancedGlyph<T: ParsedFontTrait> {
 
 /// Unified line representation
 #[derive(Debug, Clone)]
-pub struct UnifiedLine {
-    pub items: Vec<ShapedItem>,
+pub struct UnifiedLine<T: ParsedFontTrait> {
+    pub items: Vec<ShapedItem<T>>,
     pub position: f32,
     pub constraints: LineConstraints,
     pub is_last: bool,
@@ -802,15 +762,15 @@ pub struct UnifiedLine {
 
 /// Final unified layout
 #[derive(Debug, Clone)]
-pub struct UnifiedLayout {
-    pub items: Vec<PositionedItem>,
+pub struct UnifiedLayout<T: ParsedFontTrait> {
+    pub items: Vec<PositionedItem<T>>,
     pub bounds: Rect,
-    pub overflow: OverflowInfo,
+    pub overflow: OverflowInfo<T>,
 }
 
 #[derive(Debug, Clone)]
-pub struct PositionedItem {
-    pub item: ShapedItem,
+pub struct PositionedItem<T: ParsedFontTrait> {
+    pub item: ShapedItem<T>,
     pub position: Point,
     pub bounds: Rect,
     pub line_index: usize,
@@ -859,18 +819,18 @@ impl UnifiedConstraints {
     pub fn is_vertical(&self) -> bool {
         matches!(
             self.writing_mode,
-            WritingMode::VerticalRl | WritingMode::VerticalLr
+            Some(WritingMode::VerticalRl) | Some(WritingMode::VerticalLr)
         )
     }
 
-    pub fn should_justify(&self, line: &UnifiedLine) -> bool {
+    pub fn should_justify<T: ParsedFontTrait>(&self, line: &UnifiedLine<T>) -> bool {
         // Don't justify last line unless JustifyAll
         self.justify_content != JustifyContent::None
             && (line.is_last == false || self.text_align == TextAlign::JustifyAll)
     }
 }
 
-impl ShapedItem {
+impl<T: ParsedFontTrait> ShapedItem<T> {
     fn content_index(&self) -> usize {
         match self {
             ShapedItem::Glyph(g) => g.content_index,
@@ -1034,9 +994,8 @@ fn perform_bidi_analysis<'a>(
         }
     }
 
-    // TODO: bidi_info.paragraphs.len() - correct?
     let mut final_visual_runs = Vec::new();
-    let (levels, visual_run_ranges) = bidi_info.visual_runs(para, (0..bidi_info.paragraphs.len()));
+    let (levels, visual_run_ranges) = bidi_info.visual_runs(para, para.range.clone());
 
     for range in visual_run_ranges {
         let bidi_level = levels[range.start];
@@ -1051,7 +1010,7 @@ fn perform_bidi_analysis<'a>(
                     .unwrap_or(Script::Latin);
                 final_visual_runs.push(VisualRun {
                     text_slice: &full_text[sub_run_start..i],
-                    style: &styled_runs[original_run_idx].style,
+                    style: styled_runs[original_run_idx].style.clone(),
                     logical_start_byte: sub_run_start,
                     bidi_level: BidiLevel::new(bidi_level.number()),
                     language: force_lang.unwrap_or_else(|| {
@@ -1074,7 +1033,7 @@ fn perform_bidi_analysis<'a>(
 
         final_visual_runs.push(VisualRun {
             text_slice: &full_text[sub_run_start..range.end],
-            style: &styled_runs[original_run_idx].style,
+            style: styled_runs[original_run_idx].style.clone(),
             logical_start_byte: sub_run_start,
             bidi_level: BidiLevel::new(bidi_level.number()),
             script,
@@ -1090,9 +1049,9 @@ fn perform_bidi_analysis<'a>(
     Ok((final_visual_runs, base_direction))
 }
 
-fn shape_visual_runs(
+fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
     visual_runs: &[VisualRun],
-    font_provider: &impl FontProvider,
+    font_provider: &T,
 ) -> Result<Vec<ShapedGlyph>, LayoutError> {
     let mut all_shaped_glyphs = Vec::new();
 
@@ -1141,171 +1100,6 @@ fn shape_visual_runs(
     Ok(all_shaped_glyphs)
 }
 
-fn position_glyphs(
-    mut shaped_glyphs: Vec<ShapedGlyph>,
-    constraints: LayoutConstraints,
-    source_text: &str,
-    base_direction: Direction,
-    font_provider: &impl FontProvider,
-) -> Result<ParagraphLayout, LayoutError> {
-    let hyphenator = get_hyphenator()?;
-    let mut positioned_glyphs = Vec::new();
-    let mut lines = Vec::new();
-    let mut line_y = 0.0;
-    let mut glyph_cursor = 0;
-
-    // The main line breaking loop.
-    while glyph_cursor < shaped_glyphs.len() {
-        let (line_end_idx, needs_hyphen) = find_line_break(
-            &shaped_glyphs,
-            glyph_cursor,
-            line_y,
-            &constraints,
-            &hyphenator,
-            source_text,
-        );
-
-        let mut glyphs_for_this_line = shaped_glyphs[glyph_cursor..line_end_idx].to_vec();
-
-        // Handle hyphen insertion.
-        let hyphen_glyph = if needs_hyphen {
-            // Get the style from the last character of the word being broken.
-            let style = glyphs_for_this_line.last().unwrap().style.clone();
-            let font = font_provider.load_font(&style.font_ref)?;
-            let (glyph_id, advance) = font.get_hyphen_glyph_and_advance(style.font_size_px);
-
-            Some(ShapedGlyph {
-                glyph_id,
-                style,
-                advance,
-                x_offset: 0.0,
-                y_offset: 0.0,
-                logical_byte_start: 0, // No direct mapping to source
-                logical_byte_len: 0,
-                cluster: 0,
-                source: GlyphSource::Hyphen,
-                is_whitespace: false,
-                break_opportunity_after: false,
-            })
-        } else {
-            None
-        };
-
-        if let Some(hyphen) = hyphen_glyph.as_ref() {
-            glyphs_for_this_line.push(hyphen.clone());
-        }
-
-        // Finalize the line's geometry, applying alignment and justification.
-        let (mut finalized_line_glyphs, line_layout) = finalize_line(
-            &glyphs_for_this_line,
-            glyph_cursor,
-            line_y,
-            constraints.available_width, // TODO: Use per-line width with floats
-            TextAlign::Justify,          // TODO: Get from style
-            base_direction,
-            needs_hyphen,
-        );
-
-        positioned_glyphs.append(&mut finalized_line_glyphs);
-        lines.push(line_layout.clone());
-
-        line_y += line_layout.bounds.height;
-        glyph_cursor = line_end_idx;
-    }
-
-    let content_size = calculate_content_size(&lines);
-
-    Ok(ParagraphLayout {
-        glyphs: positioned_glyphs,
-        lines,
-        content_size,
-        source_text: source_text.to_string(),
-        base_direction,
-    })
-}
-
-/// Finds the index in `shaped_glyphs` where the current line should break.
-/// Returns `(break_index, needs_hyphen)`.
-fn find_line_break(
-    glyphs: &[ShapedGlyph],
-    start_idx: usize,
-    line_y: f32,
-    constraints: &LayoutConstraints,
-    hyphenator: &Standard,
-    source_text: &str,
-) -> (usize, bool) {
-    let available_width = constraints.available_width; // TODO: handle floats
-    let mut current_width = 0.0;
-    let mut last_opportunity = start_idx;
-
-    for i in start_idx..glyphs.len() {
-        let glyph = &glyphs[i];
-
-        // Don't start a line with whitespace.
-        if i == start_idx && glyph.is_whitespace {
-            continue;
-        }
-
-        if current_width + glyph.advance > available_width {
-            // We have overflowed. Break at the last known opportunity.
-            if last_opportunity > start_idx {
-                return (last_opportunity, false);
-            }
-
-            // No break opportunity found (long word). We must hyphenate or force break.
-            let (word_start, word_end) = find_word_boundaries(glyphs, i);
-            let word_text = &source_text[glyphs[word_start].logical_byte_start
-                ..glyphs[word_end - 1].logical_byte_start
-                    + glyphs[word_end - 1].logical_byte_len as usize];
-
-            let breaks = hyphenator.opportunities(word_text);
-
-            let mut best_hyphen_break = start_idx;
-            let mut hyphen_width = 0.0;
-
-            // Find the last possible hyphenation point that fits.
-            for &break_byte_offset in breaks.iter().rev() {
-                let mut width_at_hyphen = 0.0;
-                let mut glyph_idx_at_hyphen = word_start;
-
-                for j in word_start..word_end {
-                    width_at_hyphen += glyphs[j].advance;
-                    // Check if the glyph's logical end corresponds to the hyphen break point.
-                    let logical_break_pos =
-                        glyphs[word_start].logical_byte_start + break_byte_offset;
-                    if glyphs[j].logical_byte_start + glyphs[j].logical_byte_len as usize
-                        == logical_break_pos
-                    {
-                        glyph_idx_at_hyphen = j + 1;
-                        break;
-                    }
-                }
-
-                if width_at_hyphen < available_width {
-                    best_hyphen_break = glyph_idx_at_hyphen;
-                    break;
-                }
-            }
-
-            if best_hyphen_break > start_idx {
-                return (best_hyphen_break, true);
-            }
-
-            // Cannot hyphenate, force break before the overflowing glyph.
-            return (i.max(start_idx + 1), false);
-        }
-
-        current_width += glyph.advance;
-
-        if glyph.break_opportunity_after {
-            last_opportunity = i + 1;
-        }
-    }
-
-    // Reached the end of the text.
-    (glyphs.len(), false)
-}
-
 // --- HELPER FUNCTIONS FOR POSITIONING ---
 
 fn find_word_boundaries(glyphs: &[ShapedGlyph], current_idx: usize) -> (usize, usize) {
@@ -1320,24 +1114,92 @@ fn find_word_boundaries(glyphs: &[ShapedGlyph], current_idx: usize) -> (usize, u
     (start, end)
 }
 
-fn get_available_width_for_line(line_y: f32, constraints: &LayoutConstraints) -> f32 {
-    // TODO: This is a simplified check. A full implementation would handle multiple floats.
-    let mut available = constraints.available_width;
-    for exclusion in &constraints.exclusion_areas {
-        if line_y >= exclusion.rect.y && line_y < exclusion.rect.y + exclusion.rect.height {
-            available -= exclusion.rect.width;
+fn get_available_width_for_line(line_y: f32, constraints: &UnifiedConstraints) -> f32 {
+    let mut intervals: Vec<(f32, f32)> = Vec::new();
+
+    for exclusion in &constraints.shape_exclusions {
+        match exclusion {
+            ShapeExclusion::Rectangle(rect) => {
+                if line_y >= rect.y && line_y < rect.y + rect.height {
+                    intervals.push((rect.x, rect.x + rect.width));
+                }
+            }
+            ShapeExclusion::Circle { center, radius } => {
+                let dy = line_y + constraints.line_height / 2.0 - center.y;
+                if dy.abs() <= *radius {
+                    let dx = (radius.powi(2) - dy.powi(2)).sqrt();
+                    intervals.push((center.x - dx, center.x + dx));
+                }
+            }
+            ShapeExclusion::Ellipse { center, radii } => {
+                let normalized_dy =
+                    (line_y + constraints.line_height / 2.0 - center.y) / radii.height;
+                if normalized_dy.abs() <= 1.0 {
+                    let dx = radii.width * (1.0 - normalized_dy.powi(2)).sqrt();
+                    intervals.push((center.x - dx, center.x + dx));
+                }
+            }
+            ShapeExclusion::Polygon { points } => {
+                if let Ok(segs) = UnifiedLayoutEngine::polygon_line_intersection(
+                    points,
+                    line_y,
+                    constraints.line_height,
+                ) {
+                    for seg in segs {
+                        intervals.push((seg.start_x, seg.start_x + seg.width));
+                    }
+                }
+            }
+            ShapeExclusion::Path { segments: _ } => {
+                // TODO: Implement path intersection to compute excluded intervals
+            }
+            ShapeExclusion::Image { bounds, shape } => {
+                match shape {
+                    ImageShape::Rectangle => {
+                        if line_y >= bounds.y && line_y < bounds.y + bounds.height {
+                            intervals.push((bounds.x, bounds.x + bounds.width));
+                        }
+                    }
+                    _ => {
+                        // Approximate with bounds for complex shapes
+                        if line_y >= bounds.y && line_y < bounds.y + bounds.height {
+                            intervals.push((bounds.x, bounds.x + bounds.width));
+                        }
+                    }
+                }
+            }
         }
     }
-    available.max(0.0)
+
+    // Merge overlapping intervals and calculate total excluded width
+    if intervals.is_empty() {
+        return constraints.available_width;
+    }
+    intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut merged = vec![intervals[0]];
+    for int in intervals.into_iter().skip(1) {
+        let last = merged.last_mut().unwrap();
+        if int.0 <= last.1 {
+            last.1 = last.1.max(int.1);
+        } else {
+            merged.push(int);
+        }
+    }
+    let excluded: f32 = merged.iter().map(|(s, e)| e - s).sum();
+
+    (constraints.available_width - excluded).max(0.0)
 }
 
 // Font fallback using unicode ranges
-fn shape_run_with_smart_fallback<T: ParsedFontTrait>(
+fn shape_run_with_smart_fallback<T: ParsedFontTrait, Q: FontLoaderTrait>(
     run: &VisualRun,
-    font_manager: &mut FontManager,
+    font_manager: &mut FontManager<T, Q>,
     direction: Direction,
+    constraints: &UnifiedConstraints,
 ) -> Result<Vec<EnhancedGlyph<T>>, LayoutError> {
     let mut result = Vec::new();
+
+    let direction = constraints.direction(direction);
 
     // Query fontconfig for fonts that support this text
     let pattern = FcPattern {
@@ -1377,7 +1239,7 @@ fn shape_run_with_smart_fallback<T: ParsedFontTrait>(
             result.push(enhance_glyph(
                 glyph,
                 run,
-                segment.byte_offset,
+                constraints,
                 font.clone(),
                 run.style.clone(),
             )?);
@@ -1462,130 +1324,6 @@ fn find_font_for_codepoint(
     })
 }
 
-fn calculate_line_metrics(glyphs: &[ShapedGlyph]) -> LineMetrics {
-    let font_size = glyphs.first().map_or(16.0, |g| g.style.font_size_px);
-    let line_height = font_size * 1.4; // Common default
-    let ascent = font_size;
-    LineMetrics {
-        ascent,
-        descent: line_height - ascent,
-        line_gap: 0.0,
-        total_height: line_height,
-    }
-}
-
-fn finalize_line(
-    glyphs_on_line: &[ShapedGlyph],
-    line_start_visual_index: usize,
-    line_y: f32,
-    available_width: f32,
-    align: TextAlign,
-    base_direction: Direction,
-    is_hyphenated: bool,
-) -> (Vec<PositionedGlyph>, LineLayout) {
-    if glyphs_on_line.is_empty() {
-        // Handle empty lines (e.g., from double newlines).
-        let height = 16.0 * 1.2; // A default line height.
-        return (
-            vec![],
-            LineLayout {
-                bounds: Rect {
-                    x: 0.0,
-                    y: line_y,
-                    width: 0.0,
-                    height,
-                },
-                baseline_y: line_y + 16.0,
-                glyph_start: 0,
-                glyph_count: 0,
-                logical_start_byte: 0,
-                logical_end_byte: 0,
-            },
-        );
-    }
-
-    let metrics = calculate_line_metrics(glyphs_on_line);
-    let line_width: f32 = glyphs_on_line.iter().map(|g| g.advance).sum();
-
-    let mut start_x = 0.0;
-    let mut space_expansion = 0.0;
-    let logical_align = resolve_logical_align(align, base_direction);
-
-    // Don't justify the last line of a paragraph or a hyphenated line.
-    let is_last_line = false; // TODO: This requires lookahead, omitted for now.
-    if logical_align == TextAlign::Justify && !is_last_line && !is_hyphenated {
-        let space_count = glyphs_on_line.iter().filter(|g| g.is_whitespace).count();
-        if space_count > 0 {
-            space_expansion = (available_width - line_width) / space_count as f32;
-        }
-    } else {
-        match logical_align {
-            TextAlign::Center => start_x = (available_width - line_width) / 2.0,
-            TextAlign::Right => start_x = available_width - line_width,
-            _ => {} // Left is default.
-        }
-    }
-
-    let mut current_x = start_x;
-    let baseline_y = line_y + metrics.ascent;
-    let mut positioned_glyphs = Vec::new();
-
-    for (i, glyph) in glyphs_on_line.iter().enumerate() {
-        positioned_glyphs.push(PositionedGlyph {
-            glyph_id: glyph.glyph_id,
-            style: glyph.style.clone(),
-            x: current_x + glyph.x_offset,
-            y: baseline_y - glyph.y_offset,
-            bounds: Rect {
-                x: current_x,
-                y: line_y,
-                width: glyph.advance,
-                height: metrics.total_height,
-            },
-            advance: glyph.advance,
-            line_index: 0, // TODO: This can be set in a final pass.
-            logical_char_byte_index: glyph.logical_byte_start,
-            logical_char_byte_count: glyph.logical_byte_len,
-            visual_index: line_start_visual_index + i,
-            bidi_level: BidiLevel::new(0), // TODO: Propagate from VisualRun.
-        });
-        current_x += glyph.advance;
-        if glyph.is_whitespace {
-            current_x += space_expansion;
-        }
-    }
-
-    let (logical_start, logical_end) = glyphs_on_line
-        .iter()
-        .filter(|g| g.source == GlyphSource::Char)
-        .fold((usize::MAX, 0), |(min, max), g| {
-            (
-                min.min(g.logical_byte_start),
-                max.max(g.logical_byte_start + g.logical_byte_len as usize),
-            )
-        });
-
-    let line_layout = LineLayout {
-        bounds: Rect {
-            x: start_x,
-            y: line_y,
-            width: current_x - start_x,
-            height: metrics.total_height,
-        },
-        baseline_y,
-        glyph_start: line_start_visual_index,
-        glyph_count: glyphs_on_line.len(),
-        logical_start_byte: if logical_start == usize::MAX {
-            0
-        } else {
-            logical_start
-        },
-        logical_end_byte: logical_end,
-    };
-
-    (positioned_glyphs, line_layout)
-}
-
 fn resolve_logical_align(align: TextAlign, direction: Direction) -> TextAlign {
     match (align, direction) {
         (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
@@ -1593,23 +1331,6 @@ fn resolve_logical_align(align: TextAlign, direction: Direction) -> TextAlign {
         (TextAlign::End, Direction::Ltr) => TextAlign::Right,
         (TextAlign::End, Direction::Rtl) => TextAlign::Left,
         (other, _) => other,
-    }
-}
-
-fn calculate_content_size(lines: &[LineLayout]) -> Size {
-    let max_width = lines
-        .iter()
-        .map(|line| line.bounds.x + line.bounds.width)
-        .fold(0.0f32, f32::max);
-
-    let total_height = lines
-        .last()
-        .map(|line| line.bounds.y + line.bounds.height)
-        .unwrap_or(0.0);
-
-    Size {
-        width: max_width,
-        height: total_height,
     }
 }
 
@@ -1623,8 +1344,8 @@ fn point_in_rect(point: Point, rect: Rect) -> bool {
 // --- UTILS --- //
 
 // FontManager with proper rust-fontconfig fallback
-impl FontProviderTrait for FontManager {
-    fn load_font<T: ParsedFontTrait>(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError> {
+impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontProviderTrait<T> for FontManager<T, Q> {
+    fn load_font(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError> {
         // Check cache first
         if let Some(cached_id) = self.font_ref_to_id_cache.get(font_ref) {
             if let Some(font) = self.parsed_fonts.get(cached_id) {
@@ -1664,7 +1385,7 @@ impl FontProviderTrait for FontManager {
 
             let parsed = self
                 .font_loader
-                .load_font(&font_bytes.data, font_bytes.font_index)?;
+                .load_font(&font_bytes.data, fc_match.font_index)?;
 
             self.parsed_fonts
                 .insert(fc_match.id.clone(), Arc::from(parsed));
@@ -1674,14 +1395,9 @@ impl FontProviderTrait for FontManager {
 
         Ok(self.parsed_fonts.get(&fc_match.id).unwrap().clone())
     }
-
-    fn get_fallback_chain(&self, font_ref: &FontRef, script: Script) -> Vec<FontRef> {
-        // This is handled by query_for_text now
-        Vec::new()
-    }
 }
 
-impl FontManager {
+impl<T: ParsedFontTrait> FontManager<T, SystemFontLoader> {
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
@@ -1690,11 +1406,10 @@ impl FontManager {
             font_loader: Arc::new(SystemFontLoader::new()),
         })
     }
+}
 
-    pub fn with_loader(
-        fc_cache: FcFontCache,
-        loader: Arc<dyn FontLoaderTrait>,
-    ) -> Result<Self, LayoutError> {
+impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontManager<T, Q> {
+    pub fn with_loader(fc_cache: FcFontCache, loader: Arc<Q>) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
             parsed_fonts: HashMap::new(),
@@ -1703,22 +1418,21 @@ impl FontManager {
         })
     }
 
-    // Build fallback chain for a given font request and text content
-    pub fn build_fallback_chain(
+    pub fn get_font_for_text(
         &mut self,
         font_ref: &FontRef,
         text: &str,
-    ) -> Result<FontFallbackChain, LayoutError> {
-        if let Some(cached) = self.fallback_chains.get(font_ref) {
-            return Ok(cached.clone());
+        script: Script,
+    ) -> Result<Arc<T>, LayoutError> {
+        // Try primary font first
+        if let Ok(font) = self.load_font(font_ref) {
+            return Ok(font);
         }
 
-        let mut trace = Vec::new();
-
-        // First try exact match
+        // Get fallback fonts that are close to the current main font
         let pattern = FcPattern {
             name: Some(font_ref.family.clone()),
-            weight: weight_to_fc_weight(font_ref.weight),
+            family: Some(font_ref.family.clone()),
             italic: if font_ref.style == FontStyle::Italic {
                 PatternMatch::True
             } else {
@@ -1729,195 +1443,42 @@ impl FontManager {
             } else {
                 PatternMatch::DontCare
             },
+            weight: weight_to_fc_weight(font_ref.weight),
+            unicode_ranges: script.get_unicode_ranges(),
             ..Default::default()
         };
 
-        let primary_match = self
+        /// rust-config: find fonts that can render the given text, considering Unicode ranges
+        ///
+        /// Note: The result will match the entire code range, however, the text itself could have
+        /// multiple unicode font ranges
+        for font_match in self
             .fc_cache
-            .query(&pattern, &mut trace)
-            .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
-
-        // Then find fallbacks for the specific text
-        let fallback_matches = self.fc_cache.query_for_text(&pattern, text, &mut trace);
-
-        // Convert to our FontRef format and filter out duplicates
-        let mut fallbacks = Vec::new();
-        let mut script_specific = HashMap::new();
-
-        for fc_match in fallback_matches {
-            let fallback_ref = self.fc_match_to_font_ref(&fc_match)?;
-            if fallback_ref != *font_ref && !fallbacks.contains(&fallback_ref) {
-                fallbacks.push(fallback_ref.clone());
-
-                // Group by script for efficient lookup
-                for &script in &fc_match.scripts {
-                    script_specific
-                        .entry(Script(script))
-                        .or_insert_with(Vec::new)
-                        .push(fallback_ref.clone());
-                }
-            }
-        }
-
-        let chain = FontFallbackChain {
-            primary: font_ref.clone(),
-            fallbacks,
-            script_specific,
-        };
-
-        self.fallback_chains.insert(font_ref.clone(), chain.clone());
-        Ok(chain)
-    }
-
-    pub fn get_font_for_text(
-        &mut self,
-        font_ref: &FontRef,
-        text: &str,
-        script: Script,
-    ) -> Result<Arc<ParsedFont>, LayoutError> {
-        // Try primary font first
-        if let Ok(font) = self.load_font(font_ref) {
-            if self.font_supports_text(&font, text) {
-                return Ok(font);
-            }
-        }
-
-        // Build fallback chain if needed
-        let chain = self.build_fallback_chain(font_ref, text)?;
-
-        // Try script-specific fallbacks first
-        if let Some(script_fonts) = chain.script_specific.get(&script) {
-            for fallback_ref in script_fonts {
-                if let Ok(font) = self.load_font(fallback_ref) {
-                    if self.font_supports_text(&font, text) {
-                        return Ok(font);
-                    }
-                }
-            }
-        }
-
-        // Try general fallbacks
-        for fallback_ref in &chain.fallbacks {
-            if let Ok(font) = self.load_font(fallback_ref) {
-                if self.font_supports_text(&font, text) {
-                    return Ok(font);
-                }
-            }
-        }
+            .query_for_text(&pattern, text, &mut Vec::new())
+        {}
 
         Err(LayoutError::FontNotFound(font_ref.clone()))
     }
 
-    fn font_supports_text(&self, font: &ParsedFont, text: &str) -> bool {
-        // Quick check using cmap table
-        // TODO: rust-fontconfig has functions for this, i.e. unicode-range check, not
-        // necessary to check whether the char actually exists on the font
-        text.chars().all(|c| font.has_glyph(c as u32))
-    }
-
     fn fc_match_to_font_ref(&self, fc_match: &FontMatch) -> Result<FontRef, LayoutError> {
         // Convert rust-fontconfig match to our FontRef
-        let font_path = self.fc_cache.get_font_path(&fc_match.id).ok_or_else(|| {
-            LayoutError::FontNotFound(FontRef {
-                family: "unknown".to_string(),
-                weight: 400,
-                style: FontStyle::Normal,
-            })
-        })?;
-
-        // Extract family name from the font file
-        let family = self.extract_family_name(&font_path.path)?;
+        let fc_pattern = self
+            .fc_cache
+            .get_metadata_by_id(&fc_match.id)
+            .ok_or_else(|| {
+                LayoutError::FontNotFound(FontRef {
+                    family: "unknown".to_string(),
+                    weight: 400,
+                    style: FontStyle::Normal,
+                })
+            })?;
 
         Ok(FontRef {
-            family,
-            weight: fc_match.weight.unwrap_or(400),
+            family: fc_pattern.family,
+            weight: fc_weight_to_fc_pattern.weight,
             style: fc_slant_to_style(fc_match.slant.unwrap_or(0)),
         })
     }
-
-    fn extract_family_name(&self, font_path: &str) -> Result<String, LayoutError> {
-        // TODO: This would parse the font file to get the actual family name
-        // For now, use a simplified approach
-        std::path::Path::new(font_path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| LayoutError::InvalidText("Cannot extract font family".to_string()))
-    }
-}
-
-// Enhanced shaping that handles font fallback within runs
-fn shape_visual_runs_with_fallback(
-    visual_runs: &[VisualRun],
-    font_manager: &mut FontManager,
-) -> Result<Vec<ShapedGlyph>, LayoutError> {
-    let mut all_shaped_glyphs = Vec::new();
-
-    for run in visual_runs {
-        let direction = if run.bidi_level.is_rtl() {
-            Direction::Rtl
-        } else {
-            Direction::Ltr
-        };
-
-        // Shape with fallback - this is the key enhancement
-        let shaped_glyphs = shape_run_with_fallback(run, font_manager, direction)?;
-
-        if direction == Direction::Rtl {
-            // Note: Only reverse the glyphs, not the entire vec structure
-            let mut reversed_glyphs = shaped_glyphs;
-            reversed_glyphs.reverse();
-            all_shaped_glyphs.extend(reversed_glyphs);
-        } else {
-            all_shaped_glyphs.extend(shaped_glyphs);
-        }
-    }
-
-    Ok(all_shaped_glyphs)
-}
-
-fn shape_run_with_fallback(
-    run: &VisualRun,
-    font_manager: &mut FontManager,
-    direction: Direction,
-) -> Result<Vec<ShapedGlyph>, LayoutError> {
-    let mut result = Vec::new();
-    let mut char_indices = run.text_slice.char_indices().peekable();
-
-    while let Some((byte_offset, ch)) = char_indices.next() {
-        // Collect a sequence of characters that can be shaped together
-        let mut segment_end = byte_offset + ch.len_utf8();
-        let mut segment_chars = vec![ch];
-
-        // Look ahead to group characters that likely use the same font
-        while let Some(&(next_byte_offset, next_ch)) = char_indices.peek() {
-            if should_group_chars(ch, next_ch, run.script) {
-                segment_chars.push(next_ch);
-                char_indices.next();
-                segment_end = next_byte_offset + next_ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-
-        let segment_text = &run.text_slice[byte_offset..segment_end];
-
-        // Find appropriate font for this segment
-        let font = font_manager.get_font_for_text(&run.style.font_ref, segment_text, run.script)?;
-        // Shape the segment
-        let mut shaped_segment =
-            font.shape_text(segment_text, run.script, run.language, direction)?;
-
-        // Adjust byte indices to be relative to the full run
-        for glyph in &mut shaped_segment {
-            glyph.logical_byte_start += run.logical_start_byte + byte_offset;
-            glyph.cluster += (run.logical_start_byte + byte_offset) as u32;
-        }
-
-        result.extend(shaped_segment);
-    }
-
-    Ok(result)
 }
 
 fn should_group_chars(ch1: char, ch2: char, script: Script) -> bool {
@@ -2145,138 +1706,6 @@ fn get_grapheme_boundaries(
     boundaries
 }
 
-// Enhanced bidi line reordering
-fn position_content_with_bidi_reordering(
-    lines: Vec<UnifiedLine>,
-    constraints: &UnifiedConstraints,
-    base_direction: Direction,
-) -> Result<UnifiedLayout, LayoutError> {
-    let mut positioned_items = Vec::new();
-
-    for (line_idx, line) in lines.iter().enumerate() {
-        // Group items by bidi level for proper reordering
-        let reordered_items = reorder_line_bidi(&line.items, base_direction)?;
-
-        // Apply justification after reordering
-        let justified_items = if constraints.should_justify(line) {
-            justify_line_items(
-                reordered_items,
-                &line.constraints,
-                constraints.justify_content,
-                constraints.writing_mode,
-                line.is_last,
-            )?
-        } else {
-            reordered_items
-        };
-
-        // Position items
-        let mut inline_position = calculate_alignment_offset(
-            &justified_items,
-            &line.constraints,
-            constraints.text_align,
-            base_direction,
-        );
-
-        for item in justified_items {
-            let positioned = position_item_with_bidi(
-                item,
-                Point {
-                    x: if constraints.is_vertical() {
-                        line.position
-                    } else {
-                        inline_position
-                    },
-                    y: if constraints.is_vertical() {
-                        inline_position
-                    } else {
-                        line.position
-                    },
-                },
-                constraints,
-                base_direction,
-            )?;
-
-            inline_position += get_item_advance(&positioned, constraints);
-            positioned_items.push(positioned);
-        }
-    }
-
-    Ok(UnifiedLayout {
-        items: positioned_items,
-        bounds: calculate_bounds(&positioned_items),
-        overflow: OverflowInfo::default(),
-    })
-}
-
-fn reorder_line_bidi(
-    items: &[ShapedItem],
-    base_direction: Direction,
-) -> Result<Vec<ShapedItem>, LayoutError> {
-    if items.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Group consecutive items by bidi level
-    let mut runs = Vec::new();
-    let mut current_run = Vec::new();
-    let mut current_level = None;
-
-    for item in items {
-        let item_level = get_item_bidi_level(item);
-
-        if current_level != Some(item_level) {
-            if !current_run.is_empty() {
-                runs.push((current_level.unwrap(), current_run));
-                current_run = Vec::new();
-            }
-            current_level = Some(item_level);
-        }
-        current_run.push(item.clone());
-    }
-
-    if !current_run.is_empty() {
-        runs.push((current_level.unwrap(), current_run));
-    }
-
-    // Reorder runs according to bidi algorithm
-    reorder_bidi_runs(&mut runs, base_direction);
-
-    // Flatten reordered runs
-    Ok(runs.into_iter().flat_map(|(_, items)| items).collect())
-}
-
-fn reorder_bidi_runs(runs: &mut Vec<(BidiLevel, Vec<ShapedItem>)>, base_direction: Direction) {
-    if runs.is_empty() {
-        return;
-    }
-
-    // Find max level
-    let max_level = runs
-        .iter()
-        .map(|(level, _)| level.level())
-        .max()
-        .unwrap_or(0);
-
-    // Reverse runs at each level from max to 1
-    for level in (1..=max_level).rev() {
-        let mut i = 0;
-        while i < runs.len() {
-            // Find sequence of runs at or above current level
-            if runs[i].0.level() >= level {
-                let start = i;
-                while i < runs.len() && runs[i].0.level() >= level {
-                    i += 1;
-                }
-                // Reverse the sequence
-                runs[start..i].reverse();
-            } else {
-                i += 1;
-            }
-        }
-    }
-}
-
 fn calculate_line_width(glyphs: &[ShapedGlyph], writing_mode: WritingMode) -> f32 {
     glyphs
         .iter()
@@ -2414,12 +1843,12 @@ pub struct UnifiedLayoutEngine;
 
 impl UnifiedLayoutEngine {
     /// Main entry point for all text layout
-    pub fn layout(
+    pub fn layout<T: ParsedFontTrait, Q: FontLoaderTrait>(
         content: Vec<InlineContent>,
         constraints: UnifiedConstraints,
-        font_manager: &mut FontManager,
-        cache: &mut LayoutCache,
-    ) -> Result<Arc<UnifiedLayout>, LayoutError> {
+        font_manager: &mut FontManager<T, Q>,
+        cache: &mut LayoutCache<T>,
+    ) -> Result<Arc<UnifiedLayout<T>>, LayoutError> {
         // Check cache first
         let cache_key = CacheKey::new(&content, &constraints);
 
@@ -2433,6 +1862,8 @@ impl UnifiedLayoutEngine {
         // Stage 2: Bidi analysis if text content exists
         let bidi_analyzed = Self::apply_bidi_analysis(analyzed_content, &constraints)?;
 
+        let base_direction = bidi_analyzed.base_direction;
+
         // Stage 3: Shape all content with font fallback
         let shaped_content = Self::shape_content(bidi_analyzed, font_manager, &constraints)?;
 
@@ -2443,8 +1874,8 @@ impl UnifiedLayoutEngine {
         let lines = Self::break_lines(oriented_content, &constraints, font_manager)?;
 
         // Stage 6: Position content with justification
-        let positioned = Self::position_content(lines, &constraints)?;
-
+        let positioned =
+            Self::position_content_with_bidi_reordering(lines, &constraints, base_direction)?;
         // Stage 7: Apply overflow handling
         let final_layout = Self::handle_overflow(positioned, &constraints)?;
 
@@ -2456,10 +1887,10 @@ impl UnifiedLayoutEngine {
         Ok(layout)
     }
 
-    fn analyze_content(
-        content: &[InlineContent],
+    fn analyze_content<'a>(
+        content: &'a [InlineContent],
         constraints: &UnifiedConstraints,
-    ) -> Result<AnalyzedContent, LayoutError> {
+    ) -> Result<AnalyzedContent<'a>, LayoutError> {
         let mut text_runs = Vec::new();
         let mut non_text_items = Vec::new();
         let mut full_text = String::new();
@@ -2469,7 +1900,7 @@ impl UnifiedLayoutEngine {
             match item {
                 InlineContent::Text(run) => {
                     text_runs.push(TextRunInfo {
-                        text: run.text.clone(),
+                        text: &run.text,
                         style: run.style.clone(),
                         logical_start: byte_offset,
                         content_index: idx,
@@ -2493,10 +1924,10 @@ impl UnifiedLayoutEngine {
         })
     }
 
-    fn apply_bidi_analysis(
-        content: AnalyzedContent,
+    fn apply_bidi_analysis<'a>(
+        content: AnalyzedContent<'a>,
         constraints: &UnifiedConstraints,
-    ) -> Result<BidiAnalyzedContent, LayoutError> {
+    ) -> Result<BidiAnalyzedContent<'a>, LayoutError> {
         if content.full_text.is_empty() {
             return Ok(BidiAnalyzedContent {
                 visual_runs: Vec::new(),
@@ -2505,8 +1936,11 @@ impl UnifiedLayoutEngine {
             });
         }
 
-        let (visual_runs, unified_direction) =
-            perform_bidi_analysis(&content.text_runs, &content.full_text)?;
+        let (visual_runs, unified_direction) = perform_bidi_analysis(
+            &content.text_runs,
+            &content.full_text,
+            constraints.hyphenation_language,
+        )?;
 
         Ok(BidiAnalyzedContent {
             visual_runs,
@@ -2515,16 +1949,16 @@ impl UnifiedLayoutEngine {
         })
     }
 
-    fn shape_content(
+    fn shape_content<T: ParsedFontTrait, Q: FontLoaderTrait>(
         content: BidiAnalyzedContent,
-        font_manager: &mut FontManager,
+        font_manager: &mut FontManager<T, Q>,
         constraints: &UnifiedConstraints,
-    ) -> Result<Vec<ShapedItem>, LayoutError> {
+    ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
         let mut shaped_items = Vec::new();
 
         // Shape text runs with font fallback
         for run in content.visual_runs {
-            let shaped_glyphs = shape_run_with_fallback(
+            let shaped_glyphs = shape_run_with_smart_fallback(
                 &run,
                 font_manager,
                 if run.bidi_level.is_rtl() {
@@ -2532,10 +1966,11 @@ impl UnifiedLayoutEngine {
                 } else {
                     Direction::Ltr
                 },
+                constraints,
             )?;
 
             for glyph in shaped_glyphs {
-                shaped_items.push(ShapedItem::Glyph(enhance_glyph(glyph, &run, constraints)?));
+                shaped_items.push(ShapedItem::Glyph(glyph));
             }
         }
 
@@ -2550,10 +1985,10 @@ impl UnifiedLayoutEngine {
         Ok(shaped_items)
     }
 
-    fn apply_text_orientation(
-        mut items: Vec<ShapedItem>,
+    fn apply_text_orientation<T: ParsedFontTrait>(
+        mut items: Vec<ShapedItem<T>>,
         constraints: &UnifiedConstraints,
-    ) -> Result<Vec<ShapedItem>, LayoutError> {
+    ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
         if !constraints.is_vertical() {
             return Ok(items);
         }
@@ -2565,7 +2000,7 @@ impl UnifiedLayoutEngine {
                     glyph.codepoint,
                     glyph.script,
                     constraints.text_orientation,
-                    constraints.writing_mode,
+                    constraints.writing_mode.unwrap_or_default(),
                 );
 
                 glyph.orientation = orientation;
@@ -2591,11 +2026,11 @@ impl UnifiedLayoutEngine {
         Ok(items)
     }
 
-    fn break_lines(
-        items: Vec<ShapedItem>,
+    fn break_lines<T: ParsedFontTrait, Q: FontLoaderTrait>(
+        items: Vec<ShapedItem<T>>,
         constraints: &UnifiedConstraints,
-        font_manager: &mut FontManager,
-    ) -> Result<Vec<UnifiedLine>, LayoutError> {
+        font_manager: &mut FontManager<T, Q>,
+    ) -> Result<Vec<UnifiedLine<T>>, LayoutError> {
         let mut lines = Vec::new();
         let mut current_position = 0.0;
         let mut item_cursor = 0;
@@ -2611,7 +2046,7 @@ impl UnifiedLayoutEngine {
             }
 
             // Find line break
-            let (line_end, line_items) = Self::find_line_break(
+            let (line_end, line_items) = find_line_break_with_graphemes(
                 &items[item_cursor..],
                 &line_constraints,
                 constraints,
@@ -2631,10 +2066,15 @@ impl UnifiedLayoutEngine {
                 items: line_items,
                 position: current_position,
                 constraints: line_constraints,
+                is_last: false,
             });
 
             current_position += constraints.line_height;
             item_cursor += line_end;
+        }
+
+        if let Some(l) = lines.last_mut() {
+            l.is_last = true;
         }
 
         Ok(lines)
@@ -2652,7 +2092,7 @@ impl UnifiedLayoutEngine {
                 boundary,
                 position,
                 constraints.line_height,
-                constraints.writing_mode,
+                constraints.writing_mode.unwrap_or_default(),
             )?;
             segments.extend(boundary_segments);
         }
@@ -2666,91 +2106,60 @@ impl UnifiedLayoutEngine {
         // Merge and optimize segments
         segments = Self::merge_segments(segments);
 
+        let total_available = segments.iter().map(|s| s.width).sum();
+
         Ok(LineConstraints {
             segments,
-            total_available: segments.iter().map(|s| s.width).sum(),
+            total_available,
         })
     }
 
-    fn find_line_break(
-        items: &[ShapedItem],
-        line_constraints: &LineConstraints,
+    // Enhanced bidi line reordering
+    fn position_content_with_bidi_reordering<T: ParsedFontTrait>(
+        lines: Vec<UnifiedLine<T>>,
         constraints: &UnifiedConstraints,
-        font_manager: &mut FontManager,
-    ) -> Result<(usize, Vec<ShapedItem>), LayoutError> {
-        // Advanced line breaking that handles:
-        //
-        // - Multiple segments per line
-        // - Hyphenation
-        // - Inline objects
-        // - Vertical text
-
-        let mut fitted_items = Vec::new();
-        let mut current_segment = 0;
-        let mut segment_position = 0.0;
-        let mut item_cursor = 0;
-
-        while item_cursor < items.len() && current_segment < line_constraints.segments.len() {
-            let segment = &line_constraints.segments[current_segment];
-            let remaining_width = segment.width - segment_position;
-
-            let item_width = Self::get_item_measure(&items[item_cursor], constraints);
-
-            if item_width <= remaining_width {
-                // Item fits in current segment
-                fitted_items.push(items[item_cursor].clone());
-                segment_position += item_width;
-                item_cursor += 1;
-            } else if segment_position > 0.0 {
-                // Try next segment
-                current_segment += 1;
-                segment_position = 0.0;
-            } else {
-                // Item doesn't fit, try hyphenation or break
-                if let Some(hyphenated) =
-                    Self::try_hyphenate(&items[item_cursor], remaining_width, font_manager)
-                {
-                    fitted_items.push(hyphenated);
-                    item_cursor += 1;
-                }
-                break;
-            }
-        }
-
-        Ok((item_cursor, fitted_items))
-    }
-
-    fn position_content(
-        lines: Vec<UnifiedLine>,
-        constraints: &UnifiedConstraints,
-    ) -> Result<UnifiedLayout, LayoutError> {
+        base_direction: Direction,
+    ) -> Result<UnifiedLayout<T>, LayoutError> {
         let mut positioned_items = Vec::new();
+        let total_lines = lines.len();
 
-        for line in lines {
-            // Apply justification if needed
+        for (line_idx, mut line) in lines.into_iter().enumerate() {
+            // Mark if this is the last line for justification purposes
+            line.is_last = line_idx == total_lines.saturating_sub(1);
+
+            // Group items by bidi level for proper reordering
+            let reordered_items = Self::reorder_line_bidi(&line.items, base_direction)?;
+
+            // Apply justification after reordering
             let justified_items = if constraints.should_justify(&line) {
-                justify_line(
-                    line.items,
+                justify_line_items(
+                    reordered_items,
                     &line.constraints,
                     constraints.justify_content,
                     constraints.writing_mode,
+                    line.is_last,
                 )?
             } else {
-                line.items
+                reordered_items
             };
 
-            // Position items in line
+            // Resolve logical alignment (start/end) to physical alignment (left/right)
+            let physical_align = resolve_logical_align(constraints.text_align, base_direction);
+
+            // Position items
             let mut inline_position = Self::calculate_alignment_offset(
                 &justified_items,
                 &line.constraints,
-                constraints.text_align,
+                physical_align,
                 constraints.writing_mode,
             );
 
             for item in justified_items {
-                let positioned = Self::position_item(
+                let (item_advance, item_bounds) = Self::get_item_metrics(&item, constraints);
+
+                let positioned = PositionedItem {
                     item,
-                    Point {
+                    position: Point {
                         x: if constraints.is_vertical() {
                             line.position
                         } else {
@@ -2762,10 +2171,11 @@ impl UnifiedLayoutEngine {
                             line.position
                         },
                     },
-                    constraints,
-                )?;
+                    bounds: item_bounds,
+                    line_index: line_idx,
+                };
 
-                inline_position += Self::get_item_advance(&positioned, constraints);
+                inline_position += item_advance;
                 positioned_items.push(positioned);
             }
         }
@@ -2777,10 +2187,81 @@ impl UnifiedLayoutEngine {
         })
     }
 
-    fn handle_overflow(
-        mut layout: UnifiedLayout,
+    fn reorder_line_bidi<T: ParsedFontTrait>(
+        items: &[ShapedItem<T>],
+        base_direction: Direction,
+    ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Group consecutive items by bidi level
+        let mut runs = Vec::new();
+        let mut current_run = Vec::new();
+        let mut current_level = None;
+
+        for item in items {
+            let item_level = get_item_bidi_level(item);
+
+            if current_level != Some(item_level) {
+                if !current_run.is_empty() {
+                    runs.push((current_level.unwrap(), current_run));
+                    current_run = Vec::new();
+                }
+                current_level = Some(item_level);
+            }
+            current_run.push(item.clone());
+        }
+
+        if !current_run.is_empty() {
+            runs.push((current_level.unwrap(), current_run));
+        }
+
+        // Reorder runs according to bidi algorithm
+        Self::reorder_bidi_runs(&mut runs, base_direction);
+
+        // Flatten reordered runs
+        Ok(runs.into_iter().flat_map(|(_, items)| items).collect())
+    }
+
+    fn reorder_bidi_runs<T: ParsedFontTrait>(
+        runs: &mut Vec<(BidiLevel, Vec<ShapedItem<T>>)>,
+        base_direction: Direction,
+    ) {
+        if runs.is_empty() {
+            return;
+        }
+
+        // Find max level
+        let max_level = runs
+            .iter()
+            .map(|(level, _)| level.level())
+            .max()
+            .unwrap_or(0);
+
+        // Reverse runs at each level from max to 1
+        for level in (1..=max_level).rev() {
+            let mut i = 0;
+            while i < runs.len() {
+                // Find sequence of runs at or above current level
+                if runs[i].0.level() >= level {
+                    let start = i;
+                    while i < runs.len() && runs[i].0.level() >= level {
+                        i += 1;
+                    }
+                    // Reverse the sequence
+                    runs[start..i].reverse();
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    fn handle_overflow<T: ParsedFontTrait>(
+        mut layout: UnifiedLayout<T>,
         constraints: &UnifiedConstraints,
-    ) -> Result<UnifiedLayout, LayoutError> {
+    ) -> Result<UnifiedLayout<T>, LayoutError> {
         match constraints.overflow {
             OverflowBehavior::Hidden => {
                 // Clip items outside bounds
@@ -2799,10 +2280,10 @@ impl UnifiedLayoutEngine {
         Ok(layout)
     }
 
-    fn measure_inline_item(
+    fn measure_inline_item<T: ParsedFontTrait>(
         item: InlineContent,
         constraints: &UnifiedConstraints,
-    ) -> Result<ShapedItem, LayoutError> {
+    ) -> Result<ShapedItem<T>, LayoutError> {
         match item {
             InlineContent::Image(img) => {
                 let size = img.display_size.unwrap_or(img.intrinsic_size);
@@ -2946,7 +2427,10 @@ impl UnifiedLayoutEngine {
         merged
     }
 
-    fn get_item_measure(item: &ShapedItem, constraints: &UnifiedConstraints) -> f32 {
+    fn get_item_measure<T: ParsedFontTrait>(
+        item: &ShapedItem<T>,
+        constraints: &UnifiedConstraints,
+    ) -> f32 {
         match item {
             ShapedItem::Glyph(g) => {
                 if constraints.is_vertical() {
@@ -2962,24 +2446,27 @@ impl UnifiedLayoutEngine {
         }
     }
 
-    fn get_item_advance(item: &PositionedItem, constraints: &UnifiedConstraints) -> f32 {
+    fn get_item_advance<T: ParsedFontTrait>(
+        item: &PositionedItem<T>,
+        constraints: &UnifiedConstraints,
+    ) -> f32 {
         Self::get_item_measure(&item.item, constraints)
     }
 
-    fn try_hyphenate(
-        item: &ShapedItem,
+    fn try_hyphenate<T: ParsedFontTrait, Q: FontLoaderTrait>(
+        item: &ShapedItem<T>,
         available_width: f32,
-        font_manager: &mut FontManager,
-    ) -> Option<ShapedItem> {
+        font_manager: &mut FontManager<T, Q>,
+    ) -> Option<ShapedItem<T>> {
         // TODO: Simplified hyphenation - would use hyphenation library
         None
     }
 
-    fn calculate_alignment_offset(
-        items: &[ShapedItem],
+    fn calculate_alignment_offset<T: ParsedFontTrait>(
+        items: &[ShapedItem<T>],
         constraints: &LineConstraints,
         align: TextAlign,
-        writing_mode: WritingMode,
+        writing_mode: Option<WritingMode>,
     ) -> f32 {
         if constraints.segments.is_empty() {
             return 0.0;
@@ -3007,11 +2494,11 @@ impl UnifiedLayoutEngine {
         }
     }
 
-    fn position_item(
-        item: ShapedItem,
+    fn position_item<T: ParsedFontTrait>(
+        item: ShapedItem<T>,
         position: Point,
         constraints: &UnifiedConstraints,
-    ) -> Result<PositionedItem, LayoutError> {
+    ) -> Result<PositionedItem<T>, LayoutError> {
         let bounds = match &item {
             ShapedItem::Glyph(g) => g.bounds.clone(),
             ShapedItem::Image(i) => Rect {
@@ -3042,7 +2529,7 @@ impl UnifiedLayoutEngine {
         })
     }
 
-    fn calculate_bounds(items: &[PositionedItem]) -> Rect {
+    fn calculate_bounds<T: ParsedFontTrait>(items: &[PositionedItem<T>]) -> Rect {
         if items.is_empty() {
             return Rect {
                 x: 0.0,
@@ -3077,12 +2564,18 @@ impl UnifiedLayoutEngine {
         }
     }
 
-    fn item_intersects_bounds(item: &PositionedItem, boundaries: &[ShapeBoundary]) -> bool {
+    fn item_intersects_bounds<T: ParsedFontTrait>(
+        item: &PositionedItem<T>,
+        boundaries: &[ShapeBoundary],
+    ) -> bool {
         // TODO: Simplified - check if item center is within any boundary
         true
     }
 
-    fn calculate_overflow(items: &[PositionedItem], boundaries: &[ShapeBoundary]) -> OverflowInfo {
+    fn calculate_overflow<T: ParsedFontTrait>(
+        items: &[PositionedItem<T>],
+        boundaries: &[ShapeBoundary],
+    ) -> OverflowInfo<T> {
         // TODO: Simplified
         OverflowInfo::default()
     }
@@ -3229,11 +2722,11 @@ fn get_justification_priority(class: CharacterClass) -> u8 {
 }
 
 // LayoutCache struct to encapsulate caching functionality
-pub struct LayoutCache {
-    cache: Arc<Mutex<LruCache<CacheKey, Arc<UnifiedLayout>>>>,
+pub struct LayoutCache<T: ParsedFontTrait> {
+    cache: Arc<Mutex<LruCache<CacheKey, Arc<UnifiedLayout<T>>>>>,
 }
 
-impl LayoutCache {
+impl<T: ParsedFontTrait> LayoutCache<T> {
     pub fn new(capacity: usize) -> Self {
         LayoutCache {
             cache: Arc::new(Mutex::new(LruCache::new(
@@ -3242,23 +2735,25 @@ impl LayoutCache {
         }
     }
 
-    pub fn get(&self, key: &CacheKey) -> Option<Arc<UnifiedLayout>> {
+    pub fn get(&self, key: &CacheKey) -> Option<Arc<UnifiedLayout<T>>> {
         self.cache.lock().unwrap().get(key).cloned()
     }
 
-    pub fn put(&self, key: CacheKey, layout: Arc<UnifiedLayout>) {
+    pub fn put(&self, key: CacheKey, layout: Arc<UnifiedLayout<T>>) {
         self.cache.lock().unwrap().put(key, layout);
     }
 }
 
 // Example: Render Mongolian text in a circle with fallback
-pub fn render_mongolian_in_circle() -> Result<Arc<UnifiedLayout>, LayoutError> {
+pub fn render_mongolian_in_circle<T: ParsedFontTrait>() -> Result<Arc<UnifiedLayout<T>>, LayoutError>
+{
     let mut cache = LayoutCache::new(100);
     let mongolian_text = "ᠮᠣᠩ᠋ᠭᠤᠯ ᠤᠯᠤᠰ ᠤᠨ ᠶᠡᠷᠦᠩᠬᠡᠢᠢᠯᠡᠭᠴᠢ";
 
     let content = vec![InlineContent::Text(StyledRun {
         text: mongolian_text.to_string(),
-        style: StyleProperties {
+        logical_start_byte: 0,
+        style: Arc::new(StyleProperties {
             font_ref: FontRef {
                 family: "Mongolian Baiti".to_string(),
                 weight: 400,
@@ -3279,8 +2774,7 @@ pub fn render_mongolian_in_circle() -> Result<Arc<UnifiedLayout>, LayoutError> {
             writing_mode: WritingMode::VerticalLr, // Mongolian is vertical
             text_orientation: TextOrientation::Upright,
             text_combine_upright: None,
-        },
-        logical_start_byte: 0,
+        }),
     })];
 
     let constraints = UnifiedConstraints {
@@ -3295,7 +2789,7 @@ pub fn render_mongolian_in_circle() -> Result<Arc<UnifiedLayout>, LayoutError> {
                 radius: 50.0,
             },
         ],
-        writing_mode: WritingMode::VerticalLr,
+        writing_mode: Some(WritingMode::VerticalLr),
         text_orientation: TextOrientation::Upright,
         text_align: TextAlign::Justify,
         justify_content: JustifyContent::InterCharacter,
@@ -3303,20 +2797,15 @@ pub fn render_mongolian_in_circle() -> Result<Arc<UnifiedLayout>, LayoutError> {
         overflow: OverflowBehavior::Hidden,
         text_combine_upright: None,
         exclusion_margin: 2.0,
+        hyphenation: true,
+        hyphenation_language: None,
+        available_width: f32::MAX,
+        available_height: None,
+        vertical_align: VerticalAlign::default(),
     };
 
     let fc_cache = FcFontCache::build(); // loads from system cache
     let mut font_manager = FontManager::new(fc_cache)?;
-
-    // Build fallback chain for Mongolian script
-    font_manager.build_fallback_chain(
-        &FontRef {
-            family: "Mongolian Baiti".to_string(),
-            weight: 400,
-            style: FontStyle::Normal,
-        },
-        mongolian_text,
-    )?;
 
     UnifiedLayoutEngine::layout(content, constraints, &mut font_manager, &mut cache)
 }

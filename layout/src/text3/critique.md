@@ -8,33 +8,6 @@ The core of the `UnifiedLayoutEngine` presents a powerful, modern pipeline for t
 
 ---
 
-### 1. Critical Bug (Compiler Error)
-
-The compiler error you provided is the most immediate issue:
-
--   **Error:** `E0107: expected 5 arguments, found 3`
--   **Location:** `unified.rs:2521` in the function `UnifiedLayoutEngine::apply_bidi_analysis`
--   **Line:** `perform_bidi_analysis(&content.text_runs, &content.full_text)?`
--   **Function Signature:** `fn perform_bidi_analysis<'a>(styled_runs: &'a [StyledRun], full_text: &'a str, force_lang: Option<Language>) -> ...`
-
-**Critique & Fix:**
-The function call is missing the third argument, `force_lang`. The `apply_bidi_analysis` function doesn't seem to have a language to force, so passing `None` is the correct action.
-
-```rust
-// Fix in UnifiedLayoutEngine::apply_bidi_analysis
-fn apply_bidi_analysis(
-    content: AnalyzedContent,
-    constraints: &UnifiedConstraints,
-) -> Result<BidiAnalyzedContent, LayoutError> {
-    // ...
-    let (visual_runs, unified_direction) =
-        perform_bidi_analysis(&content.text_runs, &content.full_text, None)?; // Pass None for the 3rd argument
-    // ...
-}
-```
-
----
-
 ### 2. Major Structural Redundancy
 
 The most significant issue is the duplication of data structures and entire layout pipelines. There appear to be at least two parallel implementations.
