@@ -6,7 +6,9 @@ use std::{
 
 use hyphenation::{Hyphenator as _, Language, Load as _, Standard};
 use lru::LruCache;
-use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, FontMatch, PatternMatch};
+use rust_fontconfig::{
+    FcFontCache, FcPattern, FcWeight, FontId, FontMatch, PatternMatch, UnicodeRange,
+};
 use unicode_bidi::BidiInfo;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -73,11 +75,12 @@ pub struct Point {
 }
 
 // Font and styling types
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontRef {
     pub family: String,
-    pub weight: u16,
+    pub weight: FcWeight,
     pub style: FontStyle,
+    pub unicode_ranges: Vec<UnicodeRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -587,9 +590,9 @@ pub struct BidiLevel(u8);
 
 // Content representation after bidirectional analysis
 #[derive(Debug, Clone)]
-pub struct BidiAnalyzedContent<'a> {
-    pub visual_runs: Vec<VisualRun<'a>>, // Using 'static lifetime for simplicity
-    pub non_text_items: Vec<(usize, InlineContent)>,
+pub struct BidiAnalyzedContent<'a, 'b> {
+    pub visual_runs: Vec<VisualRun<'a>>,
+    pub non_text_items: &'b [(usize, InlineContent)],
     pub base_direction: Direction,
 }
 
@@ -967,9 +970,9 @@ fn detect_base_direction(text: &str) -> Direction {
     }
 }
 
-fn perform_bidi_analysis<'a>(
-    styled_runs: &'a [StyledRun],
-    full_text: &'a str,
+fn perform_bidi_analysis<'a, 'b: 'a>(
+    styled_runs: &'a [TextRunInfo],
+    full_text: &'b str,
     force_lang: Option<Language>,
 ) -> Result<(Vec<VisualRun<'a>>, Direction), LayoutError> {
     if full_text.is_empty() {
@@ -987,7 +990,7 @@ fn perform_bidi_analysis<'a>(
     // Create a map from each byte index to its original styled run.
     let mut byte_to_run_index: Vec<usize> = vec![0; full_text.len()];
     for (run_idx, run) in styled_runs.iter().enumerate() {
-        let start = run.logical_start_byte;
+        let start = run.logical_start;
         let end = start + run.text.len();
         for i in start..end {
             byte_to_run_index[i] = run_idx;
@@ -1204,7 +1207,7 @@ fn shape_run_with_smart_fallback<T: ParsedFontTrait, Q: FontLoaderTrait>(
     // Query fontconfig for fonts that support this text
     let pattern = FcPattern {
         name: Some(run.style.font_ref.family.clone()),
-        weight: weight_to_fc_weight(run.style.font_ref.weight),
+        weight: run.style.font_ref.weight,
         italic: if run.style.font_ref.style == FontStyle::Italic {
             PatternMatch::True
         } else {
@@ -1318,8 +1321,9 @@ fn find_font_for_codepoint(
     font_matches.first().map(|m| m.id.clone()).ok_or_else(|| {
         LayoutError::FontNotFound(FontRef {
             family: "fallback".to_string(),
-            weight: 400,
+            weight: FcWeight::Normal,
             style: FontStyle::Normal,
+            unicode_ranges: Vec::new(),
         })
     })
 }
@@ -1356,7 +1360,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontProviderTrait<T> for FontManage
         // Query fontconfig
         let pattern = FcPattern {
             name: Some(font_ref.family.clone()),
-            weight: weight_to_fc_weight(font_ref.weight),
+            weight: font_ref.weight,
             italic: if font_ref.style == FontStyle::Italic {
                 PatternMatch::True
             } else {
@@ -1443,7 +1447,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontManager<T, Q> {
             } else {
                 PatternMatch::DontCare
             },
-            weight: weight_to_fc_weight(font_ref.weight),
+            weight: font_ref.weight,
             unicode_ranges: script.get_unicode_ranges(),
             ..Default::default()
         };
@@ -1468,15 +1472,23 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontManager<T, Q> {
             .ok_or_else(|| {
                 LayoutError::FontNotFound(FontRef {
                     family: "unknown".to_string(),
-                    weight: 400,
+                    weight: FcWeight::Normal,
                     style: FontStyle::Normal,
+                    unicode_ranges: Vec::new(),
                 })
             })?;
 
         Ok(FontRef {
-            family: fc_pattern.family,
-            weight: fc_weight_to_fc_pattern.weight,
-            style: fc_slant_to_style(fc_match.slant.unwrap_or(0)),
+            weight: fc_pattern.weight,
+            style: if fc_pattern.oblique == PatternMatch::True {
+                FontStyle::Oblique
+            } else if fc_pattern.italic == PatternMatch::True {
+                FontStyle::Italic
+            } else {
+                FontStyle::Normal
+            },
+            family: fc_pattern.family.clone().unwrap_or_default(),
+            unicode_ranges: fc_pattern.unicode_ranges.clone(),
         })
     }
 }
@@ -1490,29 +1502,6 @@ fn should_group_chars(ch1: char, ch2: char, script: Script) -> bool {
     script1 == script2
         || (ch1.is_ascii() && ch2.is_ascii())
         || (ch1.is_whitespace() || ch2.is_whitespace())
-}
-
-// Helper conversion functions
-fn weight_to_fc_weight(weight: u16) -> FcWeight {
-    if weight < 150 {
-        FcWeight::Thin
-    } else if weight < 250 {
-        FcWeight::ExtraLight
-    } else if weight < 350 {
-        FcWeight::Light
-    } else if weight < 450 {
-        FcWeight::Normal
-    } else if weight < 550 {
-        FcWeight::Medium
-    } else if weight < 650 {
-        FcWeight::SemiBold
-    } else if weight < 750 {
-        FcWeight::Bold
-    } else if weight < 850 {
-        FcWeight::ExtraBold
-    } else {
-        FcWeight::Black
-    }
 }
 
 fn fc_slant_to_style(slant: i32) -> FontStyle {
@@ -1860,7 +1849,7 @@ impl UnifiedLayoutEngine {
         let analyzed_content = Self::analyze_content(&content, &constraints)?;
 
         // Stage 2: Bidi analysis if text content exists
-        let bidi_analyzed = Self::apply_bidi_analysis(analyzed_content, &constraints)?;
+        let bidi_analyzed = Self::apply_bidi_analysis(&analyzed_content, &constraints)?;
 
         let base_direction = bidi_analyzed.base_direction;
 
@@ -1924,14 +1913,14 @@ impl UnifiedLayoutEngine {
         })
     }
 
-    fn apply_bidi_analysis<'a>(
-        content: AnalyzedContent<'a>,
+    fn apply_bidi_analysis<'a, 'b: 'a>(
+        content: &'b AnalyzedContent<'a>,
         constraints: &UnifiedConstraints,
-    ) -> Result<BidiAnalyzedContent<'a>, LayoutError> {
+    ) -> Result<BidiAnalyzedContent<'a, 'b>, LayoutError> {
         if content.full_text.is_empty() {
             return Ok(BidiAnalyzedContent {
                 visual_runs: Vec::new(),
-                non_text_items: content.non_text_items,
+                non_text_items: &content.non_text_items,
                 base_direction: content.base_direction,
             });
         }
@@ -1944,7 +1933,7 @@ impl UnifiedLayoutEngine {
 
         Ok(BidiAnalyzedContent {
             visual_runs,
-            non_text_items: content.non_text_items,
+            non_text_items: &content.non_text_items,
             base_direction: unified_direction,
         })
     }
@@ -1975,7 +1964,7 @@ impl UnifiedLayoutEngine {
         }
 
         // Measure non-text items
-        for (idx, item) in content.non_text_items {
+        for (idx, item) in content.non_text_items.iter() {
             shaped_items.push(Self::measure_inline_item(item, constraints)?);
         }
 
@@ -2281,14 +2270,14 @@ impl UnifiedLayoutEngine {
     }
 
     fn measure_inline_item<T: ParsedFontTrait>(
-        item: InlineContent,
+        item: &InlineContent,
         constraints: &UnifiedConstraints,
     ) -> Result<ShapedItem<T>, LayoutError> {
         match item {
             InlineContent::Image(img) => {
                 let size = img.display_size.unwrap_or(img.intrinsic_size);
                 Ok(ShapedItem::Image(MeasuredImage {
-                    source: img.source,
+                    source: img.source.clone(),
                     size,
                     baseline_offset: img.baseline_offset,
                     alignment: img.alignment,
@@ -2296,7 +2285,7 @@ impl UnifiedLayoutEngine {
                 }))
             }
             InlineContent::Shape(shape) => Ok(ShapedItem::Shape(MeasuredShape {
-                shape_def: shape.shape_def,
+                shape_def: shape.shape_def.clone(),
                 size: shape.size,
                 baseline_offset: shape.baseline_offset,
                 content_index: 0,
@@ -2305,7 +2294,7 @@ impl UnifiedLayoutEngine {
                 width: space.width,
                 content_index: 0,
             })),
-            InlineContent::LineBreak(br) => Ok(ShapedItem::LineBreak(br)),
+            InlineContent::LineBreak(br) => Ok(ShapedItem::LineBreak(br.clone())),
             _ => Err(LayoutError::InvalidText(
                 "Unexpected inline content".to_string(),
             )),
@@ -2756,8 +2745,9 @@ pub fn render_mongolian_in_circle<T: ParsedFontTrait>() -> Result<Arc<UnifiedLay
         style: Arc::new(StyleProperties {
             font_ref: FontRef {
                 family: "Mongolian Baiti".to_string(),
-                weight: 400,
+                weight: FcWeight::Normal,
                 style: FontStyle::Normal,
+                unicode_ranges: Vec::new(),
             },
             font_size_px: 16.0,
             color: Color {
