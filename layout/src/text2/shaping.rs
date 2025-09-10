@@ -713,7 +713,7 @@ fn shape<'a>(
             font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
             script,
             lang,
-            &Features::Mask(FeatureMask::empty()),
+            &Features::Mask(FeatureMask::all()),
             None, // TODO: variable fonts?
             font.num_glyphs,
             &mut glyphs,
