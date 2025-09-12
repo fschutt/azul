@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
+    hash::{Hash, Hasher},
     num::NonZeroUsize,
     sync::{Arc, Mutex},
 };
@@ -21,7 +22,7 @@ pub trait ParsedFontTrait: Send + Sync + Clone {
         script: Script,
         language: Language,
         direction: Direction,
-    ) -> Result<Vec<ShapedGlyph>, LayoutError>;
+    ) -> Result<Vec<Glyph<Self>>, LayoutError>;
 
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> (u16, f32);
     fn has_glyph(&self, codepoint: u32) -> bool;
@@ -83,7 +84,40 @@ pub struct FontRef {
     pub unicode_ranges: Vec<UnicodeRange>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+impl FontRef {
+    fn invalid() -> Self {
+        Self {
+            family: "unknown".to_string(),
+            weight: FcWeight::Normal,
+            style: FontStyle::Normal,
+            unicode_ranges: Vec::new(),
+        }
+    }
+}
+
+impl Hash for FontRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash the String field directly.
+        self.family.hash(state);
+
+        // Hash the FcWeight by casting the enum to its integer representation.
+        (self.weight as u32).hash(state);
+
+        // Hash the FontStyle by casting the enum to its integer representation.
+        (self.style as u8).hash(state);
+
+        // It is important to hash the length of the Vec to avoid collisions.
+        self.unicode_ranges.len().hash(state);
+
+        // Manually hash each element in the Vec since UnicodeRange doesn't implement Hash.
+        for range in &self.unicode_ranges {
+            range.start.hash(state);
+            range.end.hash(state);
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum FontStyle {
     Normal,
     Italic,
@@ -358,10 +392,10 @@ pub struct FontFallbackChain {
 #[derive(Debug)]
 pub struct FontManager<T: ParsedFontTrait, Q: FontLoaderTrait> {
     fc_cache: FcFontCache,
-    parsed_fonts: HashMap<FontId, Arc<T>>,
-    fallback_chains: HashMap<FontRef, FontFallbackChain>,
-    // Default: System font loader (loads fonts from file - can be intercepted for mocking in
-    // tests)
+    parsed_fonts: Mutex<HashMap<FontId, Arc<T>>>,
+    font_ref_to_id_cache: Mutex<HashMap<FontRef, FontId>>,
+    // Default: System font loader
+    // (loads fonts from file - can be intercepted for mocking in tests)
     font_loader: Arc<Q>,
 }
 
@@ -520,38 +554,6 @@ pub enum TextCombineUpright {
     Digits(u8), // Combine up to N digits
 }
 
-// Glyph with vertical metrics and justification info
-#[derive(Debug, Clone)]
-pub struct ShapedGlyph {
-    pub glyph_id: u16,
-    pub style: Arc<StyleProperties>,
-
-    // Horizontal metrics
-    pub advance: f32,
-    pub x_offset: f32,
-    pub y_offset: f32,
-
-    // Vertical metrics (for vertical text)
-    pub vertical_advance: f32,
-    pub vertical_x_offset: f32,
-    pub vertical_y_offset: f32,
-    pub vertical_origin_y: f32, // From VORG table
-
-    // Source mapping
-    pub logical_byte_start: usize,
-    pub logical_byte_len: u8,
-    pub cluster: u32,
-
-    // Layout properties
-    pub source: GlyphSource,
-    pub is_whitespace: bool,
-    pub break_opportunity_after: bool,
-    pub can_justify: bool, // Can this glyph be expanded for justification?
-    pub justification_priority: u8, // 0 = highest priority (spaces), 255 = lowest
-    pub character_class: CharacterClass, // For justification rules
-    pub text_orientation: GlyphOrientation, // How this glyph should be oriented
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlyphSource {
     /// Glyph generated from a character in the source text.
@@ -579,13 +581,13 @@ pub enum GlyphOrientation {
 }
 
 // Bidi and script detection
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Direction {
     Ltr,
     Rtl,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BidiLevel(u8);
 
 // Content representation after bidirectional analysis
@@ -618,6 +620,7 @@ pub struct AnalyzedContent<'a> {
     pub text_runs: Vec<TextRunInfo<'a>>,
     pub non_text_items: Vec<(usize, InlineContent)>,
     pub full_text: String,
+    pub grapheme_boundaries: BTreeSet<usize>,
     pub base_direction: Direction,
 }
 
@@ -714,7 +717,7 @@ pub struct InlineConstraints {
 /// Enhanced shaped item that unifies glyphs and inline content
 #[derive(Debug, Clone)]
 pub enum ShapedItem<T: ParsedFontTrait> {
-    Glyph(EnhancedGlyph<T>),
+    Glyph(Glyph<T>),
     Image(MeasuredImage),
     Shape(MeasuredShape),
     LineBreak(InlineBreak),
@@ -723,35 +726,72 @@ pub enum ShapedItem<T: ParsedFontTrait> {
 
 /// Enhanced glyph with all features
 #[derive(Debug, Clone)]
-pub struct EnhancedGlyph<T: ParsedFontTrait> {
+pub struct Glyph<T: ParsedFontTrait> {
     // Core glyph data
     pub glyph_id: u16,
-    pub codepoint: u32,
+    pub codepoint: char,
     pub font: Arc<T>,
     pub style: Arc<StyleProperties>,
-
-    // Metrics
-    pub advance: f32,
-    pub offset: Point,
-    pub bounds: Rect,
-
-    // Vertical text support
-    pub vertical_advance: f32,
-    pub vertical_origin: Point,
-    pub orientation: GlyphOrientation,
+    pub source: GlyphSource,
 
     // Text mapping
     pub logical_byte_index: usize,
     pub logical_byte_len: usize,
     pub content_index: usize,
+    pub cluster: u32,
+
+    // Metrics
+    pub advance: f32,
+    pub offset: Point,
+
+    // Vertical text support
+    pub vertical_advance: f32,
+    pub vertical_origin_y: f32, // from VORG
+    pub vertical_bearing: Point,
+    pub orientation: GlyphOrientation,
 
     // Layout properties
     pub script: Script,
     pub bidi_level: BidiLevel,
-    pub character_class: CharacterClass,
-    pub can_justify: bool,
-    pub justification_priority: u8,
-    pub break_opportunity_after: bool,
+}
+
+impl<T: ParsedFontTrait> Glyph<T> {
+    #[inline]
+    fn bounds(&self) -> Rect {
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: self.advance,
+            height: self.style.line_height,
+        }
+    }
+
+    #[inline]
+    fn character_class(&self) -> CharacterClass {
+        classify_character(self.codepoint as u32)
+    }
+
+    #[inline]
+    fn is_whitespace(&self) -> bool {
+        self.character_class() == CharacterClass::Space
+    }
+
+    #[inline]
+    fn can_justify(&self) -> bool {
+        !self.codepoint.is_whitespace() && self.character_class() != CharacterClass::Combining
+    }
+
+    #[inline]
+    fn justification_priority(&self) -> u8 {
+        get_justification_priority(self.character_class())
+    }
+
+    #[inline]
+    fn break_opportunity_after(&self) -> bool {
+        let is_whitespace = self.codepoint.is_whitespace();
+        let is_soft_hyphen = self.codepoint == '\u{00AD}';
+        is_whitespace || is_soft_hyphen
+    }
 }
 
 /// Unified line representation
@@ -784,24 +824,6 @@ pub struct PositionedItem<T: ParsedFontTrait> {
 pub struct LineConstraints {
     pub segments: Vec<LineSegment>,
     pub total_available: f32,
-}
-
-#[derive(Debug, PartialEq)]
-enum BidiClass {
-    L,   // Left-to-Right
-    R,   // Right-to-Left
-    AL,  // Arabic Letter (RTL)
-    EN,  // European Number
-    ES,  // European Separator
-    ET,  // European Terminator
-    AN,  // Arabic Number
-    CS,  // Common Separator
-    NSM, // Non-spacing Mark
-    BN,  // Boundary Neutral
-    B,   // Paragraph Separator
-    S,   // Segment Separator
-    WS,  // Whitespace
-    ON,  // Other Neutral
 }
 
 // --- BASIC --- //
@@ -854,102 +876,6 @@ fn get_hyphenator() -> Result<Standard, LayoutError> {
 
 fn concatenate_runs_text(runs: &[StyledRun]) -> String {
     runs.iter().map(|run| run.text.as_str()).collect()
-}
-
-impl BidiClass {
-    fn is_strong(&self) -> bool {
-        matches!(self, BidiClass::L | BidiClass::R | BidiClass::AL)
-    }
-
-    fn is_rtl(&self) -> bool {
-        matches!(self, BidiClass::R | BidiClass::AL)
-    }
-
-    fn is_ltr(&self) -> bool {
-        matches!(self, BidiClass::L)
-    }
-}
-
-/// Determines the bidirectional character type of a Unicode code point
-fn get_bidi_class(c: char) -> BidiClass {
-    let code = c as u32;
-
-    // Arabic Letter (AL) range
-    if (0x0600..=0x06FF).contains(&code) ||
-       (0x0750..=0x077F).contains(&code) ||  // Arabic Supplement
-       (0x08A0..=0x08FF).contains(&code) ||  // Arabic Extended-A
-       (0xFB50..=0xFDFF).contains(&code) ||  // Arabic Presentation Forms-A
-       (0xFE70..=0xFEFF).contains(&code) ||  // Arabic Presentation Forms-B
-       (0x1EE00..=0x1EEFF).contains(&code)
-    {
-        // Arabic Mathematical Alphabetic Symbols
-        return BidiClass::AL;
-    }
-
-    // Right-to-Left (R) ranges
-    if (0x0591..=0x07FF).contains(&code) ||  // Hebrew, Arabic
-       (0xFB1D..=0xFB4F).contains(&code) ||  // Hebrew Presentation Forms
-       (0x10800..=0x10FFF).contains(&code) || // Ancient scripts
-       (0x1E800..=0x1EFFF).contains(&code)
-    {
-        // Mende Kikakui, etc.
-        return BidiClass::R;
-    }
-
-    // Left-to-Right (L) ranges (simplified)
-    if (0x0041..=0x007A).contains(&code) ||  // Basic Latin letters
-       (0x00C0..=0x02AF).contains(&code) ||  // Latin-1 Supplement, Latin Extended-A/B
-       (0x0300..=0x036F).contains(&code) ||  // Combining Diacritical Marks
-       (0x0370..=0x03FF).contains(&code) ||  // Greek
-       (0x0400..=0x04FF).contains(&code) ||  // Cyrillic
-       (0x2000..=0x206F).contains(&code) ||  // General Punctuation (mostly LTR)
-       (0x3000..=0x30FF).contains(&code)
-    {
-        // CJK Symbols and Punctuation
-        return BidiClass::L;
-    }
-
-    // European Number (EN)
-    if (0x0030..=0x0039).contains(&code) {
-        // ASCII digits
-        return BidiClass::EN;
-    }
-
-    // Whitespace (WS)
-    if matches!(
-        code,
-        0x0020 | 0x00A0 | 0x2000..=0x200B | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000
-    ) {
-        return BidiClass::WS;
-    }
-
-    // European Separator (ES)
-    if matches!(
-        code,
-        0x002B
-            | 0x002D
-            | 0x002F
-            | 0x003A
-            | 0x003B
-            | 0x003C
-            | 0x003D
-            | 0x003E
-            | 0x003F
-            | 0x0040
-            | 0x005C
-            | 0x005E
-            | 0x005F
-            | 0x0060
-            | 0x007B
-            | 0x007C
-            | 0x007D
-            | 0x007E
-    ) {
-        return BidiClass::ES;
-    }
-
-    // Other Neutral (ON) is the default if we don't match above
-    BidiClass::ON
 }
 
 /// Detects the base direction of a text string according to the Unicode Bidirectional Algorithm
@@ -1052,10 +978,78 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
     Ok((final_visual_runs, base_direction))
 }
 
+fn find_word_boundaries_grapheme_aware<T: ParsedFontTrait>(
+    glyphs: &[Glyph<T>],
+    current_idx: usize,
+    grapheme_boundaries: &BTreeSet<usize>,
+) -> (usize, usize) {
+    let mut start = current_idx;
+    while start > 0
+        && !glyphs[start - 1].is_whitespace()
+        && grapheme_boundaries.contains(&(start - 1))
+    {
+        start -= 1;
+    }
+
+    let mut end = current_idx;
+    while end < glyphs.len() && !glyphs[end].is_whitespace() && grapheme_boundaries.contains(&end) {
+        end += 1;
+    }
+
+    (start, end)
+}
+
+fn try_hyphenate_word<T: ParsedFontTrait>(
+    glyphs: &[Glyph<T>],
+    word_start: usize,
+    word_end: usize,
+    source_text: &str,
+    hyphenator: &Standard,
+    available_width: f32,
+    grapheme_boundaries: &BTreeSet<usize>,
+) -> Option<usize> {
+    // Extract word text
+    if word_start >= word_end {
+        return None;
+    }
+
+    let first_glyph = &glyphs[word_start];
+    let last_glyph = &glyphs[word_end - 1];
+
+    let word_slice = &source_text[first_glyph.logical_byte_index
+        ..(last_glyph.logical_byte_index + last_glyph.logical_byte_len as usize)];
+
+    // Get hyphenation points
+    let hyphenated = hyphenator.hyphenate(word_slice);
+    let break_indices = hyphenated.breaks;
+
+    if break_indices.is_empty() {
+        return None;
+    }
+
+    // Find best break point that fits
+    let mut current_width = 0.0;
+    for i in word_start..word_end {
+        current_width += glyphs[i].advance;
+
+        // Check if this is a valid hyphenation point
+        for &break_idx in &break_indices {
+            let byte_offset = glyphs[i].logical_byte_index - first_glyph.logical_byte_index;
+            if byte_offset == break_idx && grapheme_boundaries.contains(&i) {
+                if current_width <= available_width {
+                    return Some(i);
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
     visual_runs: &[VisualRun],
     font_provider: &T,
-) -> Result<Vec<ShapedGlyph>, LayoutError> {
+) -> Result<Vec<Glyph<Q>>, LayoutError> {
     let mut all_shaped_glyphs = Vec::new();
 
     for run in visual_runs {
@@ -1066,6 +1060,7 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
         } else {
             Direction::Ltr
         };
+
         let mut shaped_output =
             font.shape_text(run.text_slice, run.script, run.language, direction)?;
 
@@ -1074,28 +1069,43 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
         }
 
         for shaped_in_run in shaped_output {
-            let source_char = run.text_slice[shaped_in_run.logical_byte_start..]
+            let source_char = run.text_slice[shaped_in_run.logical_byte_index..]
                 .chars()
                 .next()
                 .unwrap_or('\0');
 
             let is_whitespace = source_char.is_whitespace();
-            // A soft hyphen is a break opportunity but not whitespace.
             let is_soft_hyphen = source_char == '\u{00AD}';
 
-            all_shaped_glyphs.push(ShapedGlyph {
+            // Determine character class for justification
+            let character_class = classify_character(source_char as u32);
+            let can_justify = !is_whitespace && character_class != CharacterClass::Combining;
+            let justification_priority = get_justification_priority(character_class);
+
+            all_shaped_glyphs.push(Glyph {
                 glyph_id: shaped_in_run.glyph_id,
+                codepoint: source_char,
                 style: run.style.clone(),
+                font: font.clone(),
                 advance: shaped_in_run.advance,
-                x_offset: shaped_in_run.x_offset,
-                y_offset: shaped_in_run.y_offset,
-                // Make cluster and byte start absolute to the entire paragraph.
-                logical_byte_start: shaped_in_run.logical_byte_start + run.logical_start_byte,
-                logical_byte_len: shaped_in_run.logical_byte_len,
-                cluster: shaped_in_run.cluster + run.logical_start_byte as u32,
                 source: GlyphSource::Char,
-                is_whitespace,
-                break_opportunity_after: is_whitespace || is_soft_hyphen,
+                script: run.script,
+                bidi_level: run.bidi_level,
+                offset: shaped_in_run.offset,
+                cluster: shaped_in_run.cluster + run.logical_start_byte as u32,
+                content_index: 0, // Would be set from content analysis
+
+                // Add missing vertical metrics - will be set later, if vertical
+                vertical_advance: 0.0,
+                vertical_origin_y: 0.0,
+                vertical_bearing: Point { x: 0.0, y: 0.0 },
+
+                // Complete byte mappings
+                logical_byte_index: shaped_in_run.logical_byte_index + run.logical_start_byte,
+                logical_byte_len: shaped_in_run.logical_byte_len,
+
+                // Add justification fields
+                orientation: GlyphOrientation::Horizontal, // Will be set based on script
             });
         }
     }
@@ -1105,13 +1115,16 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
 
 // --- HELPER FUNCTIONS FOR POSITIONING ---
 
-fn find_word_boundaries(glyphs: &[ShapedGlyph], current_idx: usize) -> (usize, usize) {
+fn find_word_boundaries<T: ParsedFontTrait>(
+    glyphs: &[Glyph<T>],
+    current_idx: usize,
+) -> (usize, usize) {
     let mut start = current_idx;
-    while start > 0 && !glyphs[start - 1].is_whitespace {
+    while start > 0 && !glyphs[start - 1].is_whitespace() {
         start -= 1;
     }
     let mut end = current_idx;
-    while end < glyphs.len() && !glyphs[end].is_whitespace {
+    while end < glyphs.len() && !glyphs[end].is_whitespace() {
         end += 1;
     }
     (start, end)
@@ -1193,141 +1206,6 @@ fn get_available_width_for_line(line_y: f32, constraints: &UnifiedConstraints) -
     (constraints.available_width - excluded).max(0.0)
 }
 
-// Font fallback using unicode ranges
-fn shape_run_with_smart_fallback<T: ParsedFontTrait, Q: FontLoaderTrait>(
-    run: &VisualRun,
-    font_manager: &mut FontManager<T, Q>,
-    direction: Direction,
-    constraints: &UnifiedConstraints,
-) -> Result<Vec<EnhancedGlyph<T>>, LayoutError> {
-    let mut result = Vec::new();
-
-    let direction = constraints.direction(direction);
-
-    // Query fontconfig for fonts that support this text
-    let pattern = FcPattern {
-        name: Some(run.style.font_ref.family.clone()),
-        weight: run.style.font_ref.weight,
-        italic: if run.style.font_ref.style == FontStyle::Italic {
-            PatternMatch::True
-        } else {
-            PatternMatch::DontCare
-        },
-        oblique: if run.style.font_ref.style == FontStyle::Oblique {
-            PatternMatch::True
-        } else {
-            PatternMatch::DontCare
-        },
-        ..Default::default()
-    };
-
-    let mut trace = Vec::new();
-    let font_matches = font_manager
-        .fc_cache
-        .query_for_text(&pattern, run.text_slice, &mut trace);
-
-    if font_matches.is_empty() {
-        return Err(LayoutError::FontNotFound(run.style.font_ref.clone()));
-    }
-
-    // Group text by font coverage
-    let segments =
-        segment_text_by_font_coverage(run.text_slice, &font_matches, &font_manager.fc_cache)?;
-
-    for segment in segments {
-        let font = font_manager.load_font_by_id(&segment.font_id)?;
-        let shaped = font.shape_text(segment.text, run.script, run.language, direction)?;
-
-        for glyph in shaped {
-            result.push(enhance_glyph(
-                glyph,
-                run,
-                constraints,
-                font.clone(),
-                run.style.clone(),
-            )?);
-        }
-    }
-
-    Ok(result)
-}
-
-struct TextSegment<'a> {
-    text: &'a str,
-    font_id: FontId,
-    byte_offset: usize,
-}
-
-fn segment_text_by_font_coverage<'a>(
-    text: &'a str,
-    font_matches: &[FontMatch],
-    fc_cache: &FcFontCache,
-) -> Result<Vec<TextSegment<'a>>, LayoutError> {
-    let mut segments = Vec::new();
-    let mut char_indices = text.char_indices().peekable();
-
-    while let Some((byte_idx, ch)) = char_indices.next() {
-        // Find best font for this character
-        let codepoint = ch as u32;
-        let font_id = find_font_for_codepoint(codepoint, font_matches)?;
-
-        // Collect consecutive chars that use the same font
-        let mut segment_end = byte_idx + ch.len_utf8();
-        while let Some(&(next_idx, next_ch)) = char_indices.peek() {
-            let next_codepoint = next_ch as u32;
-            let next_font = find_font_for_codepoint(next_codepoint, font_matches)?;
-
-            if next_font == font_id {
-                char_indices.next();
-                segment_end = next_idx + next_ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-
-        segments.push(TextSegment {
-            text: &text[byte_idx..segment_end],
-            font_id,
-            byte_offset: byte_idx,
-        });
-    }
-
-    Ok(segments)
-}
-
-fn find_font_for_codepoint(
-    codepoint: u32,
-    font_matches: &[FontMatch],
-) -> Result<FontId, LayoutError> {
-    // Check primary font first
-    if let Some(primary) = font_matches.first() {
-        for range in &primary.unicode_ranges {
-            if codepoint >= range.start && codepoint <= range.end {
-                return Ok(primary.id.clone());
-            }
-        }
-    }
-
-    // Check fallbacks
-    for font_match in font_matches {
-        for range in &font_match.unicode_ranges {
-            if codepoint >= range.start && codepoint <= range.end {
-                return Ok(font_match.id.clone());
-            }
-        }
-    }
-
-    // Use first font as last resort
-    font_matches.first().map(|m| m.id.clone()).ok_or_else(|| {
-        LayoutError::FontNotFound(FontRef {
-            family: "fallback".to_string(),
-            weight: FcWeight::Normal,
-            style: FontStyle::Normal,
-            unicode_ranges: Vec::new(),
-        })
-    })
-}
-
 fn resolve_logical_align(align: TextAlign, direction: Direction) -> TextAlign {
     match (align, direction) {
         (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
@@ -1351,9 +1229,12 @@ fn point_in_rect(point: Point, rect: Rect) -> bool {
 impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontProviderTrait<T> for FontManager<T, Q> {
     fn load_font(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError> {
         // Check cache first
-        if let Some(cached_id) = self.font_ref_to_id_cache.get(font_ref) {
-            if let Some(font) = self.parsed_fonts.get(cached_id) {
-                return Ok(font.clone());
+        if let Ok(c) = self.font_ref_to_id_cache.lock() {
+            if let Some(cached_id) = c.get(font_ref) {
+                let fonts = self.parsed_fonts.lock().unwrap();
+                if let Some(font) = fonts.get(cached_id) {
+                    return Ok(font.clone());
+                }
             }
         }
 
@@ -1381,23 +1262,29 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontProviderTrait<T> for FontManage
             .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
 
         // Load font if not cached
-        if !self.parsed_fonts.contains_key(&fc_match.id) {
-            let font_bytes = self
-                .fc_cache
-                .get_font_bytes(&fc_match.id)
-                .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
+        {
+            let mut fonts = self.parsed_fonts.lock().unwrap();
+            if !fonts.contains_key(&fc_match.id) {
+                let font_bytes = self
+                    .fc_cache
+                    .get_font_bytes(&fc_match.id)
+                    .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
 
-            let parsed = self
-                .font_loader
-                .load_font(&font_bytes.data, fc_match.font_index)?;
+                let font_index = 0; // Default
+                let parsed = self.font_loader.load_font(&font_bytes, font_index)?;
 
-            self.parsed_fonts
-                .insert(fc_match.id.clone(), Arc::from(parsed));
-            self.font_ref_to_id_cache
-                .insert(font_ref.clone(), fc_match.id.clone());
+                fonts.insert(fc_match.id.clone(), parsed);
+            }
         }
 
-        Ok(self.parsed_fonts.get(&fc_match.id).unwrap().clone())
+        // Update ref cache
+        {
+            let mut ref_cache = self.font_ref_to_id_cache.lock().unwrap();
+            ref_cache.insert(font_ref.clone(), fc_match.id.clone());
+        }
+
+        let fonts = self.parsed_fonts.lock().unwrap();
+        Ok(fonts.get(&fc_match.id).unwrap().clone())
     }
 }
 
@@ -1405,8 +1292,8 @@ impl<T: ParsedFontTrait> FontManager<T, SystemFontLoader> {
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
-            parsed_fonts: HashMap::new(),
-            fallback_chains: HashMap::new(),
+            parsed_fonts: Mutex::new(HashMap::new()),
+            font_ref_to_id_cache: Mutex::new(HashMap::new()),
             font_loader: Arc::new(SystemFontLoader::new()),
         })
     }
@@ -1416,10 +1303,30 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontManager<T, Q> {
     pub fn with_loader(fc_cache: FcFontCache, loader: Arc<Q>) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
-            parsed_fonts: HashMap::new(),
-            fallback_chains: HashMap::new(),
+            parsed_fonts: Mutex::new(HashMap::new()),
             font_loader: loader,
+            font_ref_to_id_cache: Mutex::new(HashMap::new()),
         })
+    }
+
+    pub fn load_font_by_id(&mut self, font_id: &FontId) -> Result<Arc<T>, LayoutError> {
+        let mut cache = self.parsed_fonts.lock().unwrap();
+
+        if let Some(font) = cache.get(font_id) {
+            return Ok(font.clone());
+        }
+
+        let font_bytes = self
+            .fc_cache
+            .get_font_bytes(font_id)
+            .ok_or_else(|| LayoutError::FontNotFound(FontRef::invalid()))?;
+
+        let font_index = 0; // Default to first font in collection
+        let parsed = self.font_loader.load_font::<T>(&font_bytes, font_index)?;
+
+        cache.insert(font_id.clone(), parsed.clone());
+
+        Ok(parsed)
     }
 
     pub fn get_font_for_text(
@@ -1469,14 +1376,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontManager<T, Q> {
         let fc_pattern = self
             .fc_cache
             .get_metadata_by_id(&fc_match.id)
-            .ok_or_else(|| {
-                LayoutError::FontNotFound(FontRef {
-                    family: "unknown".to_string(),
-                    weight: FcWeight::Normal,
-                    style: FontStyle::Normal,
-                    unicode_ranges: Vec::new(),
-                })
-            })?;
+            .ok_or_else(|| LayoutError::FontNotFound(FontRef::invalid()))?;
 
         Ok(FontRef {
             weight: fc_pattern.weight,
@@ -1576,8 +1476,8 @@ fn get_script_default_orientation(script: Script, writing_mode: WritingMode) -> 
     }
 }
 
-fn justify_line(
-    glyphs: &mut [ShapedGlyph],
+fn justify_line<T: ParsedFontTrait>(
+    glyphs: &mut [Glyph<T>],
     target_width: f32,
     justify_content: JustifyContent,
     writing_mode: WritingMode,
@@ -1603,106 +1503,110 @@ fn justify_line(
 }
 
 // Enhanced line breaking with grapheme cluster awareness
-fn find_line_break_with_graphemes(
-    glyphs: &[ShapedGlyph],
-    start_idx: usize,
-    line_y: f32,
+fn find_line_break_with_graphemes<T: ParsedFontTrait>(
+    items: &[ShapedItem<T>],
+    line_constraints: &LineConstraints,
     constraints: &UnifiedConstraints,
-    hyphenator: &Standard,
-    source_text: &str,
-) -> (usize, bool) {
-    let available_width = get_available_width_for_line(line_y, constraints);
+    font_manager: &mut FontManager<T, impl FontLoaderTrait>,
+) -> Result<(usize, Vec<ShapedItem<T>>), LayoutError> {
+    if line_constraints.segments.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+
     let mut current_width = 0.0;
-    let mut last_opportunity = start_idx;
-    let mut last_grapheme_boundary = start_idx;
+    let mut line_items = Vec::new();
+    let available_width = line_constraints.total_available;
 
-    // Build grapheme cluster map
-    let grapheme_boundaries = get_grapheme_boundaries(source_text, glyphs, start_idx);
+    for (i, item) in items.iter().enumerate() {
+        let item_width = UnifiedLayoutEngine::get_item_measure(item, constraints);
 
-    for i in start_idx..glyphs.len() {
-        let glyph = &glyphs[i];
-
-        // Skip leading whitespace
-        if i == start_idx && glyph.is_whitespace {
-            continue;
-        }
-
-        // Check if this is a grapheme boundary
-        if grapheme_boundaries.contains(&i) {
-            last_grapheme_boundary = i;
-        }
-
-        if current_width + glyph.advance > available_width {
-            // Must break at grapheme boundary
-            if last_opportunity > start_idx && grapheme_boundaries.contains(&last_opportunity) {
-                return (last_opportunity, false);
+        if current_width + item_width > available_width && i > 0 {
+            // Try hyphenation for text items
+            if constraints.hyphenation {
+                if let ShapedItem::Glyph(g) = item {
+                    // Simplified: just break at current position
+                    return Ok((i, line_items));
+                }
             }
-
-            // Try hyphenation at grapheme boundaries
-            let (word_start, word_end) =
-                find_word_boundaries_grapheme_aware(glyphs, i, &grapheme_boundaries);
-
-            if let Some(hyphen_break) = try_hyphenate_word(
-                glyphs,
-                word_start,
-                word_end,
-                source_text,
-                hyphenator,
-                available_width,
-                &grapheme_boundaries,
-            ) {
-                return (hyphen_break, true);
-            }
-
-            // Force break at last grapheme boundary
-            return (last_grapheme_boundary.max(start_idx + 1), false);
+            return Ok((i, line_items));
         }
 
-        current_width += glyph.advance;
-
-        if glyph.break_opportunity_after && grapheme_boundaries.contains(&(i + 1)) {
-            last_opportunity = i + 1;
-        }
+        current_width += item_width;
+        line_items.push(item.clone());
     }
 
-    (glyphs.len(), false)
+    Ok((items.len(), line_items))
 }
 
-fn get_grapheme_boundaries(
-    text: &str,
-    glyphs: &[ShapedGlyph],
-    start_idx: usize,
-) -> BTreeSet<usize> {
-    let mut boundaries = BTreeSet::new();
-    boundaries.insert(start_idx);
-
-    let graphemes = text.graphemes(true);
-    let mut byte_offset = 0;
-
-    for grapheme in graphemes {
-        byte_offset += grapheme.len();
-
-        // Find corresponding glyph index
-        for (idx, glyph) in glyphs.iter().enumerate() {
-            if glyph.logical_byte_start == byte_offset {
-                boundaries.insert(idx);
-                break;
-            }
-        }
+fn justify_line_items<T: ParsedFontTrait>(
+    mut items: Vec<ShapedItem<T>>,
+    constraints: &LineConstraints,
+    justify_content: JustifyContent,
+    writing_mode: Option<WritingMode>,
+    is_last_line: bool,
+) -> Result<Vec<ShapedItem<T>>, LayoutError> {
+    if is_last_line && justify_content != JustifyContent::Distribute {
+        return Ok(items);
     }
 
-    boundaries.insert(glyphs.len());
-    boundaries
+    let total_width: f32 = items
+        .iter()
+        .map(|item| {
+            UnifiedLayoutEngine::get_item_measure(
+                item,
+                &UnifiedConstraints {
+                    writing_mode,
+                    ..Default::default()
+                },
+            )
+        })
+        .sum();
+
+    let available = constraints.total_available;
+    if total_width >= available {
+        return Ok(items);
+    }
+
+    let extra_space = available - total_width;
+
+    match justify_content {
+        JustifyContent::InterWord => {
+            let spaces: Vec<usize> = items
+                .iter()
+                .enumerate()
+                .filter_map(|(i, item)| {
+                    if let ShapedItem::Glyph(g) = item {
+                        if g.character_class() == CharacterClass::Space {
+                            return Some(i);
+                        }
+                    }
+                    None
+                })
+                .collect();
+
+            if !spaces.is_empty() {
+                let space_per_gap = extra_space / spaces.len() as f32;
+                for &idx in &spaces {
+                    if let ShapedItem::Glyph(ref mut g) = items[idx] {
+                        g.advance += space_per_gap;
+                    }
+                }
+            }
+        }
+        _ => {} // Other justification modes
+    }
+
+    Ok(items)
 }
 
-fn calculate_line_width(glyphs: &[ShapedGlyph], writing_mode: WritingMode) -> f32 {
+fn calculate_line_width<T: ParsedFontTrait>(glyphs: &[Glyph<T>], writing_mode: WritingMode) -> f32 {
     glyphs
         .iter()
         .map(|g| get_glyph_advance(g, writing_mode))
         .sum()
 }
 
-fn get_glyph_advance(glyph: &ShapedGlyph, writing_mode: WritingMode) -> f32 {
+fn get_glyph_advance<T: ParsedFontTrait>(glyph: &Glyph<T>, writing_mode: WritingMode) -> f32 {
     match writing_mode {
         WritingMode::HorizontalTb => glyph.advance,
         WritingMode::VerticalRl | WritingMode::VerticalLr => glyph.vertical_advance,
@@ -1710,14 +1614,17 @@ fn get_glyph_advance(glyph: &ShapedGlyph, writing_mode: WritingMode) -> f32 {
     }
 }
 
-fn justify_inter_word(glyphs: &mut [ShapedGlyph], available_space: f32) -> Result<(), LayoutError> {
+fn justify_inter_word<T: ParsedFontTrait>(
+    glyphs: &mut [Glyph<T>],
+    available_space: f32,
+) -> Result<(), LayoutError> {
     // Find all word boundaries (spaces and break opportunities)
     let space_indices: Vec<usize> = glyphs
         .iter()
         .enumerate()
         .filter_map(|(i, g)| {
-            if g.character_class == CharacterClass::Space
-                || (g.break_opportunity_after && g.character_class != CharacterClass::Combining)
+            if g.character_class() == CharacterClass::Space
+                || (g.break_opportunity_after() && g.character_class() != CharacterClass::Combining)
             {
                 Some(i)
             } else {
@@ -1740,8 +1647,69 @@ fn justify_inter_word(glyphs: &mut [ShapedGlyph], available_space: f32) -> Resul
     Ok(())
 }
 
-fn justify_inter_character(
-    glyphs: &mut [ShapedGlyph],
+fn compute_grapheme_boundaries(text: &str) -> BTreeSet<usize> {
+    text.grapheme_indices(true).map(|(idx, _)| idx).collect()
+}
+
+fn create_pattern_from_run(run: &VisualRun) -> FcPattern {
+    FcPattern {
+        name: Some(run.style.font_ref.family.clone()),
+        weight: run.style.font_ref.weight,
+        italic: if run.style.font_ref.style == FontStyle::Italic {
+            PatternMatch::True
+        } else {
+            PatternMatch::DontCare
+        },
+        oblique: if run.style.font_ref.style == FontStyle::Oblique {
+            PatternMatch::True
+        } else {
+            PatternMatch::DontCare
+        },
+        // Adding the language is important for selecting correct glyphs (e.g., CJK variants)
+        unicode_ranges: run.script.get_unicode_ranges(),
+        ..Default::default()
+    }
+}
+
+fn create_fallback_glyphs<T: ParsedFontTrait>(
+    run: &VisualRun,
+    font: Arc<T>, // A last-resort font to get metrics from
+) -> Result<Vec<Glyph<T>>, LayoutError> {
+    let mut glyphs = Vec::new();
+    let missing_glyph_id = 0; // .notdef glyph
+
+    // Use a reasonable advance for missing glyphs, like 0.5em
+    let advance = run.style.font_size_px * 0.5;
+
+    for (byte_index, ch) in run.text_slice.char_indices() {
+        glyphs.push(Glyph {
+            glyph_id: missing_glyph_id,
+            codepoint: ch,
+            font: font.clone(),
+            style: run.style.clone(),
+            source: GlyphSource::Char,
+            logical_byte_index: run.logical_start_byte + byte_index,
+            logical_byte_len: ch.len_utf8(),
+            content_index: 0, // This will be set later
+            cluster: (run.logical_start_byte + byte_index) as u32,
+            advance,
+            offset: Point { x: 0.0, y: 0.0 },
+            vertical_advance: run.style.line_height,
+            vertical_origin_y: 0.0,
+            vertical_bearing: Point {
+                x: -advance / 2.0,
+                y: 0.0,
+            },
+            orientation: GlyphOrientation::Horizontal,
+            script: run.script,
+            bidi_level: run.bidi_level,
+        });
+    }
+    Ok(glyphs)
+}
+
+fn justify_inter_character<T: ParsedFontTrait>(
+    glyphs: &mut [Glyph<T>],
     available_space: f32,
 ) -> Result<(), LayoutError> {
     // For CJK text - expand space between all characters
@@ -1749,8 +1717,8 @@ fn justify_inter_character(
         .iter()
         .enumerate()
         .filter_map(|(i, g)| {
-            if g.can_justify
-                && g.character_class != CharacterClass::Combining
+            if g.can_justify()
+                && g.character_class() != CharacterClass::Combining
                 && i < glyphs.len() - 1
             {
                 // Don't justify after last glyph
@@ -1774,7 +1742,10 @@ fn justify_inter_character(
     Ok(())
 }
 
-fn justify_distribute(glyphs: &mut [ShapedGlyph], available_space: f32) -> Result<(), LayoutError> {
+fn justify_distribute<T: ParsedFontTrait>(
+    glyphs: &mut [Glyph<T>],
+    available_space: f32,
+) -> Result<(), LayoutError> {
     // CSS text-align: justify - distribute space including at edges
     if glyphs.is_empty() {
         return Ok(());
@@ -1793,18 +1764,18 @@ fn justify_distribute(glyphs: &mut [ShapedGlyph], available_space: f32) -> Resul
     Ok(())
 }
 
-fn apply_vertical_metrics<T: ParsedFontTrait>(glyph: &mut ShapedGlyph, font: &T) {
+fn apply_vertical_metrics<T: ParsedFontTrait>(glyph: &mut Glyph<T>, font: &T) {
     // Get vertical metrics from VMTX, VORG tables
     if let Some(v_metrics) = font.get_vertical_metrics(glyph.glyph_id) {
         glyph.vertical_advance = v_metrics.advance;
-        glyph.vertical_x_offset = v_metrics.bearing_x;
-        glyph.vertical_y_offset = v_metrics.bearing_y;
+        glyph.vertical_bearing.x = v_metrics.bearing_x;
+        glyph.vertical_bearing.y = v_metrics.bearing_y;
         glyph.vertical_origin_y = v_metrics.origin_y;
     } else {
         // Fallback: derive from horizontal metrics
         glyph.vertical_advance = glyph.style.line_height;
-        glyph.vertical_x_offset = -glyph.advance / 2.0;
-        glyph.vertical_y_offset = 0.0;
+        glyph.vertical_bearing.x = -glyph.advance / 2.0;
+        glyph.vertical_bearing.y = 0.0;
         glyph.vertical_origin_y = glyph.style.font_size_px * 0.88; // TODO: Approximate
     }
 }
@@ -1838,6 +1809,91 @@ impl UnifiedLayoutEngine {
         font_manager: &mut FontManager<T, Q>,
         cache: &mut LayoutCache<T>,
     ) -> Result<Arc<UnifiedLayout<T>>, LayoutError> {
+        // layout(content, constraints, font_manager, cache)
+        // ├── 1. Cache Check
+        // │   └── CacheKey::new() + LayoutCache::get()
+        // │
+        // ├── 2. Content Analysis
+        // │   └── analyze_content(content, constraints)
+        // │       ├── Separate text runs from inline objects
+        // │       ├── Build full_text string
+        // │       └── detect_base_direction(full_text)
+        // │
+        // ├── 3. Bidirectional Analysis
+        // │   └── apply_bidi_analysis(analyzed_content, constraints)
+        // │       └── perform_bidi_analysis(text_runs, full_text, language)
+        // │           ├── BidiInfo::new() [unicode_bidi crate]
+        // │           ├── Create byte_to_run_index mapping
+        // │           ├── Process visual_runs from bidi_info
+        // │           └── Split runs by style boundaries
+        // │
+        // ├── 4. Content Shaping
+        // │   └── shape_content(bidi_analyzed, font_manager, constraints)
+        // │       ├── For each VisualRun:
+        // │       │   └── shape_run_with_smart_fallback()
+        // │       │       ├── Query fontconfig for font matches
+        // │       │       ├── segment_text_by_font_coverage()
+        // │       │       │   ├── find_font_for_codepoint() for each char
+        // │       │       │   └── Group consecutive chars by font
+        // │       │       ├── For each segment:
+        // │       │       │   ├── FontManager::load_font_by_id()
+        // │       │       │   ├── ParsedFontTrait::shape_text()
+        // │       │       │   └── enhance_glyph() -> Glyph
+        // │       │       └── Return Vec<Glyph>
+        // │       │
+        // │       └── For each InlineContent:
+        // │           └── measure_inline_item() -> ShapedItem
+        // │
+        // ├── 5. Text Orientation
+        // │   └── apply_text_orientation(shaped_items, constraints)
+        // │       ├── Skip if horizontal text
+        // │       └── For vertical text:
+        // │           ├── determine_glyph_orientation()
+        // │           └── Apply vertical metrics from font or synthesize
+        // │
+        // ├── 6. Line Breaking
+        // │   └── break_lines(oriented_content, constraints, font_manager)
+        // │       ├── Initialize line position and cursor
+        // │       └── For each line position:
+        // │           ├── get_line_constraints(position, constraints)
+        // │           │   ├── get_boundary_segments() for each boundary
+        // │           │   │   ├── Rectangle intersection
+        // │           │   │   ├── Circle intersection
+        // │           │   │   └── polygon_line_intersection()
+        // │           │   ├── subtract_exclusion() for each exclusion
+        // │           │   └── merge_segments()
+        // │           │
+        // │           └── find_line_break_with_graphemes()
+        // │               ├── get_grapheme_boundaries() [PERFORMANCE ISSUE]
+        // │               ├── Accumulate items until width exceeded
+        // │               └── Try hyphenation if needed
+        // │
+        // ├── 7. Content Positioning
+        // │   └── position_content_with_bidi_reordering(lines, constraints, base_direction)
+        // │       ├── For each UnifiedLine:
+        // │       │   ├── reorder_line_bidi() [CORRECTNESS RISK]
+        // │       │   │   ├── Group items by BidiLevel
+        // │       │   │   └── reorder_bidi_runs() - custom UBA implementation
+        // │       │   │
+        // │       │   ├── justify_line_items() [IF JUSTIFICATION ENABLED]
+        // │       │   │   ├── Calculate extra space needed
+        // │       │   │   └── Distribute based on JustifyContent mode
+        // │       │   │
+        // │       │   ├── resolve_logical_align() (start/end -> left/right)
+        // │       │   ├── calculate_alignment_offset()
+        // │       │   └── Position each item with advance calculation
+        // │       │
+        // │       └── calculate_bounds() for entire layout
+        // │
+        // ├── 8. Overflow Handling
+        // │   └── handle_overflow(positioned_layout, constraints)
+        // │       ├── OverflowBehavior::Hidden -> clip items
+        // │       ├── OverflowBehavior::Scroll -> calculate_overflow()
+        // │       └── Other modes (stub implementations)
+        // │
+        // └── 9. Cache Storage
+        //     └── LayoutCache::put(cache_key, result)
+
         // Check cache first
         let cache_key = CacheKey::new(&content, &constraints);
 
@@ -1904,11 +1960,13 @@ impl UnifiedLayoutEngine {
         }
 
         let base_direction = detect_base_direction(&full_text);
+        let grapheme_boundaries = compute_grapheme_boundaries(&full_text);
 
         Ok(AnalyzedContent {
             text_runs,
             non_text_items,
             full_text,
+            grapheme_boundaries,
             base_direction,
         })
     }
@@ -1946,25 +2004,55 @@ impl UnifiedLayoutEngine {
         let mut shaped_items = Vec::new();
 
         // Shape text runs with font fallback
-        for run in content.visual_runs {
-            let shaped_glyphs = shape_run_with_smart_fallback(
-                &run,
-                font_manager,
-                if run.bidi_level.is_rtl() {
-                    Direction::Rtl
-                } else {
-                    Direction::Ltr
-                },
-                constraints,
-            )?;
+        for run in &content.visual_runs {
+            let pattern = create_pattern_from_run(run);
+            let font_matches =
+                font_manager
+                    .fc_cache
+                    .query_for_text(&pattern, run.text_slice, &mut Vec::new());
 
-            for glyph in shaped_glyphs {
+            let mut shaped_glyphs: Option<Vec<Glyph<T>>> = None;
+            let direction = if run.bidi_level.is_rtl() {
+                Direction::Rtl
+            } else {
+                Direction::Ltr
+            };
+
+            // Try each font in the fallback list
+            for font_match in &font_matches {
+                if let Ok(font) = font_manager.load_font_by_id(&font_match.id) {
+                    // Attempt to shape the entire run with this font.
+                    // A robust implementation would check for .notdef glyphs in the output.
+                    // For simplicity, we assume success if it doesn't error out.
+                    if let Ok(mut glyphs) =
+                        font.shape_text(run.text_slice, run.script, run.language, direction)
+                    {
+                        if direction == Direction::Rtl {
+                            glyphs.reverse();
+                        }
+                        shaped_glyphs = Some(glyphs);
+                        break; // Success, stop trying other fonts
+                    }
+                }
+            }
+
+            // If all fonts failed, generate fallback glyphs
+            let final_glyphs = match shaped_glyphs {
+                Some(g) => g,
+                None => {
+                    // Load the primary font of the run as a "last resort" for metrics
+                    let primary_font = font_manager.load_font(&run.style.font_ref)?;
+                    create_fallback_glyphs(run, primary_font)?
+                }
+            };
+
+            for glyph in final_glyphs {
                 shaped_items.push(ShapedItem::Glyph(glyph));
             }
         }
 
         // Measure non-text items
-        for (idx, item) in content.non_text_items.iter() {
+        for (_idx, item) in content.non_text_items.iter() {
             shaped_items.push(Self::measure_inline_item(item, constraints)?);
         }
 
@@ -1986,7 +2074,7 @@ impl UnifiedLayoutEngine {
             if let ShapedItem::Glyph(ref mut glyph) = item {
                 // Determine orientation for this glyph
                 let orientation = determine_glyph_orientation(
-                    glyph.codepoint,
+                    glyph.codepoint as u32,
                     glyph.script,
                     constraints.text_orientation,
                     constraints.writing_mode.unwrap_or_default(),
@@ -1997,14 +2085,16 @@ impl UnifiedLayoutEngine {
                 // Apply vertical metrics
                 if let Some(metrics) = glyph.font.get_vertical_metrics(glyph.glyph_id) {
                     glyph.vertical_advance = metrics.advance;
-                    glyph.vertical_origin = Point {
+                    glyph.vertical_origin_y = metrics.origin_y;
+                    glyph.vertical_bearing = Point {
                         x: metrics.bearing_x,
-                        y: metrics.origin_y,
+                        y: metrics.bearing_y,
                     };
                 } else {
                     // Synthesize vertical metrics
                     glyph.vertical_advance = glyph.style.line_height;
-                    glyph.vertical_origin = Point {
+                    glyph.vertical_origin_y = 0.0;
+                    glyph.vertical_bearing = Point {
                         x: -glyph.advance / 2.0,
                         y: glyph.style.font_size_px * 0.88,
                     };
@@ -2169,9 +2259,11 @@ impl UnifiedLayoutEngine {
             }
         }
 
+        let bounds = Self::calculate_bounds(&positioned_items);
+
         Ok(UnifiedLayout {
             items: positioned_items,
-            bounds: Self::calculate_bounds(&positioned_items),
+            bounds,
             overflow: OverflowInfo::default(),
         })
     }
@@ -2190,7 +2282,7 @@ impl UnifiedLayoutEngine {
         let mut current_level = None;
 
         for item in items {
-            let item_level = get_item_bidi_level(item);
+            let item_level = Self::get_item_bidi_level(item);
 
             if current_level != Some(item_level) {
                 if !current_run.is_empty() {
@@ -2211,6 +2303,13 @@ impl UnifiedLayoutEngine {
 
         // Flatten reordered runs
         Ok(runs.into_iter().flat_map(|(_, items)| items).collect())
+    }
+
+    fn get_item_bidi_level<T: ParsedFontTrait>(item: &ShapedItem<T>) -> BidiLevel {
+        match item {
+            ShapedItem::Glyph(g) => g.bidi_level.clone(),
+            _ => BidiLevel::new(0), // Non-text items are neutral
+        }
     }
 
     fn reorder_bidi_runs<T: ParsedFontTrait>(
@@ -2298,6 +2397,60 @@ impl UnifiedLayoutEngine {
             _ => Err(LayoutError::InvalidText(
                 "Unexpected inline content".to_string(),
             )),
+        }
+    }
+
+    fn get_item_metrics<T: ParsedFontTrait>(
+        item: &ShapedItem<T>,
+        constraints: &UnifiedConstraints,
+    ) -> (f32, Rect) {
+        match item {
+            ShapedItem::Glyph(g) => {
+                let advance = if constraints.is_vertical() {
+                    g.vertical_advance
+                } else {
+                    g.advance
+                };
+                (advance, g.bounds())
+            }
+            ShapedItem::Image(img) => {
+                let advance = img.size.width;
+                let bounds = Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: img.size.width,
+                    height: img.size.height,
+                };
+                (advance, bounds)
+            }
+            ShapedItem::Shape(shape) => {
+                let advance = shape.size.width;
+                let bounds = Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: shape.size.width,
+                    height: shape.size.height,
+                };
+                (advance, bounds)
+            }
+            ShapedItem::Space(space) => (
+                space.width,
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: space.width,
+                    height: 0.0,
+                },
+            ),
+            ShapedItem::LineBreak(_) => (
+                0.0,
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 0.0,
+                    height: 0.0,
+                },
+            ),
         }
     }
 
@@ -2489,7 +2642,7 @@ impl UnifiedLayoutEngine {
         constraints: &UnifiedConstraints,
     ) -> Result<PositionedItem<T>, LayoutError> {
         let bounds = match &item {
-            ShapedItem::Glyph(g) => g.bounds.clone(),
+            ShapedItem::Glyph(g) => g.bounds(),
             ShapedItem::Image(i) => Rect {
                 x: position.x,
                 y: position.y,
@@ -2638,50 +2791,6 @@ impl UnifiedLayoutEngine {
 
         Ok(segments)
     }
-}
-
-// Helper function to enhance a basic shaped glyph
-fn enhance_glyph<T: ParsedFontTrait>(
-    glyph: ShapedGlyph,
-    run: &VisualRun,
-    constraints: &UnifiedConstraints,
-    font: Arc<T>,
-    style: Arc<StyleProperties>,
-) -> Result<EnhancedGlyph<T>, LayoutError> {
-    let codepoint = run.text_slice[glyph.logical_byte_start - run.logical_start_byte..]
-        .chars()
-        .next()
-        .unwrap_or('\0') as u32;
-
-    Ok(EnhancedGlyph {
-        glyph_id: glyph.glyph_id,
-        codepoint,
-        font: font.clone(),
-        style: style.clone(),
-        advance: glyph.advance,
-        offset: Point {
-            x: glyph.x_offset,
-            y: glyph.y_offset,
-        },
-        bounds: Rect {
-            x: 0.0,
-            y: 0.0,
-            width: glyph.advance,
-            height: run.style.line_height,
-        },
-        vertical_advance: 0.0, // Set in apply_text_orientation
-        vertical_origin: Point { x: 0.0, y: 0.0 },
-        orientation: GlyphOrientation::Horizontal,
-        logical_byte_index: glyph.logical_byte_start,
-        logical_byte_len: glyph.logical_byte_len as usize,
-        content_index: 0, // Would be set from content analysis
-        script: run.script,
-        bidi_level: run.bidi_level.clone(),
-        character_class: classify_character(codepoint),
-        can_justify: !glyph.is_whitespace,
-        justification_priority: get_justification_priority(classify_character(codepoint)),
-        break_opportunity_after: glyph.break_opportunity_after,
-    })
 }
 
 // Fix: Proper character classification
