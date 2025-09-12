@@ -1,15 +1,15 @@
-use alloc::rc::Rc;
 use core::fmt;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-use allsorts_subset_browser::{
-    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
+use allsorts::{
+    layout::{GDEFTable, LayoutCache, LayoutCacheData, GPOS, GSUB},
     tables::{
         cmap::owned::CmapSubtable as OwnedCmapSubtable,
         glyf::{
             ComponentOffsets, CompositeGlyph, CompositeGlyphArgument, CompositeGlyphComponent,
             CompositeGlyphScale, EmptyGlyph, Glyph, Point, SimpleGlyph,
         },
+        kern::owned::KernTable,
         HheaTable, MaxpTable,
     },
 };
@@ -23,6 +23,9 @@ use mock::MockFont;
 #[cfg(feature = "text_layout")]
 use crate::text2::FontImpl;
 
+pub type GsubCache = Arc<LayoutCacheData<GSUB>>;
+pub type GposCache = Arc<LayoutCacheData<GPOS>>;
+
 #[derive(Clone)]
 pub struct ParsedFont {
     pub font_metrics: FontMetrics,
@@ -30,9 +33,10 @@ pub struct ParsedFont {
     pub hhea_table: HheaTable,
     pub hmtx_data: Vec<u8>,
     pub maxp_table: MaxpTable,
-    pub gsub_cache: Option<LayoutCache<GSUB>>,
-    pub gpos_cache: Option<LayoutCache<GPOS>>,
-    pub opt_gdef_table: Option<Rc<GDEFTable>>,
+    pub gsub_cache: Option<GsubCache>,
+    pub gpos_cache: Option<GposCache>,
+    pub opt_gdef_table: Option<Arc<GDEFTable>>,
+    pub opt_kern_table: Option<Arc<KernTable>>,
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
     pub cmap_subtable: Option<OwnedCmapSubtable>,
@@ -111,7 +115,7 @@ pub struct OwnedGlyph {
 }
 
 impl OwnedGlyph {
-    pub fn from_glyph_data<'a>(glyph: &Glyph<'a>, horz_advance: u16) -> Option<Self> {
+    pub fn from_glyph_data(glyph: &Glyph, horz_advance: u16) -> Option<Self> {
         let bbox = glyph.bounding_box()?;
         Some(Self {
             bounding_box: OwnedGlyphBoundingBox {
@@ -138,7 +142,7 @@ impl OwnedGlyph {
     }
 }
 
-fn translate_glyph_outline<'a>(glyph: &Glyph<'a>) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+fn translate_glyph_outline(glyph: &Glyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
     match glyph {
         Glyph::Empty(e) => translate_empty_glyph(e),
         Glyph::Simple(sg) => translate_simple_glyph(sg),
@@ -169,7 +173,7 @@ fn translate_empty_glyph(glyph: &EmptyGlyph) -> Option<Vec<Vec<GlyphOutlineOpera
     ]])
 }
 
-fn translate_simple_glyph<'a>(glyph: &SimpleGlyph<'a>) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+fn translate_simple_glyph(glyph: &SimpleGlyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
     let mut outlines = Vec::new();
 
     // Process each contour
@@ -254,9 +258,7 @@ fn translate_simple_glyph<'a>(glyph: &SimpleGlyph<'a>) -> Option<Vec<Vec<GlyphOu
     Some(outlines)
 }
 
-fn translate_composite_glyph<'a>(
-    glyph: &CompositeGlyph<'a>,
-) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+fn translate_composite_glyph(glyph: &CompositeGlyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
     // Composite glyphs will be resolved in a second pass
     // Return a placeholder based on bounding box for now
     let bbox = glyph.bounding_box;

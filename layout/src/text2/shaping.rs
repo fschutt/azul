@@ -1,6 +1,7 @@
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, rc::Rc, vec::Vec};
+use std::sync::Arc;
 
-use allsorts_subset_browser::{
+use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
     glyph_info,
@@ -13,6 +14,7 @@ use allsorts_subset_browser::{
             CompositeGlyphComponent, CompositeGlyphScale, EmptyGlyph, GlyfRecord, GlyfTable, Glyph,
             Point, SimpleGlyph,
         },
+        kern::KernTable,
         loca::{LocaOffsets, LocaTable},
         FontTableProvider, HeadTable, HheaTable, MaxpTable,
     },
@@ -79,17 +81,14 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
         Ok(o) => o,
         Err(_) => return FontMetrics::default(),
     };
-    let font = match allsorts_subset_browser::font::Font::new(provider).ok() {
+    let font = match allsorts::font::Font::new(provider).ok() {
         Some(s) => s,
         _ => return FontMetrics::default(),
     };
 
     // read the HHEA table to get the metrics for horizontal layout
     let hhea_table = &font.hhea_table;
-    let head_table = match font.head_table().ok() {
-        Some(Some(s)) => s,
-        _ => return FontMetrics::default(),
-    };
+    let head_table = font.head_table.clone();
 
     let os2_table = match font.os2_table().ok() {
         Some(Some(s)) => Os2Info {
@@ -127,7 +126,7 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
             ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
             ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
 
-            sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
+            sx_height: s.version2to4.as_ref().map(|q| q.s_x_height),
             s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
             us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
             us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
@@ -213,7 +212,7 @@ impl ParsedFont {
         font_index: usize,
         parse_glyph_outlines: bool,
     ) -> Option<Self> {
-        use allsorts_subset_browser::tag;
+        use allsorts::tag;
 
         let scope = ReadScope::new(font_bytes);
         let font_file = scope.read::<FontData<'_>>().ok()?;
@@ -235,7 +234,7 @@ impl ParsedFont {
 
         let index_to_loc = head_table
             .map(|s| s.index_to_loc_format)
-            .unwrap_or(allsorts_subset_browser::tables::IndexToLocFormat::Long);
+            .unwrap_or(allsorts::tables::IndexToLocFormat::Long);
         let num_glyphs = maxp_table.num_glyphs as usize;
 
         let loca_table = provider.table_data(tag::LOCA).ok();
@@ -243,13 +242,14 @@ impl ParsedFont {
             .as_ref()
             .and_then(|loca_data| {
                 ReadScope::new(&loca_data.as_ref()?)
-                    .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc))
+                    .read_dep::<LocaTable<'_>>((
+                        num_glyphs.min(u16::MAX as usize) as u16,
+                        index_to_loc,
+                    ))
                     .ok()
             })
             .unwrap_or(LocaTable {
-                offsets: LocaOffsets::Long(
-                    allsorts_subset_browser::binary::read::ReadArray::empty(),
-                ),
+                offsets: LocaOffsets::Long(allsorts::binary::read::ReadArray::empty()),
             });
 
         let glyf_table = provider.table_data(tag::GLYF).ok();
@@ -287,7 +287,7 @@ impl ParsedFont {
                 }
                 glyph_record.parse().ok()?;
                 let glyph_index = glyph_index as u16;
-                let horz_advance = allsorts_subset_browser::glyph_info::advance(
+                let horz_advance = allsorts::glyph_info::advance(
                     &maxp_table,
                     &hhea_table,
                     &hmtx_data,
@@ -324,13 +324,18 @@ impl ParsedFont {
             }
         }
 
-        let mut font_data_impl = allsorts_subset_browser::font::Font::new(provider).ok()?;
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
         let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
         let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
         let num_glyphs = font_data_impl.num_glyphs();
+
+        let opt_kern_table = font_data_impl
+            .kern_table()
+            .ok()
+            .and_then(|s| Some(s?.to_owned()));
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
         let cmap_subtable = cmap_subtable
@@ -347,6 +352,7 @@ impl ParsedFont {
             gsub_cache,
             gpos_cache,
             opt_gdef_table,
+            opt_kern_table,
             cmap_subtable,
             glyph_records_decoded,
             space_width: None,
@@ -364,7 +370,7 @@ impl ParsedFont {
             return mock.get_space_width();
         }
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        allsorts_subset_browser::glyph_info::advance(
+        allsorts::glyph_info::advance(
             &self.maxp_table,
             &self.hhea_table,
             &self.hmtx_data,
@@ -669,7 +675,7 @@ fn shape<'a>(
 ) -> Option<ShapedTextBufferUnsized> {
     use core::convert::TryFrom;
 
-    use allsorts_subset_browser::{
+    use allsorts::{
         gpos::apply as gpos_apply,
         gsub::{apply as gsub_apply, FeatureMask, Features},
     };
@@ -686,14 +692,12 @@ fn shape<'a>(
         .next()
         .and_then(|c| Some((c, core::char::from_u32(*c)?)))
     {
-        match allsorts_subset_browser::unicode::VariationSelector::try_from(ch_as_char) {
+        match allsorts::unicode::VariationSelector::try_from(ch_as_char) {
             Ok(_) => {} // filter out variation selectors
             Err(()) => {
                 let vs = chars_iter.peek().and_then(|&next| {
-                    allsorts_subset_browser::unicode::VariationSelector::try_from(
-                        core::char::from_u32(*next)?,
-                    )
-                    .ok()
+                    allsorts::unicode::VariationSelector::try_from(core::char::from_u32(*next)?)
+                        .ok()
                 });
 
                 let glyph_index = font.lookup_glyph_index(*ch).unwrap_or(0);
@@ -710,7 +714,7 @@ fn shape<'a>(
         gsub_apply(
             dotted_circle_index,
             gsub,
-            font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
+            font.opt_gdef_table.as_ref().map(|f| Arc::as_ref(f)),
             script,
             lang,
             &Features::Mask(FeatureMask::all()),
@@ -724,15 +728,18 @@ fn shape<'a>(
     // Apply glyph positioning if table is present
 
     let kerning = true;
-    let mut infos = allsorts_subset_browser::gpos::Info::init_from_glyphs(
-        font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
+    let mut infos = allsorts::gpos::Info::init_from_glyphs(
+        font.opt_gdef_table.as_ref().map(|f| Arc::as_ref(f)),
         glyphs,
     );
 
     if let Some(gpos) = &font.gpos_cache {
         gpos_apply(
             gpos,
-            font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
+            font.opt_gdef_table.as_ref().map(|f| Arc::as_ref(f)),
+            font.opt_kern_table
+                .as_ref()
+                .map(|f| KernTable::from_owned(Arc::as_ref(f))),
             kerning,
             &Features::Mask(FeatureMask::all()),
             None, // TODO: variable fonts?
@@ -765,7 +772,7 @@ fn shape<'a>(
 }
 
 #[inline]
-fn translate_info(i: &allsorts_subset_browser::gpos::Info, size: Advance) -> GlyphInfo {
+fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> GlyphInfo {
     GlyphInfo {
         glyph: translate_raw_glyph(&i.glyph),
         size,
@@ -777,13 +784,13 @@ fn translate_info(i: &allsorts_subset_browser::gpos::Info, size: Advance) -> Gly
 fn make_raw_glyph(
     ch: char,
     glyph_index: u16,
-    variation: Option<allsorts_subset_browser::unicode::VariationSelector>,
-) -> allsorts_subset_browser::gsub::RawGlyph<()> {
-    allsorts_subset_browser::gsub::RawGlyph {
+    variation: Option<allsorts::unicode::VariationSelector>,
+) -> allsorts::gsub::RawGlyph<()> {
+    allsorts::gsub::RawGlyph {
         unicodes: tiny_vec![[char; 1] => ch],
         glyph_index,
         liga_component_pos: 0,
-        glyph_origin: allsorts_subset_browser::gsub::GlyphOrigin::Char(ch),
+        glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
         flags: RawGlyphFlags::empty(),
         extra_data: (),
         variation,
@@ -791,7 +798,7 @@ fn make_raw_glyph(
 }
 
 #[inline]
-fn translate_raw_glyph(rg: &allsorts_subset_browser::gsub::RawGlyph<()>) -> RawGlyph {
+fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
     RawGlyph {
         unicode_codepoint: rg.unicodes.get(0).map(|s| (*s) as u32).into(),
         glyph_index: rg.glyph_index,
@@ -811,8 +818,8 @@ fn translate_raw_glyph(rg: &allsorts_subset_browser::gsub::RawGlyph<()>) -> RawG
 }
 
 #[inline]
-const fn translate_glyph_origin(g: &allsorts_subset_browser::gsub::GlyphOrigin) -> GlyphOrigin {
-    use allsorts_subset_browser::gsub::GlyphOrigin::*;
+const fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin {
+    use allsorts::gsub::GlyphOrigin::*;
     match g {
         Char(c) => GlyphOrigin::Char(*c),
         Direct => GlyphOrigin::Direct,
@@ -820,8 +827,8 @@ const fn translate_glyph_origin(g: &allsorts_subset_browser::gsub::GlyphOrigin) 
 }
 
 #[inline]
-const fn translate_placement(p: &allsorts_subset_browser::gpos::Placement) -> Placement {
-    use allsorts_subset_browser::gpos::Placement::*;
+const fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
+    use allsorts::gpos::Placement::*;
     use azul_core::app_resources::{
         CursiveAnchorPlacement, MarkAnchorPlacement, PlacementDistance,
     };
@@ -845,9 +852,9 @@ const fn translate_placement(p: &allsorts_subset_browser::gpos::Placement) -> Pl
 }
 
 const fn translate_variation_selector(
-    v: &allsorts_subset_browser::unicode::VariationSelector,
+    v: &allsorts::unicode::VariationSelector,
 ) -> VariationSelector {
-    use allsorts_subset_browser::unicode::VariationSelector::*;
+    use allsorts::unicode::VariationSelector::*;
     match v {
         VS01 => VariationSelector::VS01,
         VS02 => VariationSelector::VS02,
@@ -858,7 +865,7 @@ const fn translate_variation_selector(
 }
 
 #[inline]
-const fn translate_anchor(anchor: &allsorts_subset_browser::layout::Anchor) -> Anchor {
+const fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor {
     Anchor {
         x: anchor.x,
         y: anchor.y,

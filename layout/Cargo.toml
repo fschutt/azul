@@ -42,14 +42,14 @@ thiserror = { version = "2.0.16", default-features = false }
 hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
 unicode-segmentation    = { version = "1.12.0", default-features = false, optional = true }
 unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
-allsorts-subset-browser = { version = "0.16.0",  default-features = false, features = ["flate2_rust"], optional = true  }
+allsorts = { git = "https://github.com/fschutt/allsorts", rev = "1ddc1c1",  default-features = false, features = ["flate2_rust"], optional = true  }
 lru = { version = "0.16.1", default-features = false }
 
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender"]
 std = []
-cpurender = ["tiny-skia", "allsorts-subset-browser"]
-text_layout = ["unicode-normalization", "allsorts-subset-browser", "tinyvec", "unicode-segmentation", "unicode-bidi", "hyphenation"]
+cpurender = ["tiny-skia", "allsorts"]
+text_layout = ["unicode-normalization", "allsorts", "tinyvec", "unicode-segmentation", "unicode-bidi", "hyphenation"]
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
 png = ["image/png"]
