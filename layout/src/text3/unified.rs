@@ -10,7 +10,7 @@ use lru::LruCache;
 use rust_fontconfig::{
     FcFontCache, FcPattern, FcWeight, FontId, FontMatch, PatternMatch, UnicodeRange,
 };
-use unicode_bidi::BidiInfo;
+use unicode_bidi::{get_base_direction, BidiInfo};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text3::script::Script;
@@ -621,7 +621,6 @@ pub struct AnalyzedContent<'a> {
     pub non_text_items: Vec<(usize, InlineContent)>,
     pub full_text: String,
     pub grapheme_boundaries: BTreeSet<usize>,
-    pub base_direction: Direction,
 }
 
 #[derive(Debug)]
@@ -886,13 +885,13 @@ fn concatenate_runs_text(runs: &[StyledRun]) -> String {
 /// - `Direction::RTL` if the text is predominantly right-to-left
 /// - `Direction::Neutral` if there are no strong directional characters or if counts are equal with
 ///   no strong first character
-fn detect_base_direction(text: &str) -> Direction {
+fn detect_base_direction<'a>(text: &'a str) -> (Direction, BidiInfo<'a>) {
     let bidi_info = BidiInfo::new(text, None);
     let para = &bidi_info.paragraphs[0];
     if para.level.is_rtl() {
-        Direction::Rtl
+        (Direction::Rtl, bidi_info)
     } else {
-        Direction::Ltr
+        (Direction::Ltr, bidi_info)
     }
 }
 
@@ -1309,7 +1308,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait> FontManager<T, Q> {
         })
     }
 
-    pub fn load_font_by_id(&mut self, font_id: &FontId) -> Result<Arc<T>, LayoutError> {
+    pub fn load_font_by_id(&self, font_id: &FontId) -> Result<Arc<T>, LayoutError> {
         let mut cache = self.parsed_fonts.lock().unwrap();
 
         if let Some(font) = cache.get(font_id) {
@@ -1507,7 +1506,7 @@ fn find_line_break_with_graphemes<T: ParsedFontTrait>(
     items: &[ShapedItem<T>],
     line_constraints: &LineConstraints,
     constraints: &UnifiedConstraints,
-    font_manager: &mut FontManager<T, impl FontLoaderTrait>,
+    font_manager: &FontManager<T, impl FontLoaderTrait>,
 ) -> Result<(usize, Vec<ShapedItem<T>>), LayoutError> {
     if line_constraints.segments.is_empty() {
         return Ok((0, Vec::new()));
@@ -1806,94 +1805,9 @@ impl UnifiedLayoutEngine {
     pub fn layout<T: ParsedFontTrait, Q: FontLoaderTrait>(
         content: Vec<InlineContent>,
         constraints: UnifiedConstraints,
-        font_manager: &mut FontManager<T, Q>,
-        cache: &mut LayoutCache<T>,
+        font_manager: &FontManager<T, Q>,
+        cache: &LayoutCache<T>,
     ) -> Result<Arc<UnifiedLayout<T>>, LayoutError> {
-        // layout(content, constraints, font_manager, cache)
-        // ├── 1. Cache Check
-        // │   └── CacheKey::new() + LayoutCache::get()
-        // │
-        // ├── 2. Content Analysis
-        // │   └── analyze_content(content, constraints)
-        // │       ├── Separate text runs from inline objects
-        // │       ├── Build full_text string
-        // │       └── detect_base_direction(full_text)
-        // │
-        // ├── 3. Bidirectional Analysis
-        // │   └── apply_bidi_analysis(analyzed_content, constraints)
-        // │       └── perform_bidi_analysis(text_runs, full_text, language)
-        // │           ├── BidiInfo::new() [unicode_bidi crate]
-        // │           ├── Create byte_to_run_index mapping
-        // │           ├── Process visual_runs from bidi_info
-        // │           └── Split runs by style boundaries
-        // │
-        // ├── 4. Content Shaping
-        // │   └── shape_content(bidi_analyzed, font_manager, constraints)
-        // │       ├── For each VisualRun:
-        // │       │   └── shape_run_with_smart_fallback()
-        // │       │       ├── Query fontconfig for font matches
-        // │       │       ├── segment_text_by_font_coverage()
-        // │       │       │   ├── find_font_for_codepoint() for each char
-        // │       │       │   └── Group consecutive chars by font
-        // │       │       ├── For each segment:
-        // │       │       │   ├── FontManager::load_font_by_id()
-        // │       │       │   ├── ParsedFontTrait::shape_text()
-        // │       │       │   └── enhance_glyph() -> Glyph
-        // │       │       └── Return Vec<Glyph>
-        // │       │
-        // │       └── For each InlineContent:
-        // │           └── measure_inline_item() -> ShapedItem
-        // │
-        // ├── 5. Text Orientation
-        // │   └── apply_text_orientation(shaped_items, constraints)
-        // │       ├── Skip if horizontal text
-        // │       └── For vertical text:
-        // │           ├── determine_glyph_orientation()
-        // │           └── Apply vertical metrics from font or synthesize
-        // │
-        // ├── 6. Line Breaking
-        // │   └── break_lines(oriented_content, constraints, font_manager)
-        // │       ├── Initialize line position and cursor
-        // │       └── For each line position:
-        // │           ├── get_line_constraints(position, constraints)
-        // │           │   ├── get_boundary_segments() for each boundary
-        // │           │   │   ├── Rectangle intersection
-        // │           │   │   ├── Circle intersection
-        // │           │   │   └── polygon_line_intersection()
-        // │           │   ├── subtract_exclusion() for each exclusion
-        // │           │   └── merge_segments()
-        // │           │
-        // │           └── find_line_break_with_graphemes()
-        // │               ├── get_grapheme_boundaries() [PERFORMANCE ISSUE]
-        // │               ├── Accumulate items until width exceeded
-        // │               └── Try hyphenation if needed
-        // │
-        // ├── 7. Content Positioning
-        // │   └── position_content_with_bidi_reordering(lines, constraints, base_direction)
-        // │       ├── For each UnifiedLine:
-        // │       │   ├── reorder_line_bidi() [CORRECTNESS RISK]
-        // │       │   │   ├── Group items by BidiLevel
-        // │       │   │   └── reorder_bidi_runs() - custom UBA implementation
-        // │       │   │
-        // │       │   ├── justify_line_items() [IF JUSTIFICATION ENABLED]
-        // │       │   │   ├── Calculate extra space needed
-        // │       │   │   └── Distribute based on JustifyContent mode
-        // │       │   │
-        // │       │   ├── resolve_logical_align() (start/end -> left/right)
-        // │       │   ├── calculate_alignment_offset()
-        // │       │   └── Position each item with advance calculation
-        // │       │
-        // │       └── calculate_bounds() for entire layout
-        // │
-        // ├── 8. Overflow Handling
-        // │   └── handle_overflow(positioned_layout, constraints)
-        // │       ├── OverflowBehavior::Hidden -> clip items
-        // │       ├── OverflowBehavior::Scroll -> calculate_overflow()
-        // │       └── Other modes (stub implementations)
-        // │
-        // └── 9. Cache Storage
-        //     └── LayoutCache::put(cache_key, result)
-
         // Check cache first
         let cache_key = CacheKey::new(&content, &constraints);
 
@@ -1904,10 +1818,11 @@ impl UnifiedLayoutEngine {
         // Stage 1: Content analysis and preparation
         let analyzed_content = Self::analyze_content(&content, &constraints)?;
 
-        // Stage 2: Bidi analysis if text content exists
-        let bidi_analyzed = Self::apply_bidi_analysis(&analyzed_content, &constraints)?;
+        let (base_direction, bidi_info) = detect_base_direction(&analyzed_content.full_text);
 
-        let base_direction = bidi_analyzed.base_direction;
+        // Stage 2: Bidi analysis if text content exists
+        let bidi_analyzed =
+            Self::apply_bidi_analysis(&analyzed_content, &constraints, base_direction)?;
 
         // Stage 3: Shape all content with font fallback
         let shaped_content = Self::shape_content(bidi_analyzed, font_manager, &constraints)?;
@@ -1919,8 +1834,8 @@ impl UnifiedLayoutEngine {
         let lines = Self::break_lines(oriented_content, &constraints, font_manager)?;
 
         // Stage 6: Position content with justification
-        let positioned =
-            Self::position_content_with_bidi_reordering(lines, &constraints, base_direction)?;
+        let positioned = Self::position_content(lines, &constraints, base_direction, &bidi_info)?;
+
         // Stage 7: Apply overflow handling
         let final_layout = Self::handle_overflow(positioned, &constraints)?;
 
@@ -1959,7 +1874,7 @@ impl UnifiedLayoutEngine {
             }
         }
 
-        let base_direction = detect_base_direction(&full_text);
+        let (base_direction, bidi_info) = detect_base_direction(&full_text);
         let grapheme_boundaries = compute_grapheme_boundaries(&full_text);
 
         Ok(AnalyzedContent {
@@ -1967,19 +1882,19 @@ impl UnifiedLayoutEngine {
             non_text_items,
             full_text,
             grapheme_boundaries,
-            base_direction,
         })
     }
 
     fn apply_bidi_analysis<'a, 'b: 'a>(
         content: &'b AnalyzedContent<'a>,
         constraints: &UnifiedConstraints,
+        base_direction: Direction,
     ) -> Result<BidiAnalyzedContent<'a, 'b>, LayoutError> {
         if content.full_text.is_empty() {
             return Ok(BidiAnalyzedContent {
                 visual_runs: Vec::new(),
                 non_text_items: &content.non_text_items,
-                base_direction: content.base_direction,
+                base_direction,
             });
         }
 
@@ -1998,7 +1913,7 @@ impl UnifiedLayoutEngine {
 
     fn shape_content<T: ParsedFontTrait, Q: FontLoaderTrait>(
         content: BidiAnalyzedContent,
-        font_manager: &mut FontManager<T, Q>,
+        font_manager: &FontManager<T, Q>,
         constraints: &UnifiedConstraints,
     ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
         let mut shaped_items = Vec::new();
@@ -2108,7 +2023,7 @@ impl UnifiedLayoutEngine {
     fn break_lines<T: ParsedFontTrait, Q: FontLoaderTrait>(
         items: Vec<ShapedItem<T>>,
         constraints: &UnifiedConstraints,
-        font_manager: &mut FontManager<T, Q>,
+        font_manager: &FontManager<T, Q>,
     ) -> Result<Vec<UnifiedLine<T>>, LayoutError> {
         let mut lines = Vec::new();
         let mut current_position = 0.0;
@@ -2194,23 +2109,97 @@ impl UnifiedLayoutEngine {
     }
 
     // Enhanced bidi line reordering
-    fn position_content_with_bidi_reordering<T: ParsedFontTrait>(
+    // In `impl UnifiedLayoutEngine`
+
+    /// Positions content on each line, performing justification, alignment, and
+    /// Unicode Bidirectional Algorithm (UBA) reordering for the line.
+    ///
+    /// This function replaces the custom Bidi reordering logic with a robust
+    /// implementation that delegates to the `unicode_bidi` crate.
+    fn position_content<T: ParsedFontTrait>(
         lines: Vec<UnifiedLine<T>>,
         constraints: &UnifiedConstraints,
         base_direction: Direction,
+        bidi_info: &BidiInfo, // Takes the pre-computed BidiInfo
     ) -> Result<UnifiedLayout<T>, LayoutError> {
         let mut positioned_items = Vec::new();
         let total_lines = lines.len();
 
+        // For simplicity, we assume the text content is a single paragraph.
+        // A multi-paragraph implementation would need to find the correct paragraph
+        // for each line's byte range.
+        let para_info = if bidi_info.paragraphs.is_empty() {
+            None
+        } else {
+            Some(&bidi_info.paragraphs[0])
+        };
+
         for (line_idx, mut line) in lines.into_iter().enumerate() {
-            // Mark if this is the last line for justification purposes
+            if line.items.is_empty() {
+                continue;
+            }
             line.is_last = line_idx == total_lines.saturating_sub(1);
 
-            // Group items by bidi level for proper reordering
-            let reordered_items = Self::reorder_line_bidi(&line.items, base_direction)?;
+            let should_justify = constraints.should_justify(&line);
 
-            // Apply justification after reordering
-            let justified_items = if constraints.should_justify(&line) {
+            // --- START: BIDI REORDERING LOGIC ---
+
+            let reordered_items = if let Some(para) = para_info {
+                // 1. Find the logical byte range of the glyphs on this line.
+                let line_start_byte = line.items.iter().find_map(|item| match item {
+                    ShapedItem::Glyph(g) => Some(g.logical_byte_index),
+                    _ => None,
+                });
+
+                if let Some(start_byte) = line_start_byte {
+                    let end_byte = line
+                        .items
+                        .iter()
+                        .rev()
+                        .find_map(|item| match item {
+                            ShapedItem::Glyph(g) => Some(g.logical_byte_index + g.logical_byte_len),
+                            _ => None,
+                        })
+                        .unwrap_or(start_byte);
+
+                    let line_byte_range = start_byte..end_byte;
+
+                    // 2. Get the visually ordered segments (runs) from the unicode_bidi crate.
+                    let (_, visual_runs) = bidi_info.visual_runs(para, line_byte_range);
+
+                    // 3. Build the reordered list of items by mapping our logical items to the
+                    //    visual runs.
+                    let mut reordered: Vec<ShapedItem<T>> = Vec::with_capacity(line.items.len());
+                    for run_range in visual_runs {
+                        for item in &line.items {
+                            // NOTE: This implementation correctly reorders text glyphs.
+                            // A complete implementation for non-text items (images, shapes)
+                            // would require them to be assigned a logical byte position during
+                            // the initial content analysis phase, treating them like an
+                            // object replacement character (U+FFFC).
+                            if let ShapedItem::Glyph(g) = item {
+                                if g.logical_byte_index >= run_range.start
+                                    && g.logical_byte_index < run_range.end
+                                {
+                                    reordered.push(item.clone());
+                                }
+                            }
+                        }
+                    }
+                    reordered
+                } else {
+                    // Line contains no text, so no reordering is necessary.
+                    line.items
+                }
+            } else {
+                // No paragraph info, likely because text is empty.
+                line.items
+            };
+
+            // --- END: BIDI REORDERING LOGIC ---
+
+            // The rest of the pipeline continues as before, but with a correctly ordered item list.
+            let justified_items = if should_justify {
                 justify_line_items(
                     reordered_items,
                     &line.constraints,
@@ -2266,84 +2255,6 @@ impl UnifiedLayoutEngine {
             bounds,
             overflow: OverflowInfo::default(),
         })
-    }
-
-    fn reorder_line_bidi<T: ParsedFontTrait>(
-        items: &[ShapedItem<T>],
-        base_direction: Direction,
-    ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
-        if items.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Group consecutive items by bidi level
-        let mut runs = Vec::new();
-        let mut current_run = Vec::new();
-        let mut current_level = None;
-
-        for item in items {
-            let item_level = Self::get_item_bidi_level(item);
-
-            if current_level != Some(item_level) {
-                if !current_run.is_empty() {
-                    runs.push((current_level.unwrap(), current_run));
-                    current_run = Vec::new();
-                }
-                current_level = Some(item_level);
-            }
-            current_run.push(item.clone());
-        }
-
-        if !current_run.is_empty() {
-            runs.push((current_level.unwrap(), current_run));
-        }
-
-        // Reorder runs according to bidi algorithm
-        Self::reorder_bidi_runs(&mut runs, base_direction);
-
-        // Flatten reordered runs
-        Ok(runs.into_iter().flat_map(|(_, items)| items).collect())
-    }
-
-    fn get_item_bidi_level<T: ParsedFontTrait>(item: &ShapedItem<T>) -> BidiLevel {
-        match item {
-            ShapedItem::Glyph(g) => g.bidi_level.clone(),
-            _ => BidiLevel::new(0), // Non-text items are neutral
-        }
-    }
-
-    fn reorder_bidi_runs<T: ParsedFontTrait>(
-        runs: &mut Vec<(BidiLevel, Vec<ShapedItem<T>>)>,
-        base_direction: Direction,
-    ) {
-        if runs.is_empty() {
-            return;
-        }
-
-        // Find max level
-        let max_level = runs
-            .iter()
-            .map(|(level, _)| level.level())
-            .max()
-            .unwrap_or(0);
-
-        // Reverse runs at each level from max to 1
-        for level in (1..=max_level).rev() {
-            let mut i = 0;
-            while i < runs.len() {
-                // Find sequence of runs at or above current level
-                if runs[i].0.level() >= level {
-                    let start = i;
-                    while i < runs.len() && runs[i].0.level() >= level {
-                        i += 1;
-                    }
-                    // Reverse the sequence
-                    runs[start..i].reverse();
-                } else {
-                    i += 1;
-                }
-            }
-        }
     }
 
     fn handle_overflow<T: ParsedFontTrait>(
@@ -2598,7 +2509,7 @@ impl UnifiedLayoutEngine {
     fn try_hyphenate<T: ParsedFontTrait, Q: FontLoaderTrait>(
         item: &ShapedItem<T>,
         available_width: f32,
-        font_manager: &mut FontManager<T, Q>,
+        font_manager: &FontManager<T, Q>,
     ) -> Option<ShapedItem<T>> {
         // TODO: Simplified hyphenation - would use hyphenation library
         None
