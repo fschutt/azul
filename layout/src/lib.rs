@@ -19,10 +19,10 @@ pub mod parsedfont;
 pub mod solver2;
 #[cfg(feature = "text_layout")]
 pub mod text2;
+#[cfg(feature = "text_layout")]
+pub mod text3;
 #[cfg(feature = "xml")]
 pub mod xml;
-
-pub mod text3;
 
 // #[cfg(feature = "text_layout")]
 // pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};

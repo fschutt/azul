@@ -196,7 +196,8 @@ impl ParsedFontTrait for ParsedFont {
     }
 
     /// Returns vertical metrics for a glyph.
-    /// NOTE: The provided `ParsedFont` implementation does not parse vertical layout
+    ///
+    /// TODO: The provided `ParsedFont` implementation does not parse vertical layout
     /// tables (`vhea`, `vmtx`), so this method will always return `None`.
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics> {
         // To implement this, one would need to parse the `vhea` and `vmtx` tables
