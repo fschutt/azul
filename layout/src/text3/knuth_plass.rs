@@ -4,14 +4,10 @@ use std::sync::Arc;
 
 use hyphenation::{Hyphenator, Standard};
 
-use crate::text3::{
-    cache::{
-        get_base_direction_from_logical, get_item_measure, is_word_separator, GlyphKind,
-        LogicalItem, OverflowInfo, PositionedItem, ShapedCluster, ShapedGlyph, ShapedItem,
-        UnifiedLayout,
-    },
-    justify_line_items, resolve_logical_align, JustifyContent, LayoutError, ParsedFontTrait, Point,
-    Rect, TextAlign, UnifiedConstraints,
+use crate::text3::cache::{
+    get_base_direction_from_logical, get_item_measure, is_word_separator, Direction, GlyphKind,
+    JustifyContent, LayoutError, LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
+    Rect, ShapedCluster, ShapedGlyph, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -140,7 +136,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                                 get_item_measure(item_part, is_vertical),
                             ));
                         }
-                        
+
                         // Add the hyphen itself as a penalty node.
                         let hyphen_measure = get_item_measure(&b.hyphen_item, is_vertical);
                         nodes.push(LayoutNode::Penalty {
@@ -151,14 +147,17 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 
                         last_break_items = b.line_part.len();
                     }
-                    
+
                     // Add the final remainder of the word.
                     // The `remainder_part` of the last break is the final syllable.
                     if let Some(last_break) = breaks.last() {
-                         nodes.push(LayoutNode::Box(
-                            last_break.remainder_part.clone(),
-                            get_item_measure(&last_break.remainder_part, is_vertical),
-                        ));
+                        // Add each item as a separate LayoutNode::Box.
+                        for remainder_item in &last_break.remainder_part {
+                            nodes.push(LayoutNode::Box(
+                                remainder_item.clone(),
+                                get_item_measure(remainder_item, is_vertical),
+                            ));
+                        }
                     } else {
                         // This case happens if find_all_hyphenation_breaks returned an empty vec.
                         // It's a fallback to just add the original word.
@@ -448,4 +447,14 @@ fn split_cluster_for_hyphenation<T: ParsedFontTrait>(
     };
 
     Some((first_part, second_part))
+}
+
+fn resolve_logical_align(align: TextAlign, direction: Direction) -> TextAlign {
+    match (align, direction) {
+        (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
+        (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
+        (TextAlign::End, Direction::Ltr) => TextAlign::Right,
+        (TextAlign::End, Direction::Rtl) => TextAlign::Left,
+        (other, _) => other,
+    }
 }

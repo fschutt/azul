@@ -9,15 +9,17 @@ use rust_fontconfig::FcFontCache;
 
 // Imports from the layout engine's module
 use crate::text3::{
-    script::estimate_script_and_language, BidiLevel, Color, Direction, FontLoaderTrait,
-    FontManager, FontMetrics, FontRef, Glyph, GlyphSource, LayoutError, ParsedFontTrait, Point,
-    Script, StyleProperties, TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics,
-    WritingMode,
+    cache::{
+        BidiLevel, Color, Direction, FontLoaderTrait, FontManager, FontMetrics, FontRef, Glyph,
+        GlyphOrientation, GlyphSource, LayoutError, ParsedFontTrait, Point, StyleProperties,
+        TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
+    },
+    script::{estimate_script_and_language, Script},
 };
 // Imports for the provided ParsedFont implementation
 use crate::{
     parsedfont::ParsedFont,
-    text3::{FontVariantCaps, FontVariantLigatures, FontVariantNumeric},
+    text3::cache::{FontVariantCaps, FontVariantLigatures, FontVariantNumeric},
 };
 
 /// A FontLoader that parses font data from a byte slice.
@@ -147,7 +149,7 @@ impl ParsedFontTrait for ParsedFont {
 
         // 3b. Apply GSUB substitutions with a default feature set for the script.
         if let Some(gsub) = self.gsub_cache.as_ref() {
-            let features = Features::Mask(FeatureMask::default());
+            let features = Features::Custom(user_features.clone());
             let dotted_circle_index = self
                 .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
                 .unwrap_or(0);
@@ -240,7 +242,7 @@ impl ParsedFontTrait for ParsedFont {
                 vertical_advance: 0.0,
                 vertical_origin_y: 0.0,
                 vertical_bearing: Point { x: 0.0, y: 0.0 },
-                orientation: crate::text3::GlyphOrientation::Horizontal,
+                orientation: GlyphOrientation::Horizontal,
                 script,
                 bidi_level: BidiLevel::new(if direction.is_rtl() { 1 } else { 0 }),
             };
