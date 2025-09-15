@@ -459,6 +459,25 @@ pub struct UnifiedLine<T: ParsedFontTrait> {
 
 pub type CacheId = u64;
 
+/// Defines a single area for layout, with its own shape and properties.
+#[derive(Debug, Clone)]
+pub struct LayoutFragment {
+    /// A unique identifier for this fragment (e.g., "main-content", "sidebar").
+    pub id: String,
+    /// The geometric and style constraints for this specific fragment.
+    pub constraints: UnifiedConstraints,
+}
+
+/// Represents the final layout distributed across multiple fragments.
+#[derive(Debug, Clone)]
+pub struct FlowLayout<T: ParsedFontTrait> {
+    /// A map from a fragment's unique ID to the layout it contains.
+    pub fragment_layouts: HashMap<String, Arc<UnifiedLayout<T>>>,
+    /// Any items that did not fit into the last fragment in the flow chain.
+    /// This is useful for pagination or determining if more layout space is needed.
+    pub remaining_items: Vec<ShapedItem<T>>,
+}
+
 pub struct LayoutCache<T: ParsedFontTrait> {
     // Stage 1 Cache: InlineContent -> LogicalItems
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
@@ -550,15 +569,36 @@ fn calculate_id<T: Hash>(item: &T) -> CacheId {
 // --- Main Layout Pipeline Implementation ---
 
 impl<T: ParsedFontTrait> LayoutCache<T> {
-    /// Main entry point for all text layout, now with all stages integrated.
-    pub fn layout<Q: FontLoaderTrait<T>>(
+
+    /// New top-level entry point for flowing layout across multiple regions.
+    ///
+    /// This function orchestrates the entire layout pipeline, but instead of fitting
+    /// content into a single set of constraints, it flows the content through an
+    /// ordered sequence of `LayoutFragment`s.
+    ///
+    /// # Arguments
+    /// * `content` - The raw `InlineContent` to be laid out.
+    /// * `style_overrides` - Character-level style changes.
+    /// * `flow_chain` - An ordered slice of `LayoutFragment` defining the regions
+    ///   (e.g., columns, pages) that the content should flow through.
+    /// * `font_manager` - The font provider.
+    ///
+    /// # Returns
+    /// A `FlowLayout` struct containing the positioned items for each fragment that
+    /// was filled, and any content that did not fit in the final fragment.
+    pub fn layout_flow<Q: FontLoaderTrait<T>>(
         &mut self,
         content: &[InlineContent],
         style_overrides: &[StyleOverride],
-        constraints: UnifiedConstraints,
+        flow_chain: &[LayoutFragment],
         font_manager: &FontManager<T, Q>,
-    ) -> Result<Arc<UnifiedLayout<T>>, LayoutError> {
-        // --- Stage 1: Logical Analysis ---
+    ) -> Result<FlowLayout<T>, LayoutError> {
+        
+        // --- Stages 1-3: Preparation ---
+        // These stages are independent of the final geometry. We perform them once
+        // on the entire content block before flowing. Caching is used at each stage.
+
+        // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
         let logical_items_id = calculate_id(&content);
         let logical_items = self
             .logical_items
@@ -566,7 +606,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
             .or_insert_with(|| Arc::new(create_logical_items(content, style_overrides)))
             .clone();
 
-        // --- Stage 2: Bidi Reordering ---
+        // Stage 2: Bidi Reordering (LogicalItem -> VisualItem)
         let base_direction = get_base_direction_from_logical(&logical_items);
         let visual_key = VisualItemsKey {
             logical_items_id,
@@ -581,10 +621,9 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
             })
             .clone();
 
-        // --- Stage 3: Shaping ---
+        // Stage 3: Shaping (VisualItem -> ShapedItem)
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
-
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
             Some(cached) => cached.clone(),
             None => {
@@ -595,26 +634,39 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         };
 
         // --- Stage 4: Apply Vertical Text Transformations ---
-        let oriented_items = apply_text_orientation(shaped_items, &constraints)?;
+        
+        // TODO: This orients all text based on the constraints of the *first* fragment.
+        // A more advanced system could defer orientation until inside the loop if
+        // fragments can have different writing modes.
+        let default_constraints = UnifiedConstraints::default();
+        let first_constraints = flow_chain.first().map(|f| &f.constraints).unwrap_or(&default_constraints);
+        let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
+        
+        // --- Stage 5: The Flow Loop ---
 
-        // --- Stage 5 & 6: Line Breaking and Positioning ---
-        let layout_key = LayoutKey {
-            shaped_items_id,
-            constraints: constraints.clone(),
-        };
-        // Re-use logical_items_id in the key to ensure we don't mix layouts from different content.
-        let layout_id = calculate_id(&(logical_items_id, &layout_key));
+        let mut fragment_layouts = HashMap::new();
+        // The cursor now manages the stream of items for the entire flow.
+        let mut cursor = BreakCursor::new(&oriented_items);
 
-        if let Some(cached) = self.layouts.get(&layout_id) {
-            return Ok(cached.clone());
+        for fragment in flow_chain {
+            if cursor.is_done() {
+                break; // All content has been laid out.
+            }
+
+            // Perform layout for this single fragment, consuming items from the cursor.
+            let fragment_layout = perform_fragment_layout(
+                &mut cursor,
+                &logical_items,
+                &fragment.constraints,
+            )?;
+            
+            fragment_layouts.insert(fragment.id.clone(), Arc::new(fragment_layout));
         }
 
-        // Perform the full layout pass including complex shape-aware line breaking and positioning.
-        let final_layout = perform_full_layout(&oriented_items, &logical_items, &constraints)?;
-
-        let layout = Arc::new(final_layout);
-        self.layouts.insert(layout_id, layout.clone());
-        Ok(layout)
+        Ok(FlowLayout {
+            fragment_layouts,
+            remaining_items: cursor.drain_remaining(),
+        })
     }
 }
 
@@ -1362,12 +1414,20 @@ fn calculate_line_metrics<T: ParsedFontTrait>(items: &[ShapedItem<T>]) -> (f32, 
         })
 }
 
-/// Performs a full layout pass, handling line breaking with complex shapes and positioning.
-fn perform_full_layout<T: ParsedFontTrait>(
-    items: &[ShapedItem<T>],
+/// Performs layout for a single fragment, consuming items from a `BreakCursor`.
+///
+/// This function contains the core line-breaking and positioning logic, but is
+/// designed to operate on a portion of a larger content stream and within the
+/// constraints of a single geometric area (a fragment).
+///
+/// The loop terminates when either the fragment is filled (e.g., runs out of
+/// vertical space) or the content stream managed by the `cursor` is exhausted.
+fn perform_fragment_layout<T: ParsedFontTrait>(
+    cursor: &mut BreakCursor<T>, // Takes a mutable cursor to consume items
     logical_items: &[LogicalItem],
     constraints: &UnifiedConstraints,
 ) -> Result<UnifiedLayout<T>, LayoutError> {
+    
     let hyphenator = if constraints.hyphenation {
         constraints
             .hyphenation_language
@@ -1376,32 +1436,27 @@ fn perform_full_layout<T: ParsedFontTrait>(
         None
     };
 
-    if constraints.shape_boundaries.is_empty() && constraints.shape_exclusions.is_empty() {
-        return crate::text3::knuth_plass::kp_layout(
-            items,
-            logical_items,
-            constraints,
-            hyphenator.as_ref(),
-        );
-    }
+    // NOTE: Knuth-Plass is not used here as it's designed for simple rectangular
+    // layout and would require significant adaptation to consume from a cursor
+    // and handle complex shapes. The complex line breaker is used by default.
 
     let mut positioned_items = Vec::new();
     let mut layout_bounds = Rect::default();
-    let mut cursor = BreakCursor::new(items);
-
+    
     // STUB: Handle Initial Letter / Drop Cap.
-    // This logic runs once before the main layout loop.
-    if let Some(initial_letter_config) = &constraints.initial_letter {
-        // TODO:
-        // 1. Identify the first `initial_letter_config.count` items from the cursor.
-        // 2. Shape them with a larger font size.
-        // 3. Get their total bounding box.
-        // 4. Add this bounding box to a *temporary* copy of `constraints.shape_exclusions`. This
-        //    exclusion should only apply for `initial_letter_config.sink` lines.
-        // 5. Advance the `cursor` past the consumed items.
-        // The rest of the layout loop will then naturally flow around the drop cap.
+    // This logic should only run if this fragment is at the very beginning of the content stream.
+    if cursor.is_at_start() {
+        if let Some(_initial_letter_config) = &constraints.initial_letter {
+            // TODO:
+            // 1. Identify the first `initial_letter_config.count` items from the cursor.
+            // 2. Shape them with a larger font size.
+            // 3. Get their total bounding box.
+            // 4. Create a temporary copy of constraints with this box added to `shape_exclusions`.
+            // 5. Advance the `cursor` past the consumed items.
+            // The rest of the layout loop will then naturally flow around the drop cap.
+        }
     }
-
+    
     // --- Column layout state ---
     let num_columns = constraints.columns.max(1);
     let total_column_gap = constraints.column_gap * (num_columns - 1) as f32;
@@ -1419,19 +1474,19 @@ fn perform_full_layout<T: ParsedFontTrait>(
         let mut line_index = 0;
         let mut cross_axis_pen = 0.0;
 
+        // Loop until the fragment is full OR the content stream is empty.
         while !cursor.is_done() {
-            // TODO: Handle line-clamp
+            
             if let Some(clamp) = constraints.line_clamp {
                 if line_index >= clamp.get() {
-                    // TODO: Truncate remaining items and append an ellipsis.
                     break 'column_loop;
                 }
             }
 
+            // Check if fragment is full and break the entire fragment layout if so.
             if let Some(max_height) = constraints.available_height {
-                if cross_axis_pen >= max_height && constraints.overflow != OverflowBehavior::Visible
-                {
-                    break; // This column is full, move to the next.
+                if cross_axis_pen >= max_height && constraints.overflow != OverflowBehavior::Visible {
+                    break 'column_loop;
                 }
             }
 
@@ -1453,24 +1508,25 @@ fn perform_full_layout<T: ParsedFontTrait>(
             }
 
             let (line_items, was_hyphenated) = break_one_line(
-                &mut cursor,
+                cursor, // Use the passed-in mutable cursor
                 &line_constraints,
                 is_vertical,
                 hyphenator.as_ref(),
             );
 
             if line_items.is_empty() {
-                break; // Can't fit anything, this column is done.
+                break; // Can't fit anything more in this column.
             }
 
-            let is_last_line = cursor.is_done() && !was_hyphenated;
+            // Justification depends on whether this is the last line of the entire paragraph.
+            let is_last_line_in_flow = cursor.is_done() && !was_hyphenated;
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
                 &line_constraints,
                 cross_axis_pen,
                 line_index,
                 physical_align,
-                is_last_line,
+                is_last_line_in_flow,
                 constraints,
             );
 
@@ -1479,7 +1535,7 @@ fn perform_full_layout<T: ParsedFontTrait>(
                     item.position.x += column_start_x;
                 } else {
                     item.position.y += column_start_x;
-                } // Simplified for vertical
+                }
             }
 
             line_index += 1;
@@ -1495,14 +1551,16 @@ fn perform_full_layout<T: ParsedFontTrait>(
         current_column += 1;
     }
 
-    let overflow_items = cursor.drain_remaining();
+    // The items remaining in the cursor are the overflow for this fragment,
+    // which will be handled by the parent `layout_flow` function.
     let unclipped_bounds = layout_bounds;
-
+    
     Ok(UnifiedLayout {
         items: positioned_items,
         bounds: layout_bounds,
+        // The overflow field of a single fragment's layout is always default.
         overflow: OverflowInfo {
-            overflow_items,
+            overflow_items: Vec::new(),
             unclipped_bounds,
         },
     })
@@ -2592,6 +2650,11 @@ impl<'a, T: ParsedFontTrait> BreakCursor<'a, T> {
             next_item_index: 0,
             partial_remainder: None,
         }
+    }
+
+    /// Checks if the cursor is at the very beginning of the content stream.
+    pub fn is_at_start(&self) -> bool {
+        self.next_item_index == 0 && self.partial_remainder.is_none()
     }
 
     /// Consumes the cursor and returns all remaining items as a `Vec`.

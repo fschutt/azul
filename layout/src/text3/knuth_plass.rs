@@ -75,6 +75,7 @@ pub(super) fn kp_layout<T: ParsedFontTrait>(
 }
 
 /// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
+/// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem<T>],
     hyphenator: Option<&Standard>,
@@ -99,19 +100,20 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     penalty: 0.0,
                 });
             }
-            // --- Word / Cluster Handling (COMPLETELY REWRITTEN) ---
             ShapedItem::Cluster(cluster) => {
                 // 1. Collect all adjacent clusters to form a full "word".
                 let mut current_word_clusters = vec![cluster.clone()];
-                while let Some(ShapedItem::Cluster(next_cluster)) = item_iter.peek() {
-                    if is_word_separator(item_iter.peek().unwrap()) {
+                while let Some(peeked_item) = item_iter.peek() {
+                    if let ShapedItem::Cluster(next_cluster) = peeked_item {
+                        current_word_clusters.push(next_cluster.clone());
+                        item_iter.next(); // Consume the peeked item
+                    } else {
+                        // Stop if we hit a non-cluster item (space, object, etc.)
                         break;
                     }
-                    current_word_clusters.push(next_cluster.clone());
-                    item_iter.next(); // Consume the peeked item
                 }
 
-                // 2. Try to hyphenate this word.
+                // 2. Try to find all hyphenation opportunities for this word.
                 let hyphenation_breaks = hyphenator.and_then(|h| {
                     crate::text3::cache::find_all_hyphenation_breaks(
                         &current_word_clusters,
@@ -126,54 +128,42 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
                     }
                 } else {
-                    // 3. Convert hyphenation breaks into Boxes and Penalties.
+                    // 3. Convert word + hyphenation breaks into a sequence of Boxes and Penalties.
                     let breaks = hyphenation_breaks.unwrap();
-                    let mut last_char_idx = 0;
+                    let mut last_break_items = 0;
 
-                    if !breaks.is_empty() {
-                        let first_part_of_word = breaks[0].line_part.clone();
-                        let first_hyphen_item = breaks[0].hyphen_item.clone();
-                        let first_remainder_part = breaks[0].remainder_part.clone();
-
-                        for b in breaks {
-                            // Find the text part between the last break and this one.
-                            // THIS PART IS COMPLEX and requires careful slicing of items.
-                            // For simplicity, we can unroll the line_part.
-                            for part in b.line_part {
-                                if let ShapedItem::Cluster(c) = &part {
-                                    // Unroll the pieces before the hyphen
-                                    // A more efficient way would be needed here, but this shows the
-                                    // concept.
-                                }
-                            }
-
-                            // A simpler, correct approach for K-P:
-                            // Add the first part of the word as a box.
-                            for item_part in first_part_of_word.clone() {
-                                nodes.push(LayoutNode::Box(
-                                    item_part.clone(),
-                                    get_item_measure(&item_part, is_vertical),
-                                ));
-                            }
-
-                            // Add the hyphen as a penalty
-                            let first_hyphen_measure =
-                                get_item_measure(&first_hyphen_item, is_vertical);
-                            nodes.push(LayoutNode::Penalty {
-                                item: Some(first_hyphen_item.clone()),
-                                width: first_hyphen_measure,
-                                penalty: 50.0,
-                            });
-
-                            // Add the rest of the word as a box.
-                            let first_remainder_measure =
-                                get_item_measure(&first_remainder_part, is_vertical);
+                    for b in breaks.iter() {
+                        // Add the part of the word between the last break and this one as boxes.
+                        for item_part in &b.line_part[last_break_items..] {
                             nodes.push(LayoutNode::Box(
-                                first_remainder_part.clone(),
-                                first_remainder_measure,
+                                item_part.clone(),
+                                get_item_measure(item_part, is_vertical),
                             ));
-                            // This logic would need to be expanded into a loop for all breaks.
-                            // But it demonstrates the principle of using the unified function.
+                        }
+                        
+                        // Add the hyphen itself as a penalty node.
+                        let hyphen_measure = get_item_measure(&b.hyphen_item, is_vertical);
+                        nodes.push(LayoutNode::Penalty {
+                            item: Some(b.hyphen_item.clone()),
+                            width: hyphen_measure,
+                            penalty: 50.0, // Standard penalty for hyphenation
+                        });
+
+                        last_break_items = b.line_part.len();
+                    }
+                    
+                    // Add the final remainder of the word.
+                    // The `remainder_part` of the last break is the final syllable.
+                    if let Some(last_break) = breaks.last() {
+                         nodes.push(LayoutNode::Box(
+                            last_break.remainder_part.clone(),
+                            get_item_measure(&last_break.remainder_part, is_vertical),
+                        ));
+                    } else {
+                        // This case happens if find_all_hyphenation_breaks returned an empty vec.
+                        // It's a fallback to just add the original word.
+                        for c in current_word_clusters {
+                            nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
                         }
                     }
                 }
