@@ -1,6 +1,8 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeSet, HashMap},
     hash::{Hash, Hasher},
+    mem::discriminant,
     num::NonZeroUsize,
     sync::{Arc, Mutex},
 };
@@ -15,7 +17,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text3::script::Script;
 
+pub mod cache;
 pub mod default;
+pub mod knuth_plass;
 pub mod script;
 
 pub trait ParsedFontTrait: Send + Clone {
@@ -25,12 +29,15 @@ pub trait ParsedFontTrait: Send + Clone {
         script: Script,
         language: Language,
         direction: Direction,
+        style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError>;
 
-    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> (u16, f32);
+    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
+    fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
     fn has_glyph(&self, codepoint: u32) -> bool;
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics>;
     fn get_font_metrics(&self) -> FontMetrics;
+    fn num_glyphs(&self) -> u16;
 }
 
 pub trait FontLoaderTrait<T: ParsedFontTrait>: Send + core::fmt::Debug {
@@ -54,7 +61,7 @@ pub enum ExclusionSide {
     Right,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
@@ -62,17 +69,76 @@ pub struct Rect {
     pub height: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl PartialEq for Rect {
+    fn eq(&self, other: &Self) -> bool {
+        round_eq(self.x, other.x)
+            && round_eq(self.y, other.y)
+            && round_eq(self.width, other.width)
+            && round_eq(self.height, other.height)
+    }
+}
+impl Eq for Rect {}
+
+impl Hash for Rect {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // The order in which you hash the fields matters.
+        // A consistent order is crucial.
+        (self.x.round() as usize).hash(state);
+        (self.y.round() as usize).hash(state);
+        (self.width.round() as usize).hash(state);
+        (self.height.round() as usize).hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialOrd)]
 pub struct Size {
     pub width: f32,
     pub height: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl Ord for Size {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.width.round() as usize)
+            .cmp(&(other.width.round() as usize))
+            .then_with(|| (self.height.round() as usize).cmp(&(other.height.round() as usize)))
+    }
+}
+
+// Size
+impl Hash for Size {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.width.round() as usize).hash(state);
+        (self.height.round() as usize).hash(state);
+    }
+}
+impl PartialEq for Size {
+    fn eq(&self, other: &Self) -> bool {
+        round_eq(self.width, other.width) && round_eq(self.height, other.height)
+    }
+}
+impl Eq for Size {}
+
+#[derive(Debug, Default, Clone, Copy, PartialOrd)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
 }
+
+// Point
+impl Hash for Point {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.x.round() as usize).hash(state);
+        (self.y.round() as usize).hash(state);
+    }
+}
+
+impl PartialEq for Point {
+    fn eq(&self, other: &Self) -> bool {
+        round_eq(self.x, other.x) && round_eq(self.y, other.y)
+    }
+}
+
+impl Eq for Point {}
 
 // Font and styling types
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,7 +182,7 @@ impl Hash for FontRef {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FontStyle {
     Normal,
     Italic,
@@ -139,14 +205,59 @@ pub struct FontMetrics {
     pub units_per_em: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum TextWrap {
+    #[default]
+    Wrap,
+    Balance,
+    NoWrap,
+}
+
+// initial-letter
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct InitialLetter {
+    /// How many lines tall the initial letter should be.
+    pub size: f32,
+    /// How many lines the letter should sink into.
+    pub sink: u32,
+    /// How many characters to apply this styling to.
+    pub count: NonZeroUsize,
+}
+
+// A type that implements `Hash` must also implement `Eq`.
+// Since f32 does not implement `Eq`, we provide a manual implementation.
+// This is a marker trait, indicating that `a == b` is a true equivalence
+// relation. The derived `PartialEq` already satisfies this.
+impl Eq for InitialLetter {}
+
+impl Hash for InitialLetter {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Per the request, round the f32 to a usize for hashing.
+        // This is a lossy conversion; values like 2.3 and 2.4 will produce
+        // the same hash value for this field. This is acceptable as long as
+        // the `PartialEq` implementation correctly distinguishes them.
+        (self.size.round() as usize).hash(state);
+        self.sink.hash(state);
+        self.count.hash(state);
+    }
+}
+
 // Enhanced content model supporting mixed inline content
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum InlineContent {
     Text(StyledRun),
     Image(InlineImage),
     Shape(InlineShape),
     Space(InlineSpace),
     LineBreak(InlineBreak),
+    Tab,
+    // Ruby annotation
+    Ruby {
+        base: Vec<InlineContent>,
+        text: Vec<InlineContent>,
+        // Style for the ruby text itself
+        style: Arc<StyleProperties>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +271,52 @@ pub struct InlineImage {
     pub alt_text: String, // Fallback text if image fails
 }
 
-#[derive(Debug, Clone)]
+impl PartialEq for InlineImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.baseline_offset.to_bits() == other.baseline_offset.to_bits()
+            && self.source == other.source
+            && self.intrinsic_size == other.intrinsic_size
+            && self.display_size == other.display_size
+            && self.alignment == other.alignment
+            && self.object_fit == other.object_fit
+            && self.alt_text == other.alt_text
+    }
+}
+
+impl Eq for InlineImage {}
+
+impl Hash for InlineImage {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.source.hash(state);
+        self.intrinsic_size.hash(state);
+        self.display_size.hash(state);
+        self.baseline_offset.to_bits().hash(state);
+        self.alignment.hash(state);
+        self.object_fit.hash(state);
+        self.alt_text.hash(state);
+    }
+}
+
+impl PartialOrd for InlineImage {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for InlineImage {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.source
+            .cmp(&other.source)
+            .then_with(|| self.intrinsic_size.cmp(&other.intrinsic_size))
+            .then_with(|| self.display_size.cmp(&other.display_size))
+            .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset))
+            .then_with(|| self.alignment.cmp(&other.alignment))
+            .then_with(|| self.object_fit.cmp(&other.object_fit))
+            .then_with(|| self.alt_text.cmp(&other.alt_text))
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ImageSource {
     Url(String),
     Data(Arc<[u8]>),
@@ -168,21 +324,21 @@ pub enum ImageSource {
     Placeholder(Size), // For layout without actual image
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VerticalAlign {
     #[default]
     Baseline, // Align image baseline with text baseline
-    Bottom,      // Align image bottom with line bottom
-    Top,         // Align image top with line top
-    Middle,      // Align image middle with text middle
-    TextTop,     // Align with tallest text in line
-    TextBottom,  // Align with lowest text in line
-    Sub,         // Subscript alignment
-    Super,       // Superscript alignment
-    Offset(f32), // Custom offset from baseline
+    Bottom,     // Align image bottom with line bottom
+    Top,        // Align image top with line top
+    Middle,     // Align image middle with text middle
+    TextTop,    // Align with tallest text in line
+    TextBottom, // Align with lowest text in line
+    Sub,        // Subscript alignment
+    Super,      /* Superscript alignment
+                 * Offset(f32), // Custom offset from baseline */
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ObjectFit {
     Fill,      // Stretch to fit display size
     Contain,   // Scale to fit within display size
@@ -207,14 +363,86 @@ pub struct InlineSpace {
     pub is_stretchy: bool, // Can be expanded for justification
 }
 
-#[derive(Debug, Clone)]
+impl PartialEq for InlineSpace {
+    fn eq(&self, other: &Self) -> bool {
+        self.width.to_bits() == other.width.to_bits()
+            && self.is_breaking == other.is_breaking
+            && self.is_stretchy == other.is_stretchy
+    }
+}
+
+impl Eq for InlineSpace {}
+
+impl Hash for InlineSpace {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.width.to_bits().hash(state);
+        self.is_breaking.hash(state);
+        self.is_stretchy.hash(state);
+    }
+}
+
+impl PartialOrd for InlineSpace {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for InlineSpace {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.width
+            .total_cmp(&other.width)
+            .then_with(|| self.is_breaking.cmp(&other.is_breaking))
+            .then_with(|| self.is_stretchy.cmp(&other.is_stretchy))
+    }
+}
+
+impl PartialEq for InlineShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.baseline_offset.to_bits() == other.baseline_offset.to_bits()
+            && self.shape_def == other.shape_def
+            && self.fill == other.fill
+            && self.stroke == other.stroke
+            && self.size == other.size
+    }
+}
+
+impl Eq for InlineShape {}
+
+impl Hash for InlineShape {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.shape_def.hash(state);
+        self.fill.hash(state);
+        self.stroke.hash(state);
+        self.size.hash(state);
+        self.baseline_offset.to_bits().hash(state);
+    }
+}
+
+impl PartialOrd for InlineShape {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(
+            self.shape_def
+                .partial_cmp(&other.shape_def)?
+                .then_with(|| self.fill.cmp(&other.fill))
+                .then_with(|| {
+                    self.stroke
+                        .partial_cmp(&other.stroke)
+                        .unwrap_or(Ordering::Equal)
+                })
+                .then_with(|| self.size.cmp(&other.size))
+                .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset)),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InlineBreak {
     pub break_type: BreakType,
     pub clear: ClearType,
     pub content_index: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BreakType {
     Soft,   // Preferred break (like <wbr>)
     Hard,   // Forced break (like <br>)
@@ -222,7 +450,7 @@ pub enum BreakType {
     Column, // Column break
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ClearType {
     None,
     Left,
@@ -234,10 +462,15 @@ pub enum ClearType {
 #[derive(Debug, Clone)]
 pub struct ShapeConstraints {
     pub boundaries: Vec<ShapeBoundary>,
-    pub exclusions: Vec<ShapeExclusion>,
+    pub exclusions: Vec<ShapeBoundary>,
     pub writing_mode: WritingMode,
     pub text_align: TextAlign,
     pub line_height: f32,
+}
+
+// Helper function to round f32 for comparison
+fn round_eq(a: f32, b: f32) -> bool {
+    (a.round() as isize) == (b.round() as isize)
 }
 
 #[derive(Debug, Clone)]
@@ -249,22 +482,83 @@ pub enum ShapeBoundary {
     Path { segments: Vec<PathSegment> },
 }
 
-#[derive(Debug, Clone)]
-pub enum ShapeExclusion {
-    Rectangle(Rect),
-    Circle { center: Point, radius: f32 },
-    Ellipse { center: Point, radii: Size },
-    Polygon { points: Vec<Point> },
-    Path { segments: Vec<PathSegment> },
-    Image { bounds: Rect, shape: ImageShape },
+impl ShapeBoundary {
+    pub fn inflate(&self, margin: f32) -> Self {
+        if margin == 0.0 {
+            return self.clone();
+        }
+        match self {
+            Self::Rectangle(rect) => Self::Rectangle(Rect {
+                x: rect.x - margin,
+                y: rect.y - margin,
+                width: (rect.width + margin * 2.0).max(0.0),
+                height: (rect.height + margin * 2.0).max(0.0),
+            }),
+            Self::Circle { center, radius } => Self::Circle {
+                center: *center,
+                radius: radius + margin,
+            },
+            // For simplicity, Polygon and Path inflation is not implemented here.
+            // A full implementation would require a geometry library to offset the path.
+            _ => self.clone(),
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub enum ImageShape {
-    Rectangle,                    // Normal rectangular image
-    AlphaMask(Arc<[u8]>),         // Use alpha channel as exclusion mask
-    VectorMask(Vec<PathSegment>), // Vector clipping path
+// ShapeBoundary
+impl Hash for ShapeBoundary {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
+        match self {
+            ShapeBoundary::Rectangle(rect) => rect.hash(state),
+            ShapeBoundary::Circle { center, radius } => {
+                center.hash(state);
+                (radius.round() as usize).hash(state);
+            }
+            ShapeBoundary::Ellipse { center, radii } => {
+                center.hash(state);
+                radii.hash(state);
+            }
+            ShapeBoundary::Polygon { points } => points.hash(state),
+            ShapeBoundary::Path { segments } => segments.hash(state),
+        }
+    }
 }
+impl PartialEq for ShapeBoundary {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ShapeBoundary::Rectangle(r1), ShapeBoundary::Rectangle(r2)) => r1 == r2,
+            (
+                ShapeBoundary::Circle {
+                    center: c1,
+                    radius: r1,
+                },
+                ShapeBoundary::Circle {
+                    center: c2,
+                    radius: r2,
+                },
+            ) => c1 == c2 && round_eq(*r1, *r2),
+            (
+                ShapeBoundary::Ellipse {
+                    center: c1,
+                    radii: r1,
+                },
+                ShapeBoundary::Ellipse {
+                    center: c2,
+                    radii: r2,
+                },
+            ) => c1 == c2 && r1 == r2,
+            (ShapeBoundary::Polygon { points: p1 }, ShapeBoundary::Polygon { points: p2 }) => {
+                p1 == p2
+            }
+            (ShapeBoundary::Path { segments: s1 }, ShapeBoundary::Path { segments: s2 }) => {
+                s1 == s2
+            }
+            _ => false,
+        }
+    }
+}
+impl Eq for ShapeBoundary {}
 
 #[derive(Debug, Clone)]
 pub struct LineShapeConstraints {
@@ -279,7 +573,7 @@ pub struct LineSegment {
     pub priority: u8, // For choosing best segment when multiple available
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OverflowBehavior {
     Visible, // Content extends outside shape
     Hidden,  // Content is clipped to shape
@@ -313,6 +607,16 @@ pub struct InlineSize {
     pub baseline_offset: f32,
 }
 
+/// Defines how text should be aligned when a line contains multiple disjoint segments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SegmentAlignment {
+    /// Align text within the first available segment on the line.
+    #[default]
+    First,
+    /// Align text relative to the total available width of all segments on the line combined.
+    Total,
+}
+
 #[derive(Debug, Clone)]
 pub struct OverflowInfo<T: ParsedFontTrait> {
     pub has_overflow: bool,
@@ -331,7 +635,7 @@ impl<T: ParsedFontTrait> Default for OverflowInfo<T> {
 }
 
 // Path and shape definitions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialOrd)]
 pub enum PathSegment {
     MoveTo(Point),
     LineTo(Point),
@@ -353,7 +657,93 @@ pub enum PathSegment {
     Close,
 }
 
-#[derive(Debug, Clone)]
+// PathSegment
+impl Hash for PathSegment {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash the enum variant's discriminant first to distinguish them
+        discriminant(self).hash(state);
+
+        match self {
+            PathSegment::MoveTo(p) => p.hash(state),
+            PathSegment::LineTo(p) => p.hash(state),
+            PathSegment::CurveTo {
+                control1,
+                control2,
+                end,
+            } => {
+                control1.hash(state);
+                control2.hash(state);
+                end.hash(state);
+            }
+            PathSegment::QuadTo { control, end } => {
+                control.hash(state);
+                end.hash(state);
+            }
+            PathSegment::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            } => {
+                center.hash(state);
+                (radius.round() as usize).hash(state);
+                (start_angle.round() as usize).hash(state);
+                (end_angle.round() as usize).hash(state);
+            }
+            PathSegment::Close => {} // No data to hash
+        }
+    }
+}
+
+impl PartialEq for PathSegment {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PathSegment::MoveTo(a), PathSegment::MoveTo(b)) => a == b,
+            (PathSegment::LineTo(a), PathSegment::LineTo(b)) => a == b,
+            (
+                PathSegment::CurveTo {
+                    control1: c1a,
+                    control2: c2a,
+                    end: ea,
+                },
+                PathSegment::CurveTo {
+                    control1: c1b,
+                    control2: c2b,
+                    end: eb,
+                },
+            ) => c1a == c1b && c2a == c2b && ea == eb,
+            (
+                PathSegment::QuadTo {
+                    control: ca,
+                    end: ea,
+                },
+                PathSegment::QuadTo {
+                    control: cb,
+                    end: eb,
+                },
+            ) => ca == cb && ea == eb,
+            (
+                PathSegment::Arc {
+                    center: ca,
+                    radius: ra,
+                    start_angle: sa_a,
+                    end_angle: ea_a,
+                },
+                PathSegment::Arc {
+                    center: cb,
+                    radius: rb,
+                    start_angle: sa_b,
+                    end_angle: ea_b,
+                },
+            ) => ca == cb && round_eq(*ra, *rb) && round_eq(*sa_a, *sa_b) && round_eq(*ea_a, *ea_b),
+            (PathSegment::Close, PathSegment::Close) => true,
+            _ => false, // Variants are different
+        }
+    }
+}
+impl Eq for PathSegment {}
+
+#[derive(Debug, Clone, PartialOrd)]
 pub enum ShapeDefinition {
     Rectangle {
         size: Size,
@@ -373,12 +763,117 @@ pub enum ShapeDefinition {
     },
 }
 
-#[derive(Debug, Clone)]
+// ShapeDefinition
+impl Hash for ShapeDefinition {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
+        match self {
+            ShapeDefinition::Rectangle {
+                size,
+                corner_radius,
+            } => {
+                size.hash(state);
+                corner_radius.map(|r| r.round() as usize).hash(state);
+            }
+            ShapeDefinition::Circle { radius } => {
+                (radius.round() as usize).hash(state);
+            }
+            ShapeDefinition::Ellipse { radii } => {
+                radii.hash(state);
+            }
+            ShapeDefinition::Polygon { points } => {
+                // Since Point implements Hash, we can hash the Vec directly.
+                points.hash(state);
+            }
+            ShapeDefinition::Path { segments } => {
+                // Same for Vec<PathSegment>
+                segments.hash(state);
+            }
+        }
+    }
+}
+
+impl PartialEq for ShapeDefinition {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                ShapeDefinition::Rectangle {
+                    size: s1,
+                    corner_radius: r1,
+                },
+                ShapeDefinition::Rectangle {
+                    size: s2,
+                    corner_radius: r2,
+                },
+            ) => {
+                s1 == s2
+                    && match (r1, r2) {
+                        (None, None) => true,
+                        (Some(v1), Some(v2)) => round_eq(*v1, *v2),
+                        _ => false,
+                    }
+            }
+            (ShapeDefinition::Circle { radius: r1 }, ShapeDefinition::Circle { radius: r2 }) => {
+                round_eq(*r1, *r2)
+            }
+            (ShapeDefinition::Ellipse { radii: r1 }, ShapeDefinition::Ellipse { radii: r2 }) => {
+                r1 == r2
+            }
+            (ShapeDefinition::Polygon { points: p1 }, ShapeDefinition::Polygon { points: p2 }) => {
+                p1 == p2
+            }
+            (ShapeDefinition::Path { segments: s1 }, ShapeDefinition::Path { segments: s2 }) => {
+                s1 == s2
+            }
+            _ => false,
+        }
+    }
+}
+impl Eq for ShapeDefinition {}
+
+#[derive(Debug, Clone, PartialOrd)]
 pub struct Stroke {
     pub color: Color,
     pub width: f32,
     pub dash_pattern: Option<Vec<f32>>,
 }
+
+// Stroke
+impl Hash for Stroke {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.color.hash(state);
+        (self.width.round() as usize).hash(state);
+
+        // Manual hashing for Option<Vec<f32>>
+        match &self.dash_pattern {
+            None => 0u8.hash(state), // Hash a discriminant for None
+            Some(pattern) => {
+                1u8.hash(state); // Hash a discriminant for Some
+                pattern.len().hash(state); // Hash the length
+                for &val in pattern {
+                    (val.round() as usize).hash(state); // Hash each rounded value
+                }
+            }
+        }
+    }
+}
+
+impl PartialEq for Stroke {
+    fn eq(&self, other: &Self) -> bool {
+        if self.color != other.color || !round_eq(self.width, other.width) {
+            return false;
+        }
+        match (&self.dash_pattern, &other.dash_pattern) {
+            (None, None) => true,
+            (Some(p1), Some(p2)) => {
+                p1.len() == p2.len() && p1.iter().zip(p2.iter()).all(|(a, b)| round_eq(*a, *b))
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Stroke {}
 
 // Enhanced font management with fallback chains
 #[derive(Debug, Clone)]
@@ -399,7 +894,7 @@ pub struct FontManager<T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
 }
 
 // Stage 1: Collection - Styled runs from DOM traversal
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct StyledRun {
     pub text: String,
     pub style: Arc<StyleProperties>,
@@ -442,7 +937,7 @@ pub struct LayoutConstraints {
     pub overflow_behavior: OverflowBehavior,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
 pub enum WritingMode {
     #[default]
     HorizontalTb, // horizontal-tb (normal horizontal)
@@ -452,17 +947,18 @@ pub enum WritingMode {
     SidewaysLr, // sideways-lr (rotated horizontal in vertical context)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
 pub enum JustifyContent {
     #[default]
     None,
     InterWord,      // Expand spaces between words
     InterCharacter, // Expand spaces between all characters (for CJK)
     Distribute,     // Distribute space evenly including start/end
+    Kashida,        // Stretch Arabic text using kashidas
 }
 
 // Enhanced text alignment with logical directions
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
 pub enum TextAlign {
     #[default]
     Left,
@@ -475,7 +971,7 @@ pub enum TextAlign {
 }
 
 // Vertical text orientation for individual characters
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
 pub enum TextOrientation {
     #[default]
     Mixed, // Default: upright for scripts, rotated for others
@@ -483,7 +979,7 @@ pub enum TextOrientation {
     Sideways, // All characters rotated 90 degrees
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -491,7 +987,7 @@ pub struct Color {
     pub a: u8,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextDecoration {
     pub underline: bool,
     pub strikethrough: bool,
@@ -508,25 +1004,102 @@ impl Default for TextDecoration {
     }
 }
 
-// Enhanced style properties with vertical text support
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum TextTransform {
+    #[default]
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
+// Type alias for OpenType feature tags
+pub type FourCc = [u8; 4];
+
+// Enum for relative or absolute spacing
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum Spacing {
+    Px(i32), // Use integer pixels to simplify hashing and equality
+    Em(f32),
+}
+
+// A type that implements `Hash` must also implement `Eq`.
+// Since f32 does not implement `Eq`, we provide a manual implementation.
+// The derived `PartialEq` is sufficient for this marker trait.
+impl Eq for Spacing {}
+
+impl Hash for Spacing {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // First, hash the enum variant to distinguish between Px and Em.
+        discriminant(self).hash(state);
+        match self {
+            Spacing::Px(val) => val.hash(state),
+            // For hashing floats, convert them to their raw bit representation.
+            // This ensures that identical float values produce identical hashes.
+            Spacing::Em(val) => val.to_bits().hash(state),
+        }
+    }
+}
+
+impl Default for Spacing {
+    fn default() -> Self {
+        Spacing::Px(0)
+    }
+}
+
+/// Style properties with vertical text support
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
     pub font_ref: FontRef,
     pub font_size_px: f32,
     pub color: Color,
-    pub letter_spacing: f32,
-    pub word_spacing: f32,
+    pub letter_spacing: Spacing,
+    pub word_spacing: Spacing,
+
     pub line_height: f32,
     pub text_decoration: TextDecoration,
-    pub font_features: Vec<String>,
 
+    // Represents CSS font-feature-settings like `"liga"`, `"smcp=1"`.
+    font_features: Vec<String>,
+
+    // Variable fonts
+    pub font_variations: Vec<(FourCc, f32)>,
+    // Multiplier of the space width
+    pub tab_size: f32,
+    // text-transform
+    pub text_transform: TextTransform,
     // Vertical text properties
     pub writing_mode: WritingMode,
     pub text_orientation: TextOrientation,
-    pub text_combine_upright: Option<TextCombineUpright>, // tate-chu-yoko
+    // Tate-chu-yoko
+    pub text_combine_upright: Option<TextCombineUpright>,
+
+    // Variant handling
+    pub font_variant_caps: FontVariantCaps,
+    pub font_variant_numeric: FontVariantNumeric,
+    pub font_variant_ligatures: FontVariantLigatures,
+    pub font_variant_east_asian: FontVariantEastAsian,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Hash for StyleProperties {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.font_ref.hash(state);
+        self.color.hash(state);
+        self.text_decoration.hash(state);
+        self.font_features.hash(state);
+        self.writing_mode.hash(state);
+        self.text_orientation.hash(state);
+        self.text_combine_upright.hash(state);
+        self.letter_spacing.hash(state);
+        self.word_spacing.hash(state);
+
+        // For f32 fields, round and cast to usize before hashing.
+        (self.font_size_px.round() as usize).hash(state);
+        (self.line_height.round() as usize).hash(state);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum TextCombineUpright {
     None,
     All,        // Combine all characters in horizontal layout
@@ -560,13 +1133,69 @@ pub enum GlyphOrientation {
 }
 
 // Bidi and script detection
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Direction {
     Ltr,
     Rtl,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum FontVariantCaps {
+    #[default]
+    Normal,
+    SmallCaps,
+    AllSmallCaps,
+    PetiteCaps,
+    AllPetiteCaps,
+    Unicase,
+    TitlingCaps,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum FontVariantNumeric {
+    #[default]
+    Normal,
+    LiningNums,
+    OldstyleNums,
+    ProportionalNums,
+    TabularNums,
+    DiagonalFractions,
+    StackedFractions,
+    Ordinal,
+    SlashedZero,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum FontVariantLigatures {
+    #[default]
+    Normal,
+    None,
+    Common,
+    NoCommon,
+    Discretionary,
+    NoDiscretionary,
+    Historical,
+    NoHistorical,
+    Contextual,
+    NoContextual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
+pub enum FontVariantEastAsian {
+    #[default]
+    Normal,
+    Jis78,
+    Jis83,
+    Jis90,
+    Jis04,
+    Simplified,
+    Traditional,
+    FullWidth,
+    ProportionalWidth,
+    Ruby,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BidiLevel(u8);
 
 // Content representation after bidirectional analysis
@@ -611,11 +1240,11 @@ struct LineMetrics {
 }
 
 /// Unified constraints combining all layout features
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
     pub shape_boundaries: Vec<ShapeBoundary>,
-    pub shape_exclusions: Vec<ShapeExclusion>,
+    pub shape_exclusions: Vec<ShapeBoundary>,
 
     // Basic layout
     pub available_width: f32, // For simple rectangular layouts
@@ -631,13 +1260,108 @@ pub struct UnifiedConstraints {
 
     // Overflow handling
     pub overflow: OverflowBehavior,
+    pub segment_alignment: SegmentAlignment,
 
     // Advanced features
     pub text_combine_upright: Option<TextCombineUpright>,
     pub exclusion_margin: f32,
     pub hyphenation: bool,
     pub hyphenation_language: Option<Language>,
+    pub text_indent: f32,
+    pub initial_letter: Option<InitialLetter>,
+    pub line_clamp: Option<NonZeroUsize>,
+
+    // text-wrap: balance
+    pub text_wrap: TextWrap,
+    pub columns: u32,
+    pub column_gap: f32,
+    pub hanging_punctuation: bool,
 }
+
+impl Default for UnifiedConstraints {
+    fn default() -> Self {
+        Self {
+            shape_boundaries: Vec::new(),
+            shape_exclusions: Vec::new(),
+            available_width: 0.0,
+            available_height: None,
+            writing_mode: None,
+            text_orientation: TextOrientation::default(),
+            text_align: TextAlign::default(),
+            justify_content: JustifyContent::default(),
+            line_height: 16.0, // A more sensible default
+            vertical_align: VerticalAlign::default(),
+            overflow: OverflowBehavior::default(),
+            segment_alignment: SegmentAlignment::default(),
+            text_combine_upright: None,
+            exclusion_margin: 0.0,
+            hyphenation: false,
+            hyphenation_language: None,
+            columns: 1,
+            column_gap: 0.0,
+            hanging_punctuation: false,
+            text_indent: 0.0,
+            initial_letter: None,
+            line_clamp: None,
+            text_wrap: TextWrap::default(),
+        }
+    }
+}
+
+// UnifiedConstraints
+impl Hash for UnifiedConstraints {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.shape_boundaries.hash(state);
+        self.shape_exclusions.hash(state);
+        (self.available_width.round() as usize).hash(state);
+        self.available_height
+            .map(|h| h.round() as usize)
+            .hash(state);
+        self.writing_mode.hash(state);
+        self.text_orientation.hash(state);
+        self.text_align.hash(state);
+        self.justify_content.hash(state);
+        (self.line_height.round() as usize).hash(state);
+        self.vertical_align.hash(state);
+        self.overflow.hash(state);
+        self.text_combine_upright.hash(state);
+        (self.exclusion_margin.round() as usize).hash(state);
+        self.hyphenation.hash(state);
+        self.hyphenation_language.hash(state);
+        self.columns.hash(state);
+        (self.column_gap.round() as usize).hash(state);
+        self.hanging_punctuation.hash(state);
+    }
+}
+
+impl PartialEq for UnifiedConstraints {
+    fn eq(&self, other: &Self) -> bool {
+        self.shape_boundaries == other.shape_boundaries
+            && self.shape_exclusions == other.shape_exclusions
+            && round_eq(self.available_width, other.available_width)
+            && match (self.available_height, other.available_height) {
+                (None, None) => true,
+                (Some(h1), Some(h2)) => round_eq(h1, h2),
+                _ => false,
+            }
+            && self.writing_mode == other.writing_mode
+            && self.text_orientation == other.text_orientation
+            && self.text_align == other.text_align
+            && self.justify_content == other.justify_content
+            && round_eq(self.line_height, other.line_height)
+            && self.vertical_align == other.vertical_align
+            && self.overflow == other.overflow
+            && self.text_combine_upright == other.text_combine_upright
+            && round_eq(self.exclusion_margin, other.exclusion_margin)
+            && self.hyphenation == other.hyphenation
+            && self.hyphenation_language == other.hyphenation_language
+            && self.columns == other.columns
+            && round_eq(self.column_gap, other.column_gap)
+            && self.hanging_punctuation == other.hanging_punctuation
+    }
+}
+
+impl Eq for UnifiedConstraints {}
 
 impl UnifiedConstraints {
     fn direction(&self, fallback: Direction) -> Direction {
@@ -1039,8 +1763,13 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
             Direction::Ltr
         };
 
-        let mut shaped_output =
-            font.shape_text(run.text_slice, run.script, run.language, direction)?;
+        let mut shaped_output = font.shape_text(
+            run.text_slice,
+            run.script,
+            run.language,
+            direction,
+            &run.style,
+        )?;
 
         if direction == Direction::Rtl {
             shaped_output.reverse();
@@ -1113,19 +1842,19 @@ fn get_available_width_for_line(line_y: f32, constraints: &UnifiedConstraints) -
 
     for exclusion in &constraints.shape_exclusions {
         match exclusion {
-            ShapeExclusion::Rectangle(rect) => {
+            ShapeBoundary::Rectangle(rect) => {
                 if line_y >= rect.y && line_y < rect.y + rect.height {
                     intervals.push((rect.x, rect.x + rect.width));
                 }
             }
-            ShapeExclusion::Circle { center, radius } => {
+            ShapeBoundary::Circle { center, radius } => {
                 let dy = line_y + constraints.line_height / 2.0 - center.y;
                 if dy.abs() <= *radius {
                     let dx = (radius.powi(2) - dy.powi(2)).sqrt();
                     intervals.push((center.x - dx, center.x + dx));
                 }
             }
-            ShapeExclusion::Ellipse { center, radii } => {
+            ShapeBoundary::Ellipse { center, radii } => {
                 let normalized_dy =
                     (line_y + constraints.line_height / 2.0 - center.y) / radii.height;
                 if normalized_dy.abs() <= 1.0 {
@@ -1133,7 +1862,7 @@ fn get_available_width_for_line(line_y: f32, constraints: &UnifiedConstraints) -
                     intervals.push((center.x - dx, center.x + dx));
                 }
             }
-            ShapeExclusion::Polygon { points } => {
+            ShapeBoundary::Polygon { points } => {
                 if let Ok(segs) = UnifiedLayoutEngine::polygon_line_intersection(
                     points,
                     line_y,
@@ -1144,23 +1873,8 @@ fn get_available_width_for_line(line_y: f32, constraints: &UnifiedConstraints) -
                     }
                 }
             }
-            ShapeExclusion::Path { segments: _ } => {
+            ShapeBoundary::Path { segments: _ } => {
                 // TODO: Implement path intersection to compute excluded intervals
-            }
-            ShapeExclusion::Image { bounds, shape } => {
-                match shape {
-                    ImageShape::Rectangle => {
-                        if line_y >= bounds.y && line_y < bounds.y + bounds.height {
-                            intervals.push((bounds.x, bounds.x + bounds.width));
-                        }
-                    }
-                    _ => {
-                        // Approximate with bounds for complex shapes
-                        if line_y >= bounds.y && line_y < bounds.y + bounds.height {
-                            intervals.push((bounds.x, bounds.x + bounds.width));
-                        }
-                    }
-                }
             }
         }
     }
@@ -1444,7 +2158,7 @@ fn get_script_default_orientation(script: Script, writing_mode: WritingMode) -> 
 }
 
 fn justify_line<T: ParsedFontTrait>(
-    glyphs: &mut [Glyph<T>],
+    glyphs: &mut Vec<Glyph<T>>,
     target_width: f32,
     justify_content: JustifyContent,
     writing_mode: WritingMode,
@@ -1466,7 +2180,120 @@ fn justify_line<T: ParsedFontTrait>(
         JustifyContent::InterWord => justify_inter_word(glyphs, available_space),
         JustifyContent::InterCharacter => justify_inter_character(glyphs, available_space),
         JustifyContent::Distribute => justify_distribute(glyphs, available_space),
+        JustifyContent::Kashida => justify_kashida(glyphs, available_space),
     }
+}
+
+/// Performs kashida justification on a line of glyphs containing Arabic script.
+///
+/// This function identifies opportunities for elongation within the Arabic text and
+/// inserts kashida (tatweel) glyphs to fill the `available_space`.
+///
+/// If the line contains no Arabic text or if the font does not support kashida,
+/// it falls back to a different justification method.
+fn justify_kashida<T: ParsedFontTrait>(
+    glyphs: &mut Vec<Glyph<T>>,
+    available_space: f32,
+) -> Result<(), LayoutError> {
+    // 1. Find a font on the line that can provide a kashida glyph.
+    let font_info = glyphs.iter().find_map(|g| {
+        if g.script == Script::Arabic {
+            Some((g.font.clone(), g.style.clone()))
+        } else {
+            None
+        }
+    });
+
+    let (font, style) = match font_info {
+        // No Arabic script on the line, fall back to word-spacing.
+        None => return justify_inter_word(glyphs, available_space),
+        Some(info) => info,
+    };
+
+    // 2. Get the kashida glyph's properties from the font.
+    let (kashida_glyph_id, kashida_advance) = match font
+        .get_kashida_glyph_and_advance(style.font_size_px)
+    {
+        // If the font doesn't support kashida, fall back to character-spacing.
+        None => return justify_inter_character(glyphs, available_space),
+        Some((id, adv)) if adv <= 0.0 => return justify_inter_character(glyphs, available_space),
+        Some(valid) => valid,
+    };
+
+    // 3. Identify all valid insertion points for kashida.
+    // A robust heuristic is to find locations between two connecting Arabic glyphs.
+    // We approximate this by checking for adjacent, non-whitespace Arabic glyphs.
+    let opportunities: Vec<usize> = glyphs
+        .windows(2)
+        .enumerate()
+        .filter_map(|(i, window)| {
+            let current_glyph = &window[0];
+            let next_glyph = &window[1];
+            if current_glyph.script == Script::Arabic
+                && next_glyph.script == Script::Arabic
+                && !next_glyph.is_whitespace()
+            {
+                // A more advanced check would use the shaper's cursive connection info.
+                // For now, this is a strong heuristic. The insertion index is *after* the current
+                // glyph.
+                Some(i + 1)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if opportunities.is_empty() {
+        // No valid places to insert kashida, fallback to character-spacing.
+        return justify_inter_character(glyphs, available_space);
+    }
+
+    // 4. Calculate how many kashidas to insert and how to distribute them.
+    let num_to_insert = (available_space / kashida_advance).floor() as usize;
+    if num_to_insert == 0 {
+        return Ok(()); // Not enough space for even one kashida.
+    }
+
+    let kashidas_per_opportunity = num_to_insert / opportunities.len();
+    let mut remainder = num_to_insert % opportunities.len();
+
+    // 5. Create a template kashida glyph to clone for insertion.
+    let kashida_template = Glyph {
+        glyph_id: kashida_glyph_id,
+        codepoint: '\u{0640}', // Arabic Tatweel character
+        font,
+        style,
+        source: GlyphSource::Hyphen, // Using Hyphen as a placeholder for "generated"
+        logical_byte_index: usize::MAX, // Mark as generated
+        logical_byte_len: 0,
+        content_index: usize::MAX,
+        cluster: u32::MAX,
+        advance: kashida_advance,
+        offset: Point::default(),
+        vertical_advance: 0.0,
+        vertical_origin_y: 0.0,
+        vertical_bearing: Point::default(),
+        orientation: GlyphOrientation::Horizontal,
+        script: Script::Arabic,
+        bidi_level: BidiLevel::new(0), // Kashida is neutral; will inherit run direction.
+    };
+
+    // 6. Insert the kashida glyphs into the vector.
+    // We iterate through the opportunities in reverse order to ensure that our
+    // insertion indices remain valid as the vector grows.
+    for insertion_index in opportunities.iter().rev() {
+        let mut num_to_insert_here = kashidas_per_opportunity;
+        if remainder > 0 {
+            num_to_insert_here += 1;
+            remainder -= 1;
+        }
+
+        for _ in 0..num_to_insert_here {
+            glyphs.insert(*insertion_index, kashida_template.clone());
+        }
+    }
+
+    Ok(())
 }
 
 // Enhanced line breaking with grapheme cluster awareness
@@ -1907,9 +2734,13 @@ impl UnifiedLayoutEngine {
                     // Attempt to shape the entire run with this font.
                     // A robust implementation would check for .notdef glyphs in the output.
                     // For simplicity, we assume success if it doesn't error out.
-                    if let Ok(mut glyphs) =
-                        font.shape_text(run.text_slice, run.script, run.language, direction)
-                    {
+                    if let Ok(mut glyphs) = font.shape_text(
+                        run.text_slice,
+                        run.script,
+                        run.language,
+                        direction,
+                        &run.style,
+                    ) {
                         if direction == Direction::Rtl {
                             glyphs.reverse();
                         }
@@ -2367,25 +3198,25 @@ impl UnifiedLayoutEngine {
             ShapeBoundary::Polygon { points } => {
                 Self::polygon_line_intersection(points, y, line_height)
             }
-            _ => Ok(vec![]),
+            _ => Ok(vec![]), // TODO: Ellipse / Path
         }
     }
 
     fn subtract_exclusion(
         mut segments: Vec<LineSegment>,
-        exclusion: &ShapeExclusion,
+        exclusion: &ShapeBoundary,
         y: f32,
         line_height: f32,
     ) -> Result<Vec<LineSegment>, LayoutError> {
         let exclusion_segments = match exclusion {
-            ShapeExclusion::Rectangle(rect) => {
+            ShapeBoundary::Rectangle(rect) => {
                 if y >= rect.y && y + line_height <= rect.y + rect.height {
                     vec![(rect.x, rect.x + rect.width)]
                 } else {
                     vec![]
                 }
             }
-            ShapeExclusion::Circle { center, radius } => {
+            ShapeBoundary::Circle { center, radius } => {
                 let dy = (y + line_height / 2.0) - center.y;
                 if dy.abs() <= *radius {
                     let dx = (radius * radius - dy * dy).sqrt();

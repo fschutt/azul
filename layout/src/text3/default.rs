@@ -2,19 +2,22 @@ use std::{path::Path, sync::Arc};
 
 use allsorts::{
     gpos,
-    gsub::{self, Features},
+    gsub::{self, FeatureInfo, FeatureMask, Features},
 };
 use azul_core::app_resources::Placement;
 use rust_fontconfig::FcFontCache;
 
-// Imports for the provided ParsedFont implementation
-use crate::parsedfont::ParsedFont;
 // Imports from the layout engine's module
 use crate::text3::{
     script::estimate_script_and_language, BidiLevel, Color, Direction, FontLoaderTrait,
     FontManager, FontMetrics, FontRef, Glyph, GlyphSource, LayoutError, ParsedFontTrait, Point,
     Script, StyleProperties, TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics,
     WritingMode,
+};
+// Imports for the provided ParsedFont implementation
+use crate::{
+    parsedfont::ParsedFont,
+    text3::{FontVariantCaps, FontVariantLigatures, FontVariantNumeric},
 };
 
 /// A FontLoader that parses font data from a byte slice.
@@ -90,41 +93,106 @@ impl ParsedFontTrait for ParsedFont {
         script: Script,
         language: hyphenation::Language,
         direction: Direction,
+        style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError> {
-        let codepoints: Vec<u32> = text.chars().map(|c| c as u32).collect();
-
         // 1. Convert layout engine enums to OpenType tags for allsorts.
         let script_tag = to_opentype_script_tag(script);
         let lang_tag = to_opentype_lang_tag(language);
 
-        // 2. Shape the text using the existing method on ParsedFont.
-        let shaped_buffer = self.shape(&codepoints, script_tag, Some(lang_tag));
+        // 2. Build a list of user-specified features.
+        // For now, these are only passed to the GPOS stage. GSUB uses a default set.
+        let mut user_features: Vec<FeatureInfo> = style
+            .font_features
+            .iter()
+            .filter_map(|s| parse_font_feature(s))
+            .map(|(tag, value)| FeatureInfo {
+                feature_tag: tag,
+                alternate: if value > 1 {
+                    Some(value as usize)
+                } else {
+                    None
+                },
+            })
+            .collect();
+        add_variant_features(style, &mut user_features);
 
-        // 3. Translate the allsorts output into the layout engine's `Glyph` format.
+        // 3. Perform shaping using the full allsorts pipeline.
+        let gdef = self.opt_gdef_table.as_ref().ok_or_else(|| {
+            LayoutError::ShapingError("GDEF table not found, needed for shaping.".to_string())
+        })?;
 
-        // NOTE: `ParsedFontTrait` does not provide `StyleProperties`, which are needed
-        // to correctly scale font metrics. We create a dummy style with a default
-        // font size. A production-ready implementation would need the style context.
-        let font_size = 16.0;
-        let dummy_style = Arc::new(StyleProperties {
-            font_ref: FontRef::invalid(),
-            font_size_px: font_size,
-            color: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            letter_spacing: 0.0,
-            word_spacing: 0.0,
-            line_height: font_size * 1.2,
-            text_decoration: TextDecoration::default(),
-            font_features: Vec::new(),
-            writing_mode: WritingMode::HorizontalTb,
-            text_orientation: TextOrientation::Mixed,
-            text_combine_upright: None,
-        });
+        // 3a. Map text to a `RawGlyph` buffer. We use `liga_component_pos` as a temporary
+        // store for the cluster ID (the original byte index of the character).
+        let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = text
+            .char_indices()
+            .filter_map(|(cluster, ch)| {
+                let glyph_index = self.lookup_glyph_index(ch as u32).unwrap_or(0);
+                if cluster > u16::MAX as usize {
+                    // This is a limitation of using liga_component_pos to store the cluster ID.
+                    // The text needs to be shaped in smaller chunks.
+                    None
+                } else {
+                    Some(allsorts::gsub::RawGlyph {
+                        unicodes: tinyvec::tiny_vec![[char; 1] => ch],
+                        glyph_index,
+                        liga_component_pos: cluster as u16, // Store cluster, may truncate
+                        glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
+                        flags: allsorts::gsub::RawGlyphFlags::empty(),
+                        extra_data: (),
+                        variation: None,
+                    })
+                }
+            })
+            .collect();
 
+        // 3b. Apply GSUB substitutions with a default feature set for the script.
+        if let Some(gsub) = self.gsub_cache.as_ref() {
+            let features = Features::Mask(FeatureMask::default());
+            let dotted_circle_index = self
+                .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
+                .unwrap_or(0);
+            gsub::apply(
+                dotted_circle_index,
+                gsub,
+                Some(gdef),
+                script_tag,
+                Some(lang_tag),
+                &features,
+                None, // No variations tuple for now
+                self.num_glyphs(),
+                &mut raw_glyphs,
+            )
+            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+        }
+
+        // 3c. Convert the `RawGlyph` buffer to a `gpos::Info` buffer for positioning.
+        // The cluster ID we stored in `liga_component_pos` is preserved inside `info.glyph`.
+        let mut infos = gpos::Info::init_from_glyphs(Some(gdef), raw_glyphs);
+
+        // 3d. Apply GPOS positioning.
+        if let Some(gpos) = self.gpos_cache.as_ref() {
+            let kern_table = self
+                .opt_kern_table
+                .as_ref()
+                .map(|kt| allsorts::tables::kern::KernTable::from_owned(&**kt));
+            let apply_kerning = kern_table.is_some();
+            // The modern `gpos::apply` takes a GlyphDirection enum and an iterator of features.
+            gpos::apply(
+                gpos,
+                Some(gdef),
+                kern_table,
+                apply_kerning,
+                &Features::Custom(user_features),
+                None,
+                script_tag,
+                Some(lang_tag), // Note: &Vec can be used to create an iterator
+                &mut infos,
+            )
+            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+        }
+
+        // 4. Translate the allsorts output into the layout engine's `Glyph` format.
+        let font_size = style.font_size_px;
         let scale_factor = if self.font_metrics.units_per_em > 0 {
             font_size / (self.font_metrics.units_per_em as f32)
         } else {
@@ -132,40 +200,43 @@ impl ParsedFontTrait for ParsedFont {
         };
 
         let mut shaped_glyphs = Vec::new();
-        let mut text_cursor = text.char_indices().peekable();
+        for info in infos.iter() {
+            // Retrieve the cluster ID from the field we used to store it.
+            let cluster = info.glyph.liga_component_pos as u32;
 
-        for info in shaped_buffer.infos {
-            // This logic is simplified. A full implementation needs to handle complex
-            // scripts where character-to-glyph mapping is not 1-to-1. `allsorts`'s
-            // `liga_component_pos` helps, but a robust solution requires tracking clusters.
-            let (start_byte, source_char) = match text_cursor.next() {
-                Some((i, c)) => (i, c),
-                None => break, // Ran out of source characters
-            };
+            let source_char = text
+                .get(cluster as usize..)
+                .and_then(|s| s.chars().next())
+                .unwrap_or('\u{FFFD}');
 
-            let advance = info.size.advance_x as f32 * scale_factor;
-            let (offset_x, offset_y) = if let Placement::Distance(d) = info.placement {
-                (d.x as f32 * scale_factor, d.y as f32 * scale_factor)
-            } else {
-                (0.0, 0.0)
-            };
+            let base_advance = self.get_horizontal_advance(info.glyph.glyph_index);
+            // Ensure both operands are i32 before adding
+            let advance = (base_advance as i32 + info.kerning as i32) as f32 * scale_factor;
+
+            let (offset_x_units, offset_y_units) =
+                if let allsorts::gpos::Placement::Distance(x, y) = info.placement {
+                    (x, y)
+                } else {
+                    (0, 0)
+                };
+            let offset_x = offset_x_units as f32 * scale_factor;
+            let offset_y = offset_y_units as f32 * scale_factor;
 
             let glyph = Glyph {
                 glyph_id: info.glyph.glyph_index,
                 codepoint: source_char,
                 font: Arc::new(self.clone()),
-                style: dummy_style.clone(),
+                style: Arc::new(style.clone()),
                 source: GlyphSource::Char,
-                logical_byte_index: start_byte,
+                logical_byte_index: cluster as usize,
                 logical_byte_len: source_char.len_utf8(),
-                content_index: 0, // Set later by layout engine
-                cluster: start_byte as u32,
+                content_index: 0,
+                cluster,
                 advance,
                 offset: Point {
                     x: offset_x,
                     y: offset_y,
                 },
-                // Vertical metrics are not parsed in the provided `ParsedFont` code
                 vertical_advance: 0.0,
                 vertical_origin_y: 0.0,
                 vertical_bearing: Point { x: 0.0, y: 0.0 },
@@ -179,16 +250,33 @@ impl ParsedFontTrait for ParsedFont {
         Ok(shaped_glyphs)
     }
 
-    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> (u16, f32) {
-        let glyph_id = self.lookup_glyph_index('-' as u32).unwrap_or(0);
+    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
+        let glyph_id = self.lookup_glyph_index('-' as u32)?;
         let advance_units = self.get_horizontal_advance(glyph_id);
         let scale_factor = if self.font_metrics.units_per_em > 0 {
             font_size / (self.font_metrics.units_per_em as f32)
         } else {
-            0.0
+            return None;
         };
         let scaled_advance = advance_units as f32 * scale_factor;
-        (glyph_id, scaled_advance)
+        Some((glyph_id, scaled_advance))
+    }
+
+    fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
+        // U+0640 is the Arabic Tatweel character, used for kashida justification.
+        let glyph_id = self.lookup_glyph_index('\u{0640}' as u32)?;
+        let advance_units = self.get_horizontal_advance(glyph_id);
+        let scale_factor = if self.font_metrics.units_per_em > 0 {
+            font_size / (self.font_metrics.units_per_em as f32)
+        } else {
+            return None;
+        };
+        let scaled_advance = advance_units as f32 * scale_factor;
+        Some((glyph_id, scaled_advance))
+    }
+
+    fn num_glyphs(&self) -> u16 {
+        self.num_glyphs
     }
 
     fn has_glyph(&self, codepoint: u32) -> bool {
@@ -254,6 +342,81 @@ fn to_opentype_script_tag(script: Script) -> u32 {
         Tamil => u32::from_be_bytes(*b"taml"),
         Telugu => u32::from_be_bytes(*b"telu"),
         Thai => u32::from_be_bytes(*b"thai"),
+    }
+}
+
+/// Parses a CSS-style font-feature-settings string like `"liga"`, `"liga=0"`, or `"ss01"`.
+/// Returns an OpenType tag and a value.
+fn parse_font_feature(feature_str: &str) -> Option<(u32, u32)> {
+    let mut parts = feature_str.split('=');
+    let tag_str = parts.next()?.trim();
+    let value_str = parts.next().unwrap_or("1").trim(); // Default to 1 (on) if no value
+
+    // OpenType feature tags must be 4 characters long.
+    if tag_str.len() > 4 {
+        return None;
+    }
+    // Pad with spaces if necessary
+    let padded_tag_str = format!("{:<4}", tag_str);
+
+    let tag = u32::from_be_bytes(padded_tag_str.as_bytes().try_into().ok()?);
+    let value = value_str.parse::<u32>().ok()?;
+
+    Some((tag, value))
+}
+
+/// A helper to add OpenType features based on CSS `font-variant-*` properties.
+fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>) {
+    // Helper to add a feature that is simply "on".
+    let mut add_on = |tag_str: &[u8; 4]| {
+        features.push(FeatureInfo {
+            feature_tag: u32::from_be_bytes(*tag_str),
+            alternate: None,
+        });
+    };
+
+    // Note on disabling features: The CSS properties `font-variant-ligatures: none` or
+    // `no-common-ligatures` are meant to disable features that may be on by default for a
+    // given script. The `allsorts` API for applying custom features is additive and does not
+    // currently support disabling default features. This implementation only handles enabling
+    // non-default features.
+
+    // Ligatures
+    match style.font_variant_ligatures {
+        FontVariantLigatures::Discretionary => add_on(b"dlig"),
+        FontVariantLigatures::Historical => add_on(b"hlig"),
+        FontVariantLigatures::Contextual => add_on(b"calt"),
+        _ => {} // Other cases are either default-on or require disabling.
+    }
+
+    // Caps
+    match style.font_variant_caps {
+        FontVariantCaps::SmallCaps => add_on(b"smcp"),
+        FontVariantCaps::AllSmallCaps => {
+            add_on(b"c2sc");
+            add_on(b"smcp");
+        }
+        FontVariantCaps::PetiteCaps => add_on(b"pcap"),
+        FontVariantCaps::AllPetiteCaps => {
+            add_on(b"c2pc");
+            add_on(b"pcap");
+        }
+        FontVariantCaps::Unicase => add_on(b"unic"),
+        FontVariantCaps::TitlingCaps => add_on(b"titl"),
+        FontVariantCaps::Normal => {}
+    }
+
+    // Numeric
+    match style.font_variant_numeric {
+        FontVariantNumeric::LiningNums => add_on(b"lnum"),
+        FontVariantNumeric::OldstyleNums => add_on(b"onum"),
+        FontVariantNumeric::ProportionalNums => add_on(b"pnum"),
+        FontVariantNumeric::TabularNums => add_on(b"tnum"),
+        FontVariantNumeric::DiagonalFractions => add_on(b"frac"),
+        FontVariantNumeric::StackedFractions => add_on(b"afrc"),
+        FontVariantNumeric::Ordinal => add_on(b"ordn"),
+        FontVariantNumeric::SlashedZero => add_on(b"zero"),
+        FontVariantNumeric::Normal => {}
     }
 }
 
