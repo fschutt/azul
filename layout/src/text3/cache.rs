@@ -2025,12 +2025,12 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
     /// # Returns
     /// A `FlowLayout` struct containing the positioned items for each fragment that
     /// was filled, and any content that did not fit in the final fragment.
-    pub fn layout_flow<Q: FontLoaderTrait<T>>(
+    pub fn layout_flow<P: FontProviderTrait<T>>(
         &mut self,
         content: &[InlineContent],
         style_overrides: &[StyleOverride],
         flow_chain: &[LayoutFragment],
-        font_manager: &FontManager<T, Q>,
+        font_manager: &P,
     ) -> Result<FlowLayout<T>, LayoutError> {
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
@@ -2090,15 +2090,14 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         let mut cursor = BreakCursor::new(&oriented_items);
 
         for fragment in flow_chain {
-            if cursor.is_done() {
-                break; // All content has been laid out.
-            }
-
             // Perform layout for this single fragment, consuming items from the cursor.
             let fragment_layout =
                 perform_fragment_layout(&mut cursor, &logical_items, &fragment.constraints)?;
 
             fragment_layouts.insert(fragment.id.clone(), Arc::new(fragment_layout));
+            if cursor.is_done() {
+                break; // All content has been laid out.
+            }
         }
 
         Ok(FlowLayout {
@@ -2420,9 +2419,9 @@ pub fn reorder_logical_items(
 
 // --- Stage 3 Implementation ---
 
-pub fn shape_visual_items<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
     visual_items: &[VisualItem],
-    font_manager: &FontManager<T, Q>,
+    font_provider: &P,
 ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
     let mut shaped = Vec::new();
 
@@ -2434,7 +2433,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 } else {
                     Direction::Ltr
                 };
-                let font = font_manager.load_font(&style.font_ref)?;
+                let font = font_provider.load_font(&style.font_ref)?;
                 let language = script_to_language(item.script, &item.text);
 
                 let shaped_clusters = shape_text_correctly(
@@ -2501,7 +2500,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 source,
                 text,
             } => {
-                let font: Arc<T> = font_manager.load_font(&style.font_ref)?;
+                let font: Arc<T> = font_provider.load_font(&style.font_ref)?;
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
@@ -2577,7 +2576,6 @@ fn is_hanging_punctuation<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
     }
 }
 
-/// A corrected shaping function that avoids the bugs identified in the critique.
 fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
@@ -3031,97 +3029,72 @@ pub fn break_one_line<T: ParsedFontTrait>(
     hyphenator: Option<&Standard>,
 ) -> (Vec<ShapedItem<T>>, bool) {
     let mut line_items = Vec::new();
-    let mut current_item_iterator = 0;
-    let mut last_safe_break: Option<(usize, usize)> = None;
+    let mut current_width = 0.0;
 
-    // --- Item Source Logic ---
-    let original_remainder_len = cursor.partial_remainder.len();
-    let mut potential_items = cursor.partial_remainder.clone();
-    potential_items.extend_from_slice(&cursor.items[cursor.next_item_index..]);
-
-    if potential_items.is_empty() {
+    if cursor.is_done() {
         return (Vec::new(), false);
     }
 
-    // --- Stage 1: Greedily fill all available segments ---
-    'segment_loop: for segment in &line_constraints.segments {
-        let mut current_segment_width = 0.0;
-        loop {
-            let item = match potential_items.get(current_item_iterator) {
-                Some(item) => item,
-                None => {
-                    cursor.partial_remainder.clear();
-                    cursor.next_item_index = cursor.items.len();
-                    return (line_items, false);
+    loop {
+        // 1. Identify the next unbreakable unit (word) or break opportunity.
+        let next_unit = cursor.peek_next_unit();
+        if next_unit.is_empty() {
+            break; // End of content
+        }
+
+        // Handle hard breaks immediately.
+        if let Some(ShapedItem::Break { .. }) = next_unit.first() {
+            line_items.push(next_unit[0].clone());
+            cursor.consume(1);
+            return (line_items, false);
+        }
+
+        let unit_width: f32 = next_unit
+            .iter()
+            .map(|item| get_item_measure(item, is_vertical))
+            .sum();
+        let available_width = line_constraints.total_available - current_width;
+
+        // 2. Can the whole unit fit on the current line?
+        if unit_width <= available_width {
+            line_items.extend_from_slice(&next_unit);
+            current_width += unit_width;
+            cursor.consume(next_unit.len());
+            // If the unit was a space, we've found a safe break point. Continue filling.
+            if is_break_opportunity(next_unit.last().unwrap()) {
+                continue;
+            }
+        } else {
+            // 3. The unit overflows. Can we hyphenate it?
+            if let Some(hyphenator) = hyphenator {
+                // We only try to hyphenate if the unit is a word (not a space).
+                if !is_break_opportunity(next_unit.last().unwrap()) {
+                    if let Some(hyphenation_result) = try_hyphenate_word_cluster(
+                        &next_unit,
+                        available_width,
+                        is_vertical,
+                        hyphenator,
+                    ) {
+                        line_items.extend(hyphenation_result.line_part);
+                        // Consume the original full word from the cursor.
+                        cursor.consume(next_unit.len());
+                        // Put the remainder back for the next line.
+                        cursor.partial_remainder = hyphenation_result.remainder_part;
+                        return (line_items, true);
+                    }
                 }
-            };
-
-            if let ShapedItem::Break { .. } = item {
-                line_items.push(item.clone());
-                let consumed_from_main =
-                    (current_item_iterator + 1).saturating_sub(original_remainder_len);
-                cursor.partial_remainder.clear();
-                cursor.next_item_index += consumed_from_main;
-                return (line_items, false);
             }
 
-            let item_measure = get_item_measure(item, is_vertical);
-            if current_segment_width + item_measure > segment.width {
-                break;
+            // 4. Cannot hyphenate or fit. The line is finished.
+            // If the line is empty, we must force at least one item to avoid an infinite loop.
+            if line_items.is_empty() {
+                line_items.push(next_unit[0].clone());
+                cursor.consume(1);
             }
-
-            line_items.push(item.clone());
-            current_segment_width += item_measure;
-            current_item_iterator += 1;
-
-            if is_break_opportunity(item) {
-                let items_from_main_list =
-                    current_item_iterator.saturating_sub(original_remainder_len);
-                last_safe_break = Some((line_items.len(), items_from_main_list));
-            }
+            break;
         }
     }
 
-    // --- Stage 2: Determine the final break point based on what was fitted ---
-    if let Some((break_at_line_idx, consumed_from_main)) = last_safe_break {
-        line_items.truncate(break_at_line_idx);
-        cursor.partial_remainder.clear();
-        cursor.next_item_index += consumed_from_main;
-        return (line_items, false);
-    }
-
-    // --- Stage 3: No safe break point found, attempt hyphenation ---
-    if let Some(hyphenator) = hyphenator {
-        let available_width = line_constraints.total_available;
-        if let Some(hyphenation_result) =
-            try_hyphenate_word_cluster(&line_items, available_width, is_vertical, hyphenator)
-        {
-            // --- START CRITICAL FIX ---
-            // The cursor must be updated to consume all original items that formed the word.
-            let items_in_word = line_items.len();
-            let items_from_main_list = items_in_word.saturating_sub(original_remainder_len);
-
-            cursor.next_item_index += items_from_main_list;
-            // The remainder is now a Vec, which is what the cursor expects.
-            cursor.partial_remainder = hyphenation_result.remainder_part;
-            return (hyphenation_result.line_part, true);
-            // --- END CRITICAL FIX ---
-        }
-    }
-
-    // --- Stage 4: Hyphenation failed or disabled, force a break ---
-    if line_items.is_empty() {
-        let first_item = potential_items[0].clone();
-        let items_from_main_list = 1_usize.saturating_sub(original_remainder_len);
-        cursor.partial_remainder.clear();
-        cursor.next_item_index += items_from_main_list;
-        return (vec![first_item], false);
-    }
-
-    // Fallback: The entire line is an unbreakable word that fits.
-    let consumed_from_main = line_items.len().saturating_sub(original_remainder_len);
-    cursor.partial_remainder.clear();
-    cursor.next_item_index += consumed_from_main;
     (line_items, false)
 }
 
@@ -3196,42 +3169,25 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
 
     // --- 3. Generate a HyphenationBreak for each valid opportunity ---
     for &break_char_idx in &opportunities.breaks {
-        if break_char_idx >= char_map.len() {
+        // The break is *before* the character at this index.
+        // So the last character on the line is at `break_char_idx - 1`.
+        if break_char_idx == 0 || break_char_idx > char_map.len() {
             continue;
         }
 
-        let (break_cluster_idx, break_glyph_idx, width_at_break) = char_map[break_char_idx];
+        let (_, _, width_at_break) = char_map[break_char_idx - 1];
 
-        // --- 4. Perform the split logic ---
-        let cluster_to_split = &word_clusters[break_cluster_idx];
-        let first_part_glyphs = cluster_to_split.glyphs[..=break_glyph_idx].to_vec();
-        let second_part_glyphs = cluster_to_split.glyphs[break_glyph_idx + 1..].to_vec();
-
-        if first_part_glyphs.is_empty() || second_part_glyphs.is_empty() {
-            continue;
-        }
-
-        let split_byte_offset = word_string
-            .char_indices()
-            .nth(break_char_idx + 1)
-            .map_or(word_string.len(), |(idx, _)| idx);
-        let first_part_text_slice = &word_string[..split_byte_offset];
-        let second_part_text_slice = &word_string[split_byte_offset..];
-
-        let first_part_advance: f32 = first_part_glyphs.iter().map(|g| g.advance).sum();
-        let second_part_advance: f32 = second_part_glyphs.iter().map(|g| g.advance).sum();
-
-        // --- 5. Assemble the pieces ---
-        let mut line_part: Vec<ShapedItem<T>> = word_clusters[..break_cluster_idx]
+        // The line part is all clusters *before* the break index.
+        let line_part: Vec<ShapedItem<T>> = word_clusters[..break_char_idx]
             .iter()
             .map(|c| ShapedItem::Cluster(c.clone()))
             .collect();
-        line_part.push(ShapedItem::Cluster(ShapedCluster {
-            text: first_part_text_slice.to_string(),
-            glyphs: first_part_glyphs,
-            advance: first_part_advance,
-            ..cluster_to_split.clone()
-        }));
+
+        // The remainder is all clusters *from* the break index onward.
+        let remainder_part: Vec<ShapedItem<T>> = word_clusters[break_char_idx..]
+            .iter()
+            .map(|c| ShapedItem::Cluster(c.clone()))
+            .collect();
 
         let hyphen_item = ShapedItem::Cluster(ShapedCluster {
             text: "-".to_string(),
@@ -3260,34 +3216,12 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
             style: style.clone(),
         });
 
-        // --- START CRITICAL FIX ---
-        // The remainder is now a vector that includes the rest of the split cluster
-        // PLUS all subsequent clusters from the original word.
-        let mut remainder_part = Vec::new();
-        remainder_part.push(ShapedItem::Cluster(ShapedCluster {
-            text: second_part_text_slice.to_string(),
-            glyphs: second_part_glyphs,
-            advance: second_part_advance,
-            ..cluster_to_split.clone()
-        }));
-
-        // If the split happened before the last cluster of the word,
-        // add the remaining full clusters to the remainder.
-        if break_cluster_idx + 1 < word_clusters.len() {
-            remainder_part.extend(
-                word_clusters[break_cluster_idx + 1..]
-                    .iter()
-                    .map(|c| ShapedItem::Cluster(c.clone())),
-            );
-        }
-        // --- END CRITICAL FIX ---
-
         possible_breaks.push(HyphenationBreak {
-            char_len_on_line: break_char_idx + 1,
+            char_len_on_line: break_char_idx,
             width_on_line: width_at_break + hyphen_advance,
             line_part,
             hyphen_item,
-            remainder_part, // This is now the correctly constructed Vec
+            remainder_part,
         });
     }
 
@@ -4120,6 +4054,52 @@ impl<'a, T: ParsedFontTrait> BreakCursor<'a, T> {
     /// Checks if all content, including any partial remainders, has been processed.
     pub fn is_done(&self) -> bool {
         self.next_item_index >= self.items.len() && self.partial_remainder.is_empty()
+    }
+
+    /// Consumes a number of items from the cursor's stream.
+    pub fn consume(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+
+        let remainder_len = self.partial_remainder.len();
+        if count <= remainder_len {
+            // Consuming only from the remainder.
+            self.partial_remainder.drain(..count);
+        } else {
+            // Consuming all of the remainder and some from the main list.
+            let from_main_list = count - remainder_len;
+            self.partial_remainder.clear();
+            self.next_item_index += from_main_list;
+        }
+    }
+
+    /// Looks ahead and returns the next "unbreakable" unit of content.
+    /// This is typically a word (a series of non-space clusters) followed by a
+    /// space, or just a single space if that's next.
+    pub fn peek_next_unit(&self) -> Vec<ShapedItem<T>> {
+        let mut unit = Vec::new();
+        let mut source_items = self.partial_remainder.clone();
+        source_items.extend_from_slice(&self.items[self.next_item_index..]);
+
+        if source_items.is_empty() {
+            return unit;
+        }
+
+        // If the first item is a break opportunity (like a space), it's a unit on its own.
+        if is_break_opportunity(&source_items[0]) {
+            unit.push(source_items[0].clone());
+            return unit;
+        }
+
+        // Otherwise, collect all items until the next break opportunity.
+        for item in source_items {
+            if is_break_opportunity(&item) {
+                break;
+            }
+            unit.push(item.clone());
+        }
+        unit
     }
 }
 
