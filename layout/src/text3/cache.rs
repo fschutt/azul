@@ -1,7 +1,10 @@
 use std::{
     any::{Any, TypeId},
     cmp::Ordering,
-    collections::hash_map::{DefaultHasher, Entry, HashMap},
+    collections::{
+        hash_map::{DefaultHasher, Entry, HashMap},
+        BTreeSet,
+    },
     hash::{Hash, Hasher},
     mem::discriminant,
     num::NonZeroUsize,
@@ -2112,27 +2115,21 @@ pub fn create_logical_items(
     content: &[InlineContent],
     style_overrides: &[StyleOverride],
 ) -> Vec<LogicalItem> {
-    println!("\n--- [DEBUG] Entering create_logical_items ---");
+    println!("\n--- [DEBUG] Entering create_logical_items (Refactored) ---");
     println!("Input content length: {}", content.len());
     println!("Input overrides length: {}", style_overrides.len());
 
     let mut items = Vec::new();
+    let mut style_cache: HashMap<u64, Arc<StyleProperties>> = HashMap::new();
 
-    // 1. PRE-COMPUTATION: Organize overrides by run_index for fast lookups.
-    let mut run_overrides: HashMap<u32, Vec<(u32, &PartialStyleProperties)>> = HashMap::new();
+    // 1. Organize overrides for fast lookup per run.
+    let mut run_overrides: HashMap<u32, HashMap<u32, &PartialStyleProperties>> = HashMap::new();
     for override_item in style_overrides {
         run_overrides
             .entry(override_item.target.run_index)
             .or_default()
-            .push((override_item.target.item_index, &override_item.style));
+            .insert(override_item.target.item_index, &override_item.style);
     }
-
-    // Sort overrides by their item_index (byte offset) to enable linear scanning.
-    for overrides in run_overrides.values_mut() {
-        overrides.sort_by_key(|(item_index, _)| *item_index);
-    }
-
-    let mut style_cache: HashMap<u64, Arc<StyleProperties>> = HashMap::new();
 
     for (run_idx, inline_item) in content.iter().enumerate() {
         println!("Processing content run #{}", run_idx);
@@ -2145,132 +2142,126 @@ pub fn create_logical_items(
                 }
                 println!("  Run text: '{}'", text);
 
-                let mut byte_cursor = 0;
                 let current_run_overrides = run_overrides.get(&(run_idx as u32));
-                let mut override_cursor = 0;
+                let mut boundaries = BTreeSet::new();
+                boundaries.insert(0);
+                boundaries.insert(text.len());
 
-                while byte_cursor < text.len() {
-                    println!("  Byte cursor at: {}", byte_cursor);
-
-                    let style_to_use = {
-                        let style_override = current_run_overrides.and_then(|overrides| {
-                            while let Some((offset, _)) = overrides.get(override_cursor) {
-                                if (*offset as usize) < byte_cursor {
-                                    override_cursor += 1;
-                                } else {
-                                    break;
-                                }
-                            }
-                            if let Some((offset, style)) = overrides.get(override_cursor) {
-                                if (*offset as usize) == byte_cursor {
-                                    println!("  Applying override at byte {}", byte_cursor);
-                                    Some(*style)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        });
-
-                        match style_override {
-                            None => run.style.clone(),
-                            Some(partial_style) => {
-                                let mut hasher = DefaultHasher::new();
-                                Arc::as_ptr(&run.style).hash(&mut hasher);
-                                partial_style.hash(&mut hasher);
-                                style_cache
-                                    .entry(hasher.finish())
-                                    .or_insert_with(|| {
-                                        Arc::new(run.style.apply_override(partial_style))
-                                    })
-                                    .clone()
-                            }
-                        }
-                    };
-
-                    let first_grapheme = text[byte_cursor..].graphemes(true).next().unwrap();
-
-                    // Case 2: Text-Combine-Upright sequence.
-                    let combine_digits = if let Some(TextCombineUpright::Digits(n)) =
-                        style_to_use.text_combine_upright
+                // --- Stateful Boundary Generation ---
+                let mut scan_cursor = 0;
+                while scan_cursor < text.len() {
+                    let style_at_cursor = if let Some(partial) =
+                        current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32)))
                     {
-                        println!("  Found TextCombineUpright::Digits({})", n);
-                        n
+                        // Create a temporary, full style to check its properties
+                        run.style.apply_override(partial)
                     } else {
-                        0
+                        (*run.style).clone()
                     };
-                    if combine_digits > 0 && first_grapheme.chars().all(|c| c.is_ascii_digit()) {
-                        let mut combined_text = String::new();
-                        let mut total_bytes = 0;
-                        let mut grapheme_iter =
-                            text[byte_cursor..].grapheme_indices(true).peekable();
 
-                        while combined_text.len() < combine_digits as usize {
-                            if let Some((_, grapheme)) = grapheme_iter.peek() {
-                                if grapheme.chars().all(|c| c.is_ascii_digit()) {
-                                    combined_text.push_str(grapheme);
-                                    total_bytes += grapheme.len();
-                                    grapheme_iter.next();
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
+                    let current_char = text[scan_cursor..].chars().next().unwrap();
+
+                    // Rule 1: Multi-character features take precedence.
+                    if let Some(TextCombineUpright::Digits(max_digits)) =
+                        style_at_cursor.text_combine_upright
+                    {
+                        if max_digits > 0 && current_char.is_ascii_digit() {
+                            let digit_chunk: String = text[scan_cursor..]
+                                .chars()
+                                .take(max_digits as usize)
+                                .take_while(|c| c.is_ascii_digit())
+                                .collect();
+
+                            let end_of_chunk = scan_cursor + digit_chunk.len();
+                            boundaries.insert(scan_cursor);
+                            boundaries.insert(end_of_chunk);
+                            scan_cursor = end_of_chunk; // Jump past the entire sequence
+                            continue;
                         }
-                        println!("  Created CombinedText: '{}'", combined_text);
-                        items.push(LogicalItem::CombinedText {
-                            source: ContentIndex {
-                                run_index: run_idx as u32,
-                                item_index: byte_cursor as u32,
-                            },
-                            text: combined_text.clone(),
-                            style: style_to_use,
-                        });
-                        byte_cursor += total_bytes;
+                    }
+
+                    // Rule 2: If no multi-char feature, check for a normal single-grapheme
+                    // override.
+                    if current_run_overrides
+                        .and_then(|o| o.get(&(scan_cursor as u32)))
+                        .is_some()
+                    {
+                        let grapheme_len = text[scan_cursor..]
+                            .graphemes(true)
+                            .next()
+                            .unwrap_or("")
+                            .len();
+                        boundaries.insert(scan_cursor);
+                        boundaries.insert(scan_cursor + grapheme_len);
+                        scan_cursor += grapheme_len;
                         continue;
                     }
 
-                    // --- C. Handle a plain text chunk ---
-                    let next_tab_offset = text[byte_cursor..].find('\t').map(|i| byte_cursor + i);
-                    let next_override_offset = current_run_overrides
-                        .and_then(|overrides| overrides.get(override_cursor))
-                        .map(|(offset, _)| *offset as usize);
+                    // Rule 3: No special features or overrides at this point, just advance one
+                    // char.
+                    scan_cursor += current_char.len_utf8();
+                }
 
-                    // If combine-upright is active, the text chunk should also end
-                    // before the next digit sequence.
-                    let next_digit_offset = if combine_digits > 0 {
-                        text[byte_cursor..]
-                            .find(|c: char| c.is_ascii_digit())
-                            .map(|i| byte_cursor + i)
+                println!("  Boundaries: {:?}", boundaries);
+
+                // --- Chunk Processing ---
+                for (start, end) in boundaries.iter().zip(boundaries.iter().skip(1)) {
+                    let (start, end) = (*start, *end);
+                    if start >= end {
+                        continue;
+                    }
+
+                    let text_slice = &text[start..end];
+                    println!(
+                        "  Processing chunk from {} to {}: '{}'",
+                        start, end, text_slice
+                    );
+
+                    let style_to_use = if let Some(partial_style) =
+                        current_run_overrides.and_then(|o| o.get(&(start as u32)))
+                    {
+                        println!("  -> Applying override at byte {}", start);
+                        let mut hasher = DefaultHasher::new();
+                        Arc::as_ptr(&run.style).hash(&mut hasher);
+                        partial_style.hash(&mut hasher);
+                        style_cache
+                            .entry(hasher.finish())
+                            .or_insert_with(|| Arc::new(run.style.apply_override(partial_style)))
+                            .clone()
                     } else {
-                        None
+                        run.style.clone()
                     };
 
-                    let mut chunk_end = text.len();
-                    if let Some(offset) = next_tab_offset {
-                        chunk_end = chunk_end.min(offset);
-                    }
-                    if let Some(offset) = next_override_offset {
-                        chunk_end = chunk_end.min(offset);
-                    }
-                    if let Some(offset) = next_digit_offset {
-                        chunk_end = chunk_end.min(offset);
+                    let is_combinable_chunk = if let Some(TextCombineUpright::Digits(max_digits)) =
+                        &style_to_use.text_combine_upright
+                    {
+                        *max_digits > 0
+                            && !text_slice.is_empty()
+                            && text_slice.chars().all(|c| c.is_ascii_digit())
+                            && text_slice.chars().count() <= *max_digits as usize
+                    } else {
+                        false
                     };
 
-                    let text_slice = &text[byte_cursor..chunk_end];
-                    println!("  Created Text chunk: '{}'", text_slice);
-                    items.push(LogicalItem::Text {
-                        source: ContentIndex {
-                            run_index: run_idx as u32,
-                            item_index: byte_cursor as u32,
-                        },
-                        text: text_slice.to_string(),
-                        style: style_to_use,
-                    });
-
-                    byte_cursor = chunk_end;
+                    if is_combinable_chunk {
+                        items.push(LogicalItem::CombinedText {
+                            source: ContentIndex {
+                                run_index: run_idx as u32,
+                                item_index: start as u32,
+                            },
+                            text: text_slice.to_string(),
+                            style: style_to_use,
+                        });
+                    } else {
+                        items.push(LogicalItem::Text {
+                            source: ContentIndex {
+                                run_index: run_idx as u32,
+                                item_index: start as u32,
+                            },
+                            text: text_slice.to_string(),
+                            style: style_to_use,
+                        });
+                    }
                 }
             }
             // Other cases...
@@ -2292,6 +2283,7 @@ pub fn create_logical_items(
     );
     items
 }
+
 // --- Stage 2 Implementation ---
 
 pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> Direction {
@@ -2865,16 +2857,18 @@ fn calculate_line_metrics<T: ParsedFontTrait>(items: &[ShapedItem<T>]) -> (f32, 
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
     cursor: &mut BreakCursor<T>,
     logical_items: &[LogicalItem],
-    constraints: &UnifiedConstraints,
+    fragment_constraints: &UnifiedConstraints,
 ) -> Result<UnifiedLayout<T>, LayoutError> {
     println!("\n--- [DEBUG] Entering perform_fragment_layout ---");
     println!(
         "Constraints: available_width={}, available_height={:?}, columns={}",
-        constraints.available_width, constraints.available_height, constraints.columns
+        fragment_constraints.available_width,
+        fragment_constraints.available_height,
+        fragment_constraints.columns
     );
 
-    let hyphenator = if constraints.hyphenation {
-        constraints
+    let hyphenator = if fragment_constraints.hyphenation {
+        fragment_constraints
             .hyphenation_language
             .and_then(|lang| get_hyphenator(lang).ok())
     } else {
@@ -2884,50 +2878,55 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     let mut positioned_items = Vec::new();
     let mut layout_bounds = Rect::default();
 
-    let num_columns = constraints.columns.max(1);
-    let total_column_gap = constraints.column_gap * (num_columns - 1) as f32;
-    let column_width = (constraints.available_width - total_column_gap) / num_columns as f32;
+    let num_columns = fragment_constraints.columns.max(1);
+    let total_column_gap = fragment_constraints.column_gap * (num_columns - 1) as f32;
+    let column_width =
+        (fragment_constraints.available_width - total_column_gap) / num_columns as f32;
     let mut current_column = 0;
     println!("Column width calculated: {}", column_width);
 
     let base_direction = get_base_direction_from_logical(logical_items);
-    let physical_align = resolve_logical_align(constraints.text_align, base_direction);
+    let physical_align = resolve_logical_align(fragment_constraints.text_align, base_direction);
 
     'column_loop: while current_column < num_columns {
         println!("\n-- Starting Column {} --", current_column);
-        let column_start_x = (column_width + constraints.column_gap) * current_column as f32;
-        let mut cross_axis_pen = 0.0;
+        let column_start_x =
+            (column_width + fragment_constraints.column_gap) * current_column as f32;
+        let mut line_top_y = 0.0;
         let mut line_index = 0;
 
         while !cursor.is_done() {
-            if let Some(max_height) = constraints.available_height {
-                if cross_axis_pen >= max_height {
+            if let Some(max_height) = fragment_constraints.available_height {
+                if line_top_y >= max_height {
                     println!(
                         "  Column full (pen {} >= height {}), breaking to next column.",
-                        cross_axis_pen, max_height
+                        line_top_y, max_height
                     );
                     break;
                 }
             }
 
-            if let Some(clamp) = constraints.line_clamp {
+            if let Some(clamp) = fragment_constraints.line_clamp {
                 if line_index >= clamp.get() {
                     break;
                 }
             }
 
             // Create constraints specific to the current column for the line breaker.
-            let mut column_constraints = constraints.clone();
+            let mut column_constraints = fragment_constraints.clone();
             column_constraints.available_width = column_width;
-            let line_constraints =
-                get_line_constraints(cross_axis_pen, constraints.line_height, &column_constraints);
+            let line_constraints = get_line_constraints(
+                line_top_y,
+                fragment_constraints.line_height,
+                &column_constraints,
+            );
 
             if line_constraints.segments.is_empty() {
                 println!(
                     "  No available segments at y={}, skipping to next line.",
-                    cross_axis_pen
+                    line_top_y
                 );
-                cross_axis_pen += constraints.line_height;
+                line_top_y += fragment_constraints.line_height;
                 continue;
             }
 
@@ -2941,18 +2940,18 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
                 &line_constraints,
-                cross_axis_pen,
+                line_top_y,
                 line_index,
                 physical_align,
                 cursor.is_done() && !was_hyphenated,
-                constraints,
+                fragment_constraints,
             );
 
             for item in &mut line_pos_items {
                 item.position.x += column_start_x;
             }
 
-            cross_axis_pen += line_height.max(constraints.line_height);
+            line_top_y += line_height.max(fragment_constraints.line_height);
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -3220,7 +3219,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem<T>>,
     line_constraints: &LineConstraints,
-    cross_axis_pos: f32,
+    line_top_y: f32,
     line_index: usize,
     physical_align: TextAlign,
     is_last_line: bool,
@@ -3235,6 +3234,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The line box is calculated once for all items on the line, regardless of segment.
     let (line_ascent, line_descent) = calculate_line_metrics(&line_items);
     let line_box_height = line_ascent + line_descent;
+
+    // The baseline for the entire line is determined by its tallest item.
+    let line_baseline_y = line_top_y + line_ascent;
 
     // --- Segment-Aware Positioning ---
     let mut item_cursor = 0;
@@ -3321,14 +3323,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
         for item in justified_segment_items {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item);
             let item_baseline_pos = match constraints.vertical_align {
-                VerticalAlign::Top => cross_axis_pos - line_ascent + item_ascent,
+                VerticalAlign::Top => line_top_y + item_ascent,
                 VerticalAlign::Middle => {
-                    cross_axis_pos - line_ascent + (line_box_height / 2.0)
-                        - ((item_ascent + item_descent) / 2.0)
+                    line_top_y + (line_box_height / 2.0) - ((item_ascent + item_descent) / 2.0)
                         + item_ascent
                 }
-                VerticalAlign::Bottom => cross_axis_pos + line_descent - item_descent,
-                _ => cross_axis_pos, // Baseline
+                VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
+                _ => line_baseline_y, // Baseline
             };
 
             let position = if is_vertical {
@@ -3819,18 +3820,23 @@ fn get_shape_horizontal_spans(
     y: f32,
     line_height: f32,
 ) -> Result<Vec<(f32, f32)>, LayoutError> {
-    // For simplicity in intersection, we can test against the center of the line.
-    let line_center_y = y + line_height / 2.0;
-
     match shape {
         ShapeBoundary::Rectangle(rect) => {
-            if line_center_y >= rect.y && line_center_y < rect.y + rect.height {
+            // Check for any overlap between the line box [y, y + line_height]
+            // and the rectangle's vertical span [rect.y, rect.y + rect.height].
+            let line_start = y;
+            let line_end = y + line_height;
+            let rect_start = rect.y;
+            let rect_end = rect.y + rect.height;
+
+            if line_start < rect_end && line_end > rect_start {
                 Ok(vec![(rect.x, rect.x + rect.width)])
             } else {
                 Ok(vec![])
             }
         }
         ShapeBoundary::Circle { center, radius } => {
+            let line_center_y = y + line_height / 2.0;
             let dy = (line_center_y - center.y).abs();
             if dy <= *radius {
                 let dx = (radius.powi(2) - dy.powi(2)).sqrt();
@@ -3840,6 +3846,7 @@ fn get_shape_horizontal_spans(
             }
         }
         ShapeBoundary::Ellipse { center, radii } => {
+            let line_center_y = y + line_height / 2.0;
             let dy = line_center_y - center.y;
             if dy.abs() <= radii.height {
                 // Formula: (x-h)^2/a^2 + (y-k)^2/b^2 = 1

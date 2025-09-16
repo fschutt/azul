@@ -658,6 +658,7 @@ fn test_layout_with_shape_exclusion() {
     let constraints = UnifiedConstraints {
         available_width: 300.0,
         available_height: Some(100.0),
+        line_height: 16.0, // Set explicitly for predictable test
         shape_exclusions: vec![ShapeBoundary::Rectangle(Rect {
             x: 100.0,
             y: 10.0,
@@ -667,56 +668,46 @@ fn test_layout_with_shape_exclusion() {
         ..Default::default()
     };
 
+    let is_line_split = |items: &Vec<&PositionedItem<MockFont>>| -> bool {
+        if items.is_empty() {
+            return false;
+        }
+        // A line is split if it has items on both sides of the exclusion, and none in it.
+        let has_left_part = items.iter().any(|i| i.position.x < 100.0);
+        let has_right_part = items.iter().any(|i| i.position.x >= 200.0);
+        let no_middle_part = !items
+            .iter()
+            .any(|i| i.position.x >= 100.0 && i.position.x < 200.0);
+        has_left_part && has_right_part && no_middle_part
+    };
+
     let logical_items = create_logical_items(&content, &[]);
     let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
 
-    // Find a line that should be split
-    // Lines between y=10 and y=40 should be affected. e.g. line at y=12 (index 1)
-    let line1_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 0).collect();
-    let line2_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 1).collect();
-    let line4_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 3).collect();
+    // With line_height = 16.0 and correct intersection logic:
+    // Exclusion rect is y in [10, 40]
+    // Line 0: top_y=0. Box=[0, 16]. Overlaps with [10, 40]. Should be split.
+    // Line 1: top_y=16. Box=[16, 32]. Overlaps. Should be split.
+    // Line 2: top_y=32. Box=[32, 48]. Overlaps. Should be split.
+    // Line 3: top_y=48. Box=[48, 64]. No overlap. Should NOT be split.
 
-    // Line 1 should be a single continuous block
-    let line1_end_x = line1_items.last().unwrap().position.x
-        + get_item_measure(&line1_items.last().unwrap().item, false);
-    assert!(line1_end_x < 290.0, "Line 1 should not be split");
+    let line0_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 0).collect();
+    let line1_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 1).collect();
+    let line2_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 2).collect();
+    let line3_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 3).collect();
 
-    // Line 2 (at y=12) should be split. There should be items before x=100 and items after x=200.
-    let has_left_part = line2_items.iter().any(|i| i.position.x < 100.0);
-    let has_right_part = line2_items.iter().any(|i| i.position.x > 200.0);
-    let no_middle_part = !line2_items
-        .iter()
-        .any(|i| i.position.x > 100.0 && i.position.x < 200.0);
+    assert!(is_line_split(&line0_items), "Line 0 (y=0) should be split");
+    assert!(is_line_split(&line1_items), "Line 1 (y=16) should be split");
+    assert!(is_line_split(&line2_items), "Line 2 (y=32) should be split");
     assert!(
-        has_left_part,
-        "Line 2 should have items on the left of exclusion"
+        !is_line_split(&line3_items),
+        "Line 3 (y=48) should not be split"
     );
-    assert!(
-        has_right_part,
-        "Line 2 should have items on the right of exclusion"
-    );
-    assert!(
-        no_middle_part,
-        "Line 2 should have no items inside the exclusion"
-    );
-
-    // Line 4 (at y=36) should be split too.
-    // Line 5 (at y=48) should be continuous again.
-    let line5_items: Vec<_> = layout.items.iter().filter(|i| i.line_index == 4).collect();
-    let line5_start_x = line5_items.first().unwrap().position.x;
-    let line5_end_x = line5_items.last().unwrap().position.x
-        + get_item_measure(&line5_items.last().unwrap().item, false);
-    assert!(
-        line5_start_x < 10.0,
-        "Line 5 should start near the left edge"
-    );
-    assert!(line5_end_x < 290.0, "Line 5 should be a single block");
 }
 
-#[ignore] // never finishes
 #[test]
 fn test_bug1_shaping_across_style_boundaries() {
     // This test exposes Bug #1. A correct engine should form a ligature for "fi".

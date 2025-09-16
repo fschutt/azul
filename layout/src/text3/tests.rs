@@ -264,7 +264,6 @@ fn default_style() -> Arc<StyleProperties> {
 
 // --- Unit Tests ---
 
-#[ignore] // never finishes
 #[test]
 fn test_bug1_shaping_across_style_boundaries() {
     // This test exposes Bug #1. A correct engine should form a ligature for "fi".
