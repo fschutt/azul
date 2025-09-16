@@ -23,7 +23,7 @@ cargo_metadata = "0.18.1"
 zip = "5.0.0"
 open = "5.3.2"
 tempfile = "3.19.1"
-comrak = { version = "0.37.0", features = ["syntect"] }
+comrak = { version = "0.41.1", features = ["syntect"] }
 azul-layout = { version = "0.0.5", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading", "cpurender"]}
 azul-core = { version = "0.0.5", path = "../core", default-features = false, features = ["std"]}
 azul-css = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"]}
