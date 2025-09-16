@@ -1466,18 +1466,36 @@ impl CallbackInfo {
     }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        let nid = node_id.node.into_crate_internal()?;
-        self.internal_get_layout_results()
-            .get(node_id.dom.inner)?
-            .styled_dom
-            .node_hierarchy
-            .as_container()
-            .get(node_id.node.into_crate_internal()?)?
-            .parent_id()
-            .map(|nid| DomNodeId {
-                dom: node_id.dom,
-                node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
-            })
+        let nid_internal = match node_id.node.into_crate_internal() {
+            Some(id) => id,
+            None => return None, // Invalid input NodeHierarchyItemId
+        };
+
+        let layout_result = match self.internal_get_layout_results().get(node_id.dom.inner) {
+            Some(lr) => lr,
+            None => return None, // DomId not found in layout_results
+        };
+
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let node_data_container = layout_result.styled_dom.node_data.as_container();
+
+        let mut current_search_id = nid_internal;
+
+        // Traverse up the hierarchy until a non-anonymous parent is found or the root is reached.
+        while let Some(parent_id) = node_hierarchy.get(current_search_id).and_then(|n| n.parent_id()) {
+            // Check if the parent node data exists and if it's marked as anonymous.
+            // If it is, we skip it and continue searching up the hierarchy.
+            if node_data_container.get(parent_id).map_or(false, |nd| nd.is_anonymous) {
+                current_search_id = parent_id; // Continue search from this anonymous parent.
+            } else {
+                // Found a non-anonymous parent, return it.
+                return Some(DomNodeId {
+                    dom: node_id.dom, // The DomId remains the same context
+                    node: NodeHierarchyItemId::from_crate_internal(Some(parent_id)),
+                });
+            }
+        }
+        None // No non-anonymous parent found up to the root.
     }
 
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
