@@ -2785,7 +2785,7 @@ fn apply_text_orientation<T: ParsedFontTrait>(
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item.
-fn get_item_vertical_metrics<T: ParsedFontTrait>(item: &ShapedItem<T>) -> (f32, f32) {
+pub fn get_item_vertical_metrics<T: ParsedFontTrait>(item: &ShapedItem<T>) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
@@ -2825,9 +2825,9 @@ fn get_item_vertical_metrics<T: ParsedFontTrait>(item: &ShapedItem<T>) -> (f32, 
             baseline_offset,
             ..
         } => {
-            // Assuming baseline_offset is distance from the top for combined blocks.
-            let ascent = *baseline_offset;
-            let descent = bounds.height - *baseline_offset;
+            // CORRECTED: Treat baseline_offset consistently as distance from the bottom (descent).
+            let ascent = bounds.height - *baseline_offset;
+            let descent = *baseline_offset;
             (ascent.max(0.0), descent.max(0.0))
         }
         _ => (0.0, 0.0), // Breaks and other non-visible items don't affect line height.
@@ -2886,7 +2886,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     println!("Column width calculated: {}", column_width);
 
     let base_direction = get_base_direction_from_logical(logical_items);
-    let physical_align = resolve_logical_align(fragment_constraints.text_align, base_direction);
+    // REMOVED: No longer pre-resolving alignment.
+    // let physical_align = resolve_logical_align(fragment_constraints.text_align, base_direction);
+    println!(
+        "[PFLayout] Base direction: {:?}, Text align: {:?}",
+        base_direction, fragment_constraints.text_align
+    );
 
     'column_loop: while current_column < num_columns {
         println!("\n-- Starting Column {} --", current_column);
@@ -2930,19 +2935,31 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 continue;
             }
 
-            let (line_items, was_hyphenated) =
+            let (mut line_items, was_hyphenated) =
                 break_one_line(cursor, &line_constraints, false, hyphenator.as_ref());
             if line_items.is_empty() {
                 println!("  Break returned no items. Ending column.");
                 break;
             }
 
+            let line_text_before_rev: String = line_items
+                .iter()
+                .filter_map(|i| i.as_cluster())
+                .map(|c| c.text.as_str())
+                .collect();
+            println!(
+                // FIX: The log message was misleading. Items are in visual order.
+                "[PFLayout] Line items from breaker (visual order): [{}]",
+                line_text_before_rev
+            );
+
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
                 &line_constraints,
                 line_top_y,
                 line_index,
-                physical_align,
+                fragment_constraints.text_align,
+                base_direction,
                 cursor.is_done() && !was_hyphenated,
                 fragment_constraints,
             );
@@ -3221,10 +3238,31 @@ pub fn position_one_line<T: ParsedFontTrait>(
     line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
-    physical_align: TextAlign,
+    text_align: TextAlign,
+    base_direction: Direction,
     is_last_line: bool,
     constraints: &UnifiedConstraints,
 ) -> (Vec<PositionedItem<T>>, f32) {
+    let line_text: String = line_items
+        .iter()
+        .filter_map(|i| i.as_cluster())
+        .map(|c| c.text.as_str())
+        .collect();
+    println!(
+        "\n--- [DEBUG] Entering position_one_line for line: [{}] ---",
+        line_text
+    );
+    // NEW: Resolve the final physical alignment here, inside the function.
+    let physical_align = match (text_align, base_direction) {
+        (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
+        (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
+        (TextAlign::End, Direction::Ltr) => TextAlign::Right,
+        (TextAlign::End, Direction::Rtl) => TextAlign::Left,
+        // Physical alignments are returned as-is, regardless of direction.
+        (other, _) => other,
+    };
+    println!("[Pos1Line] Physical align: {:?}", physical_align);
+
     if line_items.is_empty() {
         return (Vec::new(), 0.0);
     }
@@ -3311,8 +3349,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
             + match physical_align {
                 TextAlign::Center => remaining_space / 2.0,
                 TextAlign::Right => remaining_space,
-                _ => 0.0, // Left, Justify, Start, End
+                _ => 0.0, // Left, Justify
             };
+        println!(
+            "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: {}",
+            segment.width, final_segment_width, remaining_space, main_axis_pen
+        );
 
         // Apply text-indent only to the very first segment of the first line.
         if is_first_line_of_para && segment_idx == 0 {
@@ -3345,6 +3387,14 @@ pub fn position_one_line<T: ParsedFontTrait>(
             };
 
             let item_measure = get_item_measure(&item, is_vertical);
+            let item_text = item
+                .as_cluster()
+                .map(|c| c.text.as_str())
+                .unwrap_or("[OBJ]");
+            println!(
+                "[Pos1Line] Positioning item '{}' at pen_x={}",
+                item_text, main_axis_pen
+            );
             positioned.push(PositionedItem {
                 item: item.clone(),
                 position,
@@ -3375,17 +3425,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     }
 
     (positioned, line_box_height)
-}
-
-/// Resolves logical alignment (start/end) to physical alignment (left/right).
-fn resolve_logical_align(align: TextAlign, direction: Direction) -> TextAlign {
-    match (align, direction) {
-        (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
-        (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
-        (TextAlign::End, Direction::Ltr) => TextAlign::Right,
-        (TextAlign::End, Direction::Rtl) => TextAlign::Left,
-        (other, _) => other,
-    }
 }
 
 /// Calculates the starting pen offset to achieve the desired text alignment.

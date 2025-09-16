@@ -419,7 +419,6 @@ fn test_simple_line_break() {
 
 #[test]
 fn test_justification_inter_word() {
-    let mut cache = LayoutCache::<MockFont>::new();
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
         text: "a b".into(), // a=8, space=5, b=9 (mocked) => total 22px
@@ -430,6 +429,7 @@ fn test_justification_inter_word() {
     let constraints = UnifiedConstraints {
         available_width: 100.0,
         justify_content: JustifyContent::InterWord,
+        text_align: TextAlign::Justify, // Important!
         ..Default::default()
     };
 
@@ -437,22 +437,6 @@ fn test_justification_inter_word() {
     let visual_items = reorder_logical_items(&logical_items, Direction::Ltr).unwrap();
     let shaped_items = shape_visual_items(&visual_items, &manager).unwrap();
 
-    let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = perform_fragment_layout(&mut cursor, &logical_items, &constraints).unwrap();
-
-    assert_eq!(layout.items.len(), 3);
-
-    let pos_a = layout.items[0].position.x;
-    let pos_space = layout.items[1].position.x;
-    let pos_b = layout.items[2].position.x;
-
-    // 'a' starts at 0
-    assert_eq!(pos_a, 0.0);
-    // 'space' starts after 'a' (width 8)
-    assert_eq!(pos_space, 8.0);
-
-    // This test uses the main pipeline which is complex, we should test position_one_line directly
-    // Let's re-do this by testing position_one_line
     let (positioned, _) = position_one_line(
         shaped_items,
         &LineConstraints {
@@ -465,8 +449,9 @@ fn test_justification_inter_word() {
         },
         0.0,
         0,
-        TextAlign::Justify,
-        false, // Not last line, so justify
+        constraints.text_align,
+        Direction::Ltr, // Added base_direction argument
+        false,          // Not last line, so justify
         &constraints,
     );
 

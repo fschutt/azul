@@ -126,32 +126,31 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 } else {
                     // 3. Convert word + hyphenation breaks into a sequence of Boxes and Penalties.
                     let breaks = hyphenation_breaks.unwrap();
-                    let mut last_break_items = 0;
+                    let mut current_item_cursor = 0;
 
                     for b in breaks.iter() {
-                        // Add the part of the word between the last break and this one as boxes.
-                        for item_part in &b.line_part[last_break_items..] {
+                        // Add the items that form the next syllable (the part between the last
+                        // break and this one)
+                        let num_items_in_syllable = b.line_part.len() - current_item_cursor;
+                        for item in b.line_part.iter().skip(current_item_cursor) {
                             nodes.push(LayoutNode::Box(
-                                item_part.clone(),
-                                get_item_measure(item_part, is_vertical),
+                                item.clone(),
+                                get_item_measure(item, is_vertical),
                             ));
                         }
+                        current_item_cursor += num_items_in_syllable;
 
-                        // Add the hyphen itself as a penalty node.
+                        // Add the hyphen penalty
                         let hyphen_measure = get_item_measure(&b.hyphen_item, is_vertical);
                         nodes.push(LayoutNode::Penalty {
                             item: Some(b.hyphen_item.clone()),
                             width: hyphen_measure,
                             penalty: 50.0, // Standard penalty for hyphenation
                         });
-
-                        last_break_items = b.line_part.len();
                     }
 
                     // Add the final remainder of the word.
-                    // The `remainder_part` of the last break is the final syllable.
                     if let Some(last_break) = breaks.last() {
-                        // Add each item as a separate LayoutNode::Box.
                         for remainder_item in &last_break.remainder_part {
                             nodes.push(LayoutNode::Box(
                                 remainder_item.clone(),
@@ -160,7 +159,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         }
                     } else {
                         // This case happens if find_all_hyphenation_breaks returned an empty vec.
-                        // It's a fallback to just add the original word.
+                        // Fallback to just adding the original word.
                         for c in current_word_clusters {
                             nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
                         }
@@ -215,17 +214,16 @@ fn find_optimal_breakpoints<T: ParsedFontTrait>(
     };
 
     for i in 0..nodes.len() {
+        // --- OPTIMIZATION ---
+        // A legal line break can only occur at a Penalty node. If the current node
+        // is a Box or Glue, we can skip it as a potential breakpoint.
+        if !matches!(nodes.get(i), Some(LayoutNode::Penalty { .. })) {
+            continue;
+        }
+
         for j in (0..=i).rev() {
             // Calculate the properties of a potential line from node `j` to `i`.
             let (mut current_width, mut stretch, mut shrink) = (0.0, 0.0, 0.0);
-            let mut line_has_glue = false;
-
-            // Don't break right after glue
-            if j > 0 {
-                if let LayoutNode::Glue { .. } = nodes[j - 1] {
-                    continue;
-                }
-            }
 
             for k in j..=i {
                 match &nodes[k] {
@@ -239,45 +237,48 @@ fn find_optimal_breakpoints<T: ParsedFontTrait>(
                         current_width += width;
                         stretch += s;
                         shrink += k;
-                        line_has_glue = true;
                     }
                     LayoutNode::Penalty { width, .. } => current_width += width,
                 }
             }
 
-            if current_width > line_width && !line_has_glue {
+            // Calculate adjustment ratio. If the line is wider than the available width
+            // but has no glue to shrink, it is an invalid candidate.
+            let ratio = if current_width < line_width {
+                if stretch > 0.0 {
+                    (line_width - current_width) / stretch
+                } else {
+                    INFINITY_BADNESS // Cannot stretch
+                }
+            } else if current_width > line_width {
+                if shrink > 0.0 {
+                    (line_width - current_width) / shrink
+                } else {
+                    INFINITY_BADNESS // Cannot shrink
+                }
+            } else {
+                0.0 // Perfect fit
+            };
+
+            // Lines that must shrink too much are invalid.
+            if ratio < -1.0 {
                 continue;
-            } // Overflows with no glue to shrink
-
-            // Calculate adjustment ratio and badness
-            let mut badness = if current_width < line_width {
-                // Line needs to stretch
-                if stretch.abs() < 1e-6 {
-                    1000.0
-                } else {
-                    ((line_width - current_width) / stretch).powi(2)
-                }
-            } else {
-                // Line needs to shrink
-                if shrink.abs() < 1e-6 {
-                    1000.0
-                } else {
-                    ((current_width - line_width) / shrink).powi(2)
-                }
-            };
-
-            // Add penalty for the break point
-            let penalty = if let Some(LayoutNode::Penalty { penalty, .. }) = nodes.get(i) {
-                *penalty
-            } else {
-                0.0
-            };
-            if penalty >= 0.0 {
-                badness += penalty;
-            } else if penalty <= -INFINITY_BADNESS {
-                badness = -INFINITY_BADNESS; // Forced break
             }
 
+            // Calculate badness
+            let mut badness = 100.0 * ratio.abs().powi(3);
+
+            // Add penalty for the break point
+            if let Some(LayoutNode::Penalty { penalty, .. }) = nodes.get(i) {
+                if *penalty >= 0.0 {
+                    badness += penalty;
+                } else if *penalty <= -INFINITY_BADNESS {
+                    badness = -INFINITY_BADNESS; // Forced break
+                }
+            }
+
+            // TODO: Add demerits for consecutive lines with very different ratios (fitness classes)
+            // For now, demerit is simply the cumulative badness.
             let demerit = badness + breakpoints[j].demerit;
 
             if demerit < breakpoints[i + 1].demerit {
@@ -313,13 +314,14 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
     let mut start_node = 0;
     let mut cross_axis_pen = 0.0;
     let base_direction = get_base_direction_from_logical(logical_items);
-    let physical_align = resolve_logical_align(constraints.text_align, base_direction);
+    // REMOVED: Do not pre-resolve alignment. The context is needed inside the loop.
+    // let physical_align = resolve_logical_align(constraints.text_align, base_direction);
 
     for (line_index, &end_node) in breaks.iter().enumerate() {
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
 
-        let mut line_items: Vec<ShapedItem<T>> = line_nodes
+        let line_items: Vec<ShapedItem<T>> = line_nodes
             .iter()
             .filter_map(|node| match node {
                 LayoutNode::Box(item, _) => Some(item.clone()),
@@ -328,31 +330,22 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
             })
             .collect();
 
-        // --- Justification ---
+        // --- FIX: Calculate spacing, do not mutate items ---
+        let mut extra_per_space = 0.0;
         let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
-        if constraints.justify_content != JustifyContent::None
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
-        {
+
+        let should_justify = constraints.justify_content != JustifyContent::None
+            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll);
+
+        if should_justify {
             let space_to_add = constraints.available_width - line_width;
             if space_to_add > 0.0 {
-                let space_indices: Vec<usize> = line_items
+                let space_count = line_items
                     .iter()
-                    .enumerate()
-                    .filter_map(|(i, item)| {
-                        if is_word_separator(item) {
-                            Some(i)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if !space_indices.is_empty() {
-                    let per_space = space_to_add / space_indices.len() as f32;
-                    for idx in space_indices {
-                        if let ShapedItem::Cluster(c) = &mut line_items[idx] {
-                            c.advance += per_space;
-                        }
-                    }
+                    .filter(|item| is_word_separator(item))
+                    .count();
+                if space_count > 0 {
+                    extra_per_space = space_to_add / space_count as f32;
                 }
             }
         }
@@ -362,25 +355,39 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
             .iter()
             .map(|item| get_item_measure(item, false))
             .sum();
-        let remaining_space = constraints.available_width - total_width;
+        let remaining_space = constraints.available_width
+            - (total_width
+                + extra_per_space
+                    * line_items
+                        .iter()
+                        .filter(|item| is_word_separator(item))
+                        .count() as f32);
+
+        // NEW: Resolve the physical alignment here, inside the function, just like in
+        // position_one_line.
+        let physical_align = match (constraints.text_align, base_direction) {
+            (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
+            (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
+            (TextAlign::End, Direction::Ltr) => TextAlign::Right,
+            (TextAlign::End, Direction::Rtl) => TextAlign::Left,
+            (other, _) => other,
+        };
+
         let mut main_axis_pen = match physical_align {
             TextAlign::Center => remaining_space / 2.0,
             TextAlign::Right => remaining_space,
             _ => 0.0,
         };
 
-        // Use glyph offsets for correct positioning and advance for pen movement.
         for item in line_items {
             let item_advance = get_item_measure(&item, false);
 
-            // The `position` is the origin for drawing. For text, this means accounting
-            // for the glyph's bearing/offset from the pen position.
             let draw_pos = match &item {
                 ShapedItem::Cluster(c) if !c.glyphs.is_empty() => {
                     let glyph = &c.glyphs[0];
                     Point {
                         x: main_axis_pen + glyph.offset.x,
-                        y: cross_axis_pen + glyph.offset.y,
+                        y: cross_axis_pen - glyph.offset.y, // Use - for GPOS offset
                     }
                 }
                 _ => Point {
@@ -390,13 +397,17 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
             };
 
             positioned_items.push(PositionedItem {
-                item,
+                item: item.clone(),
                 position: draw_pos,
                 line_index,
             });
 
-            // The pen always moves by the item's advance width.
             main_axis_pen += item_advance;
+
+            // --- FIX: Apply extra spacing to the pen ---
+            if is_word_separator(&item) {
+                main_axis_pen += extra_per_space;
+            }
         }
 
         cross_axis_pen += constraints.line_height;
@@ -447,14 +458,4 @@ fn split_cluster_for_hyphenation<T: ParsedFontTrait>(
     };
 
     Some((first_part, second_part))
-}
-
-fn resolve_logical_align(align: TextAlign, direction: Direction) -> TextAlign {
-    match (align, direction) {
-        (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
-        (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
-        (TextAlign::End, Direction::Ltr) => TextAlign::Right,
-        (TextAlign::End, Direction::Rtl) => TextAlign::Left,
-        (other, _) => other,
-    }
 }
