@@ -1,5 +1,5 @@
 //! solver3/layout_tree.rs
-//!
+//! 
 //! Layout tree generation and anonymous box handling
 
 use std::{collections::BTreeMap, sync::Arc};
@@ -10,9 +10,10 @@ use azul_core::{
     ui_solver::{FormattingContext, IntrinsicSizes, PositionedRectangle},
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{LayoutDebugMessage, LayoutDisplay, LayoutPosition};
-
-use crate::{parsedfont::ParsedFont, solver3::Result, text3::cache::UnifiedLayout};
+use azul_css::{CssProperty, LayoutDebugMessage, LayoutDisplay}; // Added CssProperty
+use crate::text3::cache::UnifiedLayout;
+use crate::parsedfont::ParsedFont;
+use crate::solver3::Result;
 
 /// A layout tree node representing the CSS box model
 #[derive(Debug, Clone)]
@@ -27,13 +28,13 @@ pub struct LayoutNode {
     pub children: Vec<usize>,
     /// Parent index (None for root)
     pub parent: Option<usize>,
-
+    
     // Layout properties populated by passes
     pub formatting_context: FormattingContext,
     pub intrinsic_sizes: Option<IntrinsicSizes>,
     pub used_size: Option<LogicalSize>,
     pub position: Option<LogicalPosition>,
-
+    
     // Text3 integration
     pub inline_layout_result: Option<Arc<UnifiedLayout<ParsedFont>>>,
 }
@@ -45,6 +46,8 @@ pub enum AnonymousBoxType {
     InlineWrapper,
     /// Anonymous table wrapper
     TableWrapper,
+    /// Anonymous table row group (tbody)
+    TableRowGroup, // Renamed from TableRow for clarity
     /// Anonymous table row
     TableRow,
     /// Anonymous table cell
@@ -63,27 +66,18 @@ pub struct LayoutTree {
 }
 
 impl LayoutTree {
-    pub fn clone(&self) -> Self {
-        println!("WARNING: CLONING LAYOUT TREE!");
-        Self {
-            nodes: self.nodes.clone(),
-            root: self.root,
-            dom_to_layout: self.dom_to_layout.clone(),
-        }
-    }
-
     pub fn get(&self, index: usize) -> Option<&LayoutNode> {
         self.nodes.get(index)
     }
-
+    
     pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNode> {
         self.nodes.get_mut(index)
     }
-
+    
     pub fn root_node(&self) -> &LayoutNode {
         &self.nodes[self.root]
     }
-
+    
     /// Get rectangles for each DOM node (for compatibility with solver2)
     pub fn get_rectangles(&self) -> BTreeMap<NodeId, PositionedRectangle> {
         self.nodes
@@ -92,21 +86,18 @@ impl LayoutTree {
                 let dom_id = node.dom_node_id?;
                 let size = node.used_size?;
                 let pos = node.position?;
-
-                Some((
-                    dom_id,
-                    PositionedRectangle {
-                        bounds: LogicalRect::new(pos, size),
-                        // TODO: Calculate proper margin, border, padding
-                        margin: Default::default(),
-                        border: Default::default(),
-                        padding: Default::default(),
-                    },
-                ))
+                
+                Some((dom_id, PositionedRectangle {
+                    size: LogicalRect::new(pos, size),
+                    // TODO: Calculate proper margin, border, padding
+                    margin: Default::default(),
+                    border: Default::default(),
+                    padding: Default::default(),
+                }))
             })
             .collect()
     }
-
+    
     /// Extract word positions for text selection/editing
     pub fn get_word_positions(&self) -> BTreeMap<NodeId, Vec<LogicalRect>> {
         self.nodes
@@ -114,7 +105,7 @@ impl LayoutTree {
             .filter_map(|node| {
                 let dom_id = node.dom_node_id?;
                 let layout = node.inline_layout_result.as_ref()?;
-
+                
                 // Convert text3 positions to word positions
                 let word_rects = extract_word_positions(layout);
                 Some((dom_id, word_rects))
@@ -129,25 +120,19 @@ pub fn generate_layout_tree(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<LayoutTree> {
     let mut builder = LayoutTreeBuilder::new();
-
+    
     // Start from the root
-    let root_id = styled_dom
-        .root
-        .into_crate_internal()
-        .unwrap_or(NodeId::ZERO);
+    let root_id = styled_dom.root.into_crate_internal().unwrap_or(NodeId::ZERO);
     let root_index = builder.process_node(styled_dom, root_id, None)?;
-
+    
     builder.set_root(root_index);
-
-    debug_log(
-        debug_messages,
-        &format!(
-            "Generated layout tree with {} nodes ({} anonymous)",
-            builder.nodes.len(),
-            builder.nodes.iter().filter(|n| n.is_anonymous).count()
-        ),
-    );
-
+    
+    debug_log(debug_messages, &format!(
+        "Generated layout tree with {} nodes ({} anonymous)",
+        builder.nodes.len(),
+        builder.nodes.iter().filter(|n| n.is_anonymous).count()
+    ));
+    
     Ok(builder.build())
 }
 
@@ -155,6 +140,18 @@ struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
     dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
     root: Option<usize>,
+}
+
+// Represents the CSS `display` property for layout purposes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisplayType {
+    Inline,
+    Block,
+    Table,
+    TableRowGroup,
+    TableRow,
+    TableCell,
+    // Add other types like Flex, Grid, etc. as needed
 }
 
 impl LayoutTreeBuilder {
@@ -165,11 +162,11 @@ impl LayoutTreeBuilder {
             root: None,
         }
     }
-
+    
     fn set_root(&mut self, index: usize) {
         self.root = Some(index);
     }
-
+    
     fn build(self) -> LayoutTree {
         LayoutTree {
             nodes: self.nodes,
@@ -177,34 +174,34 @@ impl LayoutTreeBuilder {
             dom_to_layout: self.dom_to_layout,
         }
     }
-
+    
     fn process_node(
         &mut self,
         styled_dom: &StyledDom,
         node_id: NodeId,
         parent_index: Option<usize>,
     ) -> Result<usize> {
-        let node_data = &styled_dom.node_data.as_container()[node_id];
-
         // Determine formatting context for this node
         let formatting_context = determine_formatting_context(styled_dom, node_id);
-
+        
         // Create the main layout node
-        let layout_index =
-            self.create_layout_node(Some(node_id), false, None, parent_index, formatting_context);
-
+        let layout_index = self.create_layout_node(
+            Some(node_id),
+            false,
+            None,
+            parent_index,
+            formatting_context,
+        );
+        
         // Track DOM -> layout mapping
-        self.dom_to_layout
-            .entry(node_id)
-            .or_default()
-            .push(layout_index);
-
+        self.dom_to_layout.entry(node_id).or_default().push(layout_index);
+        
         // Process children with anonymous box generation
         self.process_children(styled_dom, node_id, layout_index)?;
-
+        
         Ok(layout_index)
     }
-
+    
     fn process_children(
         &mut self,
         styled_dom: &StyledDom,
@@ -214,26 +211,127 @@ impl LayoutTreeBuilder {
         let children: Vec<_> = styled_dom.node_hierarchy.as_container()[parent_node_id]
             .children(styled_dom)
             .collect();
-
+        
         if children.is_empty() {
             return Ok(());
         }
 
-        // Check if we need to generate anonymous boxes
-        if needs_anonymous_block_wrapper(styled_dom, &children) {
-            self.generate_anonymous_block_wrappers(styled_dom, &children, parent_layout_index)?;
-        } else {
-            // Process children directly
-            for child_id in children {
-                let child_index =
-                    self.process_node(styled_dom, child_id, Some(parent_layout_index))?;
-                self.add_child_to_parent(parent_layout_index, child_index);
-            }
-        }
+        let parent_display = get_display_type(styled_dom, parent_node_id);
 
+        match parent_display {
+            DisplayType::Table => self.process_table_children(styled_dom, &children, parent_layout_index)?,
+            DisplayType::TableRowGroup => self.process_row_group_children(styled_dom, &children, parent_layout_index)?,
+            DisplayType::TableRow => self.process_row_children(styled_dom, &children, parent_layout_index)?,
+            DisplayType::Block => {
+                if needs_anonymous_block_wrapper(styled_dom, &children) {
+                    self.generate_anonymous_block_wrappers(styled_dom, &children, parent_layout_index)?;
+                } else {
+                    self.process_children_normally(styled_dom, &children, parent_layout_index)?;
+                }
+            },
+            _ => self.process_children_normally(styled_dom, &children, parent_layout_index)?,
+        }
+        
         Ok(())
     }
 
+    fn process_children_normally(&mut self, styled_dom: &StyledDom, children: &[NodeId], parent_layout_index: usize) -> Result<()> {
+        for &child_id in children {
+            let child_index = self.process_node(styled_dom, child_id, Some(parent_layout_index))?;
+            self.add_child_to_parent(parent_layout_index, child_index);
+        }
+        Ok(())
+    }
+
+    /// Handles children of a `display: table`. Wraps `tr` elements in anonymous `tbody`s.
+    fn process_table_children(&mut self, styled_dom: &StyledDom, children: &[NodeId], parent_index: usize) -> Result<()> {
+        let mut current_tbody: Option<usize> = None;
+
+        for &child_id in children {
+            let child_display = get_display_type(styled_dom, child_id);
+            
+            match child_display {
+                DisplayType::TableRow => {
+                    if current_tbody.is_none() {
+                        current_tbody = Some(self.create_anonymous_box(
+                            parent_index, 
+                            AnonymousBoxType::TableRowGroup, 
+                            // TODO: This should be a specific table context
+                            FormattingContext::Block { establishes_new_context: true },
+                        ));
+                    }
+                    let tbody_index = current_tbody.unwrap();
+                    let child_index = self.process_node(styled_dom, child_id, Some(tbody_index))?;
+                    self.add_child_to_parent(tbody_index, child_index);
+                },
+                DisplayType::TableRowGroup => {
+                    current_tbody = None; // A real tbody breaks the anonymous sequence
+                    let child_index = self.process_node(styled_dom, child_id, Some(parent_index))?;
+                    self.add_child_to_parent(parent_index, child_index);
+                },
+                // TODO: Handle captions, colgroups, etc.
+                _ => { /* Ignore other children for now */ }
+            }
+        }
+        Ok(())
+    }
+
+    /// Handles children of a `display: table-row-group`. Wraps `td` elements in anonymous `tr`s.
+    fn process_row_group_children(&mut self, styled_dom: &StyledDom, children: &[NodeId], parent_index: usize) -> Result<()> {
+        let mut current_row: Option<usize> = None;
+        for &child_id in children {
+            let child_display = get_display_type(styled_dom, child_id);
+
+            match child_display {
+                DisplayType::TableRow => {
+                    current_row = None; // Real row breaks anonymous sequence
+                    let child_index = self.process_node(styled_dom, child_id, Some(parent_index))?;
+                    self.add_child_to_parent(parent_index, child_index);
+                },
+                DisplayType::TableCell => {
+                    if current_row.is_none() {
+                        current_row = Some(self.create_anonymous_box(
+                            parent_index,
+                            AnonymousBoxType::TableRow,
+                            FormattingContext::Block { establishes_new_context: false },
+                        ));
+                    }
+                    let row_index = current_row.unwrap();
+                    let child_index = self.process_node(styled_dom, child_id, Some(row_index))?;
+                    self.add_child_to_parent(row_index, child_index);
+                }
+                _ => { /* Ignore other children */ }
+            }
+        }
+        Ok(())
+    }
+
+    /// Handles children of a `display: table-row`. Wraps non-cell content in anonymous `td`s.
+    fn process_row_children(&mut self, styled_dom: &StyledDom, children: &[NodeId], parent_index: usize) -> Result<()> {
+        let mut current_cell: Option<usize> = None;
+        for &child_id in children {
+            let child_display = get_display_type(styled_dom, child_id);
+            if child_display == DisplayType::TableCell {
+                current_cell = None; // Real cell breaks anonymous sequence
+                let child_index = self.process_node(styled_dom, child_id, Some(parent_index))?;
+                self.add_child_to_parent(parent_index, child_index);
+            } else {
+                // This is inline content (or a block) that needs to be wrapped
+                if current_cell.is_none() {
+                    current_cell = Some(self.create_anonymous_box(
+                        parent_index,
+                        AnonymousBoxType::TableCell,
+                        FormattingContext::Block { establishes_new_context: true }, // Cells create BFCs
+                    ));
+                }
+                let cell_index = current_cell.unwrap();
+                let child_index = self.process_node(styled_dom, child_id, Some(cell_index))?;
+                self.add_child_to_parent(cell_index, child_index);
+            }
+        }
+        Ok(())
+    }
+    
     fn generate_anonymous_block_wrappers(
         &mut self,
         styled_dom: &StyledDom,
@@ -241,11 +339,11 @@ impl LayoutTreeBuilder {
         parent_index: usize,
     ) -> Result<()> {
         let mut current_wrapper: Option<usize> = None;
-
+        
         for &child_id in children {
-            let is_block_level = is_block_level_element(styled_dom, child_id);
-
-            if is_block_level {
+            let display = get_display_type(styled_dom, child_id);
+            
+            if display == DisplayType::Block {
                 // Block-level child: close current wrapper and process directly
                 current_wrapper = None;
                 let child_index = self.process_node(styled_dom, child_id, Some(parent_index))?;
@@ -253,31 +351,35 @@ impl LayoutTreeBuilder {
             } else {
                 // Inline-level child: add to current wrapper or create new one
                 if current_wrapper.is_none() {
-                    current_wrapper = Some(self.create_anonymous_inline_wrapper(parent_index));
+                    current_wrapper = Some(self.create_anonymous_box(
+                        parent_index,
+                        AnonymousBoxType::InlineWrapper,
+                        FormattingContext::Inline
+                    ));
                 }
-
+                
                 let wrapper_index = current_wrapper.unwrap();
                 let child_index = self.process_node(styled_dom, child_id, Some(wrapper_index))?;
                 self.add_child_to_parent(wrapper_index, child_index);
             }
         }
-
+        
         Ok(())
     }
-
-    fn create_anonymous_inline_wrapper(&mut self, parent_index: usize) -> usize {
+    
+    fn create_anonymous_box(&mut self, parent_index: usize, anon_type: AnonymousBoxType, fc: FormattingContext) -> usize {
         let wrapper_index = self.create_layout_node(
             None,
             true,
-            Some(AnonymousBoxType::InlineWrapper),
+            Some(anon_type),
             Some(parent_index),
-            FormattingContext::Inline,
+            fc,
         );
-
+        
         self.add_child_to_parent(parent_index, wrapper_index);
         wrapper_index
     }
-
+    
     fn create_layout_node(
         &mut self,
         dom_node_id: Option<NodeId>,
@@ -287,7 +389,7 @@ impl LayoutTreeBuilder {
         formatting_context: FormattingContext,
     ) -> usize {
         let index = self.nodes.len();
-
+        
         self.nodes.push(LayoutNode {
             dom_node_id,
             is_anonymous,
@@ -300,106 +402,70 @@ impl LayoutTreeBuilder {
             position: None,
             inline_layout_result: None,
         });
-
+        
         index
     }
-
+    
     fn add_child_to_parent(&mut self, parent_index: usize, child_index: usize) {
         self.nodes[parent_index].children.push(child_index);
     }
 }
 
+// Determines the display type of a node based on its tag and CSS properties.
+fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    // Check for explicit CSS display property first
+    if let Some(display_prop) = node_data.get_style().get(&CssProperty::Display) {
+        if let CssProperty::Display(d) = display_prop {
+            return match d {
+                LayoutDisplay::Table => DisplayType::Table,
+                LayoutDisplay::TableRow => DisplayType::TableRow,
+                LayoutDisplay::TableCell => DisplayType::TableCell,
+                LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
+                // Add other mappings here...
+                _ => DisplayType::Block, // Default for now
+            };
+        }
+    }
+    
+    // Fallback to node type if no display property is set
+    match node_data.get_node_type() {
+        NodeType::Text(_) => DisplayType::Inline,
+        NodeType::Table => DisplayType::Table,
+        NodeType::Tr => DisplayType::TableRow,
+        NodeType::Td | NodeType::Th => DisplayType::TableCell,
+        NodeType::TBody | NodeType::THead | NodeType::TFoot => DisplayType::TableRowGroup,
+        NodeType::Div | NodeType::P | NodeType::H1 | NodeType::H2 | NodeType::H3 | NodeType::H4 | NodeType::H5 | NodeType::H6 => DisplayType::Block,
+        _ => DisplayType::Inline,
+    }
+}
+
+
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
-    // This function should determine the inner formatting context based on the
-    // computed value of the `display` property.
-    // See: https://www.w3.org/TR/css-display-3/#inner-model
-
-    let display = get_display_property(styled_dom, node_id);
-
-    match display {
-        // `display: block` or `display: inline` with `flow` inner type.
-        // It participates in its parent's FC or establishes a new one based on other properties.
-        LayoutDisplay::Block | LayoutDisplay::Inline => {
-            // A new Block Formatting Context (BFC) is established for several reasons,
-            // including overflow != visible, position = absolute/fixed, etc.
-            // For now, we simplify this.
-            // TODO: Implement full BFC establishment rules.
-            let establishes_new_context =
-                get_position_property(styled_dom, node_id) != LayoutPosition::Static;
-            FormattingContext::Block {
-                establishes_new_context,
-            }
-        }
-        // `display: inline-block` is an inline-level box that generates a new BFC.
-        // It has an "outer" display type of inline and an "inner" of flow-root.
-        // We model its inner context as a new BFC.
-        LayoutDisplay::InlineBlock => FormattingContext::Block {
-            establishes_new_context: true,
-        },
-        // Flex and Grid containers also establish new formatting contexts.
-        LayoutDisplay::Flex => FormattingContext::Flex,
-        LayoutDisplay::Grid => FormattingContext::Grid,
-        // TODO: Implement table layout
-        LayoutDisplay::Table => FormattingContext::Table,
-        // `display: none` elements do not generate boxes.
-        LayoutDisplay::None => FormattingContext::None,
+    // This should be more sophisticated, establishing table/flex/grid contexts.
+    // The current FormattingContext enum is limited to Block and Inline.
+    match get_display_type(styled_dom, node_id) {
+        DisplayType::Inline => FormattingContext::Inline,
+        DisplayType::Block | DisplayType::TableCell => FormattingContext::Block { establishes_new_context: true },
+        _ => FormattingContext::Block { establishes_new_context: false },
     }
-}
-
-fn get_display_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
-    // In a real implementation, this would look up the computed value of the `display` property.
-    // For now, we infer from NodeType for basic cases.
-    match &styled_dom.node_data.as_container()[node_id].get_node_type() {
-        NodeType::Text(_) => LayoutDisplay::Inline,
-        NodeType::Div => LayoutDisplay::Block,
-        NodeType::Image(_) => LayoutDisplay::InlineBlock,
-        _ => LayoutDisplay::Block,
-    }
-}
-
-fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
-    // TODO: MASSIVE HACK - this is a stub for getting the `position` CSS property.
-    // We hardcode it for the test case provided.
-    let id_str = styled_dom.node_data.as_container()[node_id]
-        .id
-        .as_ref()
-        .map(|s| s.as_str());
-    match id_str {
-        Some("div1") => return LayoutPosition::Absolute,
-        _ => {}
-    }
-    // Check for parent, which is the logic for the nested div in the test case.
-    if let Some(parent_id) = styled_dom.get_parent_id(node_id) {
-        let parent_id_str = styled_dom.node_data.as_container()[parent_id]
-            .id
-            .as_ref()
-            .map(|s| s.as_str());
-        if parent_id_str == Some("div1") {
-            return LayoutPosition::Fixed;
-        }
-    }
-    LayoutPosition::Static
 }
 
 fn needs_anonymous_block_wrapper(styled_dom: &StyledDom, children: &[NodeId]) -> bool {
     if children.len() <= 1 {
         return false;
     }
-
-    let has_block = children
-        .iter()
-        .any(|&id| is_block_level_element(styled_dom, id));
-    let has_inline = children
-        .iter()
-        .any(|&id| !is_block_level_element(styled_dom, id));
-
+    
+    let has_block = children.iter().any(|&id| get_display_type(styled_dom, id) == DisplayType::Block);
+    let has_inline = children.iter().any(|&id| get_display_type(styled_dom, id) == DisplayType::Inline);
+    
     // Need anonymous boxes when mixing block and inline children
     has_block && has_inline
 }
 
 fn is_block_level_element(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    // Simplified check - real implementation would examine display property
-    matches!(styled_dom.node_data[node_id].node_type, NodeType::Div)
+    get_display_type(styled_dom, node_id) == DisplayType::Block
 }
 
 fn extract_word_positions(layout: &UnifiedLayout<ParsedFont>) -> Vec<LogicalRect> {

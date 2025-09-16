@@ -1295,6 +1295,29 @@ impl Default for Spacing {
     }
 }
 
+impl Default for FontRef {
+    fn default() -> Self {
+        Self {
+            family: "serif".to_string(),
+            weight: FcWeight::Normal,
+            style: FontStyle::Normal,
+            unicode_ranges: Vec::new(),
+        }
+    }
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        // Opaque black
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+    }
+}
+
 /// Style properties with vertical text support
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
@@ -1327,6 +1350,33 @@ pub struct StyleProperties {
     pub font_variant_numeric: FontVariantNumeric,
     pub font_variant_ligatures: FontVariantLigatures,
     pub font_variant_east_asian: FontVariantEastAsian,
+}
+
+impl Default for StyleProperties {
+    fn default() -> Self {
+        const FONT_SIZE: f32 = 16.0;
+        const TAB_SIZE: f32 = 8.0;
+        Self {
+            font_ref: FontRef::default(),
+            font_size_px: FONT_SIZE,
+            color: Color::default(),
+            letter_spacing: Spacing::default(), // Px(0)
+            word_spacing: Spacing::default(),   // Px(0)
+            line_height: FONT_SIZE * 1.2,
+            text_decoration: TextDecoration::default(),
+            font_features: Vec::new(),
+            font_variations: Vec::new(),
+            tab_size: TAB_SIZE, // CSS default
+            text_transform: TextTransform::default(),
+            writing_mode: WritingMode::default(),
+            text_orientation: TextOrientation::default(),
+            text_combine_upright: None,
+            font_variant_caps: FontVariantCaps::default(),
+            font_variant_numeric: FontVariantNumeric::default(),
+            font_variant_ligatures: FontVariantLigatures::default(),
+            font_variant_east_asian: FontVariantEastAsian::default(),
+        }
+    }
 }
 
 impl Hash for StyleProperties {

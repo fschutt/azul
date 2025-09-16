@@ -19,8 +19,8 @@ use crate::{
         positioning::{get_position_type, PositionType, PositionedLayoutTree},
         LayoutError, Result,
     },
-    text3::{
-        cache::{InlineContent, InlineShape, Rect, ShapeDefinition, ShapedGlyph},
+    text3::cache::{
+        InlineContent, InlineShape, Rect, ShapeDefinition, ShapedGlyph,
         FontRef, FontStyle, ImageSource, PositionedItem, ShapedItem, UnifiedLayout,
     },
 };

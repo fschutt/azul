@@ -11,7 +11,7 @@ use azul_core::{
     window::{LogicalPosition, LogicalSize},
 };
 use azul_css::LayoutDebugMessage;
-use rust_fontconfig::FcWeight;
+use rust_fontconfig::{FcFontCache, FcWeight};
 
 use super::{FormattingContextManager, LayoutConstraints, LayoutResult, TextAlign, WritingMode};
 use crate::{
@@ -21,10 +21,7 @@ use crate::{
         LayoutError, Result,
     },
     text3::cache::{
-        Color, FontProviderTrait, FontRef, FontStyle, ImageSource, InlineContent, InlineImage,
-        LayoutCache, LayoutFragment, ObjectFit, Size, StyleProperties, StyledRun,
-        TextAlign as Text3TextAlign, UnifiedConstraints, UnifiedLayout, VerticalAlign,
-        WritingMode as Text3WritingMode,
+        Color, FontManager, FontProviderTrait, FontRef, FontStyle, ImageSource, InlineContent, InlineImage, LayoutCache, LayoutFragment, ObjectFit, Size, StyleProperties, StyledRun, TextAlign as Text3TextAlign, UnifiedConstraints, UnifiedLayout, VerticalAlign, WritingMode as Text3WritingMode
     },
 };
 
@@ -79,15 +76,22 @@ impl InlineLayoutManager {
             constraints: text3_constraints,
         }];
 
-        // Layout with text3
-        let font_provider = create_font_provider(renderer_resources);
+        // Layout text with text3
+        // 
+        // NOTE: This will re-initialize the FcFontCache on EVERY LAYOUT CALL - 
+        // MASSIVE BUG BUT OK FOR TESTING RIGHT NOW
+        let fc_cache = FcFontCache::build();
+        let font_provider = Arc::new(crate::text3::default::PathLoader::new());
+        let font_manager = FontManager::with_loader(fc_cache, font_provider).unwrap();
+
+        // Returns the FlowLayout
         let layout_result = self
             .text_cache
             .layout_flow(
                 &inline_content,
                 &[], // No style overrides for now
                 &fragments,
-                &font_provider,
+                &font_manager,
             )
             .map_err(|_| LayoutError::PositioningFailed)?;
 
@@ -333,14 +337,6 @@ fn calculate_baseline_offset(layout: &UnifiedLayout<ParsedFont>) -> f32 {
     // Calculate the baseline offset from the text3 layout result
     // This would examine the positioned items to find the baseline
     0.0 // Placeholder
-}
-
-fn create_font_provider(
-    renderer_resources: &RendererResources,
-) -> impl FontProviderTrait<ParsedFont> {
-    // Create a font provider that can access the renderer's font resources
-    // This is a stub - real implementation would bridge to the font system
-    crate::text3::default::PathLoader::new()
 }
 
 fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {

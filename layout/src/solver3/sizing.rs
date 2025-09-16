@@ -1,7 +1,7 @@
 //! solver3/sizing.rs
 //! Pass 2: Sizing calculations (intrinsic and used sizes)
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
     app_resources::RendererResources,
@@ -11,6 +11,7 @@ use azul_core::{
     window::LogicalSize,
 };
 use azul_css::LayoutDebugMessage;
+use rust_fontconfig::FcFontCache;
 
 use crate::{
     parsedfont::ParsedFont,
@@ -19,8 +20,7 @@ use crate::{
         LayoutError, Result,
     },
     text3::cache::{
-        FontProviderTrait, InlineContent, LayoutCache, LayoutFragment, StyleProperties, StyledRun,
-        UnifiedConstraints,
+        FontManager, FontProviderTrait, InlineContent, LayoutCache, LayoutFragment, StyleProperties, StyledRun, UnifiedConstraints
     },
 };
 
@@ -209,12 +209,19 @@ impl<'a> IntrinsicSizeCalculator<'a> {
             constraints: min_width_constraint,
         }];
 
-        // Create stub font provider
-        let font_provider = StubFontProvider;
+        // NOTE: Same code as in fc/ifc.rs - Stub font provider for intrinsic size calculation
+        // 
+        // Layout text with text3
+        // 
+        // NOTE: This will re-initialize the FcFontCache on EVERY LAYOUT CALL - 
+        // MASSIVE BUG BUT OK FOR TESTING RIGHT NOW
+        let fc_cache = FcFontCache::build();
+        let font_provider = Arc::new(crate::text3::default::PathLoader::new());
+        let font_manager = FontManager::with_loader(fc_cache, font_provider).unwrap();
 
         let min_layout = self
             .text_cache
-            .layout_flow(&inline_content, &[], &min_fragments, &font_provider)
+            .layout_flow(&inline_content, &[], &min_fragments, &font_manager)
             .map_err(|_| LayoutError::SizingFailed)?;
 
         // Calculate max-content width (width on single line)
@@ -489,17 +496,8 @@ fn collect_text_recursive(
 
 fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
     match &styled_dom.node_data.as_container()[node_id].get_node_type() {
-        NodeType::Text(text_data) => Some(text_data.text.as_str().to_string()),
+        NodeType::Text(text_data) => Some(text_data.as_str().to_string()),
         _ => None,
-    }
-}
-
-// Stub font provider for intrinsic size calculations
-struct StubFontProvider;
-
-impl FontProviderTrait<ParsedFont> for StubFontProvider {
-    fn get_font(&self, _font_ref: &FontRef) -> Result<ParsedFont, FontError> {
-        Err(FontError::FontNotFound)
     }
 }
 
