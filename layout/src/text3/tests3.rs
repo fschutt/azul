@@ -816,7 +816,6 @@ fn test_inline_object_baseline_alignment() {
             baseline_offset: 5.0, // 5px of image is below the baseline
             alignment: VerticalAlign::Baseline,
             object_fit: ObjectFit::Fill,
-            alt_text: "".into(),
         }),
     ];
     let constraints = UnifiedConstraints {

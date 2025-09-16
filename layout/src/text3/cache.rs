@@ -580,7 +580,6 @@ pub struct InlineImage {
     pub baseline_offset: f32, // How much to shift baseline
     pub alignment: VerticalAlign,
     pub object_fit: ObjectFit,
-    pub alt_text: String, // Fallback text if image fails
 }
 
 impl PartialEq for InlineImage {
@@ -591,7 +590,6 @@ impl PartialEq for InlineImage {
             && self.display_size == other.display_size
             && self.alignment == other.alignment
             && self.object_fit == other.object_fit
-            && self.alt_text == other.alt_text
     }
 }
 
@@ -605,7 +603,6 @@ impl Hash for InlineImage {
         self.baseline_offset.to_bits().hash(state);
         self.alignment.hash(state);
         self.object_fit.hash(state);
-        self.alt_text.hash(state);
     }
 }
 
@@ -624,7 +621,6 @@ impl Ord for InlineImage {
             .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset))
             .then_with(|| self.alignment.cmp(&other.alignment))
             .then_with(|| self.object_fit.cmp(&other.object_fit))
-            .then_with(|| self.alt_text.cmp(&other.alt_text))
     }
 }
 
@@ -1155,15 +1151,6 @@ impl PartialEq for ShapeBoundary {
     }
 }
 impl Eq for ShapeBoundary {}
-
-// Enhanced layout constraints supporting arbitrary shapes
-#[derive(Debug, Clone)]
-pub struct LayoutConstraints {
-    pub shape: ShapeConstraints,
-    pub justify_content: JustifyContent,
-    pub vertical_align: VerticalAlign,
-    pub overflow_behavior: OverflowBehavior,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InlineBreak {

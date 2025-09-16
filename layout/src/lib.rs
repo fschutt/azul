@@ -17,6 +17,7 @@ pub mod font;
 pub mod image;
 pub mod parsedfont;
 pub mod solver2;
+pub mod solver3;
 #[cfg(feature = "text_layout")]
 pub mod text2;
 #[cfg(feature = "text_layout")]

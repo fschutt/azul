@@ -1,3 +1,5 @@
+//! solver2/layout.rs
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{

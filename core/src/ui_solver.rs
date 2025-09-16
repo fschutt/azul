@@ -653,6 +653,8 @@ pub enum FormattingContext {
     TableColumnGroup,
     /// Table caption formatting context
     TableCaption,
+    /// Grid formatting context
+    Grid,
     /// No formatting context (display: none)
     None,
 }
@@ -673,6 +675,7 @@ impl fmt::Debug for FormattingContext {
             FormattingContext::OutOfFlow(layout_position) => {
                 write!(f, "OutOfFlow({layout_position:?})")
             }
+            FormattingContext::Grid => write!(f, "Grid"),
             FormattingContext::None => write!(f, "None"),
             FormattingContext::Table => write!(f, "Table"),
             FormattingContext::TableRowGroup => write!(f, "TableRowGroup"),

@@ -399,6 +399,12 @@ pub struct ColorU {
     pub a: u8,
 }
 
+impl ColorU {
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+}
+
 impl Default for ColorU {
     fn default() -> Self {
         ColorU::BLACK

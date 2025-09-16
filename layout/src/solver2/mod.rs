@@ -1,3 +1,5 @@
+//! solver2/mod.rs
+
 pub mod caching;
 pub mod context;
 pub mod intrinsic;
