@@ -2899,6 +2899,16 @@ impl_vec_eq!(LogicalRect, LogicalRectVec);
 
 use core::ops::{AddAssign, SubAssign};
 
+/// Represents the CSS `writing-mode` property.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(C)]
+pub enum WritingMode {
+    #[default]
+    HorizontalTb, // Top-to-bottom
+    VerticalRl, // Right-to-left
+    VerticalLr, // Left-to-right
+}
+
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalPosition {
@@ -2995,6 +3005,22 @@ impl Hash for LogicalPosition {
     }
 }
 
+impl LogicalPosition {
+    pub fn main(&self, wm: WritingMode) -> f32 {
+        match wm {
+            WritingMode::HorizontalTb => self.y,
+            WritingMode::VerticalRl | WritingMode::VerticalLr => self.x,
+        }
+    }
+
+    pub fn cross(&self, wm: WritingMode) -> f32 {
+        match wm {
+            WritingMode::HorizontalTb => self.x,
+            WritingMode::VerticalRl | WritingMode::VerticalLr => self.y,
+        }
+    }
+}
+
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalSize {
@@ -3051,6 +3077,48 @@ impl Hash for LogicalSize {
         let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
         self_width.hash(state);
         self_height.hash(state);
+    }
+}
+
+impl LogicalSize {
+    pub fn main(&self, wm: WritingMode) -> f32 {
+        match wm {
+            WritingMode::HorizontalTb => self.height,
+            WritingMode::VerticalRl | WritingMode::VerticalLr => self.width,
+        }
+    }
+
+    pub fn cross(&self, wm: WritingMode) -> f32 {
+        match wm {
+            WritingMode::HorizontalTb => self.width,
+            WritingMode::VerticalRl | WritingMode::VerticalLr => self.height,
+        }
+    }
+
+    pub fn with_main(self, wm: WritingMode, value: f32) -> Self {
+        match wm {
+            WritingMode::HorizontalTb => Self {
+                height: value,
+                ..self
+            },
+            WritingMode::VerticalRl | WritingMode::VerticalLr => Self {
+                width: value,
+                ..self
+            },
+        }
+    }
+
+    pub fn with_cross(self, wm: WritingMode, value: f32) -> Self {
+        match wm {
+            WritingMode::HorizontalTb => Self {
+                width: value,
+                ..self
+            },
+            WritingMode::VerticalRl | WritingMode::VerticalLr => Self {
+                height: value,
+                ..self
+            },
+        }
     }
 }
 

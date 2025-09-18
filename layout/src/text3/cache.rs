@@ -739,7 +739,6 @@ pub struct InlineShape {
     pub shape_def: ShapeDefinition,
     pub fill: Option<Color>,
     pub stroke: Option<Stroke>,
-    pub size: Size,
     pub baseline_offset: f32,
 }
 
@@ -816,7 +815,6 @@ impl PartialEq for InlineShape {
             && self.shape_def == other.shape_def
             && self.fill == other.fill
             && self.stroke == other.stroke
-            && self.size == other.size
     }
 }
 
@@ -827,7 +825,6 @@ impl Hash for InlineShape {
         self.shape_def.hash(state);
         self.fill.hash(state);
         self.stroke.hash(state);
-        self.size.hash(state);
         self.baseline_offset.to_bits().hash(state);
     }
 }
@@ -843,7 +840,6 @@ impl PartialOrd for InlineShape {
                         .partial_cmp(&other.stroke)
                         .unwrap_or(Ordering::Equal)
                 })
-                .then_with(|| self.size.cmp(&other.size))
                 .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset)),
         )
     }
@@ -878,7 +874,7 @@ impl Hash for Rect {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd)]
+#[derive(Debug, Default, Clone, Copy, PartialOrd)]
 pub struct Size {
     pub width: f32,
     pub height: f32,
@@ -905,6 +901,15 @@ impl PartialEq for Size {
     }
 }
 impl Eq for Size {}
+
+impl Size {
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialOrd)]
 pub struct Point {
@@ -1015,6 +1020,142 @@ impl PartialEq for ShapeDefinition {
     }
 }
 impl Eq for ShapeDefinition {}
+
+impl ShapeDefinition {
+    /// Calculates the bounding box size for the shape.
+    pub fn get_size(&self) -> Size {
+        match self {
+            // The size is explicitly defined.
+            ShapeDefinition::Rectangle { size, .. } => *size,
+
+            // The bounding box of a circle is a square with sides equal to the diameter.
+            ShapeDefinition::Circle { radius } => {
+                let diameter = radius * 2.0;
+                Size::new(diameter, diameter)
+            }
+
+            // The bounding box of an ellipse has width and height equal to twice its radii.
+            ShapeDefinition::Ellipse { radii } => Size::new(radii.width * 2.0, radii.height * 2.0),
+
+            // For a polygon, we must find the min/max coordinates to get the bounds.
+            ShapeDefinition::Polygon { points } => calculate_bounding_box_size(points),
+
+            // For a path, we find the bounding box of all its anchor and control points.
+            //
+            // NOTE: This is a common and fast approximation. The true bounding box of
+            // bezier curves can be slightly smaller than the box containing their control
+            // points. For pixel-perfect results, one would need to calculate the
+            // curve's extrema.
+            ShapeDefinition::Path { segments } => {
+                let mut points = Vec::new();
+                let mut current_pos = Point { x: 0.0, y: 0.0 };
+
+                for segment in segments {
+                    match segment {
+                        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => {
+                            points.push(*p);
+                            current_pos = *p;
+                        }
+                        PathSegment::QuadTo { control, end } => {
+                            points.push(current_pos);
+                            points.push(*control);
+                            points.push(*end);
+                            current_pos = *end;
+                        }
+                        PathSegment::CurveTo {
+                            control1,
+                            control2,
+                            end,
+                        } => {
+                            points.push(current_pos);
+                            points.push(*control1);
+                            points.push(*control2);
+                            points.push(*end);
+                            current_pos = *end;
+                        }
+                        PathSegment::Arc {
+                            center,
+                            radius,
+                            start_angle,
+                            end_angle,
+                        } => {
+                            // 1. Calculate and add the arc's start and end points to the list.
+                            let start_point = Point {
+                                x: center.x + radius * start_angle.cos(),
+                                y: center.y + radius * start_angle.sin(),
+                            };
+                            let end_point = Point {
+                                x: center.x + radius * end_angle.cos(),
+                                y: center.y + radius * end_angle.sin(),
+                            };
+                            points.push(start_point);
+                            points.push(end_point);
+
+                            // 2. Normalize the angles to handle cases where the arc crosses the
+                            //    0-radian line.
+                            // This ensures we can iterate forward from a start to an end angle.
+                            let mut normalized_end = *end_angle;
+                            while normalized_end < *start_angle {
+                                normalized_end += 2.0 * std::f32::consts::PI;
+                            }
+
+                            // 3. Find the first cardinal point (multiples of PI/2) at or after the
+                            //    start angle.
+                            let mut check_angle = (*start_angle / std::f32::consts::FRAC_PI_2)
+                                .ceil()
+                                * std::f32::consts::FRAC_PI_2;
+
+                            // 4. Iterate through all cardinal points that fall within the arc's
+                            //    sweep and add them.
+                            // These points define the maximum extent of the arc's bounding box.
+                            while check_angle < normalized_end {
+                                points.push(Point {
+                                    x: center.x + radius * check_angle.cos(),
+                                    y: center.y + radius * check_angle.sin(),
+                                });
+                                check_angle += std::f32::consts::FRAC_PI_2;
+                            }
+
+                            // 5. The end of the arc is the new current position for subsequent path
+                            //    segments.
+                            current_pos = end_point;
+                        }
+                        PathSegment::Close => {
+                            // No new points are added for closing the path
+                        }
+                    }
+                }
+                calculate_bounding_box_size(&points)
+            }
+        }
+    }
+}
+
+/// Helper function to calculate the size of the bounding box enclosing a set of points.
+fn calculate_bounding_box_size(points: &[Point]) -> Size {
+    if points.is_empty() {
+        return Size::zero();
+    }
+
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
+
+    for point in points {
+        min_x = min_x.min(point.x);
+        max_x = max_x.max(point.x);
+        min_y = min_y.min(point.y);
+        max_y = max_y.max(point.y);
+    }
+
+    // Handle case where points might be collinear or a single point
+    if min_x > max_x || min_y > max_y {
+        return Size::zero();
+    }
+
+    Size::new(max_x - min_x, max_y - min_y)
+}
 
 #[derive(Debug, Clone, PartialOrd)]
 pub struct Stroke {
@@ -2728,15 +2869,18 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
                 img.baseline_offset,
             ))
         }
-        InlineContent::Shape(shape) => Ok((
-            Rect {
-                x: 0.0,
-                y: 0.0,
-                width: shape.size.width,
-                height: shape.size.height,
-            },
-            shape.baseline_offset,
-        )),
+        InlineContent::Shape(shape) => Ok({
+            let size = shape.shape_def.get_size();
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: size.width,
+                    height: size.height,
+                },
+                shape.baseline_offset,
+            )
+        }),
         InlineContent::Space(space) => Ok((
             Rect {
                 x: 0.0,

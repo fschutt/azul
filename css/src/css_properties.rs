@@ -1225,6 +1225,21 @@ impl CssPropertyType {
         }
     }
 
+    pub fn get_category(&self) -> CssPropertyCategory {
+        if self.is_gpu_only_property() {
+            CssPropertyCategory::GpuOnly
+        } else {
+            let is_inheritable = self.is_inheritable();
+            let can_trigger_layout = self.can_trigger_relayout();
+            match (is_inheritable, can_trigger_layout) {
+                (true, true) => CssPropertyCategory::InheritedLayout,
+                (true, false) => CssPropertyCategory::InheritedPaint,
+                (false, true) => CssPropertyCategory::Layout,
+                (false, false) => CssPropertyCategory::Paint,
+            }
+        }
+    }
+
     /// Returns whether this property can trigger a re-layout (important for incremental layout and
     /// caching layouted DOMs).
     pub fn can_trigger_relayout(&self) -> bool {
@@ -1281,6 +1296,20 @@ impl CssPropertyType {
             _ => false
         }
     }
+}
+
+/// Categorizes a CSS property by its effect on the layout pipeline.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CssPropertyCategory {
+    GpuOnly,
+    /// Affects geometry (width, height, margin, padding, font-size, etc.)
+    Layout,
+    /// Affects only appearance (color, background-color, etc.)
+    Paint,
+    /// A layout-affecting property that also requires children to be re-evaluated.
+    InheritedLayout,
+    /// A paint-affecting property that also requires children to be re-evaluated.
+    InheritedPaint,
 }
 
 impl fmt::Debug for CssPropertyType {

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use azul_core::{
     app_resources::{DecodedImage, ImageKey, ImageRefHash},
+    callbacks::ScrollPosition,
     display_list::GlyphInstance,
     dom::{NodeId, NodeType},
     styled_dom::StyledDom,
@@ -17,147 +18,182 @@ use crate::{
     parsedfont::ParsedFont,
     solver3::{
         positioning::{get_position_type, PositionType, PositionedLayoutTree},
-        LayoutError, Result,
+        LayoutContext, LayoutError, Result,
     },
     text3::cache::{
-        InlineContent, InlineShape, Rect, ShapeDefinition, ShapedGlyph,
-        FontRef, FontStyle, ImageSource, PositionedItem, ShapedItem, UnifiedLayout,
+        FontLoaderTrait, FontRef, FontStyle, ImageSource, InlineContent, InlineShape,
+        ParsedFontTrait, PositionedItem, Rect, ShapeDefinition, ShapedGlyph, ShapedItem,
+        UnifiedLayout,
     },
 };
 
 /// Generate final display list for rendering
-pub fn generate_display_list(
+pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
     positioned_tree: &PositionedLayoutTree,
-    styled_dom: &StyledDom,
-    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
 ) -> Result<DisplayList> {
-    debug_log(debug_messages, "Generating display list");
+    ctx.debug_log("Generating display list");
 
     let mut builder = DisplayListBuilder::new();
-    let mut generator = DisplayListGenerator::new();
+    let mut generator = DisplayListGenerator::new(scroll_offsets);
 
-    // Process all nodes in paint order (respecting stacking contexts)
-    let stacking_contexts = collect_stacking_contexts(positioned_tree, styled_dom)?;
+    // 1. Build a tree of stacking contexts based on the layout tree.
+    let stacking_context_tree =
+        collect_stacking_contexts(ctx, positioned_tree, positioned_tree.tree.root)?;
 
-    for stacking_context in stacking_contexts {
-        generate_stacking_context(
-            &mut generator,
-            &mut builder,
-            positioned_tree,
-            stacking_context,
-            styled_dom,
-            debug_messages,
-        )?;
-    }
+    // 2. The root context is the base; traverse it to generate all display items.
+    generate_for_stacking_context(
+        &mut generator,
+        &mut builder,
+        positioned_tree,
+        &stacking_context_tree,
+        &ctx.styled_dom,
+        ctx.debug_messages,
+    )?;
 
     let display_list = builder.build();
 
-    debug_log(
-        debug_messages,
-        &format!(
-            "Generated display list with {} items",
-            display_list.items.len()
-        ),
-    );
+    ctx.debug_log(&format!(
+        "Generated display list with {} items",
+        display_list.items.len()
+    ));
 
     Ok(display_list)
 }
 
-struct DisplayListGenerator {
+struct DisplayListGenerator<'a> {
     current_clip: Option<LogicalRect>,
+    scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
 }
 
-impl DisplayListGenerator {
-    fn new() -> Self {
-        Self { current_clip: None }
+impl<'a> DisplayListGenerator<'a> {
+    pub fn new(scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>) -> Self {
+        Self {
+            current_clip: None,
+            scroll_offsets,
+        }
     }
 }
 
-/// Represents a stacking context in the paint order
+/// Represents a stacking context in the paint order. This is a tree structure.
 #[derive(Debug)]
-struct StackingContext {
-    node_index: usize,
-    z_index: i32,
-    children: Vec<StackingContext>,
+pub struct StackingContext {
+    /// The layout node that establishes this context.
+    pub node_index: usize,
+    /// The z-index of this context.
+    pub z_index: i32,
+    /// Children that are *not* stacking contexts, painted in DOM order.
+    pub in_flow_children: Vec<usize>,
+    /// Children that establish their own stacking contexts.
+    pub child_contexts: Vec<StackingContext>,
 }
 
-fn collect_stacking_contexts(
-    positioned_tree: &PositionedLayoutTree,
-    styled_dom: &StyledDom,
-) -> Result<Vec<StackingContext>> {
-    // Build stacking context tree
-    let root_context =
-        build_stacking_context_recursive(positioned_tree, positioned_tree.tree.root, styled_dom)?;
-
-    // Flatten and sort by z-index
-    let mut contexts = vec![root_context];
-    sort_stacking_contexts(&mut contexts);
-
-    Ok(contexts)
-}
-
-fn build_stacking_context_recursive(
+/// Recursively builds the tree of stacking contexts.
+pub fn collect_stacking_contexts<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
     positioned_tree: &PositionedLayoutTree,
     node_index: usize,
-    styled_dom: &StyledDom,
 ) -> Result<StackingContext> {
     let node = positioned_tree
         .tree
         .get(node_index)
         .ok_or(LayoutError::InvalidTree)?;
-    let z_index = get_z_index(styled_dom, node.dom_node_id);
+    let z_index = get_z_index(ctx.styled_dom, node.dom_node_id);
 
-    let mut children = Vec::new();
+    let mut in_flow_children = Vec::new();
+    let mut child_contexts = Vec::new();
 
     for &child_index in &node.children {
-        // Check if child establishes new stacking context
-        if establishes_stacking_context(positioned_tree, child_index, styled_dom) {
-            let child_context =
-                build_stacking_context_recursive(positioned_tree, child_index, styled_dom)?;
-            children.push(child_context);
+        if establishes_stacking_context(ctx, positioned_tree, child_index) {
+            let child_context = collect_stacking_contexts(ctx, positioned_tree, child_index)?;
+            child_contexts.push(child_context);
+        } else {
+            in_flow_children.push(child_index);
         }
     }
 
     Ok(StackingContext {
         node_index,
         z_index,
-        children,
+        in_flow_children,
+        child_contexts,
     })
 }
 
-fn sort_stacking_contexts(contexts: &mut Vec<StackingContext>) {
-    contexts.sort_by_key(|ctx| ctx.z_index);
-
-    for context in contexts {
-        sort_stacking_contexts(&mut context.children);
-    }
-}
-
-fn generate_stacking_context(
+/// Main recursive function to generate display items based on the stacking context tree.
+pub fn generate_for_stacking_context(
     generator: &mut DisplayListGenerator,
     builder: &mut DisplayListBuilder,
     positioned_tree: &PositionedLayoutTree,
-    context: StackingContext,
+    context: &StackingContext,
     styled_dom: &StyledDom,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<()> {
-    // Generate display items for this stacking context
-    generate_node_display_items(
+    // CSS Paint Order Spec (simplified):
+    // 1. Background and borders for the context's root element.
+    paint_node_background_and_border(
+        builder,
         generator,
         builder,
         positioned_tree,
         context.node_index,
+    )?;
+
+    // 2. Child stacking contexts with negative z-indices.
+    let mut negative_z_children: Vec<_> = context
+        .child_contexts
+        .iter()
+        .filter(|c| c.z_index < 0)
+        .collect();
+    negative_z_children.sort_by_key(|c| c.z_index);
+    for child in negative_z_children {
+        generate_for_stacking_context(
+            generator,
+            builder,
+            positioned_tree,
+            child,
+            styled_dom,
+            debug_messages,
+        )?;
+    }
+
+    // 3. In-flow, non-positioned descendants.
+    paint_in_flow_descendants(
+        generator,
+        builder,
+        positioned_tree,
+        context.node_index,
+        context,
         styled_dom,
         debug_messages,
     )?;
 
-    // Process child stacking contexts
-    for child_context in context.children {
-        generate_stacking_context(
+    // 4. Child stacking contexts with z-index: 0 / auto.
+    for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
+        generate_for_stacking_context(
             generator,
             builder,
             positioned_tree,
-            child_context,
+            child,
+            styled_dom,
+            debug_messages,
+        )?;
+    }
+
+    // 5. Child stacking contexts with positive z-indices.
+    let mut positive_z_children: Vec<_> = context
+        .child_contexts
+        .iter()
+        .filter(|c| c.z_index > 0)
+        .collect();
+    positive_z_children.sort_by_key(|c| c.z_index);
+    for child in positive_z_children {
+        generate_for_stacking_context(
+            generator,
+            builder,
+            positioned_tree,
+            child,
             styled_dom,
             debug_messages,
         )?;
@@ -166,11 +202,13 @@ fn generate_stacking_context(
     Ok(())
 }
 
-fn generate_node_display_items(
+/// Paints the content and non-stacking-context children of a given node.
+pub fn paint_in_flow_descendants(
     generator: &mut DisplayListGenerator,
     builder: &mut DisplayListBuilder,
     positioned_tree: &PositionedLayoutTree,
     node_index: usize,
+    context: &StackingContext, // Pass context to get correct child list
     styled_dom: &StyledDom,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<()> {
@@ -188,47 +226,166 @@ fn generate_node_display_items(
         .get(&node_index)
         .copied()
         .unwrap_or_default();
+    let bounds = LogicalRect::new(absolute_position, size);
 
-    let bounds = LogicalRect::new(
-        LogicalPosition::new(absolute_position.x, absolute_position.y),
-        LogicalSize::new(size.width, size.height),
-    );
-
-    // Paint order: background -> border -> content -> outline
-
-    // 1. Background
-    if let Some(dom_id) = node.dom_node_id {
-        generate_background(builder, bounds, styled_dom, dom_id)?;
-        generate_border(builder, bounds, styled_dom, dom_id)?;
-    }
-
-    // 2. Content - handle different types
+    // 1. Paint the node's own content (text, images).
     if let Some(inline_layout) = &node.inline_layout_result {
-        // Text content from text3
         generate_text_content(builder, absolute_position, inline_layout, debug_messages)?;
     } else if let Some(dom_id) = node.dom_node_id {
-        // Other content types
         generate_node_content(builder, bounds, styled_dom, dom_id)?;
     }
 
-    // 3. Process children that don't establish stacking contexts
-    for &child_index in &node.children {
-        if !establishes_stacking_context(positioned_tree, child_index, styled_dom) {
-            generate_node_display_items(
-                generator,
-                builder,
-                positioned_tree,
-                child_index,
-                styled_dom,
-                debug_messages,
-            )?;
+    // 2. Recursively paint the in-flow children.
+    // Use the `in_flow_children` from the context for the root of this sub-paint.
+    // For deeper children, use their own children list.
+    let children_to_paint = if node_index == context.node_index {
+        &context.in_flow_children
+    } else {
+        &node.children
+    };
+
+    for &child_index in children_to_paint {
+        // Since these children do not form stacking contexts, we paint their
+        // background/border first, then recurse.
+        paint_node_background_and_border(
+            builder,
+            generator,
+            builder,
+            positioned_tree,
+            child_index,
+        )?;
+        paint_in_flow_descendants(
+            generator,
+            builder,
+            positioned_tree,
+            child_index,
+            context,
+            styled_dom,
+            debug_messages,
+        )?;
+    }
+    Ok(())
+}
+
+/// Helper to paint just the background and border of a single node.
+pub fn paint_node_background_and_border<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    generator: &mut DisplayListGenerator,
+    builder: &mut DisplayListBuilder,
+    positioned_tree: &PositionedLayoutTree,
+    node_index: usize,
+) -> Result<()> {
+    let node = positioned_tree
+        .tree
+        .get(node_index)
+        .ok_or(LayoutError::InvalidTree)?;
+    let Some(dom_id) = node.dom_node_id else {
+        return Ok(());
+    };
+
+    let mut absolute_position = positioned_tree
+        .absolute_positions
+        .get(&node_index)
+        .copied()
+        .unwrap_or_default();
+    let size = positioned_tree
+        .used_sizes
+        .get(&node_index)
+        .copied()
+        .unwrap_or_default();
+
+    // Apply scroll offset from parent for painting
+    if let Some(parent_idx) = node.parent {
+        if let Some(parent_dom_id) = positioned_tree
+            .tree
+            .get(parent_idx)
+            .and_then(|p| p.dom_node_id)
+        {
+            if let Some(scroll_offset) = generator.scroll_offsets.get(&parent_dom_id) {
+                absolute_position.x -= scroll_offset.x;
+                absolute_position.y -= scroll_offset.y;
+            }
+        }
+    }
+
+    let bounds = LogicalRect::new(absolute_position, size);
+
+    generate_background(builder, bounds, ctx.styled_dom, dom_id)?;
+    generate_border(builder, bounds, ctx.styled_dom, dom_id)?;
+    Ok(())
+}
+
+pub fn generate_combined_text_block(
+    builder: &mut DisplayListBuilder,
+    base_position: LogicalPosition,
+    bounds: &Rect,
+    glyphs: &[ShapedGlyph<ParsedFont>],
+) -> Result<()> {
+    let mut glyph_instances = Vec::new();
+    let mut x = 0.0;
+
+    for glyph in glyphs {
+        let instance = GlyphInstance {
+            point: LogicalPosition::new(
+                base_position.x + bounds.x + x,
+                base_position.y + bounds.y + glyph.baseline_offset,
+            ),
+            // Corrected field name from `glyph_index` to `index` for consistency
+            index: glyph.glyph_id as u32,
+        };
+        glyph_instances.push(instance);
+        x += glyph.advance; // For tate-chu-yoko, `advance` is correct. Vertical text uses
+                            // `vertical_advance`.
+    }
+
+    if !glyph_instances.is_empty() {
+        if let Some(first_glyph) = glyphs.first() {
+            builder.push_text_run(
+                glyph_instances,
+                first_glyph.font.clone(),
+                ColorU::new(0, 0, 0, 255), // TODO: Get color from style
+            );
         }
     }
 
     Ok(())
 }
 
-fn generate_background(
+pub fn generate_simple_text(
+    builder: &mut DisplayListBuilder,
+    bounds: LogicalRect,
+    text: &str,
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+) -> Result<()> {
+    let font_info = get_font_info(styled_dom, dom_id);
+    let color = get_text_color(styled_dom, dom_id);
+    let mut glyph_instances = Vec::new();
+    let char_width = 8.0;
+
+    for (i, ch) in text.chars().enumerate() {
+        if ch.is_whitespace() {
+            continue;
+        }
+        let instance = GlyphInstance {
+            point: LogicalPosition::new(
+                bounds.origin.x + (i as f32 * char_width),
+                bounds.origin.y + 16.0,
+            ),
+            // Corrected field name from `glyph_index` to `index`
+            index: ch as u32,
+        };
+        glyph_instances.push(instance);
+    }
+
+    if !glyph_instances.is_empty() {
+        builder.push_text_run(glyph_instances, font_info, color);
+    }
+
+    Ok(())
+}
+
+pub fn generate_background(
     builder: &mut DisplayListBuilder,
     bounds: LogicalRect,
     styled_dom: &StyledDom,
@@ -246,7 +403,7 @@ fn generate_background(
     Ok(())
 }
 
-fn generate_border(
+pub fn generate_border(
     builder: &mut DisplayListBuilder,
     bounds: LogicalRect,
     styled_dom: &StyledDom,
@@ -262,7 +419,7 @@ fn generate_border(
     Ok(())
 }
 
-fn generate_text_content(
+pub fn generate_text_content(
     builder: &mut DisplayListBuilder,
     base_position: LogicalPosition,
     layout: &UnifiedLayout<ParsedFont>,
@@ -293,7 +450,7 @@ fn generate_text_content(
     Ok(())
 }
 
-fn generate_shaped_item(
+pub fn generate_shaped_item(
     builder: &mut DisplayListBuilder,
     base_position: LogicalPosition,
     shaped_item: &ShapedItem<ParsedFont>,
@@ -327,7 +484,7 @@ fn generate_shaped_item(
         ShapedItem::Object {
             bounds, content, ..
         } => {
-            generate_inline_object_from_bounds(builder, base_position, bounds, content)?;
+            generate_inline_object(builder, base_position, bounds, content)?;
         }
         ShapedItem::CombinedBlock { bounds, glyphs, .. } => {
             // Handle tate-chu-yoko (combined text in vertical writing)
@@ -341,7 +498,7 @@ fn generate_shaped_item(
     Ok(())
 }
 
-fn generate_node_content(
+pub fn generate_node_content(
     builder: &mut DisplayListBuilder,
     bounds: LogicalRect,
     styled_dom: &StyledDom,
@@ -371,7 +528,7 @@ fn generate_node_content(
     Ok(())
 }
 
-fn generate_inline_object(
+pub fn generate_inline_object(
     builder: &mut DisplayListBuilder,
     base_position: LogicalPosition,
     bounds: &Rect,
@@ -399,88 +556,7 @@ fn generate_inline_object(
     Ok(())
 }
 
-fn generate_inline_object_from_bounds(
-    builder: &mut DisplayListBuilder,
-    base_position: LogicalPosition,
-    bounds: &Rect,
-    content: &InlineContent,
-) -> Result<()> {
-    generate_inline_object(builder, base_position, bounds, content)
-}
-
-fn generate_combined_text_block(
-    builder: &mut DisplayListBuilder,
-    base_position: LogicalPosition,
-    bounds: &Rect,
-    glyphs: &[ShapedGlyph<ParsedFont>],
-) -> Result<()> {
-    let mut glyph_instances = Vec::new();
-    let mut x = 0.0;
-
-    for glyph in glyphs {
-        let instance = GlyphInstance {
-            point: LogicalPosition::new(
-                base_position.x + bounds.x + x,
-                base_position.y + bounds.y + glyph.baseline_offset,
-            ),
-            glyph_index: glyph.glyph_id as u32,
-        };
-        glyph_instances.push(instance);
-        x += glyph.advance; // TODO: vertical_advance?
-    }
-
-    if !glyph_instances.is_empty() {
-        // Use first glyph's font for the run
-        if let Some(first_glyph) = glyphs.first() {
-            builder.push_text_run(
-                glyph_instances,
-                first_glyph.font.clone(),
-                ColorU::new(0, 0, 0, 255), // Default black
-            );
-        }
-    }
-
-    Ok(())
-}
-
-fn generate_simple_text(
-    builder: &mut DisplayListBuilder,
-    bounds: LogicalRect,
-    text: &str,
-    styled_dom: &StyledDom,
-    dom_id: NodeId,
-) -> Result<()> {
-    // Fallback for simple text rendering without text3
-    // This is a very basic implementation
-
-    let font_info = get_font_info(styled_dom, dom_id);
-    let color = get_text_color(styled_dom, dom_id);
-
-    // Create simple glyph instances (this is a stub)
-    let mut glyph_instances = Vec::new();
-    let char_width = 8.0; // Fixed width for simplicity
-
-    for (i, ch) in text.chars().enumerate() {
-        if ch != ' ' && ch != '\n' {
-            let instance = GlyphInstance {
-                point: LogicalPosition::new(
-                    bounds.origin.x + (i as f32 * char_width),
-                    bounds.origin.y + 16.0, // Baseline offset
-                ),
-                glyph_index: ch as u32, // Very simplified glyph mapping
-            };
-            glyph_instances.push(instance);
-        }
-    }
-
-    if !glyph_instances.is_empty() {
-        builder.push_text_run(glyph_instances, font_info, color);
-    }
-
-    Ok(())
-}
-
-fn generate_inline_shape(
+pub fn generate_inline_shape(
     builder: &mut DisplayListBuilder,
     bounds: LogicalRect,
     shape: &InlineShape,
@@ -507,12 +583,12 @@ fn generate_inline_shape(
 
 // Helper functions for extracting style information
 
-fn establishes_stacking_context(
-    _positioned_tree: &PositionedLayoutTree,
+pub fn establishes_stacking_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    positioned_tree: &PositionedLayoutTree,
     node_index: usize,
-    styled_dom: &StyledDom,
 ) -> bool {
-    let node = match _positioned_tree.tree.get(node_index) {
+    let node = match positioned_tree.tree.get(node_index) {
         Some(n) => n,
         None => return false,
     };
@@ -521,18 +597,15 @@ fn establishes_stacking_context(
         return false;
     };
 
-    let position = get_position_type(styled_dom, Some(dom_id));
+    let position = get_position_type(ctx.styled_dom, Some(dom_id));
     let is_positioned = position == PositionType::Absolute
         || position == PositionType::Relative
         || position == PositionType::Fixed;
 
     if is_positioned {
-        // Positioned elements with z-index other than 'auto' (which we model as non-zero)
-        // form a stacking context.
-        if get_z_index(styled_dom, Some(dom_id)) != 0 {
+        if get_z_index(ctx.styled_dom, Some(dom_id)) != 0 {
             return true;
         }
-        // `position: fixed` and `position: absolute` always establish a new stacking context.
         if position == PositionType::Absolute || position == PositionType::Fixed {
             return true;
         }
@@ -548,17 +621,17 @@ fn establishes_stacking_context(
     false
 }
 
-fn get_z_index(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> i32 {
+pub fn get_z_index(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> i32 {
     // Extract z-index from CSS - simplified
     0
 }
 
-fn get_background_color(styled_dom: &StyledDom, dom_id: NodeId) -> ColorU {
+pub fn get_background_color(styled_dom: &StyledDom, dom_id: NodeId) -> ColorU {
     // Extract background-color from CSS - simplified
     ColorU::new(255, 255, 255, 0) // Transparent by default
 }
 
-fn get_border_info(styled_dom: &StyledDom, dom_id: NodeId) -> BorderInfo {
+pub fn get_border_info(styled_dom: &StyledDom, dom_id: NodeId) -> BorderInfo {
     // Extract border properties from CSS - simplified
     BorderInfo {
         width: 0.0,
@@ -566,7 +639,7 @@ fn get_border_info(styled_dom: &StyledDom, dom_id: NodeId) -> BorderInfo {
     }
 }
 
-fn get_font_info(styled_dom: &StyledDom, dom_id: NodeId) -> FontRef {
+pub fn get_font_info(styled_dom: &StyledDom, dom_id: NodeId) -> FontRef {
     // Extract font properties from CSS - simplified
     FontRef {
         family: "serif".to_string(),
@@ -576,22 +649,22 @@ fn get_font_info(styled_dom: &StyledDom, dom_id: NodeId) -> FontRef {
     }
 }
 
-fn get_text_color(styled_dom: &StyledDom, dom_id: NodeId) -> ColorU {
+pub fn get_text_color(styled_dom: &StyledDom, dom_id: NodeId) -> ColorU {
     // Extract color from CSS - simplified
     ColorU::new(0, 0, 0, 255) // Black by default
 }
 
-fn get_image_key_for_src(src: &ImageRefHash) -> Option<ImageKey> {
+pub fn get_image_key_for_src(src: &ImageRefHash) -> Option<ImageKey> {
     // Convert image src to image key - would integrate with resource system
     None
 }
 
-fn get_image_key_for_image_source(source: &ImageSource) -> Option<ImageKey> {
+pub fn get_image_key_for_image_source(source: &ImageSource) -> Option<ImageKey> {
     // Convert text3 image source to image key
     None
 }
 
-fn count_glyphs_in_shaped_item(shaped_item: &ShapedItem<ParsedFont>) -> usize {
+pub fn count_glyphs_in_shaped_item(shaped_item: &ShapedItem<ParsedFont>) -> usize {
     match shaped_item {
         ShapedItem::Cluster(cluster) => cluster.glyphs.len(),
         ShapedItem::CombinedBlock { glyphs, .. } => glyphs.len(),
@@ -600,12 +673,12 @@ fn count_glyphs_in_shaped_item(shaped_item: &ShapedItem<ParsedFont>) -> usize {
 }
 
 #[derive(Debug)]
-struct BorderInfo {
-    width: f32,
-    color: ColorU,
+pub struct BorderInfo {
+    pub width: f32,
+    pub color: ColorU,
 }
 
-fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {
+pub fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {
     if let Some(messages) = debug_messages {
         messages.push(LayoutDebugMessage {
             message: message.into(),
