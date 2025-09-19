@@ -3019,6 +3019,14 @@ impl LogicalPosition {
             WritingMode::VerticalRl | WritingMode::VerticalLr => self.y,
         }
     }
+
+    // Creates a LogicalPosition from main and cross axis dimensions.
+    pub fn from_main_cross(main: f32, cross: f32, wm: WritingMode) -> Self {
+        match wm {
+            WritingMode::HorizontalTb => Self::new(cross, main),
+            WritingMode::VerticalRl | WritingMode::VerticalLr => Self::new(main, cross),
+        }
+    }
 }
 
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
@@ -3033,6 +3041,14 @@ impl LogicalSize {
         self.width *= scale_factor;
         self.height *= scale_factor;
         *self
+    }
+
+    // Creates a LogicalSize from main and cross axis dimensions.
+    pub fn from_main_cross(main: f32, cross: f32, wm: WritingMode) -> Self {
+        match wm {
+            WritingMode::HorizontalTb => Self::new(cross, main),
+            WritingMode::VerticalRl | WritingMode::VerticalLr => Self::new(main, cross),
+        }
     }
 }
 
@@ -3095,6 +3111,7 @@ impl LogicalSize {
         }
     }
 
+    // Returns a new LogicalSize with the main-axis dimension updated.
     pub fn with_main(self, wm: WritingMode, value: f32) -> Self {
         match wm {
             WritingMode::HorizontalTb => Self {

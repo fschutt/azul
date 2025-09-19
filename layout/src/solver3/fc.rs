@@ -18,12 +18,16 @@ use crate::{
     solver3::{
         geometry::{BoxProps, Clear, DisplayType, EdgeSizes, Float},
         layout_tree::{LayoutNode, LayoutTree},
+        positioning::PositionType,
         sizing::extract_text_from_node,
         LayoutContext, LayoutError, Result,
     },
-    text3::cache::{
-        FontLoaderTrait, InlineContent, InlineShape, LayoutFragment, ParsedFontTrait,
-        ShapeDefinition, Size, StyleProperties, StyledRun, UnifiedConstraints,
+    text3::{
+        self,
+        cache::{
+            FontLoaderTrait, InlineContent, InlineShape, LayoutFragment, ParsedFontTrait,
+            ShapeDefinition, Size, StyleProperties, StyledRun, UnifiedConstraints,
+        },
     },
 };
 
@@ -109,7 +113,7 @@ impl FloatingContext {
     /// Returns the main-axis offset needed to be clear of floats of the given type.
     /// In horizontal writing-mode, this is the Y coordinate to move to.
     pub fn clearance_offset(&self, clear: Clear, current_main_offset: f32) -> f32 {
-        let mut max_end_offset = 0.0;
+        let mut max_end_offset = 0.0_f32;
 
         // Determine which floats to check based on the `clear` property.
         let check_left = clear == Clear::Left || clear == Clear::Both;
@@ -157,34 +161,27 @@ pub struct LayoutResult {
 /// Main dispatcher for formatting context layout.
 pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
     match node.formatting_context {
-        azul_core::ui_solver::FormattingContext::Block { .. } => {
-            layout_bfc(ctx, tree, node_index, constraints)
-        }
-        azul_core::ui_solver::FormattingContext::Inline => {
-            layout_ifc(ctx, tree, node_index, constraints)
-        }
-        azul_core::ui_solver::FormattingContext::Table => {
-            layout_table_fc(ctx, tree, node_index, constraints)
-        }
-        // TODO: Add other formatting contexts
-        _ => {
-            // Default to BFC-like stacking for unsupported contexts
-            layout_bfc(ctx, tree, node_index, constraints)
-        }
+        FormattingContext::Block { .. } => layout_bfc(ctx, tree, node_index, constraints),
+        FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints),
+        FormattingContext::Table => layout_table_fc(ctx, tree, node_index, constraints),
+        _ => layout_bfc(ctx, tree, node_index, constraints),
     }
 }
 
 /// Lays out a Block Formatting Context (BFC).
+/// This function correctly handles different writing modes by operating on
+/// logical main (block) and cross (inline) axes.
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree,
+    tree: &mut LayoutTree<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -193,61 +190,94 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .ok_or(LayoutError::InvalidTree)?
         .clone(); // Clone to satisfy borrow checker
 
+    // Use the writing mode from the layout constraints.
+    let writing_mode = constraints.writing_mode;
+
     let mut output = LayoutOutput::default();
-    let mut max_cross_size = 0.0;
     let mut bfc_state = BfcState::new();
+
+    // Logical axis tracking:
+    // - `main_pen`: The current position along the main/block axis (e.g., 'y' in horizontal-tb).
+    // - `max_cross_size`: The maximum size encountered on the cross/inline axis (e.g., 'width').
+    let mut main_pen = 0.0_f32;
+    let mut max_cross_size = 0.0_f32;
 
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
-        // Determine if the child is in-flow or out-of-flow for THIS formatting context.
-        // `relative` is considered in-flow here; its offset is applied later.
+        // Determine if the child is in-flow for this formatting context.
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         let is_in_flow =
             position_type == PositionType::Static || position_type == PositionType::Relative;
 
-        // Get the child's size and margins, which should have been calculated already.
+        // Get the child's already-calculated size and margins.
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
-        let margin_box_height =
-            child_size.height + child_margin.main_sum(WritingMode::HorizontalTb);
 
-        // --- Static Position Calculation ---
-        // The static position is where the element WOULD be in the normal flow.
-        // We calculate this for EVERY child. For out-of-flow elements, this
-        // will be used later if their top/left offsets are 'auto'.
-        let static_pos = LogicalPosition::new(
-            bfc_state.pen.x + child_margin.left,
-            bfc_state.pen.y + child_margin.top, // Simplified margin collapsing
-        );
+        // --- Static Position Calculation (using logical axes) ---
 
+        // The child's position on the main axis is the current pen plus its start margin.
+        let static_main_pos = main_pen + child_margin.main_start(writing_mode); // Simplified margin collapsing
+
+        // The child's position on the cross axis depends on alignment (defaulting to start).
+        // A full implementation would use text-align/justify-content here.
+        let static_cross_pos = child_margin.cross_start(writing_mode);
+
+        // Convert the logical main/cross position to a physical x/y position.
+        let static_pos =
+            LogicalPosition::from_main_cross(static_main_pos, static_cross_pos, writing_mode);
         output.positions.insert(child_index, static_pos);
 
-        // --- Pen Advancement ---
-        // Crucially, we ONLY advance the layout pen for in-flow elements.
-        // Out-of-flow elements do not take up space.
+        // --- Pen Advancement and Size Tracking (for in-flow elements only) ---
         if is_in_flow {
-            bfc_state.pen.y += margin_box_height;
-            max_cross_size = max_cross_size
-                .max(child_size.width + child_margin.cross_sum(WritingMode::HorizontalTb));
+            // Check if the child establishes an Inline Formatting Context.
+            if child_node.formatting_context == FormattingContext::Inline {
+                // Inline content is special. We use text3 to lay it out, and it
+                // produces a single block-level "anonymous box" for the BFC to stack.
+                // The IFC's height (or width in vertical mode) determines how much to advance the
+                // pen.
+
+                // (This part assumes that the IFC has already been sized during the intrinsic
+                // sizing pass and its final size is available in `child_size`).
+
+                let ifc_block_size = child_size.main(writing_mode);
+                main_pen += ifc_block_size; // Advance pen by the IFC's total block size.
+                max_cross_size = max_cross_size.max(child_size.cross(writing_mode));
+            } else {
+                // This is a standard block-level child.
+
+                // Calculate its full margin-box size on the main axis.
+                let margin_box_main_size =
+                    child_size.main(writing_mode) + child_margin.main_sum(writing_mode);
+
+                // Advance the pen by the child's full margin-box size.
+                main_pen += margin_box_main_size;
+
+                // Update the max cross size for the BFC.
+                let margin_box_cross_size =
+                    child_size.cross(writing_mode) + child_margin.cross_sum(writing_mode);
+                max_cross_size = max_cross_size.max(margin_box_cross_size);
+            }
         }
     }
 
-    output.overflow_size = LogicalSize::new(max_cross_size, bfc_state.pen.y);
+    // Convert the final logical main/cross overflow size to a physical width/height.
+    output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
     Ok(output)
 }
 
 /// Lays out an Inline Formatting Context (IFC).
 fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &LayoutContext<T, Q>,
-    tree: &mut LayoutTree,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    tree: &mut LayoutTree<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
     // 1. Collect all inline content (text runs, inline-blocks) from descendants.
     // This is a complex traversal that needs to be implemented.
-    // let inline_content = collect_inline_content(ctx, tree, node_index);
+    let inline_content = collect_inline_content(ctx, tree, node_index)?;
 
     // 2. Prepare constraints for text3, including float exclusion zones.
     let text3_constraints = UnifiedConstraints {
@@ -263,18 +293,21 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }];
 
     // 3. Call text3 to perform the inline layout.
-    // let text_layout_result = text_cache.layout_flow(&inline_content, &fragments,
-    // ctx.font_manager)?;
+    let text_layout_result =
+        text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager)?;
 
     // 4. Store the detailed text layout result on the tree node for display list generation.
-    // if let Some(node) = tree.get_mut(node_index) {
-    //     node.inline_layout_result = Some(Arc::new(text_layout_result));
-    // }
-
-    // 5. Convert the text3 result back into LayoutOutput.
     let mut output = LayoutOutput::default();
-    // output.overflow_size = text_layout_result.bounds;
-    // `output.positions` would be empty as text3 handles internal positioning.
+    if let Some(node) = tree.get_mut(node_index) {
+        if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
+            node.inline_layout_result = Some(main_frag.clone());
+
+            // 5. Convert the text3 result back into LayoutOutput.
+            output.overflow_size =
+                LogicalSize::new(main_frag.bounds.width, main_frag.bounds.height);
+            // `output.positions` would be empty as text3 handles internal positioning.
+        }
+    }
 
     Ok(output)
 }
@@ -282,7 +315,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Lays out a Table Formatting Context.
 fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree,
+    tree: &mut LayoutTree<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -300,8 +333,8 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
 /// Helper function to gather all inline content for text3, including inline-blocks.
 pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>, // Using LayoutContext for consistency
-    tree: &LayoutTree,
+    ctx: &LayoutContext<T, Q>,
+    tree: &LayoutTree<T>,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     let mut content = Vec::new();
@@ -313,16 +346,13 @@ pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             continue;
         };
 
-        // Check if the child is an inline-block.
-        // NOTE: This helper would read from the LayoutContext's StyledDom
         if get_display_property(ctx.styled_dom, Some(dom_id)) == DisplayType::InlineBlock {
             let size = child_node.used_size.unwrap_or_default();
+
             // TODO: Calculate the real baseline of the inline-block element.
             // This would involve running layout on its children and finding the baseline
             // of its last line box. For now, we stub it as the bottom of the box.
             let baseline_offset = size.height;
-
-            // CORRECTED: We no longer set the redundant `size` field on InlineShape.
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
                     size: Size {
@@ -331,7 +361,7 @@ pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     },
                     corner_radius: None,
                 },
-                fill: None, // The inline-block will be painted by the display list pass
+                fill: None,
                 stroke: None,
                 baseline_offset,
             }));
@@ -479,18 +509,6 @@ fn get_text_align(tree: &StyledDom, dom_id: Option<azul_core::dom::NodeId>) -> T
     TextAlign::Start
 }
 
-/// Trait for formatting context managers
-pub trait FormattingContextManager {
-    fn layout(
-        &mut self,
-        tree: &mut LayoutTree,
-        node_index: usize,
-        constraints: &LayoutConstraints,
-        styled_dom: &StyledDom,
-        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ) -> Result<LayoutResult>;
-}
-
 /// Helper to determine if scrollbars are needed
 pub fn check_scrollbar_necessity(
     content_size: LogicalSize,
@@ -499,15 +517,13 @@ pub fn check_scrollbar_necessity(
     overflow_y: OverflowBehavior,
 ) -> ScrollbarInfo {
     let needs_horizontal = match overflow_x {
-        OverflowBehavior::Visible => false,
-        OverflowBehavior::Hidden => false,
+        OverflowBehavior::Visible | OverflowBehavior::Hidden => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.width > container_size.width,
     };
 
     let needs_vertical = match overflow_y {
-        OverflowBehavior::Visible => false,
-        OverflowBehavior::Hidden => false,
+        OverflowBehavior::Visible | OverflowBehavior::Hidden => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.height > container_size.height,
     };
@@ -534,6 +550,23 @@ pub struct ScrollbarInfo {
     pub needs_vertical: bool,
     pub scrollbar_width: f32,
     pub scrollbar_height: f32,
+}
+
+impl ScrollbarInfo {
+    /// Checks if the presence of scrollbars reduces the available inner size,
+    /// which would necessitate a reflow of the content.
+    pub fn needs_reflow(&self) -> bool {
+        self.scrollbar_width > 0.0 || self.scrollbar_height > 0.0
+    }
+
+    /// Takes a size (representing a content-box) and returns a new size
+    /// reduced by the dimensions of any active scrollbars.
+    pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
+        LogicalSize {
+            width: (size.width - self.scrollbar_width).max(0.0),
+            height: (size.height - self.scrollbar_height).max(0.0),
+        }
+    }
 }
 
 /// Margin collapsing calculation for block layout

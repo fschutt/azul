@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use azul_css::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
@@ -256,7 +257,7 @@ pub fn default_style() -> Arc<StyleProperties> {
             ..FontRef::invalid()
         },
         font_size_px: 10.0,
-        color: Color {
+        color: ColorU {
             r: 0,
             g: 0,
             b: 0,

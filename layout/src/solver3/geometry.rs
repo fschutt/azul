@@ -79,12 +79,25 @@ impl EdgeSizes {
         self.main_start(wm) + self.main_end(wm)
     }
 
+    /// Returns the size of the edge at the start of the cross/inline axis.
+    pub fn cross_start(&self, wm: WritingMode) -> f32 {
+        match wm {
+            WritingMode::HorizontalTb => self.left,
+            WritingMode::VerticalRl | WritingMode::VerticalLr => self.top,
+        }
+    }
+
+    /// Returns the size of the edge at the end of the cross/inline axis.
+    pub fn cross_end(&self, wm: WritingMode) -> f32 {
+        match wm {
+            WritingMode::HorizontalTb => self.right,
+            WritingMode::VerticalRl | WritingMode::VerticalLr => self.bottom,
+        }
+    }
+
     /// Returns the sum of the start and end sizes on the cross/inline axis.
     pub fn cross_sum(&self, wm: WritingMode) -> f32 {
-        match wm {
-            WritingMode::HorizontalTb => self.left + self.right,
-            WritingMode::VerticalRl | WritingMode::VerticalLr => self.top + self.bottom,
-        }
+        self.cross_start(wm) + self.cross_end(wm)
     }
 }
 
@@ -94,6 +107,23 @@ pub struct BoxProps {
     pub margin: EdgeSizes,
     pub padding: EdgeSizes,
     pub border: EdgeSizes,
+}
+
+impl BoxProps {
+    /// Calculates the inner content-box size from an outer border-box size,
+    /// correctly accounting for the specified writing mode.
+    pub fn inner_size(&self, outer_size: LogicalSize, wm: WritingMode) -> LogicalSize {
+        // The sum of padding and border along the cross (inline) axis.
+        let cross_axis_spacing = self.padding.cross_sum(wm) + self.border.cross_sum(wm);
+
+        // The sum of padding and border along the main (block) axis.
+        let main_axis_spacing = self.padding.main_sum(wm) + self.border.main_sum(wm);
+
+        LogicalSize {
+            width: (outer_size.width - cross_axis_spacing).max(0.0),
+            height: (outer_size.height - main_axis_spacing).max(0.0),
+        }
+    }
 }
 
 /// Represents the CSS `float` property.
@@ -113,4 +143,29 @@ pub enum Clear {
     Left,
     Right,
     Both,
+}
+
+/// Represents the intrinsic sizing information for an element, calculated
+/// without knowledge of the final containing block size.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IntrinsicSizes {
+    /// The narrowest possible width, e.g., the width of the longest word.
+    pub min_content_width: f32,
+    /// The preferred width if infinite horizontal space is available.
+    pub max_content_width: f32,
+    /// The width specified by CSS properties, if any.
+    pub preferred_width: Option<f32>,
+    /// The height of the element at its `min_content_width`.
+    pub min_content_height: f32,
+    /// The height of the element at its `max_content_width`.
+    pub max_content_height: f32,
+    /// The height specified by CSS properties, if any.
+    pub preferred_height: Option<f32>,
+}
+
+impl IntrinsicSizes {
+    /// Creates a zero-sized IntrinsicSizes.
+    pub fn zero() -> Self {
+        Self::default()
+    }
 }

@@ -11,6 +11,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use azul_css::ColorU;
 use hyphenation::{Hyphenator, Language, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
 use unicode_bidi::{BidiInfo, Level, TextSource};
@@ -737,7 +738,7 @@ pub enum ObjectFit {
 #[derive(Debug, Clone)]
 pub struct InlineShape {
     pub shape_def: ShapeDefinition,
-    pub fill: Option<Color>,
+    pub fill: Option<ColorU>,
     pub stroke: Option<Stroke>,
     pub baseline_offset: f32,
 }
@@ -1159,7 +1160,7 @@ fn calculate_bounding_box_size(points: &[Point]) -> Size {
 
 #[derive(Debug, Clone, PartialOrd)]
 pub struct Stroke {
-    pub color: Color,
+    pub color: ColorU,
     pub width: f32,
     pub dash_pattern: Option<Vec<f32>>,
 }
@@ -1368,14 +1369,6 @@ pub enum TextOrientation {
     Sideways, // All characters rotated 90 degrees
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextDecoration {
     pub underline: bool,
@@ -1447,24 +1440,12 @@ impl Default for FontRef {
     }
 }
 
-impl Default for Color {
-    fn default() -> Self {
-        // Opaque black
-        Self {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }
-    }
-}
-
 /// Style properties with vertical text support
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
     pub font_ref: FontRef,
     pub font_size_px: f32,
-    pub color: Color,
+    pub color: ColorU,
     pub letter_spacing: Spacing,
     pub word_spacing: Spacing,
 
@@ -1500,7 +1481,7 @@ impl Default for StyleProperties {
         Self {
             font_ref: FontRef::default(),
             font_size_px: FONT_SIZE,
-            color: Color::default(),
+            color: ColorU::default(),
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
             line_height: FONT_SIZE * 1.2,
@@ -1663,7 +1644,7 @@ pub struct StyleOverride {
 pub struct PartialStyleProperties {
     pub font_ref: Option<FontRef>,
     pub font_size_px: Option<f32>,
-    pub color: Option<Color>,
+    pub color: Option<ColorU>,
     pub letter_spacing: Option<Spacing>,
     pub word_spacing: Option<Spacing>,
     pub line_height: Option<f32>,

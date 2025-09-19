@@ -10,7 +10,7 @@ use rust_fontconfig::FcFontCache;
 // Imports from the layout engine's module
 use crate::text3::{
     cache::{
-        BidiLevel, Color, Direction, FontLoaderTrait, FontManager, FontMetrics, FontRef, Glyph,
+        BidiLevel, Direction, FontLoaderTrait, FontManager, FontMetrics, FontRef, Glyph,
         GlyphOrientation, GlyphSource, LayoutError, ParsedFontTrait, Point, StyleProperties,
         TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
     },

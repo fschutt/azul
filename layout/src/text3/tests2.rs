@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use azul_css::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
@@ -256,7 +257,7 @@ pub fn default_style() -> Arc<StyleProperties> {
             ..FontRef::invalid()
         },
         font_size_px: 10.0,
-        color: Color {
+        color: ColorU {
             r: 0,
             g: 0,
             b: 0,
@@ -726,7 +727,7 @@ fn test_bug1_shaping_across_style_boundaries() {
             item_index: 1,
         }, // target the 'i'
         style: PartialStyleProperties {
-            color: Some(Color {
+            color: Some(ColorU {
                 r: 255,
                 g: 0,
                 b: 0,
