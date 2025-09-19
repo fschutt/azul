@@ -110,12 +110,47 @@ pub struct FloatingContext {
 }
 
 impl FloatingContext {
+    /// Finds the available space on the cross-axis for a line box at a given main-axis range.
+    ///
+    /// Returns a tuple of (`cross_start_offset`, `cross_end_offset`) relative to the
+    /// BFC content box, defining the available space for an in-flow element.
+    pub fn available_line_box_space(
+        &self,
+        main_start: f32,
+        main_end: f32,
+        bfc_cross_size: f32,
+        wm: WritingMode,
+    ) -> (f32, f32) {
+        let mut available_cross_start = 0.0_f32;
+        let mut available_cross_end = bfc_cross_size;
+
+        for float in &self.floats {
+            // Get the logical main-axis span of the existing float.
+            let float_main_start = float.rect.origin.main(wm);
+            let float_main_end = float_main_start + float.rect.size.main(wm);
+
+            // Check for overlap on the main axis.
+            if main_end > float_main_start && main_start < float_main_end {
+                // The float overlaps with the main-axis range of the element we're placing.
+                let float_cross_start = float.rect.origin.cross(wm);
+                let float_cross_end = float_cross_start + float.rect.size.cross(wm);
+
+                if float.kind == Float::Left {
+                    // "line-left", i.e., cross-start
+                    available_cross_start = available_cross_start.max(float_cross_end);
+                } else {
+                    // Float::Right, i.e., cross-end
+                    available_cross_end = available_cross_end.min(float_cross_start);
+                }
+            }
+        }
+        (available_cross_start, available_cross_end)
+    }
+
     /// Returns the main-axis offset needed to be clear of floats of the given type.
-    /// In horizontal writing-mode, this is the Y coordinate to move to.
-    pub fn clearance_offset(&self, clear: Clear, current_main_offset: f32) -> f32 {
+    pub fn clearance_offset(&self, clear: Clear, current_main_offset: f32, wm: WritingMode) -> f32 {
         let mut max_end_offset = 0.0_f32;
 
-        // Determine which floats to check based on the `clear` property.
         let check_left = clear == Clear::Left || clear == Clear::Both;
         let check_right = clear == Clear::Right || clear == Clear::Both;
 
@@ -124,14 +159,11 @@ impl FloatingContext {
                 || (check_right && float.kind == Float::Right);
 
             if should_clear_this_float {
-                // The "clearance" position is the bottom edge of the float.
-                // We find the maximum bottom edge among all relevant floats.
-                let float_bottom = float.rect.origin.y + float.rect.size.height;
-                max_end_offset = max_end_offset.max(float_bottom);
+                let float_main_end = float.rect.origin.main(wm) + float.rect.size.main(wm);
+                max_end_offset = max_end_offset.max(float_main_end);
             }
         }
 
-        // Only return a new offset if it's greater than the current one.
         if max_end_offset > current_main_offset {
             max_end_offset
         } else {
@@ -235,15 +267,24 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         } else {
             // In-flow element.
             // 1. Apply clearance if needed.
-            main_pen = bfc_state.floats.clearance_offset(clear_type, main_pen);
+            main_pen = bfc_state
+                .floats
+                .clearance_offset(clear_type, main_pen, writing_mode);
 
-            // 2. TODO: Find available space at this `main_pen` position, considering floats.
-            // This is a complex step that requires finding the left and right boundaries
-            // established by floats at the current vertical line. For now, we simplify.
+            // 2. Find available space at this `main_pen` position, considering floats.
+            let element_main_size = margin_box_size.main(writing_mode);
+            let bfc_cross_size = constraints.available_size.cross(writing_mode);
+            let (line_box_cross_start, _line_box_cross_end) =
+                bfc_state.floats.available_line_box_space(
+                    main_pen,
+                    main_pen + element_main_size,
+                    bfc_cross_size,
+                    writing_mode,
+                );
 
             // 3. Position the element.
             let static_main_pos = main_pen + child_margin.main_start(writing_mode);
-            let static_cross_pos = child_margin.cross_start(writing_mode);
+            let static_cross_pos = line_box_cross_start + child_margin.cross_start(writing_mode);
             let static_pos =
                 LogicalPosition::from_main_cross(static_main_pos, static_cross_pos, writing_mode);
             output.positions.insert(child_index, static_pos);
@@ -251,20 +292,29 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // 4. Advance the pen.
             main_pen += margin_box_size.main(writing_mode);
 
-            // 5. Update BFC cross-axis extent.
-            let margin_box_cross_size = margin_box_size.cross(writing_mode);
-            max_cross_size = max_cross_size.max(margin_box_cross_size);
+            // 5. Update BFC cross-axis extent based on the element's final placed position.
+            let child_extent_cross = static_cross_pos
+                + child_size.cross(writing_mode)
+                + child_margin.cross_end(writing_mode);
+            max_cross_size = max_cross_size.max(child_extent_cross);
         }
     }
 
-    // The final BFC height must be at least as large as the bottom of the lowest float.
-    let float_bottom = bfc_state
+    // The final BFC main size must be at least as large as the end of the lowest float.
+    let float_main_end = bfc_state
         .floats
         .floats
         .iter()
-        .map(|f| f.rect.origin.y + f.rect.size.height)
+        .map(|f| f.rect.origin.main(writing_mode) + f.rect.size.main(writing_mode))
         .fold(0.0, f32::max);
-    main_pen = main_pen.max(float_bottom);
+    main_pen = main_pen.max(float_main_end);
+
+    // The final BFC cross size must also encompass any floats.
+    for float in &bfc_state.floats.floats {
+        let float_extent_cross =
+            float.rect.origin.cross(writing_mode) + float.rect.size.cross(writing_mode);
+        max_cross_size = max_cross_size.max(float_extent_cross);
+    }
 
     output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
     Ok(output)
@@ -395,91 +445,70 @@ fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperti
 }
 
 /// Positions a floated child within the BFC and updates the floating context.
-///
-/// This function implements the complex logic of finding the available space for a new float
-/// at the highest possible vertical position.
-fn position_floated_child(
-    child_index: usize,
-    child_size: LogicalSize, // The margin-box size of the child
+/// This function is fully writing-mode aware.
+fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    _child_index: usize,
+    child_margin_box_size: LogicalSize,
     float_type: Float,
     constraints: &LayoutConstraints,
-    bfc_content_box: LogicalRect, // The content box of the BFC
-    current_main_offset: f32,     // The current line's vertical position
+    _bfc_content_box: LogicalRect,
+    current_main_offset: f32,
     floating_context: &mut FloatingContext,
 ) -> Result<LogicalPosition> {
-    let mut placement_y = current_main_offset;
+    let wm = constraints.writing_mode;
+    let child_main_size = child_margin_box_size.main(wm);
+    let child_cross_size = child_margin_box_size.cross(wm);
+    let bfc_cross_size = constraints.available_size.cross(wm);
+    let mut placement_main_offset = current_main_offset;
 
-    // Loop to find the highest vertical position where the float fits.
-    // This is the core of float placement logic.
     loop {
-        // 1. Determine the available horizontal space at the current `placement_y`.
-        let mut available_left_edge = bfc_content_box.origin.x;
-        let mut available_right_edge = bfc_content_box.origin.x + bfc_content_box.size.width;
+        // 1. Determine the available cross-axis space at the current `placement_main_offset`.
+        let (available_cross_start, available_cross_end) = floating_context
+            .available_line_box_space(
+                placement_main_offset,
+                placement_main_offset + child_main_size,
+                bfc_cross_size,
+                wm,
+            );
 
-        for existing_float in &floating_context.floats {
-            // If the existing float vertically overlaps with the line we are trying to place on...
-            if placement_y < existing_float.rect.origin.y + existing_float.rect.size.height
-                && existing_float.rect.origin.y < placement_y + child_size.height
-            {
-                if existing_float.kind == Float::Left {
-                    available_left_edge = available_left_edge
-                        .max(existing_float.rect.origin.x + existing_float.rect.size.width);
-                } else {
-                    // Float::Right
-                    available_right_edge = available_right_edge.min(existing_float.rect.origin.x);
-                }
-            }
-        }
-
-        let available_width = available_right_edge - available_left_edge;
+        let available_cross_width = available_cross_end - available_cross_start;
 
         // 2. Check if the new float can fit in the available space.
-        if child_size.width <= available_width {
+        if child_cross_size <= available_cross_width {
             // It fits! Determine the final position and add it to the context.
-            let final_pos = match float_type {
-                Float::Left => LogicalPosition::new(available_left_edge, placement_y),
-                Float::Right => {
-                    LogicalPosition::new(available_right_edge - child_size.width, placement_y)
-                }
+            let final_cross_pos = match float_type {
+                Float::Left => available_cross_start,
+                Float::Right => available_cross_end - child_cross_size,
                 Float::None => unreachable!(),
             };
+            let final_pos =
+                LogicalPosition::from_main_cross(placement_main_offset, final_cross_pos, wm);
 
             let new_float_box = FloatBox {
                 kind: float_type,
-                // The rectangle must be relative to the BFC's coordinate system
-                rect: LogicalRect::new(final_pos, child_size),
+                rect: LogicalRect::new(final_pos, child_margin_box_size),
             };
-
             floating_context.floats.push(new_float_box);
-
             return Ok(final_pos);
         } else {
-            // It doesn't fit. We must move the float down past the obstacle.
-            // Find the lowest bottom-edge of all floats that are blocking the current line.
-            let mut next_y = f32::INFINITY;
+            // It doesn't fit. We must move the float down past an obstacle.
+            // Find the lowest main-axis end of all floats that are blocking the current line.
+            let mut next_main_offset = f32::INFINITY;
             for existing_float in &floating_context.floats {
-                if placement_y < existing_float.rect.origin.y + existing_float.rect.size.height {
-                    if existing_float.kind == Float::Left
-                        && available_left_edge
-                            <= existing_float.rect.origin.x + existing_float.rect.size.width
-                    {
-                        next_y = next_y
-                            .min(existing_float.rect.origin.y + existing_float.rect.size.height);
-                    }
-                    if existing_float.kind == Float::Right
-                        && available_right_edge >= existing_float.rect.origin.x
-                    {
-                        next_y = next_y
-                            .min(existing_float.rect.origin.y + existing_float.rect.size.height);
-                    }
+                let float_main_start = existing_float.rect.origin.main(wm);
+                let float_main_end = float_main_start + existing_float.rect.size.main(wm);
+
+                // Consider only floats that are above or at the current placement line.
+                if placement_main_offset < float_main_end {
+                    next_main_offset = next_main_offset.min(float_main_end);
                 }
             }
 
-            if next_y.is_infinite() {
-                // Should not happen if width is > 0 and a float is actually blocking
+            if next_main_offset.is_infinite() {
+                // This indicates an unrecoverable state, e.g., a float wider than the container.
                 return Err(LayoutError::PositioningFailed);
             }
-            placement_y = next_y;
+            placement_main_offset = next_main_offset;
         }
     }
 }
