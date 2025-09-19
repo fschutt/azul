@@ -23,6 +23,7 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
+use azul_css::{CssProperty, CssPropertyType, CssPropertyValue};
 
 use crate::{
     solver3::{
@@ -72,6 +73,7 @@ impl ReconciliationResult {
 /// like Flexbox or Grid, this optimization is skipped, as a full relayout is
 /// often required to correctly recalculate spacing and sizing for all siblings.
 pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
     tree: &LayoutTree<T>,
     layout_roots: &BTreeSet<usize>,
     absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
@@ -96,6 +98,7 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
             // Cases that use simple block-flow stacking can be optimized.
             FormattingContext::Block { .. } | FormattingContext::TableRowGroup => {
                 reposition_block_flow_siblings(
+                    styled_dom,
                     parent_idx,
                     parent_node,
                     tree,
@@ -137,13 +140,14 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
 /// It stacks children along the main axis, preserving their previously calculated cross-axis
 /// alignment.
 fn reposition_block_flow_siblings<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
     parent_idx: usize,
     parent_node: &LayoutNode<T>,
     tree: &LayoutTree<T>,
     layout_roots: &BTreeSet<usize>,
     absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
-    let writing_mode = get_writing_mode(parent_node.dom_node_id);
+    let writing_mode = get_writing_mode(styled_dom, parent_node.dom_node_id);
     let parent_pos = absolute_positions
         .get(&parent_idx)
         .copied()
@@ -382,6 +386,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // its containing block. If height is 'auto', this is a temporary value.
     let intrinsic = node.intrinsic_sizes.clone().unwrap_or_default();
     let mut final_used_size = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
         dom_id,
         containing_block_size,
         intrinsic,
@@ -391,7 +396,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // --- Phase 2: Layout children using a formatting context ---
 
     // Fetch the writing mode for the current context.
-    let writing_mode = get_writing_mode(dom_id); // This should come from the node's style.
+    let writing_mode = get_writing_mode(ctx.styled_dom, dom_id); // This should come from the node's style.
 
     let constraints = LayoutConstraints {
         available_size: node.box_props.inner_size(final_used_size, writing_mode),
@@ -404,7 +409,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
     // If the node's main-axis size depends on its content, we update its used size now.
-    if get_css_height(dom_id) == CssSize::Auto {
+    if crate::solver3::sizing::get_css_height(ctx.styled_dom, dom_id) == CssSize::Auto {
         let node_props = &tree.get(node_index).unwrap().box_props;
         let main_axis_padding_border =
             node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
@@ -498,6 +503,22 @@ fn get_css_height(dom_id: Option<NodeId>) -> CssSize {
     CssSize::Auto
 }
 // STUB: In a real implementation, this would read the 'writing-mode' property.
-fn get_writing_mode(dom_id: Option<NodeId>) -> WritingMode {
+fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
+    let Some(id) = dom_id else {
+        return WritingMode::HorizontalTb;
+    };
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
+        if let Some(CssProperty::WritingMode(CssPropertyValue::Exact(wm))) = styled_node
+            .state
+            .get_style()
+            .get(&CssPropertyType::WritingMode)
+        {
+            return match wm {
+                LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
+                LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
+                LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
+            };
+        }
+    }
     WritingMode::HorizontalTb
 }

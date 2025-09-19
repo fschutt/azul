@@ -11,7 +11,7 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
-use azul_css::LayoutDebugMessage;
+use azul_css::{CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutFloat};
 use usvg::Text;
 
 use crate::{
@@ -25,8 +25,8 @@ use crate::{
     text3::{
         self,
         cache::{
-            FontLoaderTrait, InlineContent, InlineShape, LayoutFragment, ParsedFontTrait,
-            ShapeDefinition, Size, StyleProperties, StyledRun, UnifiedConstraints,
+            FontLoaderTrait, InlineContent, InlineShape, LayoutFragment, OverflowBehavior,
+            ParsedFontTrait, ShapeDefinition, Size, StyleProperties, StyledRun, UnifiedConstraints,
         },
     },
 };
@@ -177,6 +177,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Lays out a Block Formatting Context (BFC).
+///
 /// This function correctly handles different writing modes by operating on
 /// logical main (block) and cross (inline) axes.
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
@@ -190,15 +191,11 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .ok_or(LayoutError::InvalidTree)?
         .clone(); // Clone to satisfy borrow checker
 
-    // Use the writing mode from the layout constraints.
     let writing_mode = constraints.writing_mode;
 
     let mut output = LayoutOutput::default();
     let mut bfc_state = BfcState::new();
 
-    // Logical axis tracking:
-    // - `main_pen`: The current position along the main/block axis (e.g., 'y' in horizontal-tb).
-    // - `max_cross_size`: The maximum size encountered on the cross/inline axis (e.g., 'width').
     let mut main_pen = 0.0_f32;
     let mut max_cross_size = 0.0_f32;
 
@@ -206,63 +203,69 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
-        // Determine if the child is in-flow for this formatting context.
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
-        let is_in_flow =
-            position_type == PositionType::Static || position_type == PositionType::Relative;
+        if position_type == PositionType::Absolute || position_type == PositionType::Fixed {
+            continue; // Out-of-flow elements are handled in a separate pass.
+        }
 
-        // Get the child's already-calculated size and margins.
+        let float_type = get_float_property(ctx.styled_dom, child_dom_id);
+        let clear_type = get_clear_property(ctx.styled_dom, child_dom_id);
+
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
+        let margin_box_size = LogicalSize::new(
+            child_size.width + child_margin.cross_sum(writing_mode),
+            child_size.height + child_margin.main_sum(writing_mode),
+        );
 
-        // --- Static Position Calculation (using logical axes) ---
+        if float_type != Float::None {
+            // Floated elements are taken out of the normal flow.
+            let bfc_content_box =
+                LogicalRect::new(LogicalPosition::zero(), constraints.available_size);
+            let float_pos = position_floated_child(
+                child_index,
+                margin_box_size,
+                float_type,
+                constraints,
+                bfc_content_box,
+                main_pen,
+                &mut bfc_state.floats,
+            )?;
+            output.positions.insert(child_index, float_pos);
+        } else {
+            // In-flow element.
+            // 1. Apply clearance if needed.
+            main_pen = bfc_state.floats.clearance_offset(clear_type, main_pen);
 
-        // The child's position on the main axis is the current pen plus its start margin.
-        let static_main_pos = main_pen + child_margin.main_start(writing_mode); // Simplified margin collapsing
+            // 2. TODO: Find available space at this `main_pen` position, considering floats.
+            // This is a complex step that requires finding the left and right boundaries
+            // established by floats at the current vertical line. For now, we simplify.
 
-        // The child's position on the cross axis depends on alignment (defaulting to start).
-        // A full implementation would use text-align/justify-content here.
-        let static_cross_pos = child_margin.cross_start(writing_mode);
+            // 3. Position the element.
+            let static_main_pos = main_pen + child_margin.main_start(writing_mode);
+            let static_cross_pos = child_margin.cross_start(writing_mode);
+            let static_pos =
+                LogicalPosition::from_main_cross(static_main_pos, static_cross_pos, writing_mode);
+            output.positions.insert(child_index, static_pos);
 
-        // Convert the logical main/cross position to a physical x/y position.
-        let static_pos =
-            LogicalPosition::from_main_cross(static_main_pos, static_cross_pos, writing_mode);
-        output.positions.insert(child_index, static_pos);
+            // 4. Advance the pen.
+            main_pen += margin_box_size.main(writing_mode);
 
-        // --- Pen Advancement and Size Tracking (for in-flow elements only) ---
-        if is_in_flow {
-            // Check if the child establishes an Inline Formatting Context.
-            if child_node.formatting_context == FormattingContext::Inline {
-                // Inline content is special. We use text3 to lay it out, and it
-                // produces a single block-level "anonymous box" for the BFC to stack.
-                // The IFC's height (or width in vertical mode) determines how much to advance the
-                // pen.
-
-                // (This part assumes that the IFC has already been sized during the intrinsic
-                // sizing pass and its final size is available in `child_size`).
-
-                let ifc_block_size = child_size.main(writing_mode);
-                main_pen += ifc_block_size; // Advance pen by the IFC's total block size.
-                max_cross_size = max_cross_size.max(child_size.cross(writing_mode));
-            } else {
-                // This is a standard block-level child.
-
-                // Calculate its full margin-box size on the main axis.
-                let margin_box_main_size =
-                    child_size.main(writing_mode) + child_margin.main_sum(writing_mode);
-
-                // Advance the pen by the child's full margin-box size.
-                main_pen += margin_box_main_size;
-
-                // Update the max cross size for the BFC.
-                let margin_box_cross_size =
-                    child_size.cross(writing_mode) + child_margin.cross_sum(writing_mode);
-                max_cross_size = max_cross_size.max(margin_box_cross_size);
-            }
+            // 5. Update BFC cross-axis extent.
+            let margin_box_cross_size = margin_box_size.cross(writing_mode);
+            max_cross_size = max_cross_size.max(margin_box_cross_size);
         }
     }
 
-    // Convert the final logical main/cross overflow size to a physical width/height.
+    // The final BFC height must be at least as large as the bottom of the lowest float.
+    let float_bottom = bfc_state
+        .floats
+        .floats
+        .iter()
+        .map(|f| f.rect.origin.y + f.rect.size.height)
+        .fold(0.0, f32::max);
+    main_pen = main_pen.max(float_bottom);
+
     output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
     Ok(output)
 }
@@ -499,12 +502,43 @@ fn apply_clearance(child_index: usize, state: &mut BfcLayoutState) -> bool {
 }
 
 // STUB: Functions to get CSS properties
-fn get_float_property(tree: &StyledDom, dom_id: Option<azul_core::dom::NodeId>) -> Float {
+fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Float {
+    let Some(id) = dom_id else {
+        return Float::None;
+    };
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
+        if let Some(CssProperty::Float(CssPropertyValue::Exact(float))) =
+            styled_node.state.get_style().get(&CssProperty::Float)
+        {
+            return match float {
+                LayoutFloat::Left => Float::Left,
+                LayoutFloat::Right => Float::Right,
+                LayoutFloat::None => Float::None,
+            };
+        }
+    }
     Float::None
 }
-fn get_clear_property(tree: &StyledDom, dom_id: Option<azul_core::dom::NodeId>) -> Clear {
+
+fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Clear {
+    let Some(id) = dom_id else {
+        return Clear::None;
+    };
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
+        if let Some(CssProperty::Clear(CssPropertyValue::Exact(clear))) =
+            styled_node.state.get_style().get(&CssProperty::Clear)
+        {
+            return match clear {
+                LayoutClear::Left => Clear::Left,
+                LayoutClear::Right => Clear::Right,
+                LayoutClear::Both => Clear::Both,
+                LayoutClear::None => Clear::None,
+            };
+        }
+    }
     Clear::None
 }
+
 fn get_text_align(tree: &StyledDom, dom_id: Option<azul_core::dom::NodeId>) -> TextAlign {
     TextAlign::Start
 }
@@ -520,12 +554,14 @@ pub fn check_scrollbar_necessity(
         OverflowBehavior::Visible | OverflowBehavior::Hidden => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.width > container_size.width,
+        OverflowBehavior::Break => false, // TODO: ???
     };
 
     let needs_vertical = match overflow_y {
         OverflowBehavior::Visible | OverflowBehavior::Hidden => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.height > container_size.height,
+        OverflowBehavior::Break => false, // TODO: ???
     };
 
     ScrollbarInfo {
@@ -534,14 +570,6 @@ pub fn check_scrollbar_necessity(
         scrollbar_width: if needs_vertical { 16.0 } else { 0.0 },
         scrollbar_height: if needs_horizontal { 16.0 } else { 0.0 },
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum OverflowBehavior {
-    Visible,
-    Hidden,
-    Scroll,
-    Auto,
 }
 
 #[derive(Debug, Clone)]

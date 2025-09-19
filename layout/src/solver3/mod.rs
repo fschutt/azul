@@ -27,6 +27,7 @@ use self::{
     layout_tree::{generate_layout_tree, LayoutTree},
     sizing::calculate_intrinsic_sizes,
 };
+pub use crate::text3::cache::LayoutCache as TextLayoutCache;
 use crate::{
     solver3::{
         cache::LayoutCache,
@@ -63,7 +64,8 @@ impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
 
 /// Main entry point for the incremental, cached layout engine
 pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    cache: &mut LayoutCache,
+    cache: &mut LayoutCache<T>,
+    text_cache: &mut TextLayoutCache<T>,
     new_dom: StyledDom,
     viewport: LogicalRect,
     font_manager: &FontManager<T, Q>,
@@ -105,6 +107,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             cache::calculate_layout_for_subtree(
                 &mut ctx,
                 &mut new_tree,
+                text_cache,
                 root_idx,
                 cb_pos,
                 cb_size,
@@ -115,6 +118,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         // Pass 2c: Reposition clean sibling subtrees.
         cache::reposition_clean_subtrees(
+            &new_dom,
             &new_tree,
             &recon_result.layout_roots,
             &mut absolute_positions,

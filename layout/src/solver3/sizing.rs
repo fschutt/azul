@@ -14,7 +14,7 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalSize, WritingMode},
 };
-use azul_css::LayoutDebugMessage;
+use azul_css::{CssProperty, CssPropertyValue, LayoutDebugMessage, PixelValue};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
@@ -301,14 +301,15 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Calculates the used size of a single node based on its CSS properties and
 /// the available space provided by its containing block.
 pub fn calculate_used_size_for_node(
+    styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
     containing_block_size: LogicalSize,
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
-    let css_width = get_css_width(dom_id);
-    let css_height = get_css_height(dom_id);
-    let writing_mode = get_writing_mode(dom_id);
+    let css_width = get_css_width(styled_dom, dom_id);
+    let css_height = get_css_height(styled_dom, dom_id);
+    let writing_mode = get_writing_mode(styled_dom, dom_id);
 
     let available_cross_size = containing_block_size.cross(writing_mode);
 
@@ -329,23 +330,6 @@ pub fn calculate_used_size_for_node(
     Ok(LogicalSize::new(0.0, 0.0)
         .with_cross(writing_mode, cross_size)
         .with_main(writing_mode, main_size))
-}
-
-// TODO: STUB: Functions to simulate reading computed CSS values.
-fn get_css_width(dom_id: Option<NodeId>) -> CssSize {
-    CssSize::Auto
-}
-fn get_css_height(dom_id: Option<NodeId>) -> CssSize {
-    CssSize::Auto
-}
-fn get_box_props(dom_id: Option<NodeId>) -> BoxProps {
-    BoxProps::default()
-}
-fn get_writing_mode(dom_id: Option<NodeId>) -> WritingMode {
-    WritingMode::default()
-}
-fn get_box_sizing_property(dom_id: Option<NodeId>) -> BoxSizing {
-    BoxSizing::default()
 }
 
 fn collect_text_recursive<T: ParsedFontTrait>(
@@ -389,5 +373,64 @@ fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str
             message: message.into(),
             location: "sizing".into(),
         });
+    }
+}
+
+fn get_css_property_value<T: Clone>(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+    property: CssProperty,
+    extractor: fn(&CssPropertyValue<T>) -> Option<T>,
+) -> Option<T> {
+    let Some(id) = dom_id else {
+        return None;
+    };
+    let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
+        return None;
+    };
+    styled_node
+        .state
+        .get_style()
+        .get(&property)
+        .and_then(extractor)
+}
+
+// TODO: STUB: Functions to simulate reading computed CSS values.
+pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
+    let value = get_css_property_value(styled_dom, dom_id, CssPropertyType::Width, |v| match v {
+        CssPropertyValue::Exact(val) => Some(val.clone()),
+        _ => None,
+    });
+    match value {
+        Some(PixelValue::Px(px)) => CssSize::Px(px),
+        Some(PixelValue::Percent(p)) => CssSize::Percent(p),
+        _ => CssSize::Auto,
+    }
+}
+pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
+    let value = get_css_property_value(styled_dom, dom_id, CssPropertyType::Height, |v| match v {
+        CssPropertyValue::Exact(val) => Some(val.clone()),
+        _ => None,
+    });
+    match value {
+        Some(PixelValue::Pixels(px)) => CssSize::Px(px),
+        Some(PixelValue::Percent(p)) => CssSize::Percent(p),
+        _ => CssSize::Auto,
+    }
+}
+fn get_box_props(dom_id: Option<NodeId>) -> BoxProps {
+    BoxProps::default()
+}
+
+fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
+    let value = get_css_property_value(styled_dom, dom_id, CssProperty::WritingMode, |v| match v {
+        CssPropertyValue::Exact(val) => Some(*val),
+        _ => None,
+    });
+    match value {
+        Some(LayoutWritingMode::HorizontalTb) => WritingMode::HorizontalTb,
+        Some(LayoutWritingMode::VerticalRl) => WritingMode::VerticalRl,
+        Some(LayoutWritingMode::VerticalLr) => WritingMode::VerticalLr,
+        _ => WritingMode::default(),
     }
 }

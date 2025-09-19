@@ -45,7 +45,7 @@ use azul_core::{
     styled_dom::StyledDom,
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{ColorU, LayoutDebugMessage};
+use azul_css::{ColorU, CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutOverflow};
 
 use crate::{
     solver3::{
@@ -308,7 +308,7 @@ where
             .tree
             .get(context.node_index)
             .ok_or(LayoutError::InvalidTree)?;
-        let did_push_clip_or_scroll = self.push_node_clips(builder, node)?;
+        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
         // 1. Paint background and borders for the context's root element.
         self.paint_node_background_and_border(builder, context.node_index)?;
@@ -372,7 +372,7 @@ where
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Before painting the child, push its clips.
-            let did_push_clip = self.push_node_clips(builder, child_node)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
 
             // Paint the child's background, border, content, and then its own children.
             self.paint_node_background_and_border(builder, child_index)?;
@@ -381,6 +381,66 @@ where
             // Pop the child's clips.
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
+    /// Returns true if any command was pushed.
+    fn push_node_clips(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNode<T>,
+    ) -> Result<bool> {
+        let (overflow_x, overflow_y) = get_overflow_behavior(self.ctx.styled_dom, node.dom_node_id);
+        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
+
+        let needs_clip =
+            overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
+
+        if needs_clip {
+            let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+
+            let border = &node.box_props.border;
+            let clip_rect = LogicalRect {
+                origin: LogicalPosition {
+                    x: paint_rect.origin.x + border.left,
+                    y: paint_rect.origin.y + border.top,
+                },
+                size: LogicalSize {
+                    width: (paint_rect.size.width - border.left - border.right).max(0.0),
+                    height: (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                },
+            };
+
+            if overflow_x.is_scroll() || overflow_y.is_scroll() {
+                // It's a scroll frame
+                let scroll_id = get_scroll_id(node.dom_node_id); // Unique ID for this scrollable area
+                let content_size = get_scroll_content_size(node); // From layout phase
+                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
+            } else {
+                // It's a simple clip
+                builder.push_clip(clip_rect, border_radius);
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Pops any clip/scroll commands associated with a node.
+    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNode<T>) -> Result<()> {
+        let (overflow_x, overflow_y) = get_overflow_behavior(self.ctx.styled_dom, node.dom_node_id);
+        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
+        let needs_clip =
+            overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
+
+        if needs_clip {
+            if overflow_x.is_scroll() || overflow_y.is_scroll() {
+                builder.pop_scroll_frame();
+            } else {
+                builder.pop_clip();
             }
         }
         Ok(())
@@ -411,52 +471,6 @@ where
             }
         }
         Some(LogicalRect::new(pos, size))
-    }
-
-    /// Checks if a node requires clipping or scrolling and pushes the appropriate commands.
-    /// Returns true if any command was pushed.
-    fn push_node_clips(
-        &self,
-        builder: &mut DisplayListBuilder,
-        node: &LayoutNode<T>,
-    ) -> Result<bool> {
-        let overflow = get_overflow_behavior(self.ctx.styled_dom, node.dom_node_id);
-        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
-
-        let needs_clip = overflow.is_clipped() || !border_radius.is_zero();
-
-        if needs_clip {
-            let clip_rect = self.get_paint_rect(node.parent.unwrap_or(0)) // This needs careful implementation to get the right rect
-                .unwrap_or_default(); // Should be the padding box of the node.
-
-            if overflow.is_scroll() {
-                // It's a scroll frame
-                let scroll_id = get_scroll_id(node.dom_node_id); // Unique ID for this scrollable area
-                let content_size = get_scroll_content_size(node); // From layout phase
-                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-            } else {
-                // It's a simple clip
-                builder.push_clip(clip_rect, border_radius);
-            }
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNode<T>) -> Result<()> {
-        let overflow = get_overflow_behavior(self.ctx.styled_dom, node.dom_node_id);
-        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
-        let needs_clip = overflow.is_clipped() || !border_radius.is_zero();
-
-        if needs_clip {
-            if overflow.is_scroll() {
-                builder.pop_scroll_frame();
-            } else {
-                builder.pop_clip();
-            }
-        }
-        Ok(())
     }
 
     /// Emits drawing commands for the background and border of a single node.
@@ -615,11 +629,34 @@ where
         if position == PositionType::Absolute || position == PositionType::Fixed {
             return true;
         }
-        if position == PositionType::Relative && get_z_index(self.ctx.styled_dom, Some(dom_id)) != 0
-        {
+
+        let z_index = get_z_index(self.ctx.styled_dom, Some(dom_id));
+        if position == PositionType::Relative && z_index != 0 {
             return true;
         }
-        // FULL IMPLEMENTATION: Add checks for opacity < 1, transform != none, filter != none, etc.
+
+        if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
+            let style = styled_node.state.get_style();
+
+            // Opacity < 1
+            if let Some(CssProperty::Opacity(CssPropertyValue::Exact(opacity))) =
+                style.get(&CssProperty::Opacity)
+            {
+                if opacity.inner.normalized() < 1.0 {
+                    return true;
+                }
+            }
+
+            // Transform != none
+            if let Some(CssProperty::Transform(CssPropertyValue::Exact(transform))) =
+                style.get(&CssProperty::Transform)
+            {
+                if !matches!(transform, TransformValue::None) {
+                    return true;
+                }
+            }
+        }
+
         false
     }
 }
@@ -630,23 +667,55 @@ pub struct PositionedTree<'a, T: ParsedFontTrait> {
     pub absolute_positions: &'a BTreeMap<usize, LogicalPosition>,
 }
 
-// STUB functions for reading style properties. These should be replaced
-// with calls to a real computed style cache.
-struct OverflowBehavior {
-    x: bool,
-    y: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverflowBehavior {
+    Visible,
+    Hidden,
+    Clip,
+    Scroll,
+    Auto,
 }
+
 impl OverflowBehavior {
-    fn is_clipped(&self) -> bool {
-        self.x || self.y
+    pub fn is_clipped(&self) -> bool {
+        matches!(self, Self::Hidden | Self::Clip | Self::Scroll | Self::Auto)
     }
-    fn is_scroll(&self) -> bool {
-        self.x || self.y
-    } // Simplified
+
+    pub fn is_scroll(&self) -> bool {
+        matches!(self, Self::Scroll | Self::Auto)
+    }
 }
-fn get_overflow_behavior(dom: &StyledDom, id: Option<NodeId>) -> OverflowBehavior {
-    OverflowBehavior { x: false, y: false }
+
+fn get_overflow_behavior(
+    dom: &StyledDom,
+    id: Option<NodeId>,
+) -> (OverflowBehavior, OverflowBehavior) {
+    let Some(node_id) = id else {
+        return (OverflowBehavior::Visible, OverflowBehavior::Visible);
+    };
+
+    let get_overflow = |prop_key: &CssProperty| -> OverflowBehavior {
+        if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
+            if let Some(CssProperty::OverflowX(CssPropertyValue::Exact(val))) =
+                styled_node.state.get_style().get(prop_key)
+            {
+                return match val {
+                    LayoutOverflow::Visible => OverflowBehavior::Visible,
+                    LayoutOverflow::Hidden => OverflowBehavior::Hidden,
+                    LayoutOverflow::Clip => OverflowBehavior::Clip,
+                    LayoutOverflow::Scroll => OverflowBehavior::Scroll,
+                    LayoutOverflow::Auto => OverflowBehavior::Auto,
+                };
+            }
+        }
+        OverflowBehavior::Visible
+    };
+
+    let overflow_x = get_overflow(&CssProperty::OverflowX);
+    let overflow_y = get_overflow(&CssProperty::OverflowY);
+    (overflow_x, overflow_y)
 }
+
 fn get_border_radius(dom: &StyledDom, id: Option<NodeId>) -> BorderRadius {
     BorderRadius::default()
 }
