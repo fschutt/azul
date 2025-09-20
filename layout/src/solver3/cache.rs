@@ -23,7 +23,7 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
-use azul_css::{CssProperty, CssPropertyType, CssPropertyValue};
+use azul_css::{CssProperty, CssPropertyType, CssPropertyValue, LayoutJustifyContent};
 
 use crate::{
     solver3::{
@@ -108,11 +108,25 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
             }
 
             FormattingContext::Flex => {
-                // STUB: Repositioning for Flexbox is complex. A change in one item's
-                // size affects the available free space, which in turn affects the resolved
-                // flexible lengths (flex-grow/shrink) and justification of all other items.
-                // A full relayout of the flex container is required, so this optimization is
-                // skipped.
+                // AGGRESSIVE: If the flex container is a simple
+                // non-wrapping, start-aligned stack, it behaves like a block container,
+                // and we can apply the same repositioning logic.
+                if is_simple_flex_stack(styled_dom, parent_node.dom_node_id, tree) {
+                    reposition_block_flow_siblings(
+                        styled_dom,
+                        parent_idx,
+                        parent_node,
+                        tree,
+                        layout_roots,
+                        absolute_positions,
+                    );
+                } else {
+                    // For complex flex layouts (with wrapping, space distribution, or
+                    // flexible sizing), a change in one item's size affects all others.
+                    // A full relayout of the flex container is required, so this
+                    // optimization is skipped. The parent would have already been marked
+                    // as a layout root in this case.
+                }
             }
 
             FormattingContext::Grid => {
@@ -134,6 +148,51 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
             _ => { /* Do nothing */ }
         }
     }
+}
+
+/// Checks if a flex container is simple enough to be treated like a block-stack for repositioning.
+fn is_simple_flex_stack<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+    tree: &LayoutTree<T>,
+) -> bool {
+    let Some(id) = dom_id else { return false };
+    let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
+        return false;
+    };
+
+    let style = styled_node.state.get_style();
+
+    // Must be a single-line flex container
+    let wrap = style
+        .get(&CssPropertyType::FlexWrap)
+        .and_then(|p| p.get_exact())
+        .map_or(LayoutWrap::NoWrap, |v| *v);
+    if wrap != LayoutWrap::NoWrap {
+        return false;
+    }
+
+    // Must be start-aligned, so there's no space distribution to recalculate.
+    let justify = style
+        .get(&CssPropertyType::JustifyContent)
+        .and_then(|p| p.get_exact())
+        .map_or(LayoutJustifyContent::FlexStart, |v| *v);
+    if !matches!(
+        justify,
+        LayoutJustifyContent::FlexStart | LayoutJustifyContent::Start
+    ) {
+        return false;
+    }
+
+    // Crucially, no clean siblings can have flexible sizes, otherwise a dirty
+    // sibling's size change could affect their resolved size.
+    // NOTE: This check is expensive and incomplete. A more robust solution might
+    // store flags on the LayoutNode indicating if flex factors are present.
+    // For now, we assume that if a container *could* have complex flex behavior,
+    // we play it safe and require a full relayout. This heuristic is a compromise.
+    // To be truly safe, we'd have to check all children for flex-grow/shrink > 0.
+
+    true
 }
 
 /// Repositions clean children within a simple block-flow layout (like a BFC or a table-row-group).

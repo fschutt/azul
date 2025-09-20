@@ -25,8 +25,9 @@ use crate::{
     text3::{
         self,
         cache::{
-            FontLoaderTrait, InlineContent, InlineShape, LayoutFragment, OverflowBehavior,
-            ParsedFontTrait, ShapeDefinition, Size, StyleProperties, StyledRun, UnifiedConstraints,
+            FontLoaderTrait, InlineContent, InlineShape, LayoutCache as TextLayoutCache,
+            LayoutFragment, OverflowBehavior, ParsedFontTrait, ShapeDefinition, Size,
+            StyleProperties, StyledRun, UnifiedConstraints,
         },
     },
 };
@@ -82,6 +83,8 @@ pub struct LayoutOutput {
     pub positions: BTreeMap<usize, LogicalPosition>,
     /// The total size occupied by the content, which may exceed `available_size`.
     pub overflow_size: LogicalSize,
+    /// The baseline of the context, if applicable, measured from the top of its content box.
+    pub baseline: Option<f32>,
 }
 
 /// Text alignment options
@@ -211,7 +214,8 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Lays out a Block Formatting Context (BFC).
 ///
 /// This function correctly handles different writing modes by operating on
-/// logical main (block) and cross (inline) axes.
+/// logical main (block) and cross (inline) axes. It also correctly implements
+/// vertical margin collapsing between in-flow block-level children.
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
@@ -227,7 +231,10 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     let mut output = LayoutOutput::default();
     let mut bfc_state = BfcState::new();
+    let mut last_in_flow_child_idx = None;
 
+    // The main_pen tracks the bottom edge of the *border-box* of the last
+    // in-flow, non-cleared block-level element.
     let mut main_pen = 0.0_f32;
     let mut max_cross_size = 0.0_f32;
 
@@ -242,16 +249,15 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         let float_type = get_float_property(ctx.styled_dom, child_dom_id);
         let clear_type = get_clear_property(ctx.styled_dom, child_dom_id);
-
-        let child_size = child_node.used_size.unwrap_or_default();
+        let child_size = child_node.used_size.unwrap_or_default(); // This is border-box size
         let child_margin = &child_node.box_props.margin;
-        let margin_box_size = LogicalSize::new(
-            child_size.width + child_margin.cross_sum(writing_mode),
-            child_size.height + child_margin.main_sum(writing_mode),
-        );
 
         if float_type != Float::None {
             // Floated elements are taken out of the normal flow.
+            let margin_box_size = LogicalSize::new(
+                child_size.width + child_margin.cross_sum(writing_mode),
+                child_size.height + child_margin.main_sum(writing_mode),
+            );
             let bfc_content_box =
                 LogicalRect::new(LogicalPosition::zero(), constraints.available_size);
             let float_pos = position_floated_child(
@@ -260,39 +266,64 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 float_type,
                 constraints,
                 bfc_content_box,
-                main_pen,
+                main_pen, // Floats are placed relative to the current flow position
                 &mut bfc_state.floats,
             )?;
             output.positions.insert(child_index, float_pos);
         } else {
-            // In-flow element.
-            // 1. Apply clearance if needed.
-            main_pen = bfc_state
-                .floats
-                .clearance_offset(clear_type, main_pen, writing_mode);
+            // This is an in-flow, non-floated block-level element.
+            let border_box_main_size = child_size.main(writing_mode);
+            let top_margin = child_margin.main_start(writing_mode);
+            let bottom_margin = child_margin.main_end(writing_mode);
 
-            // 2. Find available space at this `main_pen` position, considering floats.
-            let element_main_size = margin_box_size.main(writing_mode);
+            // 1. Handle clearance.
+            // The "current vertical position" is the bottom of the previous margin box.
+            let flow_bottom = main_pen + bfc_state.margins.last_in_flow_margin_bottom;
+            let clear_pen =
+                bfc_state
+                    .floats
+                    .clearance_offset(clear_type, flow_bottom, writing_mode);
+
+            let mut static_main_pos;
+
+            if clear_pen > flow_bottom {
+                // Clearance is applied. This creates a hard separation.
+                // The top of the new element's MARGIN box is now at `clear_pen`.
+                static_main_pos = clear_pen + top_margin;
+                // The previous margin does not collapse across a clearance.
+                bfc_state.margins.last_in_flow_margin_bottom = 0.0;
+            } else {
+                // 2. No clearance, perform margin collapsing.
+                let prev_margin = bfc_state.margins.last_in_flow_margin_bottom;
+                let collapsed_margin_space = collapse_margins(prev_margin, top_margin);
+
+                // The element's top border edge is positioned relative to the previous
+                // element's bottom border edge (`main_pen`) plus the collapsed margin.
+                static_main_pos = main_pen + collapsed_margin_space;
+            }
+
+            // 3. Find available cross-axis space at this position, considering floats.
             let bfc_cross_size = constraints.available_size.cross(writing_mode);
             let (line_box_cross_start, _line_box_cross_end) =
                 bfc_state.floats.available_line_box_space(
-                    main_pen,
-                    main_pen + element_main_size,
+                    static_main_pos,
+                    static_main_pos + border_box_main_size,
                     bfc_cross_size,
                     writing_mode,
                 );
 
-            // 3. Position the element.
-            let static_main_pos = main_pen + child_margin.main_start(writing_mode);
+            // 4. Set the final position for this child.
             let static_cross_pos = line_box_cross_start + child_margin.cross_start(writing_mode);
             let static_pos =
                 LogicalPosition::from_main_cross(static_main_pos, static_cross_pos, writing_mode);
             output.positions.insert(child_index, static_pos);
 
-            // 4. Advance the pen.
-            main_pen += margin_box_size.main(writing_mode);
+            // 5. Update state for the next iteration.
+            main_pen = static_main_pos + border_box_main_size;
+            bfc_state.margins.last_in_flow_margin_bottom = bottom_margin;
+            last_in_flow_child_idx = Some(child_index);
 
-            // 5. Update BFC cross-axis extent based on the element's final placed position.
+            // 6. Update BFC cross-axis extent.
             let child_extent_cross = static_cross_pos
                 + child_size.cross(writing_mode)
                 + child_margin.cross_end(writing_mode);
@@ -300,14 +331,20 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     }
 
-    // The final BFC main size must be at least as large as the end of the lowest float.
+    // The final BFC main size is determined by the position of the last element's
+    // bottom margin, which may or may not collapse with the parent's bottom margin.
+    // For calculating overflow, we include this last margin.
+    let final_content_main_size = main_pen + bfc_state.margins.last_in_flow_margin_bottom;
+
+    // The final size must also be large enough to contain the bottom of all floats.
     let float_main_end = bfc_state
         .floats
         .floats
         .iter()
         .map(|f| f.rect.origin.main(writing_mode) + f.rect.size.main(writing_mode))
         .fold(0.0, f32::max);
-    main_pen = main_pen.max(float_main_end);
+
+    main_pen = final_content_main_size.max(float_main_end);
 
     // The final BFC cross size must also encompass any floats.
     for float in &bfc_state.floats.floats {
@@ -317,10 +354,32 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
+
+    // --- Baseline Calculation ---
+    // The baseline of a BFC is the baseline of its last in-flow child that has a baseline.
+    if let Some(last_child_idx) = last_in_flow_child_idx {
+        if let (Some(last_child_node), Some(last_child_pos)) = (
+            tree.get(last_child_idx),
+            output.positions.get(&last_child_idx),
+        ) {
+            if let Some(child_baseline) = last_child_node.baseline {
+                // The child's baseline is relative to its own content-box top edge.
+                let border_box_top = last_child_pos.main(writing_mode);
+                let content_box_top = border_box_top
+                    + last_child_node.box_props.padding.main_start(writing_mode)
+                    + last_child_node.box_props.border.main_start(writing_mode);
+                output.baseline = Some(content_box_top + child_baseline);
+            }
+        }
+    }
+
+    let node = tree.get_mut(node_index).unwrap();
+    node.baseline = output.baseline;
+
     Ok(output)
 }
 
-/// Lays out an Inline Formatting Context (IFC).
+/// Lays out an Inline FormattingContext (IFC).
 fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &LayoutContext<T, Q>,
     text_cache: &mut text3::cache::LayoutCache<T>,
@@ -329,8 +388,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
     // 1. Collect all inline content (text runs, inline-blocks) from descendants.
-    // This is a complex traversal that needs to be implemented.
-    let inline_content = collect_inline_content(ctx, tree, node_index)?;
+    let inline_content = collect_inline_content(ctx, text_cache, tree, node_index)?;
 
     // 2. Prepare constraints for text3, including float exclusion zones.
     let text3_constraints = UnifiedConstraints {
@@ -358,7 +416,9 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // 5. Convert the text3 result back into LayoutOutput.
             output.overflow_size =
                 LogicalSize::new(main_frag.bounds.width, main_frag.bounds.height);
-            // `output.positions` would be empty as text3 handles internal positioning.
+            // The baseline of an IFC is the baseline of its last line box.
+            output.baseline = main_frag.last_baseline;
+            node.baseline = output.baseline;
         }
     }
 
@@ -385,9 +445,11 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Helper function to gather all inline content for text3, including inline-blocks.
+/// Helper function to gather all inline content for text3, including inline-blocks.
 pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+    text_cache: &mut TextLayoutCache<T>,
+    tree: &mut LayoutTree<T>,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     let mut content = Vec::new();
@@ -401,11 +463,9 @@ pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         if get_display_property(ctx.styled_dom, Some(dom_id)) == DisplayType::InlineBlock {
             let size = child_node.used_size.unwrap_or_default();
+            let baseline_offset = get_or_calculate_baseline(ctx, text_cache, tree, child_index)?
+                .unwrap_or(size.height);
 
-            // TODO: Calculate the real baseline of the inline-block element.
-            // This would involve running layout on its children and finding the baseline
-            // of its last line box. For now, we stub it as the bottom of the box.
-            let baseline_offset = size.height;
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
                     size: Size {
@@ -430,6 +490,49 @@ pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     }
     Ok(content)
+}
+
+/// Gets the baseline for a node, calculating and caching it if necessary.
+/// The baseline of an inline-block is the baseline of its last line box.
+fn get_or_calculate_baseline<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    text_cache: &mut TextLayoutCache<T>,
+    tree: &mut LayoutTree<T>,
+    node_index: usize,
+) -> Result<Option<f32>> {
+    // Check cache first
+    if let Some(baseline) = tree.get(node_index).unwrap().baseline {
+        return Ok(Some(baseline));
+    }
+
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let used_size = node.used_size.unwrap_or_default();
+    let writing_mode = get_writing_mode(ctx.styled_dom, node.dom_node_id);
+
+    // To find the baseline, we must lay out the node's contents.
+    // Create temporary constraints based on its already-calculated used size.
+    let constraints = LayoutConstraints {
+        available_size: node.box_props.inner_size(used_size, writing_mode),
+        bfc_state: None,
+        writing_mode,
+        text_align: TextAlign::Start, // Does not affect baseline
+    };
+
+    // Temporarily mutate the context to avoid borrowing issues
+    let mut temp_ctx = LayoutContext {
+        styled_dom: ctx.styled_dom,
+        font_manager: ctx.font_manager,
+        debug_messages: &mut None, // Discard debug messages from this temporary layout
+    };
+
+    let layout_output =
+        layout_formatting_context(&mut temp_ctx, tree, text_cache, node_index, &constraints)?;
+
+    // Cache the result on the node
+    let baseline = layout_output.baseline;
+    tree.get_mut(node_index).unwrap().baseline = baseline;
+
+    Ok(baseline)
 }
 
 // TODO: STUB helper functions that would be needed for the above code.
@@ -637,6 +740,22 @@ pub fn calculate_collapsed_margins(top_margin: f32, bottom_margin: f32, is_adjac
         top_margin.abs().max(bottom_margin.abs()) * top_margin.signum()
     } else {
         top_margin + bottom_margin
+    }
+}
+
+/// Calculates a single collapsed margin from two adjoining vertical margins.
+///
+/// Implements the rules from CSS 2.1 section 8.3.1:
+/// - If both margins are positive, the result is the larger of the two.
+/// - If both margins are negative, the result is the more negative of the two.
+/// - If the margins have mixed signs, they are effectively summed.
+fn collapse_margins(a: f32, b: f32) -> f32 {
+    if a.is_sign_positive() && b.is_sign_positive() {
+        a.max(b)
+    } else if a.is_sign_negative() && b.is_sign_negative() {
+        a.min(b)
+    } else {
+        a + b
     }
 }
 
