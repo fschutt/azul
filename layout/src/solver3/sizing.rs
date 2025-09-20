@@ -14,7 +14,7 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalSize, WritingMode},
 };
-use azul_css::{CssProperty, CssPropertyValue, LayoutDebugMessage, PixelValue};
+use azul_css::{CssProperty, CssPropertyType, CssPropertyValue, LayoutDebugMessage, PixelValue};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
@@ -26,8 +26,9 @@ use crate::{
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
-        FontLoaderTrait, FontManager, FontProviderTrait, InlineContent, LayoutCache,
-        LayoutFragment, ParsedFontTrait, StyleProperties, StyledRun, UnifiedConstraints,
+        FontLoaderTrait, FontManager, FontProviderTrait, ImageSource, InlineContent, InlineImage,
+        InlineShape, LayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait, ShapeDefinition,
+        StyleProperties, StyledRun, UnifiedConstraints,
     },
 };
 
@@ -48,23 +49,13 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     Ok(())
 }
 
-fn calculate_node_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    node: &crate::solver3::layout_tree::LayoutNode<T>,
-    child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
-) -> Result<IntrinsicSizes> {
-    // STUB: This is a placeholder. A real implementation would dispatch to
-    // BFC, IFC, Table sizing algorithms.
-    Ok(IntrinsicSizes::default())
-}
-
 struct IntrinsicSizeCalculator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
-    ctx: &'a LayoutContext<'b, T, Q>,
+    ctx: &'a mut LayoutContext<'b, T, Q>,
     text_cache: LayoutCache<T>,
 }
 
 impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<'a, 'b, T, Q> {
-    fn new(ctx: &'a LayoutContext<'b, T, Q>) -> Self {
+    fn new(ctx: &'a mut LayoutContext<'b, T, Q>) -> Self {
         Self {
             ctx,
             text_cache: LayoutCache::new(),
@@ -191,13 +182,15 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         tree: &LayoutTree<T>,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
-        let inline_content =
-            crate::solver3::fc::collect_inline_content(self.ctx, tree, node_index)?;
+        // This call is now valid because we added the function to fc.rs
+        let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
         }
 
+        // Layout with "min-content" constraints (effectively zero width).
+        // This forces all possible line breaks, giving the width of the longest unbreakable unit.
         let min_fragments = vec![LayoutFragment {
             id: "min".to_string(),
             constraints: UnifiedConstraints {
@@ -211,6 +204,8 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             .layout_flow(&inline_content, &[], &min_fragments, self.ctx.font_manager)
             .map_err(|_| LayoutError::SizingFailed)?;
 
+        // Layout with "max-content" constraints (infinite width).
+        // This produces a single, long line, giving the natural width of the content.
         let max_fragments = vec![LayoutFragment {
             id: "max".to_string(),
             constraints: UnifiedConstraints {
@@ -236,6 +231,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             .map(|l| l.bounds.width)
             .unwrap_or(0.0);
 
+        // The height is typically calculated at the max_content_width.
         let height = max_layout
             .fragment_layouts
             .get("max")
@@ -245,10 +241,10 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         Ok(IntrinsicSizes {
             min_content_width: min_width,
             max_content_width: max_width,
-            preferred_width: Some(max_width),
-            min_content_height: height,
+            preferred_width: None, // preferred_width comes from CSS, not content.
+            min_content_height: height, // Height can change with width, but this is a common model.
             max_content_height: height,
-            preferred_height: Some(height),
+            preferred_height: None,
         })
     }
 
@@ -260,6 +256,76 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
     ) -> Result<IntrinsicSizes> {
         Ok(IntrinsicSizes::default())
     }
+}
+
+/// Gathers inline content for the intrinsic sizing pass.
+///
+/// This is a simplified version of `collect_and_measure_inline_content`. Instead of
+/// performing a full recursive layout on atomic inlines (like inline-block), it uses
+/// their already-calculated intrinsic sizes. This is necessary because during the
+/// bottom-up intrinsic sizing pass, the available width for children is not yet known.
+pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &LayoutTree<T>,
+    ifc_root_index: usize,
+) -> Result<Vec<InlineContent>> {
+    let mut content = Vec::new();
+    let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+
+    for &child_index in &ifc_root_node.children {
+        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let Some(dom_id) = child_node.dom_node_id else {
+            continue;
+        };
+
+        if get_display_property(ctx.styled_dom, Some(dom_id)) != DisplayType::Inline {
+            // This is an atomic inline-level box (e.g., inline-block, image).
+            // Use its pre-calculated intrinsic sizes.
+            let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
+
+            // For the purpose of calculating the parent's intrinsic size, we treat the
+            // child as an object with its max-content dimensions.
+            let width = intrinsic_sizes.max_content_width;
+            let height = intrinsic_sizes.max_content_height;
+
+            content.push(InlineContent::Shape(InlineShape {
+                shape_def: ShapeDefinition::Rectangle {
+                    size: crate::text3::cache::Size { width, height },
+                    corner_radius: None,
+                },
+                fill: None,
+                stroke: None,
+                // The baseline is approximated as the bottom of the box for sizing.
+                baseline_offset: height,
+            }));
+        } else if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
+            content.push(InlineContent::Text(StyledRun {
+                text,
+                style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
+                logical_start_byte: 0,
+            }));
+        } else if let NodeType::Image(image_data) =
+            ctx.styled_dom.node_data.as_container()[dom_id].get_node_type()
+        {
+            let intrinsic_size = child_node.intrinsic_sizes.unwrap_or(IntrinsicSizes {
+                max_content_width: 50.0,
+                max_content_height: 50.0,
+                ..Default::default()
+            });
+            content.push(InlineContent::Image(InlineImage {
+                source: ImageSource::Url(String::new()), // Placeholder
+                intrinsic_size: crate::text3::cache::Size {
+                    width: intrinsic_size.max_content_width,
+                    height: intrinsic_size.max_content_height,
+                },
+                display_size: None,
+                baseline_offset: 0.0,
+                alignment: crate::text3::cache::VerticalAlign::Baseline,
+                object_fit: ObjectFit::Fill,
+            }));
+        }
+    }
+    Ok(content)
 }
 
 fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
@@ -300,6 +366,15 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
 /// Calculates the used size of a single node based on its CSS properties and
 /// the available space provided by its containing block.
+///
+/// This implementation correctly handles writing modes and percentage-based sizes
+/// according to the CSS specification:
+/// 1. `width` and `height` CSS properties are resolved to pixel values. Percentages are calculated
+///    based on the containing block's PHYSICAL dimensions (`width` for `width`, `height` for
+///    `height`), regardless of writing mode.
+/// 2. The resolved physical `width` is then mapped to the node's logical CROSS size.
+/// 3. The resolved physical `height` is then mapped to the node's logical MAIN size.
+/// 4. A final `LogicalSize` is constructed from these logical dimensions.
 pub fn calculate_used_size_for_node(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
@@ -311,25 +386,40 @@ pub fn calculate_used_size_for_node(
     let css_height = get_css_height(styled_dom, dom_id);
     let writing_mode = get_writing_mode(styled_dom, dom_id);
 
-    let available_cross_size = containing_block_size.cross(writing_mode);
-
-    let cross_size = match css_width {
+    // Step 1: Resolve the CSS `width` property into a concrete pixel value.
+    // Percentage values for `width` are resolved against the containing block's width.
+    let resolved_width = match css_width {
         CssSize::Px(px) => px,
-        CssSize::Percent(p) => (p / 100.0) * available_cross_size,
+        CssSize::Percent(p) => (p / 100.0) * containing_block_size.width,
         CssSize::Auto => intrinsic.max_content_width,
-        _ => intrinsic.max_content_width,
+        CssSize::MinContent => intrinsic.min_content_width,
+        CssSize::MaxContent => intrinsic.max_content_width,
     };
 
-    let main_size = match css_height {
+    // Step 2: Resolve the CSS `height` property into a concrete pixel value.
+    // Percentage values for `height` are resolved against the containing block's height.
+    let resolved_height = match css_height {
         CssSize::Px(px) => px,
-        CssSize::Percent(p) => (p / 100.0) * containing_block_size.main(writing_mode),
+        CssSize::Percent(p) => (p / 100.0) * containing_block_size.height,
         CssSize::Auto => intrinsic.max_content_height,
-        _ => intrinsic.max_content_height,
+        // NOTE: min/max-content are not valid values for the height property,
+        // but we handle them gracefully by falling back to max-content.
+        CssSize::MinContent => intrinsic.min_content_height,
+        CssSize::MaxContent => intrinsic.max_content_height,
     };
 
-    Ok(LogicalSize::new(0.0, 0.0)
-        .with_cross(writing_mode, cross_size)
-        .with_main(writing_mode, main_size))
+    // Step 3: Map the resolved physical dimensions to logical dimensions.
+    // The `width` property always corresponds to the cross (inline) axis size.
+    // The `height` property always corresponds to the main (block) axis size.
+    let cross_size = resolved_width;
+    let main_size = resolved_height;
+
+    // Step 4: Construct the final LogicalSize from the logical dimensions.
+    Ok(LogicalSize::from_main_cross(
+        main_size,
+        cross_size,
+        writing_mode,
+    ))
 }
 
 fn collect_text_recursive<T: ParsedFontTrait>(
@@ -397,40 +487,61 @@ fn get_css_property_value<T: Clone>(
 
 // TODO: STUB: Functions to simulate reading computed CSS values.
 pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
-    let value = get_css_property_value(styled_dom, dom_id, CssPropertyType::Width, |v| match v {
-        CssPropertyValue::Exact(val) => Some(val.clone()),
-        _ => None,
-    });
-    match value {
-        Some(PixelValue::Px(px)) => CssSize::Px(px),
-        Some(PixelValue::Percent(p)) => CssSize::Percent(p),
-        _ => CssSize::Auto,
+    let Some(id) = dom_id else {
+        return CssSize::Auto;
+    };
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
+        if let Some(prop) = styled_node.state.get_style().get(&CssPropertyType::Width) {
+            if let Some(val) = prop.get_exact() {
+                return match val {
+                    PixelValue::Px(px) => CssSize::Px(*px),
+                    PixelValue::Percent(p) => CssSize::Percent(*p),
+                };
+            }
+        }
     }
+    CssSize::Auto
 }
+
 pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
-    let value = get_css_property_value(styled_dom, dom_id, CssPropertyType::Height, |v| match v {
-        CssPropertyValue::Exact(val) => Some(val.clone()),
-        _ => None,
-    });
-    match value {
-        Some(PixelValue::Pixels(px)) => CssSize::Px(px),
-        Some(PixelValue::Percent(p)) => CssSize::Percent(p),
-        _ => CssSize::Auto,
+    let Some(id) = dom_id else {
+        return CssSize::Auto;
+    };
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
+        if let Some(prop) = styled_node.state.get_style().get(&CssPropertyType::Height) {
+            if let Some(val) = prop.get_exact() {
+                return match val {
+                    PixelValue::Px(px) => CssSize::Px(*px),
+                    PixelValue::Percent(p) => CssSize::Percent(*p),
+                };
+            }
+        }
     }
+    CssSize::Auto
 }
+
 fn get_box_props(dom_id: Option<NodeId>) -> BoxProps {
     BoxProps::default()
 }
 
 fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
-    let value = get_css_property_value(styled_dom, dom_id, CssProperty::WritingMode, |v| match v {
-        CssPropertyValue::Exact(val) => Some(*val),
-        _ => None,
-    });
-    match value {
-        Some(LayoutWritingMode::HorizontalTb) => WritingMode::HorizontalTb,
-        Some(LayoutWritingMode::VerticalRl) => WritingMode::VerticalRl,
-        Some(LayoutWritingMode::VerticalLr) => WritingMode::VerticalLr,
-        _ => WritingMode::default(),
+    let Some(id) = dom_id else {
+        return WritingMode::HorizontalTb;
+    };
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
+        if let Some(prop) = styled_node
+            .state
+            .get_style()
+            .get(&CssPropertyType::WritingMode)
+        {
+            if let Some(val) = prop.get_exact() {
+                return match val {
+                    LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
+                    LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
+                    LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
+                };
+            }
+        }
     }
+    WritingMode::HorizontalTb
 }

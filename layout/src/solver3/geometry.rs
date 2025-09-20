@@ -113,16 +113,19 @@ impl BoxProps {
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
     pub fn inner_size(&self, outer_size: LogicalSize, wm: WritingMode) -> LogicalSize {
+        let outer_main = outer_size.main(wm);
+        let outer_cross = outer_size.cross(wm);
+
         // The sum of padding and border along the cross (inline) axis.
         let cross_axis_spacing = self.padding.cross_sum(wm) + self.border.cross_sum(wm);
 
         // The sum of padding and border along the main (block) axis.
         let main_axis_spacing = self.padding.main_sum(wm) + self.border.main_sum(wm);
 
-        LogicalSize {
-            width: (outer_size.width - cross_axis_spacing).max(0.0),
-            height: (outer_size.height - main_axis_spacing).max(0.0),
-        }
+        let inner_main = (outer_main - main_axis_spacing).max(0.0);
+        let inner_cross = (outer_cross - cross_axis_spacing).max(0.0);
+
+        LogicalSize::from_main_cross(inner_main, inner_cross, wm)
     }
 }
 

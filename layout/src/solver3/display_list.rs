@@ -45,7 +45,9 @@ use azul_core::{
     styled_dom::StyledDom,
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{ColorU, CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutOverflow};
+use azul_css::{
+    ColorU, CssProperty, CssPropertyType, CssPropertyValue, LayoutDebugMessage, LayoutOverflow,
+};
 
 use crate::{
     solver3::{
@@ -694,25 +696,25 @@ fn get_overflow_behavior(
         return (OverflowBehavior::Visible, OverflowBehavior::Visible);
     };
 
-    let get_overflow = |prop_key: &CssProperty| -> OverflowBehavior {
+    let get_overflow = |prop_type: &CssPropertyType| -> OverflowBehavior {
         if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-            if let Some(CssProperty::OverflowX(CssPropertyValue::Exact(val))) =
-                styled_node.state.get_style().get(prop_key)
-            {
-                return match val {
-                    LayoutOverflow::Visible => OverflowBehavior::Visible,
-                    LayoutOverflow::Hidden => OverflowBehavior::Hidden,
-                    LayoutOverflow::Clip => OverflowBehavior::Clip,
-                    LayoutOverflow::Scroll => OverflowBehavior::Scroll,
-                    LayoutOverflow::Auto => OverflowBehavior::Auto,
-                };
+            if let Some(prop) = styled_node.state.get_style().get(prop_type) {
+                if let Some(val) = prop.get_exact() {
+                    return match val {
+                        LayoutOverflow::Visible => OverflowBehavior::Visible,
+                        LayoutOverflow::Hidden => OverflowBehavior::Hidden,
+                        LayoutOverflow::Clip => OverflowBehavior::Clip,
+                        LayoutOverflow::Scroll => OverflowBehavior::Scroll,
+                        LayoutOverflow::Auto => OverflowBehavior::Auto,
+                    };
+                }
             }
         }
         OverflowBehavior::Visible
     };
 
-    let overflow_x = get_overflow(&CssProperty::OverflowX);
-    let overflow_y = get_overflow(&CssProperty::OverflowY);
+    let overflow_x = get_overflow(&CssPropertyType::OverflowX);
+    let overflow_y = get_overflow(&CssPropertyType::OverflowY);
     (overflow_x, overflow_y)
 }
 

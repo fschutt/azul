@@ -23,11 +23,14 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
-use azul_css::{CssProperty, CssPropertyType, CssPropertyValue, LayoutJustifyContent};
+use azul_css::{
+    CssProperty, CssPropertyType, CssPropertyValue, LayoutJustifyContent, LayoutOverflow,
+    LayoutWrap, LayoutWritingMode,
+};
 
 use crate::{
     solver3::{
-        fc::{layout_formatting_context, LayoutConstraints},
+        fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::{CssSize, PositionedRectangle},
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
         LayoutContext, LayoutError, LayoutTree, Result,
@@ -111,7 +114,7 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
                 // AGGRESSIVE: If the flex container is a simple
                 // non-wrapping, start-aligned stack, it behaves like a block container,
                 // and we can apply the same repositioning logic.
-                if is_simple_flex_stack(styled_dom, parent_node.dom_node_id, tree) {
+                if is_simple_flex_stack(styled_dom, parent_node.dom_node_id) {
                     reposition_block_flow_siblings(
                         styled_dom,
                         parent_idx,
@@ -151,11 +154,7 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
 }
 
 /// Checks if a flex container is simple enough to be treated like a block-stack for repositioning.
-fn is_simple_flex_stack<T: ParsedFontTrait>(
-    styled_dom: &StyledDom,
-    dom_id: Option<NodeId>,
-    tree: &LayoutTree<T>,
-) -> bool {
+fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool {
     let Some(id) = dom_id else { return false };
     let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
         return false;
@@ -478,11 +477,13 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     // --- Phase 3: Check for scrollbars and potential reflow ---
-    let scrollbar_info = crate::solver3::fc::check_scrollbar_necessity(
+    // **Corrected:** Read overflow properties from CSS instead of using stubs.
+    let (overflow_x, overflow_y) = get_overflow_from_css(ctx.styled_dom, dom_id);
+    let scrollbar_info = fc::check_scrollbar_necessity(
         content_size,
         node.box_props.inner_size(final_used_size, writing_mode),
-        crate::solver3::fc::OverflowBehavior::Auto, // TODO: get CSS value
-        crate::solver3::fc::OverflowBehavior::Auto, // TODO: get CSS value
+        overflow_x,
+        overflow_y,
     );
 
     if scrollbar_info.needs_reflow() {
@@ -545,12 +546,36 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
     SubtreeHash(hasher.finish())
 }
 
-/// Helper to get the CSS specified size on the main/block axis.
-fn get_css_main_size(dom_id: Option<NodeId>, wm: WritingMode) -> CssSize {
-    match wm {
-        WritingMode::HorizontalTb => get_css_height(dom_id),
-        WritingMode::VerticalRl | WritingMode::VerticalLr => get_css_width(dom_id),
-    }
+/// **Corrected:** Helper to read overflow properties from the styled DOM.
+fn get_overflow_from_css(
+    dom: &StyledDom,
+    id: Option<NodeId>,
+) -> (OverflowBehavior, OverflowBehavior) {
+    let Some(node_id) = id else {
+        return (OverflowBehavior::Visible, OverflowBehavior::Visible);
+    };
+
+    let get_overflow = |prop_type: CssPropertyType| -> OverflowBehavior {
+        if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
+            if let Some(prop) = styled_node.state.get_style().get(&prop_type) {
+                if let Some(val) = prop.get_exact() {
+                    return match val {
+                        LayoutOverflow::Visible => OverflowBehavior::Visible,
+                        LayoutOverflow::Hidden => OverflowBehavior::Hidden,
+                        LayoutOverflow::Clip => OverflowBehavior::Clip,
+                        LayoutOverflow::Scroll => OverflowBehavior::Scroll,
+                        LayoutOverflow::Auto => OverflowBehavior::Auto,
+                    };
+                }
+            }
+        }
+        OverflowBehavior::Visible
+    };
+
+    (
+        get_overflow(CssPropertyType::OverflowX),
+        get_overflow(CssPropertyType::OverflowY),
+    )
 }
 
 // STUB: In a real implementation, this would read the 'width' property.

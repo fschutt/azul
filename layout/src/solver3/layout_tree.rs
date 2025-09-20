@@ -14,7 +14,10 @@ use azul_core::{
     ui_solver::{FormattingContext, ResolvedOffsets},
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutDisplay}; /* Added CssProperty */
+use azul_css::{
+    CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutDisplay, LayoutFloat, LayoutOverflow,
+    LayoutPosition,
+};
 
 use crate::{
     parsedfont::ParsedFont,
@@ -228,7 +231,7 @@ enum DisplayType {
     TableRowGroup,
     TableRow,
     TableCell,
-    // Add other types like Flex, Grid, etc. as needed
+    FlowRoot, // Added for `display: flow-root`
 }
 
 impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
@@ -260,7 +263,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         let display_type = get_display_type(styled_dom, dom_id);
 
         match display_type {
-            DisplayType::Block | DisplayType::InlineBlock => {
+            DisplayType::Block | DisplayType::InlineBlock | DisplayType::FlowRoot => {
                 self.process_block_children(styled_dom, dom_id, node_idx)?
             }
             DisplayType::Table => self.process_table_children(styled_dom, dom_id, node_idx)?,
@@ -314,7 +317,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                         parent_idx,
                         AnonymousBoxType::InlineWrapper,
                         FormattingContext::Block {
-                            establishes_new_context: false,
+                            establishes_new_context: true, // Anonymous wrappers are BFC roots
                         },
                     );
                     for inline_child_id in inline_run.drain(..) {
@@ -333,7 +336,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                 parent_idx,
                 AnonymousBoxType::InlineWrapper,
                 FormattingContext::Block {
-                    establishes_new_context: false,
+                    establishes_new_context: true, // Anonymous wrappers are BFC roots
                 },
             );
             for inline_child_id in inline_run {
@@ -514,6 +517,7 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
         get_display_type(styled_dom, node_id),
         DisplayType::Block
+            | DisplayType::FlowRoot
             | DisplayType::Table
             | DisplayType::TableRow
             | DisplayType::TableRowGroup
@@ -553,11 +557,13 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
                 LayoutDisplay::Inline => DisplayType::Inline,
                 LayoutDisplay::Block => DisplayType::Block,
                 LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
-                _ => DisplayType::Block,
+                LayoutDisplay::FlowRoot => DisplayType::FlowRoot,
+                _ => DisplayType::Block, // Default for unhandled display types
             };
         }
     }
 
+    // Fallback to default HTML display types
     match styled_dom.node_data.as_container()[node_id].get_node_type() {
         NodeType::Text(_) => DisplayType::Inline,
         NodeType::Table => DisplayType::Table,
@@ -576,51 +582,68 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
     }
 }
 
-// The logic can remain relatively simple as it's concerned with the node itself,
-// not its children's layout, which is what we fixed above.
+/// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
+/// A BFC contains floats and prevents margin collapse.
+fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let display = get_display_type(styled_dom, node_id);
+    if matches!(
+        display,
+        DisplayType::InlineBlock | DisplayType::TableCell | DisplayType::FlowRoot
+    ) {
+        return true;
+    }
+
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
+        let style = styled_node.state.get_style();
+
+        // `overflow` other than `visible`
+        if let Some(CssProperty::OverflowX(CssPropertyValue::Exact(overflow))) =
+            style.get(&CssProperty::OverflowX)
+        {
+            if !matches!(overflow, LayoutOverflow::Visible | LayoutOverflow::Clip) {
+                return true;
+            }
+        }
+
+        // `position: absolute` or `position: fixed`
+        if let Some(CssProperty::Position(CssPropertyValue::Exact(pos))) =
+            style.get(&CssProperty::Position)
+        {
+            if matches!(pos, LayoutPosition::Absolute | LayoutPosition::Fixed) {
+                return true;
+            }
+        }
+
+        // `float` is not `none`
+        if let Some(CssProperty::Float(CssPropertyValue::Exact(float))) =
+            style.get(&CssProperty::Float)
+        {
+            if !matches!(float, LayoutFloat::None) {
+                return true;
+            }
+        }
+    }
+
+    // The root element (<html>) also establishes a BFC.
+    if styled_dom.root.into_crate_internal() == Some(node_id) {
+        return true;
+    }
+
+    false
+}
+
+/// The logic now correctly identifies all BFC roots.
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
     match get_display_type(styled_dom, node_id) {
         DisplayType::Inline => FormattingContext::Inline,
-        DisplayType::Block | DisplayType::TableCell | DisplayType::InlineBlock => {
-            FormattingContext::Block {
-                establishes_new_context: true,
-            }
-        }
+        DisplayType::Block
+        | DisplayType::FlowRoot
+        | DisplayType::TableCell
+        | DisplayType::InlineBlock => FormattingContext::Block {
+            establishes_new_context: establishes_new_block_formatting_context(styled_dom, node_id),
+        },
         DisplayType::Table => FormattingContext::Table,
         DisplayType::TableRowGroup => FormattingContext::TableRowGroup,
         DisplayType::TableRow => FormattingContext::TableRow,
-        // Default case
-        _ => FormattingContext::Block {
-            establishes_new_context: false,
-        },
-    }
-}
-
-fn needs_anonymous_block_wrapper(styled_dom: &StyledDom, children: &[NodeId]) -> bool {
-    if children.len() <= 1 {
-        return false;
-    }
-
-    let has_block = children
-        .iter()
-        .any(|&id| get_display_type(styled_dom, id) == DisplayType::Block);
-    let has_inline = children
-        .iter()
-        .any(|&id| get_display_type(styled_dom, id) == DisplayType::Inline);
-
-    // Need anonymous boxes when mixing block and inline children
-    has_block && has_inline
-}
-
-fn is_block_level_element(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    get_display_type(styled_dom, node_id) == DisplayType::Block
-}
-
-fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {
-    if let Some(messages) = debug_messages {
-        messages.push(LayoutDebugMessage {
-            message: message.into(),
-            location: "layout_tree".into(),
-        });
     }
 }

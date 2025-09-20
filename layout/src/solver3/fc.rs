@@ -2,21 +2,27 @@
 //!
 //! Formatting context managers for different CSS display types
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use azul_core::{
     app_resources::RendererResources,
-    dom::NodeId,
+    dom::{NodeId, NodeType},
     styled_dom::StyledDom,
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
-use azul_css::{CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutFloat};
+use azul_css::{
+    CssProperty, CssPropertyValue, LayoutClear, LayoutDebugMessage, LayoutFloat,
+    LayoutJustifyContent,
+};
 use usvg::Text;
 
 use crate::{
     solver3::{
-        geometry::{BoxProps, Clear, DisplayType, EdgeSizes, Float},
+        geometry::{BoxProps, Clear, DisplayType, EdgeSizes, Float, IntrinsicSizes},
         layout_tree::{LayoutNode, LayoutTree},
         positioning::PositionType,
         sizing::extract_text_from_node,
@@ -25,12 +31,33 @@ use crate::{
     text3::{
         self,
         cache::{
-            FontLoaderTrait, InlineContent, InlineShape, LayoutCache as TextLayoutCache,
-            LayoutFragment, OverflowBehavior, ParsedFontTrait, ShapeDefinition, Size,
-            StyleProperties, StyledRun, UnifiedConstraints,
+            ContentIndex, FontLoaderTrait, ImageSource, InlineContent, InlineImage, InlineShape,
+            LayoutCache as TextLayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait,
+            ShapeBoundary, ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun,
+            UnifiedConstraints,
         },
     },
 };
+
+/// The CSS `overflow` property behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverflowBehavior {
+    Visible,
+    Hidden,
+    Clip,
+    Scroll,
+    Auto,
+}
+
+impl OverflowBehavior {
+    pub fn is_clipped(&self) -> bool {
+        matches!(self, Self::Hidden | Self::Clip | Self::Scroll | Self::Auto)
+    }
+
+    pub fn is_scroll(&self) -> bool {
+        matches!(self, Self::Scroll | Self::Auto)
+    }
+}
 
 /// Input constraints for a layout function.
 #[derive(Debug)]
@@ -284,21 +311,21 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     .floats
                     .clearance_offset(clear_type, flow_bottom, writing_mode);
 
-            let mut static_main_pos;
+            let static_main_pos;
 
             if clear_pen > flow_bottom {
                 // Clearance is applied. This creates a hard separation.
                 // The top of the new element's MARGIN box is now at `clear_pen`.
-                static_main_pos = clear_pen + top_margin;
-                // The previous margin does not collapse across a clearance.
+                static_main_pos = clear_pen; // Position of the top MARGIN edge
+                                             // The previous margin does not collapse across a clearance.
                 bfc_state.margins.last_in_flow_margin_bottom = 0.0;
             } else {
                 // 2. No clearance, perform margin collapsing.
                 let prev_margin = bfc_state.margins.last_in_flow_margin_bottom;
                 let collapsed_margin_space = collapse_margins(prev_margin, top_margin);
 
-                // The element's top border edge is positioned relative to the previous
-                // element's bottom border edge (`main_pen`) plus the collapsed margin.
+                // The position of the top BORDER edge is the previous border edge + collapsed
+                // margin.
                 static_main_pos = main_pen + collapsed_margin_space;
             }
 
@@ -312,14 +339,16 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     writing_mode,
                 );
 
-            // 4. Set the final position for this child.
+            // 4. Set the final position for this child (relative to parent content box).
+            // The position is of the BORDER box edge.
             let static_cross_pos = line_box_cross_start + child_margin.cross_start(writing_mode);
+            let final_main_pos = static_main_pos; // Already calculated
             let static_pos =
-                LogicalPosition::from_main_cross(static_main_pos, static_cross_pos, writing_mode);
+                LogicalPosition::from_main_cross(final_main_pos, static_cross_pos, writing_mode);
             output.positions.insert(child_index, static_pos);
 
             // 5. Update state for the next iteration.
-            main_pen = static_main_pos + border_box_main_size;
+            main_pen = final_main_pos + border_box_main_size;
             bfc_state.margins.last_in_flow_margin_bottom = bottom_margin;
             last_in_flow_child_idx = Some(child_index);
 
@@ -344,7 +373,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .map(|f| f.rect.origin.main(writing_mode) + f.rect.size.main(writing_mode))
         .fold(0.0, f32::max);
 
-    main_pen = final_content_main_size.max(float_main_end);
+    let final_main_size = final_content_main_size.max(float_main_end);
 
     // The final BFC cross size must also encompass any floats.
     for float in &bfc_state.floats.floats {
@@ -353,7 +382,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         max_cross_size = max_cross_size.max(float_extent_cross);
     }
 
-    output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
+    output.overflow_size =
+        LogicalSize::from_main_cross(final_main_size, max_cross_size, writing_mode);
 
     // --- Baseline Calculation ---
     // The baseline of a BFC is the baseline of its last in-flow child that has a baseline.
@@ -373,56 +403,155 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     }
 
-    let node = tree.get_mut(node_index).unwrap();
-    node.baseline = output.baseline;
+    let node_mut = tree.get_mut(node_index).unwrap();
+    node_mut.baseline = output.baseline;
 
     Ok(output)
 }
 
-/// Lays out an Inline FormattingContext (IFC).
+/// Lays out an Inline Formatting Context (IFC) by delegating to the `text3` engine.
+///
+/// This function acts as a bridge between the box-tree world of `solver3` and the
+/// rich text layout world of `text3`. Its responsibilities are:
+///
+/// 1. **Collect Content**: Traverse the direct children of the IFC root and convert them into a
+///    `Vec<InlineContent>`, the input format for `text3`. This involves:
+///     - Recursively laying out `inline-block` children to determine their final size and baseline,
+///       which are then passed to `text3` as opaque objects.
+///     - Extracting raw text runs from inline text nodes.
+///
+/// 2. **Translate Constraints**: Convert the `LayoutConstraints` (available space, floats) from
+///    `solver3` into the more detailed `UnifiedConstraints` that `text3` requires.
+///
+/// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform the complex
+///    tasks of BIDI analysis, shaping, line breaking, justification, and vertical alignment.
+///
+/// 4. **Integrate Results**: Process the `UnifiedLayout` returned by `text3`:
+///     - Store the rich layout result on the IFC root `LayoutNode` for the display list generation
+///       pass.
+///     - Update the `positions` map for all `inline-block` children based on the positions
+///       calculated by `text3`.
+///     - Extract the final overflow size and baseline for the IFC root itself.
 fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
+    ctx: &mut LayoutContext<T, Q>,
     text_cache: &mut text3::cache::LayoutCache<T>,
     tree: &mut LayoutTree<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    // 1. Collect all inline content (text runs, inline-blocks) from descendants.
-    let inline_content = collect_inline_content(ctx, text_cache, tree, node_index)?;
+    let ifc_root_dom_id = tree
+        .get(node_index)
+        .and_then(|n| n.dom_node_id)
+        .ok_or(LayoutError::InvalidTree)?;
 
-    // 2. Prepare constraints for text3, including float exclusion zones.
-    let text3_constraints = UnifiedConstraints {
-        available_width: constraints.available_size.width,
-        available_height: Some(constraints.available_size.height),
-        // TODO: Convert `FloatingContext` into a set of exclusion rectangles for text3.
-        // exclusion_zones: constraints.floats.to_exclusion_zones(),
-        ..Default::default()
-    };
+    // Phase 1: Collect and measure all inline-level children.
+    let (inline_content, child_map) =
+        collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
+
+    if inline_content.is_empty() {
+        return Ok(LayoutOutput::default());
+    }
+
+    // Phase 2: Translate constraints and define a single layout fragment for text3.
+    let text3_constraints =
+        translate_to_text3_constraints(constraints, ctx.styled_dom, ifc_root_dom_id);
     let fragments = vec![LayoutFragment {
         id: "main".to_string(),
         constraints: text3_constraints,
     }];
 
-    // 3. Call text3 to perform the inline layout.
+    // Phase 3: Invoke the text layout engine.
     let text_layout_result =
         text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager)?;
 
-    // 4. Store the detailed text layout result on the tree node for display list generation.
+    // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
-    if let Some(node) = tree.get_mut(node_index) {
-        if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
-            node.inline_layout_result = Some(main_frag.clone());
+    let node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
 
-            // 5. Convert the text3 result back into LayoutOutput.
-            output.overflow_size =
-                LogicalSize::new(main_frag.bounds.width, main_frag.bounds.height);
-            // The baseline of an IFC is the baseline of its last line box.
-            output.baseline = main_frag.last_baseline;
-            node.baseline = output.baseline;
+    if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
+        // Store the detailed result for the display list generator.
+        node.inline_layout_result = Some(main_frag.clone());
+
+        // Extract the overall size and baseline for the IFC root.
+        output.overflow_size = LogicalSize::new(main_frag.bounds.width, main_frag.bounds.height);
+        output.baseline = main_frag.last_baseline;
+        node.baseline = output.baseline;
+
+        // Position all the inline-block children based on text3's calculations.
+        for positioned_item in &main_frag.items {
+            if let ShapedItem::Object { source, .. } = &positioned_item.item {
+                if let Some(&child_node_index) = child_map.get(source) {
+                    let new_relative_pos = LogicalPosition {
+                        x: positioned_item.position.x,
+                        y: positioned_item.position.y,
+                    };
+                    output.positions.insert(child_node_index, new_relative_pos);
+                }
+            }
         }
     }
 
     Ok(output)
+}
+
+/// Translates solver3 layout constraints into the text3 engine's unified constraints.
+fn translate_to_text3_constraints<'a>(
+    constraints: &'a LayoutConstraints<'a>,
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+) -> UnifiedConstraints {
+    let mut text3_constraints = UnifiedConstraints {
+        available_width: constraints.available_size.width,
+        available_height: Some(constraints.available_size.height),
+        writing_mode: Some(crate::text3::cache::WritingMode::HorizontalTb), // TODO: Map this
+        ..Default::default()
+    };
+
+    // Convert floats into exclusion zones for text3 to flow around.
+    if let Some(bfc_state) = constraints.bfc_state {
+        text3_constraints.shape_exclusions = bfc_state
+            .floats
+            .floats
+            .iter()
+            .map(|float_box| {
+                ShapeBoundary::Rectangle(crate::text3::cache::Rect {
+                    x: float_box.rect.origin.x,
+                    y: float_box.rect.origin.y,
+                    width: float_box.rect.size.width,
+                    height: float_box.rect.size.height,
+                })
+            })
+            .collect();
+    }
+
+    // Map text-align and justify-content from CSS to text3 enums.
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(dom_id) {
+        let style = styled_node.state.get_style();
+        if let Some(CssProperty::TextAlign(CssPropertyValue::Exact(align))) =
+            style.get(&CssProperty::TextAlign)
+        {
+            text3_constraints.text_align = match align {
+                LayoutTextAlign::Left => crate::text3::cache::TextAlign::Left,
+                LayoutTextAlign::Right => crate::text3::cache::TextAlign::Right,
+                LayoutTextAlign::Center => crate::text3::cache::TextAlign::Center,
+                LayoutTextAlign::Justify => crate::text3::cache::TextAlign::Justify,
+                LayoutTextAlign::Start => crate::text3::cache::TextAlign::Start,
+                LayoutTextAlign::End => crate::text3::cache::TextAlign::End,
+            };
+        }
+        if let Some(CssProperty::JustifyContent(CssPropertyValue::Exact(justify))) =
+            style.get(&CssProperty::JustifyContent)
+        {
+            text3_constraints.justify_content = match justify {
+                LayoutJustifyContent::InterWord => Text3Justify::InterWord,
+                LayoutJustifyContent::InterCharacter => Text3Justify::InterCharacter,
+                _ => Text3Justify::None,
+            };
+        }
+    }
+
+    // TODO: Map other properties like line-height, etc.
+    text3_constraints
 }
 
 /// Lays out a Table Formatting Context.
@@ -444,33 +573,65 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     layout_bfc(ctx, tree, node_index, constraints)
 }
 
-/// Helper function to gather all inline content for text3, including inline-blocks.
-/// Helper function to gather all inline content for text3, including inline-blocks.
-pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
+/// Gathers all inline content for `text3`, recursively laying out `inline-block` children
+/// to determine their size and baseline before passing them to the text engine.
+fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
     text_cache: &mut TextLayoutCache<T>,
     tree: &mut LayoutTree<T>,
     ifc_root_index: usize,
-) -> Result<Vec<InlineContent>> {
+) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     let mut content = Vec::new();
+    // Maps the `ContentIndex` used by text3 back to the `LayoutNode` index.
+    let mut child_map = HashMap::new();
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
 
-    for &child_index in &ifc_root_node.children {
+    for (item_idx, &child_index) in ifc_root_node.children.iter().enumerate() {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let Some(dom_id) = child_node.dom_node_id else {
             continue;
         };
 
-        if get_display_property(ctx.styled_dom, Some(dom_id)) == DisplayType::InlineBlock {
-            let size = child_node.used_size.unwrap_or_default();
-            let baseline_offset = get_or_calculate_baseline(ctx, text_cache, tree, child_index)?
-                .unwrap_or(size.height);
+        let content_index = ContentIndex {
+            run_index: ifc_root_index as u32,
+            item_index: item_idx as u32,
+        };
+
+        if get_display_property(ctx.styled_dom, Some(dom_id)) != DisplayType::Inline {
+            // This is an atomic inline-level box (e.g., inline-block, image).
+            // We must determine its size and baseline before passing it to text3.
+
+            // The intrinsic sizing pass has already calculated its preferred size.
+            let intrinsic_size = child_node.intrinsic_sizes.unwrap_or_default();
+            // For an inline-block, its width is its max-content width.
+            let width = intrinsic_size.max_content_width;
+
+            // To find its height and baseline, we must lay out its contents.
+            let child_constraints = LayoutConstraints {
+                available_size: LogicalSize::new(width, f32::INFINITY),
+                writing_mode: get_writing_mode(ctx.styled_dom, Some(dom_id)),
+                bfc_state: None, // Inline-blocks establish a new BFC, so no state is passed in.
+                text_align: TextAlign::Start, // Does not affect size/baseline of the container.
+            };
+
+            // Recursively lay out the inline-block to get its final height and baseline.
+            // Note: This does not affect its final position, only its dimensions.
+            let layout_output =
+                layout_formatting_context(ctx, tree, text_cache, child_index, &child_constraints)?;
+
+            let final_height = layout_output.overflow_size.height;
+            let final_size = LogicalSize::new(width, final_height);
+
+            // Update the node in the tree with its now-known used size.
+            tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+
+            let baseline_offset = layout_output.baseline.unwrap_or(final_height);
 
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
-                    size: Size {
-                        width: size.width,
-                        height: size.height,
+                    size: crate::text3::cache::Size {
+                        width,
+                        height: final_height,
                     },
                     corner_radius: None,
                 },
@@ -478,61 +639,38 @@ pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 stroke: None,
                 baseline_offset,
             }));
-        } else {
-            // Otherwise, assume it's text or another standard inline element.
-            if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-                content.push(InlineContent::Text(StyledRun {
-                    text,
-                    style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)), // STUB
-                    logical_start_byte: 0,
-                }));
-            }
+            child_map.insert(content_index, child_index);
+        } else if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
+            content.push(InlineContent::Text(StyledRun {
+                text,
+                style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
+                logical_start_byte: 0,
+            }));
+        } else if let NodeType::Image(image_data) =
+            ctx.styled_dom.node_data.as_container()[dom_id].get_node_type()
+        {
+            // This is a simplified image handling. A real implementation would have more robust
+            // intrinsic size resolution (e.g., from the image data itself).
+            let intrinsic_size = child_node.intrinsic_sizes.unwrap_or(IntrinsicSizes {
+                max_content_width: 50.0,
+                max_content_height: 50.0,
+                ..Default::default()
+            });
+            content.push(InlineContent::Image(InlineImage {
+                source: ImageSource::Url(String::new()), // Placeholder
+                intrinsic_size: crate::text3::cache::Size {
+                    width: intrinsic_size.max_content_width,
+                    height: intrinsic_size.max_content_height,
+                },
+                display_size: None,
+                baseline_offset: 0.0, // Images are bottom-aligned with the baseline by default
+                alignment: crate::text3::cache::VerticalAlign::Baseline,
+                object_fit: ObjectFit::Fill,
+            }));
+            child_map.insert(content_index, child_index);
         }
     }
-    Ok(content)
-}
-
-/// Gets the baseline for a node, calculating and caching it if necessary.
-/// The baseline of an inline-block is the baseline of its last line box.
-fn get_or_calculate_baseline<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    text_cache: &mut TextLayoutCache<T>,
-    tree: &mut LayoutTree<T>,
-    node_index: usize,
-) -> Result<Option<f32>> {
-    // Check cache first
-    if let Some(baseline) = tree.get(node_index).unwrap().baseline {
-        return Ok(Some(baseline));
-    }
-
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-    let used_size = node.used_size.unwrap_or_default();
-    let writing_mode = get_writing_mode(ctx.styled_dom, node.dom_node_id);
-
-    // To find the baseline, we must lay out the node's contents.
-    // Create temporary constraints based on its already-calculated used size.
-    let constraints = LayoutConstraints {
-        available_size: node.box_props.inner_size(used_size, writing_mode),
-        bfc_state: None,
-        writing_mode,
-        text_align: TextAlign::Start, // Does not affect baseline
-    };
-
-    // Temporarily mutate the context to avoid borrowing issues
-    let mut temp_ctx = LayoutContext {
-        styled_dom: ctx.styled_dom,
-        font_manager: ctx.font_manager,
-        debug_messages: &mut None, // Discard debug messages from this temporary layout
-    };
-
-    let layout_output =
-        layout_formatting_context(&mut temp_ctx, tree, text_cache, node_index, &constraints)?;
-
-    // Cache the result on the node
-    let baseline = layout_output.baseline;
-    tree.get_mut(node_index).unwrap().baseline = baseline;
-
-    Ok(baseline)
+    Ok((content, child_map))
 }
 
 // TODO: STUB helper functions that would be needed for the above code.
@@ -616,23 +754,6 @@ fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 }
 
-/// Adjusts the BFC pen position to clear floats. Returns true if clearance was applied.
-fn apply_clearance(child_index: usize, state: &mut BfcLayoutState) -> bool {
-    let clear_y = 0.0; // Placeholder for calculated clearance value
-                       // In a real implementation:
-                       // let clear_prop = get_clear_property(...);
-                       // let clear_y = state.floats.get_clearance_y(clear_prop);
-
-    if clear_y > state.pen.y {
-        state.pen.y = clear_y;
-        // When clearance is applied, margin collapsing is suppressed.
-        state.margins.last_in_flow_margin_bottom = 0.0;
-        true
-    } else {
-        false
-    }
-}
-
 // STUB: Functions to get CSS properties
 fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Float {
     let Some(id) = dom_id else {
@@ -671,10 +792,6 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Clear {
     Clear::None
 }
 
-fn get_text_align(tree: &StyledDom, dom_id: Option<azul_core::dom::NodeId>) -> TextAlign {
-    TextAlign::Start
-}
-
 /// Helper to determine if scrollbars are needed
 pub fn check_scrollbar_necessity(
     content_size: LogicalSize,
@@ -682,19 +799,32 @@ pub fn check_scrollbar_necessity(
     overflow_x: OverflowBehavior,
     overflow_y: OverflowBehavior,
 ) -> ScrollbarInfo {
-    let needs_horizontal = match overflow_x {
-        OverflowBehavior::Visible | OverflowBehavior::Hidden => false,
+    let mut needs_horizontal = match overflow_x {
+        OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.width > container_size.width,
-        OverflowBehavior::Break => false, // TODO: ???
     };
 
-    let needs_vertical = match overflow_y {
-        OverflowBehavior::Visible | OverflowBehavior::Hidden => false,
+    let mut needs_vertical = match overflow_y {
+        OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.height > container_size.height,
-        OverflowBehavior::Break => false, // TODO: ???
     };
+
+    // A classic layout problem: a vertical scrollbar can reduce horizontal space,
+    // causing a horizontal scrollbar to appear, which can reduce vertical space...
+    // A full solution involves a loop, but this two-pass check handles most cases.
+    if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
+        if content_size.width > (container_size.width - 16.0) {
+            // Assuming 16px scrollbar
+            needs_horizontal = true;
+        }
+    }
+    if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
+        if content_size.height > (container_size.height - 16.0) {
+            needs_vertical = true;
+        }
+    }
 
     ScrollbarInfo {
         needs_horizontal,
@@ -729,20 +859,6 @@ impl ScrollbarInfo {
     }
 }
 
-/// Margin collapsing calculation for block layout
-pub fn calculate_collapsed_margins(top_margin: f32, bottom_margin: f32, is_adjacent: bool) -> f32 {
-    if !is_adjacent {
-        return 0.0;
-    }
-
-    // Simplified margin collapsing - real implementation would be more complex
-    if top_margin.signum() == bottom_margin.signum() {
-        top_margin.abs().max(bottom_margin.abs()) * top_margin.signum()
-    } else {
-        top_margin + bottom_margin
-    }
-}
-
 /// Calculates a single collapsed margin from two adjoining vertical margins.
 ///
 /// Implements the rules from CSS 2.1 section 8.3.1:
@@ -756,14 +872,5 @@ fn collapse_margins(a: f32, b: f32) -> f32 {
         a.min(b)
     } else {
         a + b
-    }
-}
-
-fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {
-    if let Some(messages) = debug_messages {
-        messages.push(LayoutDebugMessage {
-            message: message.into(),
-            location: "formatting_contexts".into(),
-        });
     }
 }

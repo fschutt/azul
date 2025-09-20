@@ -95,14 +95,17 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         absolute_positions = cache.absolute_positions.clone();
         let mut reflow_needed_for_scrollbars = false;
 
-        // Pass 2a (Incremental): Recalculate intrinsic sizes for dirty nodes (bottom-up).
+        // ... (Passes 2a, 2b, 2c remain the same)
         calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
 
-        // Pass 2b (Incremental): Recalculate layout for dirty subtrees (top-down).
-        // This single pass now handles both sizing and in-flow positioning.
         for &root_idx in &recon_result.layout_roots {
-            let (cb_pos, cb_size) =
-                get_containing_block_for_node(&new_tree, root_idx, &absolute_positions, viewport);
+            let (cb_pos, cb_size) = get_containing_block_for_node(
+                &new_tree,
+                &new_dom,
+                root_idx,
+                &absolute_positions,
+                viewport,
+            );
 
             cache::calculate_layout_for_subtree(
                 &mut ctx,
@@ -116,7 +119,6 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             )?;
         }
 
-        // Pass 2c: Reposition clean sibling subtrees.
         cache::reposition_clean_subtrees(
             &new_dom,
             &new_tree,
@@ -144,7 +146,8 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     )?;
 
     // --- Step 3.5: Adjust Relatively Positioned Elements ---
-    positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut absolute_positions)?;
+    // Pass the viewport to correctly resolve percentage offsets for the root element.
+    positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut absolute_positions, viewport)?;
 
     // --- Step 4: Generate Display List & Update Cache ---
     let display_list =
@@ -160,6 +163,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 // STUB: This helper is required by the main loop
 fn get_containing_block_for_node<T: ParsedFontTrait>(
     tree: &LayoutTree<T>,
+    styled_dom: &StyledDom,
     node_idx: usize,
     absolute_positions: &BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect,
@@ -175,7 +179,7 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 pos.x + parent_node.box_props.padding.left,
                 pos.y + parent_node.box_props.padding.top,
             );
-            let writing_mode = get_writing_mode(parent_node.dom_node_id);
+            let writing_mode = get_writing_mode(styled_dom, parent_node.dom_node_id);
             let content_size = parent_node.box_props.inner_size(size, writing_mode);
             return (content_pos, content_size);
         }
