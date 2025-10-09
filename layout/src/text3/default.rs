@@ -4,7 +4,7 @@ use allsorts::{
     gpos,
     gsub::{self, FeatureInfo, FeatureMask, Features},
 };
-use azul_core::app_resources::Placement;
+use azul_core::{app_resources::Placement, window::LogicalSize};
 use rust_fontconfig::FcFontCache;
 
 // Imports from the layout engine's module
@@ -250,6 +250,29 @@ impl ParsedFontTrait for ParsedFont {
         }
 
         Ok(shaped_glyphs)
+    }
+
+    fn get_hash(&self) -> u64 {
+        self.hash
+    }
+
+    fn get_glyph_size(&self, glyph_id: u16, font_size_px: f32) -> Option<LogicalSize> {
+        self.glyph_records_decoded.get(&glyph_id).map(|record| {
+            let units_per_em = self.font_metrics.units_per_em as f32;
+            let scale_factor = if units_per_em > 0.0 {
+                font_size_px / units_per_em
+            } else {
+                0.01 // Avoid division by zero
+            };
+
+            // max_x, max_y, min_x, min_y in font units
+            let bbox = &record.bounding_box;
+
+            LogicalSize {
+                width: (bbox.max_x - bbox.min_x) as f32 * scale_factor,
+                height: (bbox.max_y - bbox.min_y) as f32 * scale_factor,
+            }
+        })
     }
 
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {

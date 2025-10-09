@@ -9,6 +9,7 @@ pub mod geometry;
 pub mod layout_tree;
 pub mod positioning;
 pub mod sizing;
+pub mod taffy_bridge;
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -22,6 +23,7 @@ use azul_core::{
 use azul_css::{CssProperty, CssPropertyCategory, LayoutDebugMessage};
 
 use self::{
+    cache::get_writing_mode,
     display_list::generate_display_list,
     geometry::IntrinsicSizes,
     layout_tree::{generate_layout_tree, LayoutTree},
@@ -81,6 +83,13 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // --- Step 1: Reconciliation & Invalidation ---
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx, cache, viewport)?;
+
+    // Step 1.2: Clear Taffy Caches for Dirty Nodes
+    for &node_idx in &recon_result.intrinsic_dirty {
+        if let Some(node) = new_tree.get_mut(node_idx) {
+            node.taffy_cache.clear();
+        }
+    }
 
     // --- Step 1.5: Early Exit Optimization ---
     if recon_result.is_clean() {
@@ -193,6 +202,7 @@ pub enum LayoutError {
     SizingFailed,
     PositioningFailed,
     DisplayListFailed,
+    Text(text3::cache::LayoutError),
 }
 
 impl std::fmt::Display for LayoutError {
@@ -202,7 +212,14 @@ impl std::fmt::Display for LayoutError {
             LayoutError::SizingFailed => write!(f, "Sizing calculation failed"),
             LayoutError::PositioningFailed => write!(f, "Position calculation failed"),
             LayoutError::DisplayListFailed => write!(f, "Display list generation failed"),
+            LayoutError::Text(e) => write!(f, "Text layout error: {}", e),
         }
+    }
+}
+
+impl From<text3::cache::LayoutError> for LayoutError {
+    fn from(err: text3::cache::LayoutError) -> Self {
+        LayoutError::Text(err)
     }
 }
 

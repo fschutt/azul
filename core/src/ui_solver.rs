@@ -201,6 +201,8 @@ pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlig
     use azul_css::StyleTextAlign::*;
     match horizontal_alignment {
         Left => None,
+        Start => Some(0.0),
+        End => Some(1.0),
         Justify => None,     // handled differently?
         Center => Some(0.5), // move the line by the half width
         Right => Some(1.0),  // move the line by the full width
@@ -683,6 +685,14 @@ impl fmt::Debug for FormattingContext {
             FormattingContext::TableCell => write!(f, "TableCell"),
             FormattingContext::TableColumnGroup => write!(f, "TableColumnGroup"),
             FormattingContext::TableCaption => write!(f, "TableCaption"),
+        }
+    }
+}
+
+impl Default for FormattingContext {
+    fn default() -> Self {
+        FormattingContext::Block {
+            establishes_new_context: false,
         }
     }
 }

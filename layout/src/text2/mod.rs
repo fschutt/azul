@@ -187,9 +187,9 @@ fn adjust_line_alignment(
 
     // Calculate the offset based on alignment
     let offset = match text_align {
-        StyleTextAlign::Left => 0.0, // No adjustment needed
+        StyleTextAlign::Left | StyleTextAlign::Start => 0.0, // No adjustment needed
         StyleTextAlign::Center => (available_width - line_width) / 2.0,
-        StyleTextAlign::Right => available_width - line_width,
+        StyleTextAlign::Right | StyleTextAlign::End => available_width - line_width,
         StyleTextAlign::Justify => {
             // For justify, we'd need to adjust spacing between words
             // This is more complex and would require modifying the WordPositions

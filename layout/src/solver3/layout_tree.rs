@@ -18,6 +18,7 @@ use azul_css::{
     CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutDisplay, LayoutFloat, LayoutOverflow,
     LayoutPosition,
 };
+use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
 
 use crate::{
     parsedfont::ParsedFont,
@@ -80,12 +81,19 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     /// The resolved box model properties (margin, border, padding)
     /// in logical pixels.
     pub box_props: BoxProps,
+    /// Cache for Taffy layout computations for this node.
+    pub taffy_cache: TaffyCache, // NEW FIELD
+    /// A hash of this node's data (style, text content, etc.) used for
+    /// fast reconciliation.
     pub node_data_hash: u64,
     /// A hash of this node's data and all of its descendants. Used for
     /// fast reconciliation.
     pub subtree_hash: SubtreeHash,
+    /// The formatting context this node establishes or participates in.
     pub formatting_context: FormattingContext,
+    /// Cached intrinsic sizes (min-content, max-content, etc.)
     pub intrinsic_sizes: Option<IntrinsicSizes>,
+    /// The size used during the last layout pass.
     pub used_size: Option<LogicalSize>,
     /// The position of this node *relative to its parent's content box*.
     pub relative_position: Option<LogicalPosition>,
@@ -437,6 +445,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             parent: Some(parent),
             formatting_context: fc,
             box_props: BoxProps::default(),
+            taffy_cache: TaffyCache::new(),
             is_anonymous: true,
             anonymous_type: Some(anon_type),
             children: Vec::new(),
@@ -465,6 +474,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             parent,
             formatting_context: determine_formatting_context(styled_dom, dom_id),
             box_props: resolve_box_props(styled_dom, dom_id),
+            taffy_cache: TaffyCache::new(),
             is_anonymous: false,
             anonymous_type: None,
             children: Vec::new(),

@@ -1226,10 +1226,10 @@ fn apply_text_justification(
         }
 
         match justify {
-            StyleTextAlign::Left => {
+            StyleTextAlign::Left | StyleTextAlign::Start => {
                 // Left justification is the default, no need to adjust
             }
-            StyleTextAlign::Right => {
+            StyleTextAlign::Right | StyleTextAlign::End => {
                 // Move all words in the line to the right
                 for i in line.word_start..=line.word_end {
                     if i < word_positions.len() {

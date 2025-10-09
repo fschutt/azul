@@ -11,6 +11,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use azul_core::{
+    display_list::GlyphInstance,
+    window::{LogicalPosition, LogicalSize},
+};
 use azul_css::ColorU;
 use hyphenation::{Hyphenator, Language, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
@@ -30,7 +34,9 @@ pub trait ParsedFontTrait: Send + Clone {
         direction: Direction,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError>;
-
+    /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
+    fn get_hash(&self) -> u64;
+    fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize>;
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
     fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
     fn has_glyph(&self, codepoint: u32) -> bool;
@@ -398,6 +404,13 @@ pub struct FontMetrics {
     pub descent: f32,
     pub line_gap: f32,
     pub units_per_em: u16,
+}
+
+impl FontMetrics {
+    pub fn baseline_scaled(&self, font_size: f32) -> f32 {
+        let scale = font_size / self.units_per_em as f32;
+        self.ascent * scale
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1337,6 +1350,16 @@ pub enum WritingMode {
     SidewaysLr, // sideways-lr (rotated horizontal in vertical context)
 }
 
+impl WritingMode {
+    /// Necessary to determine if the glyphs are advancing in a horizontal direction
+    pub fn is_advance_horizontal(&self) -> bool {
+        matches!(
+            self,
+            WritingMode::HorizontalTb | WritingMode::SidewaysRl | WritingMode::SidewaysLr
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
 pub enum JustifyContent {
     #[default]
@@ -2004,6 +2027,33 @@ pub struct ShapedGlyph<T: ParsedFontTrait> {
     pub font: Arc<T>,
 }
 
+impl<T: ParsedFontTrait> ShapedGlyph<T> {
+    pub fn into_glyph_instance(&self, writing_mode: WritingMode) -> GlyphInstance {
+        let size = self
+            .font
+            .get_glyph_size(self.glyph_id, self.style.font_size_px)
+            .unwrap_or_default();
+
+        let position = if writing_mode.is_advance_horizontal() {
+            LogicalPosition {
+                x: self.offset.x,
+                y: self.offset.y,
+            }
+        } else {
+            LogicalPosition {
+                x: self.vertical_offset.x,
+                y: self.vertical_offset.y,
+            }
+        };
+
+        GlyphInstance {
+            index: self.glyph_id as u32,
+            point: position,
+            size,
+        }
+    }
+}
+
 // --- Stage 4: Positioned Representation (Final Layout) ---
 
 #[derive(Debug, Clone)]
@@ -2019,6 +2069,50 @@ pub struct UnifiedLayout<T: ParsedFontTrait> {
     pub bounds: Rect,
     /// Information about content that did not fit.
     pub overflow: OverflowInfo<T>,
+}
+
+impl<T: ParsedFontTrait> UnifiedLayout<T> {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+    pub fn last_baseline(&self) -> Option<f32> {
+        self.items
+            .iter()
+            .rev()
+            .find_map(|item| get_baseline_for_item(&item.item))
+    }
+}
+
+fn get_baseline_for_item<T: ParsedFontTrait>(item: &ShapedItem<T>) -> Option<f32> {
+    match item {
+        ShapedItem::CombinedBlock {
+            baseline_offset, ..
+        } => Some(*baseline_offset),
+        ShapedItem::Object {
+            baseline_offset, ..
+        } => Some(*baseline_offset),
+        // We have to get the clusters font from the last glyph
+        ShapedItem::Cluster(ref cluster) => {
+            if let Some(last_glyph) = cluster.glyphs.last() {
+                Some(
+                    last_glyph
+                        .font
+                        .get_font_metrics()
+                        .baseline_scaled(last_glyph.style.font_size_px),
+                )
+            } else {
+                None
+            }
+        }
+        ShapedItem::Break { source, break_info } => {
+            // Breaks do not contribute to baseline
+            None
+        }
+        ShapedItem::Tab { source, bounds } => {
+            // Tabs do not contribute to baseline
+            None
+        }
+    }
 }
 
 /// Stores information about content that exceeded the available layout space.

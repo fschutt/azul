@@ -5754,7 +5754,8 @@ multi_type_parser!(
     ["grid", Grid],
     ["inline-grid", InlineGrid],
     ["initial", Initial],
-    ["inherit", Inherit]
+    ["inherit", Inherit],
+    ["flow-root", FlowRoot]
 );
 
 multi_type_parser!(
@@ -5791,12 +5792,20 @@ multi_type_parser!(
 multi_type_parser!(
     parse_layout_justify_content,
     LayoutJustifyContent,
-    ["flex-start", Start],
-    ["flex-end", End],
+    ["flex-start", FlexStart],
+    ["flex-end", FlexEnd],
     ["center", Center],
     ["space-between", SpaceBetween],
     ["space-around", SpaceAround],
-    ["space-evenly", SpaceEvenly]
+    ["space-evenly", SpaceEvenly],
+    ["start", Start],
+    ["end", End],
+    ["left", Left],
+    ["right", Right],
+    ["safe", Safe],
+    ["unsafe", Unsafe],
+    ["normal", Normal],
+    ["stretch", Stretch]
 );
 
 multi_type_parser!(
@@ -5836,7 +5845,8 @@ multi_type_parser!(
     ["auto", Auto],
     ["scroll", Scroll],
     ["visible", Visible],
-    ["hidden", Hidden]
+    ["hidden", Hidden],
+    ["clip", Clip]
 );
 
 multi_type_parser!(
@@ -5845,7 +5855,9 @@ multi_type_parser!(
     ["center", Center],
     ["left", Left],
     ["right", Right],
-    ["justify", Justify]
+    ["justify", Justify],
+    ["start", Start],
+    ["end", End]
 );
 
 multi_type_parser!(

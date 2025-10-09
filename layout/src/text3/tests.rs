@@ -103,6 +103,28 @@ impl ParsedFontTrait for MockFont {
         Ok(result_glyphs)
     }
 
+    fn get_hash(&self) -> u64 {
+        self.id as u64
+    }
+
+    // NOTE: This is fake, we don't have glyph sizes here - also very slow, but ok for mocking
+    fn get_glyph_size(
+        &self,
+        glyph_id: u16,
+        font_size: f32,
+    ) -> Option<azul_core::window::LogicalSize> {
+        self.glyphs.values().find_map(|(id, advance)| {
+            if *id == glyph_id {
+                Some(azul_core::window::LogicalSize {
+                    width: *advance,
+                    height: font_size,
+                })
+            } else {
+                None
+            }
+        })
+    }
+
     fn get_hyphen_glyph_and_advance(&self, _font_size: f32) -> Option<(u16, f32)> {
         Some((99, 5.0)) // Hyphen glyph ID 99, advance 5.0
     }

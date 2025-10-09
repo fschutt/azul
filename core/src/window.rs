@@ -2757,7 +2757,7 @@ impl ::core::fmt::Display for UpdateFocusWarning {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Copy, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct LogicalRect {
     pub origin: LogicalPosition,

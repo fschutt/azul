@@ -44,6 +44,7 @@ unicode-segmentation    = { version = "1.12.0", default-features = false, option
 unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
 allsorts = { git = "https://github.com/fschutt/allsorts", rev = "1ddc1c1",  default-features = false, features = ["flate2_rust"], optional = true  }
 lru = { version = "0.16.1", default-features = false }
+taffy = { version = "0.9.1", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
 
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender"]

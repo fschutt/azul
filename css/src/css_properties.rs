@@ -4152,6 +4152,15 @@ impl PixelValue {
         }
     }
 
+    /// Returns the value of the SizeMetric in PERCENT (0.0 to 1.0, not 0 to 100!)
+    #[inline]
+    pub fn to_percent(&self) -> Option<f32> {
+        match self.metric {
+            SizeMetric::Percent => Some(self.number.get() / 100.0),
+            _ => None,
+        }
+    }
+
     /// Returns the value of the SizeMetric in pixels
     #[inline]
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
@@ -5749,6 +5758,8 @@ pub enum LayoutDisplay {
     TableCell,
     TableCaption,
 
+    FlowRoot,
+        
     // List layout
     ListItem,
 
@@ -5862,6 +5873,18 @@ pub enum LayoutJustifyContent {
     Start,
     /// Items are positioned at the end of the container
     End,
+    /// Items are positioned at the left of the container
+    Left,
+    /// Items are positioned at the right of the container
+    Right,
+    /// Items are positioned with a safe margin
+    Safe,
+    /// Items are positioned outside the container's content area
+    Unsafe,
+    /// Items are positioned with equal space around them
+    Normal,
+    /// Items are stretched to fit the container
+    Stretch,
     /// Items are positioned at the center of the container
     Center,
     /// Items are positioned with space between the lines
@@ -5871,6 +5894,10 @@ pub enum LayoutJustifyContent {
     /// Items are distributed so that the spacing between any two adjacent alignment subjects,
     /// before the first alignment subject, and after the last alignment subject is the same
     SpaceEvenly,
+    /// Items are positioned at the beginning of the container
+    FlexStart,
+    /// Items are positioned at the end of the container
+    FlexEnd,
 }
 
 impl Default for LayoutJustifyContent {
@@ -5936,6 +5963,8 @@ pub enum LayoutOverflow {
     Hidden,
     /// Doesn't show a scroll bar, simply overflows the text
     Visible,
+    /// Clips the overflowing content
+    Clip,
 }
 
 impl Default for LayoutOverflow {
@@ -5955,7 +5984,7 @@ impl LayoutOverflow {
         match self {
             Scroll => true,
             Auto => currently_overflowing,
-            Hidden | Visible => false,
+            Hidden | Visible | Clip => false,
         }
     }
 
@@ -5978,6 +6007,8 @@ pub enum StyleTextAlign {
     Center,
     Right,
     Justify,
+    Start,
+    End,
 }
 
 impl Default for StyleTextAlign {

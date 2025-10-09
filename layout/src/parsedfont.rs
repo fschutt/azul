@@ -28,6 +28,8 @@ pub type GposCache = Arc<LayoutCacheData<GPOS>>;
 
 #[derive(Clone)]
 pub struct ParsedFont {
+    /// A hash of the font, useful for caching purposes
+    pub hash: u64,
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
@@ -46,6 +48,7 @@ pub struct ParsedFont {
 impl fmt::Debug for ParsedFont {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ParsedFont")
+            .field("hash", &self.hash)
             .field("font_metrics", &self.font_metrics)
             .field("num_glyphs", &self.num_glyphs)
             .field("hhea_table", &self.hhea_table)

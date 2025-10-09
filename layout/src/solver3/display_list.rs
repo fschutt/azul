@@ -37,6 +37,7 @@
 //! ```
 use std::collections::BTreeMap;
 
+use allsorts::glyph_position;
 use azul_core::{
     app_resources::{ImageKey, ImageRefHash},
     callbacks::ScrollPosition,
@@ -142,6 +143,15 @@ pub struct BorderRadius {
     pub bottom_right: f32,
 }
 
+impl BorderRadius {
+    pub fn is_zero(&self) -> bool {
+        self.top_left == 0.0
+            && self.top_right == 0.0
+            && self.bottom_left == 0.0
+            && self.bottom_right == 0.0
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum ScrollbarOrientation {
     Horizontal,
@@ -166,19 +176,73 @@ impl DisplayListBuilder {
         DisplayList { items: self.items }
     }
 
-    pub fn push_rect(&mut self, bounds: LogicalRect, color: ColorU) {
+    pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: TagId) {
+        self.items
+            .push(DisplayListItem::HitTestArea { bounds, tag });
+    }
+    pub fn push_scrollbar(
+        &mut self,
+        bounds: LogicalRect,
+        color: ColorU,
+        orientation: ScrollbarOrientation,
+    ) {
         if color.a > 0 {
             // Optimization: Don't draw fully transparent items.
-            self.items.push(DisplayListItem::Rect { bounds, color });
+            self.items.push(DisplayListItem::ScrollBar {
+                bounds,
+                color,
+                orientation,
+            });
+        }
+    }
+    pub fn push_rect(&mut self, bounds: LogicalRect, color: ColorU, border_radius: BorderRadius) {
+        if color.a > 0 {
+            // Optimization: Don't draw fully transparent items.
+            self.items.push(DisplayListItem::Rect {
+                bounds,
+                color,
+                border_radius,
+            });
         }
     }
 
-    pub fn push_border(&mut self, bounds: LogicalRect, color: ColorU, width: f32) {
+    pub fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
+        self.items.push(DisplayListItem::PushClip {
+            bounds,
+            border_radius,
+        });
+    }
+    pub fn pop_clip(&mut self) {
+        self.items.push(DisplayListItem::PopClip);
+    }
+    pub fn push_scroll_frame(
+        &mut self,
+        clip_bounds: LogicalRect,
+        content_size: LogicalSize,
+        scroll_id: ExternalScrollId,
+    ) {
+        self.items.push(DisplayListItem::PushScrollFrame {
+            clip_bounds,
+            content_size,
+            scroll_id,
+        });
+    }
+    pub fn pop_scroll_frame(&mut self) {
+        self.items.push(DisplayListItem::PopScrollFrame);
+    }
+    pub fn push_border(
+        &mut self,
+        bounds: LogicalRect,
+        color: ColorU,
+        width: f32,
+        border_radius: BorderRadius,
+    ) {
         if color.a > 0 && width > 0.0 {
             self.items.push(DisplayListItem::Border {
                 bounds,
                 color,
                 width,
+                border_radius,
             });
         }
     }
@@ -493,9 +557,15 @@ where
         // STUB: These should read from the styled DOM's computed values.
         let bg_color = get_background_color(node);
         let border_info = get_border_info(node);
+        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
 
-        builder.push_rect(paint_rect, bg_color);
-        builder.push_border(paint_rect, border_info.color, border_info.width);
+        builder.push_rect(paint_rect, bg_color, border_radius);
+        builder.push_border(
+            paint_rect,
+            border_info.color,
+            border_info.width,
+            border_radius,
+        );
         Ok(())
     }
 
@@ -574,31 +644,27 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout<T>,
     ) -> Result<()> {
+        // TODO: This will always paint images over the glyphs
+        // TODO: Handle z-index within inline content (e.g. background images)
+        // TODO: Handle text decorations (underline, strikethrough, etc.)
+        // TODO: Handle selection highlighting
+        // TODO: Handle text shadows
+        // TODO: Handle text overflowing (based on container_rect and overflow behavior)
+        let glyph_runs = crate::text3::glyphs::get_glyph_runs(layout);
+
+        for glyph_run in glyph_runs {
+            let clip_rect = container_rect; // Clip to the container rect
+            builder.push_text_run(
+                glyph_run.glyphs,
+                glyph_run.font.clone(),
+                glyph_run.color,
+                clip_rect,
+            );
+        }
+
         for item in &layout.items {
             let base_pos = container_rect.origin;
             match &item.item {
-                ShapedItem::Cluster(cluster) => {
-                    let mut glyph_instances = Vec::new();
-                    for glyph in &cluster.glyphs {
-                        let instance = GlyphInstance {
-                            point: LogicalPosition::new(
-                                base_pos.x + cluster.bounds.x + glyph.offset.x,
-                                base_pos.y + cluster.bounds.y + glyph.offset.y,
-                            ),
-                            index: glyph.glyph_id as u32,
-                            size: LogicalSize::new(0.0, 0.0), // Size often implicit in font metrics
-                        };
-                        glyph_instances.push(instance);
-                    }
-                    if !glyph_instances.is_empty() {
-                        builder.push_text_run(
-                            glyph_instances,
-                            cluster.style.font_ref.clone(),
-                            cluster.style.color.into(),
-                            container_rect, // Text is clipped by its containing block.
-                        );
-                    }
-                }
                 ShapedItem::Object {
                     content, bounds, ..
                 } => {
@@ -653,7 +719,7 @@ where
             if let Some(CssProperty::Transform(CssPropertyValue::Exact(transform))) =
                 style.get(&CssProperty::Transform)
             {
-                if !matches!(transform, TransformValue::None) {
+                if !transform.is_empty() {
                     return true;
                 }
             }
@@ -721,21 +787,26 @@ fn get_overflow_behavior(
 fn get_border_radius(dom: &StyledDom, id: Option<NodeId>) -> BorderRadius {
     BorderRadius::default()
 }
+
 fn get_scroll_id(id: Option<NodeId>) -> ExternalScrollId {
     id.map(|i| i.index() as u64).unwrap_or(0)
 }
+
 fn get_scroll_content_size<T: ParsedFontTrait>(node: &LayoutNode<T>) -> LogicalSize {
     node.used_size.unwrap_or_default()
 }
+
 fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<TagId> {
     id.map(|i| i.index() as u64)
 }
+
 struct ScrollbarInfo {
     needs_vertical: bool,
     needs_horizontal: bool,
     scrollbar_width: f32,
     scrollbar_height: f32,
 }
+
 fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> ScrollbarInfo {
     ScrollbarInfo {
         needs_vertical: false,
@@ -748,15 +819,18 @@ fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> S
 fn get_z_index(_styled_dom: &StyledDom, _dom_id: Option<NodeId>) -> i32 {
     0
 }
+
 fn get_background_color<T: ParsedFontTrait>(_node: &LayoutNode<T>) -> ColorU {
     ColorU::new(255, 255, 255, 0)
 } // Default transparent
+
 fn get_border_info<T: ParsedFontTrait>(_node: &LayoutNode<T>) -> BorderInfo {
     BorderInfo {
         width: 0.0,
         color: ColorU::new(0, 0, 0, 255),
     }
 }
+
 fn get_image_key_for_src(_src: &ImageRefHash) -> Option<ImageKey> {
     None
 }

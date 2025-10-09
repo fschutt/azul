@@ -77,6 +77,18 @@ mod node_id {
         }
     }
 
+    impl From<usize> for NodeId {
+        fn from(val: usize) -> Self {
+            NodeId::new(val)
+        }
+    }
+
+    impl From<NodeId> for usize {
+        fn from(val: NodeId) -> Self {
+            NodeId::into_usize(&Some(val))
+        }
+    }
+
     impl Add<usize> for NodeId {
         type Output = NodeId;
         #[inline(always)]

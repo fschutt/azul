@@ -344,6 +344,7 @@ impl ParsedFont {
             .and_then(|s| s.to_owned());
 
         let mut font = ParsedFont {
+            hash: hash_bytes(font_bytes, font_index),
             font_metrics,
             num_glyphs,
             hhea_table,
@@ -430,6 +431,14 @@ impl ParsedFont {
             _ => None,
         }
     }
+}
+
+fn hash_bytes(data: &[u8], index: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    index.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Generate a 4-byte font table tag from byte string

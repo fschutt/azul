@@ -1173,7 +1173,8 @@ impl_enum_fmt!(
     Grid,
     InlineGrid,
     Initial,
-    Inherit
+    Inherit,
+    FlowRoot
 );
 
 impl_enum_fmt!(LayoutFloat, Left, Right, None);
@@ -1191,7 +1192,15 @@ impl_enum_fmt!(
     Center,
     SpaceBetween,
     SpaceAround,
-    SpaceEvenly
+    SpaceEvenly,
+    Stretch,
+    Safe,
+    Unsafe,
+    Left,
+    Right,
+    Normal,
+    FlexEnd,
+    FlexStart
 );
 
 impl_enum_fmt!(LayoutAlignItems, FlexStart, FlexEnd, Stretch, Center);
@@ -1210,9 +1219,9 @@ impl_enum_fmt!(Shape, Circle, Ellipse);
 
 impl_enum_fmt!(LayoutPosition, Static, Fixed, Absolute, Relative);
 
-impl_enum_fmt!(LayoutOverflow, Auto, Scroll, Visible, Hidden);
+impl_enum_fmt!(LayoutOverflow, Auto, Scroll, Visible, Hidden, Clip);
 
-impl_enum_fmt!(StyleTextAlign, Center, Left, Right, Justify);
+impl_enum_fmt!(StyleTextAlign, Center, Left, Right, Justify, Start, End);
 
 impl_enum_fmt!(
     DirectionCorner,

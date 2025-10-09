@@ -1,6 +1,14 @@
 //! A helper module to extract final, absolute glyph positions from a layout.
 //! This is useful for renderers that work with simple lists of glyphs.
 
+use std::sync::Arc;
+
+use azul_core::{
+    display_list::GlyphInstance,
+    window::{LogicalPosition, LogicalSize},
+};
+use azul_css::ColorU;
+
 use crate::text3::cache::{
     get_item_vertical_metrics, ParsedFontTrait, Point, PositionedItem, ShapedGlyph, ShapedItem,
     UnifiedLayout,
@@ -14,6 +22,101 @@ pub struct PositionedGlyph {
     pub position: Point,
     /// The advance width of the glyph, useful for caret placement.
     pub advance: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlyphRun<T: ParsedFontTrait> {
+    /// The glyphs in this run, with their positions relative to the start of the run.
+    pub glyphs: Vec<GlyphInstance>,
+    /// The color of the text in this glyph run.
+    pub color: ColorU,
+    /// The font used for this glyph run.
+    pub font: Arc<T>,
+    /// A hash of the font, useful for caching purposes.
+    pub font_hash: u64,
+}
+
+/// Same as `get_glyph_positions`, but returns a list of `GlyphRun`s instead of a flat list of
+/// glyphs. This groups glyphs by their font and color, which can be more efficient for rendering.
+pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<GlyphRun<T>> {
+    // Group glyphs by font and color
+    let mut runs: Vec<GlyphRun<T>> = Vec::new();
+    let mut current_run: Option<GlyphRun<T>> = None;
+
+    for item in &layout.items {
+        // We need the ascent of the item to find its baseline from its top-left position.
+        let (item_ascent, _) = get_item_vertical_metrics(&item.item);
+        let baseline_y = item.position.y + item_ascent;
+
+        let mut process_glyphs =
+            |positioned_glyphs: &[ShapedGlyph<T>],
+             item_origin_x: f32,
+             writing_mode: crate::text3::cache::WritingMode| {
+                let mut pen_x = item_origin_x;
+
+                for glyph in positioned_glyphs {
+                    let glyph_color = glyph.style.color;
+                    let font_hash = glyph.font.get_hash();
+                    let instance = glyph.into_glyph_instance(writing_mode);
+
+                    // Check if we can add to the current run
+                    if let Some(run) = current_run.as_mut() {
+                        if run.font_hash == font_hash && run.color == glyph_color {
+                            run.glyphs.push(instance);
+                        } else {
+                            // Different font or color, finalize the current run and start a new one
+                            runs.push(run.clone());
+                            current_run = Some(GlyphRun {
+                                glyphs: vec![instance],
+                                color: glyph_color,
+                                font: glyph.font.clone(),
+                                font_hash,
+                            });
+                        }
+                    } else {
+                        // Start a new run
+                        current_run = Some(GlyphRun {
+                            glyphs: vec![instance],
+                            color: glyph_color,
+                            font: glyph.font.clone(),
+                            font_hash,
+                        });
+                    }
+
+                    // Advance the pen for the next glyph in the cluster/block.
+                    // TODO: writing-mode support (vertical text) here
+                    pen_x += glyph.advance;
+                }
+            };
+
+        match &item.item {
+            ShapedItem::Cluster(cluster) => {
+                let writing_mode = cluster.style.writing_mode;
+                process_glyphs(&cluster.glyphs, item.position.x, writing_mode);
+            }
+            // This is a rare case for tate-chu-yoko (mixed horizontal+vertical text)
+            ShapedItem::CombinedBlock {
+                glyphs,
+                source,
+                bounds,
+                baseline_offset,
+            } => {
+                for g in glyphs {
+                    let writing_mode = g.style.writing_mode;
+                    process_glyphs(&[g.clone()], item.position.x, writing_mode);
+                }
+            }
+            _ => {
+                // Ignore non-text items like objects, breaks, etc.
+            }
+        }
+    }
+
+    if let Some(run) = current_run {
+        runs.push(run);
+    }
+
+    runs
 }
 
 /// Transforms the final layout into a simple list of glyphs and their absolute positions.

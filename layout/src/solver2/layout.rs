@@ -772,10 +772,10 @@ fn layout_inline_context(
 
         // Adjust starting x based on text alignment
         match text_align {
-            StyleTextAlign::Left => {
+            StyleTextAlign::Left | StyleTextAlign::Start => {
                 // Left alignment - default, no adjustment needed
             }
-            StyleTextAlign::Right => {
+            StyleTextAlign::Right | StyleTextAlign::End => {
                 // Right alignment - shift to the right
                 current_x += adjusted_rect.size.width - line_total_width;
             }

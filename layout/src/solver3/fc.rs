@@ -16,17 +16,18 @@ use azul_core::{
 };
 use azul_css::{
     CssProperty, CssPropertyValue, LayoutClear, LayoutDebugMessage, LayoutFloat,
-    LayoutJustifyContent,
+    LayoutJustifyContent, StyleTextAlign,
 };
+use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 use usvg::Text;
 
 use crate::{
     solver3::{
         geometry::{BoxProps, Clear, DisplayType, EdgeSizes, Float, IntrinsicSizes},
         layout_tree::{LayoutNode, LayoutTree},
-        positioning::PositionType,
+        positioning::{get_position_type, PositionType},
         sizing::extract_text_from_node,
-        LayoutContext, LayoutError, Result,
+        taffy_bridge, LayoutContext, LayoutError, Result,
     },
     text3::{
         self,
@@ -234,6 +235,47 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         FormattingContext::Block { .. } => layout_bfc(ctx, tree, node_index, constraints),
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints),
         FormattingContext::Table => layout_table_fc(ctx, tree, node_index, constraints),
+        FormattingContext::Flex | FormattingContext::Grid => {
+            let available_space = TaffySize {
+                width: AvailableSpace::Definite(constraints.available_size.width),
+                height: AvailableSpace::Definite(constraints.available_size.height),
+            };
+
+            let taffy_inputs = LayoutInput {
+                known_dimensions: TaffySize::NONE,
+                parent_size: constraints.available_size.into(),
+                available_space,
+                run_mode: taffy::RunMode::PerformLayout,
+                // Sizing mode is ContentSize because solver3's `constraints.available_size`
+                // represents the parent's content-box (inner size after padding/border).
+                sizing_mode: taffy::SizingMode::ContentSize,
+                // We are in the main layout pass, not a measurement pass. We need Taffy
+                // to compute the final size and position for both axes.
+                axis: taffy::RequestedAxis::Both,
+                // Flex and Grid containers establish a new Block Formatting Context (BFC),
+                // which prevents the margins of their children from collapsing with their own.
+                vertical_margins_are_collapsible: Line::FALSE,
+            };
+
+            let taffy_output =
+                taffy_bridge::layout_taffy_subtree(ctx, tree, node_index, taffy_inputs);
+
+            // The bridge has already updated the positions and sizes of the children in the tree.
+            // We just need to construct the LayoutOutput for the parent.
+            let mut output = LayoutOutput::default();
+            output.overflow_size = taffy_output.size.into();
+
+            // Taffy's results are stored directly on the nodes, so we read them back here.
+            for &child_idx in &tree.get(node_index).unwrap().children {
+                if let Some(child_node) = tree.get(child_idx) {
+                    if let Some(pos) = child_node.relative_position {
+                        output.positions.insert(child_idx, pos);
+                    }
+                }
+            }
+
+            Ok(output)
+        }
         _ => layout_bfc(ctx, tree, node_index, constraints),
     }
 }
@@ -287,7 +329,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             );
             let bfc_content_box =
                 LogicalRect::new(LogicalPosition::zero(), constraints.available_size);
-            let float_pos = position_floated_child(
+            let float_pos = position_floated_child::<T, Q>(
                 child_index,
                 margin_box_size,
                 float_type,
@@ -461,8 +503,9 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }];
 
     // Phase 3: Invoke the text layout engine.
-    let text_layout_result =
-        text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager)?;
+    let text_layout_result = text_cache
+        .layout_flow(&inline_content, &[], &fragments, ctx.font_manager)
+        .map_err(LayoutError::from)?;
 
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
@@ -474,7 +517,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         // Extract the overall size and baseline for the IFC root.
         output.overflow_size = LogicalSize::new(main_frag.bounds.width, main_frag.bounds.height);
-        output.baseline = main_frag.last_baseline;
+        output.baseline = main_frag.last_baseline();
         node.baseline = output.baseline;
 
         // Position all the inline-block children based on text3's calculations.
@@ -531,20 +574,20 @@ fn translate_to_text3_constraints<'a>(
             style.get(&CssProperty::TextAlign)
         {
             text3_constraints.text_align = match align {
-                LayoutTextAlign::Left => crate::text3::cache::TextAlign::Left,
-                LayoutTextAlign::Right => crate::text3::cache::TextAlign::Right,
-                LayoutTextAlign::Center => crate::text3::cache::TextAlign::Center,
-                LayoutTextAlign::Justify => crate::text3::cache::TextAlign::Justify,
-                LayoutTextAlign::Start => crate::text3::cache::TextAlign::Start,
-                LayoutTextAlign::End => crate::text3::cache::TextAlign::End,
+                StyleTextAlign::Left => crate::text3::cache::TextAlign::Left,
+                StyleTextAlign::Right => crate::text3::cache::TextAlign::Right,
+                StyleTextAlign::Center => crate::text3::cache::TextAlign::Center,
+                StyleTextAlign::Justify => crate::text3::cache::TextAlign::Justify,
+                StyleTextAlign::Start => crate::text3::cache::TextAlign::Start,
+                StyleTextAlign::End => crate::text3::cache::TextAlign::End,
             };
         }
         if let Some(CssProperty::JustifyContent(CssPropertyValue::Exact(justify))) =
             style.get(&CssProperty::JustifyContent)
         {
             text3_constraints.justify_content = match justify {
-                LayoutJustifyContent::InterWord => Text3Justify::InterWord,
-                LayoutJustifyContent::InterCharacter => Text3Justify::InterCharacter,
+                StyleTextJustify::InterWord => Text3Justify::InterWord,
+                StyleTextJustify::InterCharacter => Text3Justify::InterCharacter,
                 _ => Text3Justify::None,
             };
         }

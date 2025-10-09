@@ -81,6 +81,8 @@ impl PrintAsCssValue for StyleTextAlign {
             StyleTextAlign::Center => "center",
             StyleTextAlign::Right => "right",
             StyleTextAlign::Justify => "justify",
+            StyleTextAlign::Start => "start",
+            StyleTextAlign::End => "end", 
         })
     }
 }
@@ -205,6 +207,7 @@ impl PrintAsCssValue for LayoutDisplay {
             // Special displays
             LayoutDisplay::RunIn => "run-in",
             LayoutDisplay::Marker => "marker",
+            LayoutDisplay::FlowRoot => "flow-root",
 
             // CSS3 additions
             LayoutDisplay::Grid => "grid",
@@ -342,12 +345,21 @@ impl PrintAsCssValue for LayoutFlexShrink {
 impl PrintAsCssValue for LayoutJustifyContent {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            LayoutJustifyContent::Start => "start",
-            LayoutJustifyContent::End => "end",
+            LayoutJustifyContent::FlexStart => "flex-start",
+            LayoutJustifyContent::FlexEnd => "flex-end",
             LayoutJustifyContent::Center => "center",
             LayoutJustifyContent::SpaceBetween => "space-between",
             LayoutJustifyContent::SpaceAround => "space-around",
             LayoutJustifyContent::SpaceEvenly => "space-evenly",
+            LayoutJustifyContent::Stretch => "stretch",
+            LayoutJustifyContent::Start => "start",
+            LayoutJustifyContent::End => "end",
+            LayoutJustifyContent::SpaceBetween => "space-between",
+            LayoutJustifyContent::Right => "right",
+            LayoutJustifyContent::Left => "left",
+            LayoutJustifyContent::Safe => "safe",
+            LayoutJustifyContent::Unsafe => "unsafe",
+            LayoutJustifyContent::Normal => "normal",
         })
     }
 }
@@ -433,6 +445,7 @@ impl PrintAsCssValue for LayoutOverflow {
             LayoutOverflow::Auto => "auto",
             LayoutOverflow::Hidden => "hidden",
             LayoutOverflow::Visible => "visible",
+            LayoutOverflow::Clip => "clip",
         })
     }
 }
