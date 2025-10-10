@@ -31,9 +31,10 @@ use azul_css::{
             StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleHyphensValue,
             StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue,
             StyleOpacityValue, StylePerspectiveOriginValue, StyleTabWidthValue,
-            StyleTextAlignValue, StyleTextColor, StyleTextColorValue, StyleTransformOriginValue,
+            StyleTextAlignValue, StyleTextColorValue, StyleTransformOriginValue,
             StyleTransformVecValue, StyleWhiteSpaceValue, StyleWordSpacingValue,
         },
+        style::StyleTextColor,
     },
     AzString,
 };
@@ -211,7 +212,7 @@ fn test_it() {
         }
     ";
 
-    let css = azul_css::parser::new_from_str(s);
+    let css = azul_css::parser2::new_from_str(s);
     let dom = Dom::body()
         .with_children(
             vec![Dom::div()

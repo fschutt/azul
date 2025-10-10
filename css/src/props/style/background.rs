@@ -397,6 +397,14 @@ impl Default for StyleBackgroundPosition {
         }
     }
 }
+
+impl StyleBackgroundPosition {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.horizontal.scale_for_dpi(scale_factor);
+        self.vertical.scale_for_dpi(scale_factor);
+    }
+}
+
 impl PrintAsCssValue for StyleBackgroundPosition {
     fn print_as_css_value(&self) -> String {
         format!(
@@ -423,6 +431,18 @@ pub enum BackgroundPositionHorizontal {
     Right,
     Exact(PixelValue),
 }
+
+impl BackgroundPositionHorizontal {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            BackgroundPositionHorizontal::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
+        }
+    }
+}
+
 impl PrintAsCssValue for BackgroundPositionHorizontal {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -441,6 +461,17 @@ pub enum BackgroundPositionVertical {
     Center,
     Bottom,
     Exact(PixelValue),
+}
+
+impl BackgroundPositionVertical {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            BackgroundPositionVertical::Exact(s) => {
+                s.scale_for_dpi(scale_factor);
+            }
+            _ => {}
+        }
+    }
 }
 
 impl PrintAsCssValue for BackgroundPositionVertical {
@@ -482,6 +513,20 @@ impl Default for StyleBackgroundSize {
         StyleBackgroundSize::Contain
     }
 }
+
+impl StyleBackgroundSize {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            StyleBackgroundSize::ExactSize(a) => {
+                for q in a.iter_mut() {
+                    q.scale_for_dpi(scale_factor);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl PrintAsCssValue for StyleBackgroundSize {
     fn print_as_css_value(&self) -> String {
         match self {

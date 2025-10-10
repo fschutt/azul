@@ -15,7 +15,7 @@ use azul_core::{
     display_list::GlyphInstance,
     window::{LogicalPosition, LogicalSize},
 };
-use azul_css::ColorU;
+use azul_css::props::basic::ColorU;
 use hyphenation::{Hyphenator, Language, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
 use unicode_bidi::{BidiInfo, Level, TextSource};

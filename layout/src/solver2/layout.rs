@@ -21,7 +21,15 @@ use azul_core::{
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{parser::CssApiWrapper, *};
+use azul_css::{
+    props::{
+        property::{CssProperty, CssPropertyType},
+        basic::{LayoutPoint, LayoutRect, LayoutSize},
+        layout::{LayoutAxis, LayoutBoxSizing, LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
+        style::{StyleDirection, StyleTextAlign},
+    },
+    LayoutDebugMessage,
+};
 
 use crate::parsedfont::ParsedFont;
 #[cfg(feature = "text_layout")]

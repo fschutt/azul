@@ -14,7 +14,14 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalSize, WritingMode},
 };
-use azul_css::{CssProperty, CssPropertyType, CssPropertyValue, LayoutDebugMessage, PixelValue};
+use azul_css::{
+    css::CssPropertyValue,
+    props::{
+        property::{CssProperty, CssPropertyType},
+        basic::PixelValue,
+    },
+    LayoutDebugMessage,
+};
 use rust_fontconfig::FcFontCache;
 
 use crate::{

@@ -11,7 +11,13 @@ use azul_core::{
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{AzString, CssProperty, CssPropertyType, LayoutDebugMessage, LayoutRect};
+use azul_css::{
+    AzString, LayoutDebugMessage,
+    props::{
+        property::{CssProperty, CssPropertyType},
+        basic::LayoutRect,
+    },
+};
 
 use super::{
     context::determine_formatting_contexts, intrinsic::calculate_intrinsic_sizes,

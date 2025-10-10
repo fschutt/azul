@@ -1958,7 +1958,7 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    pub fn style(&mut self, css: azul_css::parser::CssApiWrapper) -> StyledDom {
+    pub fn style(&mut self, css: azul_css::parser2::CssApiWrapper) -> StyledDom {
         StyledDom::new(self, css)
     }
     #[inline(always)]

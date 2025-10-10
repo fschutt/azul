@@ -23,10 +23,9 @@ use azul_css::{
             LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight, LayoutTop,
             LayoutWidth,
         },
-        property::OptionStyleTextAlign,
         style::{
             LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-            LayoutBorderTopWidth, StyleBoxShadow, StyleTextAlign, StyleTextColor, StyleTransform,
+            LayoutBorderTopWidth, OptionStyleTextAlign, StyleBoxShadow, StyleTextAlign, StyleTextColor, StyleTransform,
             StyleTransformOrigin, StyleVerticalAlign,
         },
     },
@@ -2428,32 +2427,32 @@ impl ComputedTransform3D {
         use azul_css::props::style::StyleTransform::*;
         match t {
             Matrix(mat2d) => {
-                let a = mat2d.a.to_pixels(percent_resolve_x);
-                let b = mat2d.b.to_pixels(percent_resolve_x);
-                let c = mat2d.c.to_pixels(percent_resolve_x);
-                let d = mat2d.d.to_pixels(percent_resolve_x);
-                let tx = mat2d.tx.to_pixels(percent_resolve_x);
-                let ty = mat2d.ty.to_pixels(percent_resolve_x);
+                let a = mat2d.a.get();
+                let b = mat2d.b.get();
+                let c = mat2d.c.get();
+                let d = mat2d.d.get();
+                let tx = mat2d.tx.get();
+                let ty = mat2d.ty.get();
 
                 Self::new_2d(a, b, c, d, tx, ty)
             }
             Matrix3D(mat3d) => {
-                let m11 = mat3d.m11.to_pixels(percent_resolve_x);
-                let m12 = mat3d.m12.to_pixels(percent_resolve_x);
-                let m13 = mat3d.m13.to_pixels(percent_resolve_x);
-                let m14 = mat3d.m14.to_pixels(percent_resolve_x);
-                let m21 = mat3d.m21.to_pixels(percent_resolve_x);
-                let m22 = mat3d.m22.to_pixels(percent_resolve_x);
-                let m23 = mat3d.m23.to_pixels(percent_resolve_x);
-                let m24 = mat3d.m24.to_pixels(percent_resolve_x);
-                let m31 = mat3d.m31.to_pixels(percent_resolve_x);
-                let m32 = mat3d.m32.to_pixels(percent_resolve_x);
-                let m33 = mat3d.m33.to_pixels(percent_resolve_x);
-                let m34 = mat3d.m34.to_pixels(percent_resolve_x);
-                let m41 = mat3d.m41.to_pixels(percent_resolve_x);
-                let m42 = mat3d.m42.to_pixels(percent_resolve_x);
-                let m43 = mat3d.m43.to_pixels(percent_resolve_x);
-                let m44 = mat3d.m44.to_pixels(percent_resolve_x);
+                let m11 = mat3d.m11.get();
+                let m12 = mat3d.m12.get();
+                let m13 = mat3d.m13.get();
+                let m14 = mat3d.m14.get();
+                let m21 = mat3d.m21.get();
+                let m22 = mat3d.m22.get();
+                let m23 = mat3d.m23.get();
+                let m24 = mat3d.m24.get();
+                let m31 = mat3d.m31.get();
+                let m32 = mat3d.m32.get();
+                let m33 = mat3d.m33.get();
+                let m34 = mat3d.m34.get();
+                let m41 = mat3d.m41.get();
+                let m42 = mat3d.m42.get();
+                let m43 = mat3d.m43.get();
+                let m44 = mat3d.m44.get();
 
                 Self::new(
                     m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44,
@@ -2486,9 +2485,9 @@ impl ComputedTransform3D {
                 Self::make_rotation(
                     rotation_origin,
                     rot3d.angle.to_degrees(),
-                    rot3d.x.normalized(),
-                    rot3d.y.normalized(),
-                    rot3d.z.normalized(),
+                    rot3d.x.get(),
+                    rot3d.y.get(),
+                    rot3d.z.get(),
                     rotation_mode,
                 )
             }
@@ -2534,18 +2533,18 @@ impl ComputedTransform3D {
                     rotation_mode,
                 )
             }
-            Scale(scale2d) => Self::new_scale(scale2d.x.normalized(), scale2d.y.normalized(), 1.0),
+            Scale(scale2d) => Self::new_scale(scale2d.x.get(), scale2d.y.get(), 1.0),
             Scale3D(scale3d) => Self::new_scale(
-                scale3d.x.normalized(),
-                scale3d.y.normalized(),
-                scale3d.z.normalized(),
+                scale3d.x.get(),
+                scale3d.y.get(),
+                scale3d.z.get(),
             ),
             ScaleX(scale_x) => Self::new_scale(scale_x.normalized(), 1.0, 1.0),
             ScaleY(scale_y) => Self::new_scale(1.0, scale_y.normalized(), 1.0),
             ScaleZ(scale_z) => Self::new_scale(1.0, 1.0, scale_z.normalized()),
-            Skew(skew2d) => Self::new_skew(skew2d.x.normalized(), skew2d.y.normalized()),
-            SkewX(skew_x) => Self::new_skew(skew_x.normalized(), 0.0),
-            SkewY(skew_y) => Self::new_skew(0.0, skew_y.normalized()),
+            Skew(skew2d) => Self::new_skew(skew2d.x.to_degrees(), skew2d.y.to_degrees()),
+            SkewX(skew_x) => Self::new_skew(skew_x.to_degrees(), 0.0),
+            SkewY(skew_y) => Self::new_skew(0.0, skew_y.to_degrees()),
             Perspective(px) => Self::new_perspective(px.to_pixels(percent_resolve_x)),
         }
     }

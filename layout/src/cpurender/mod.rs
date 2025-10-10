@@ -5,7 +5,12 @@ use azul_core::{
         LayoutRectContent, RectBackground, StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
     },
 };
-use azul_css::{BorderStyle, ColorU};
+use azul_css::{
+    props::{
+        basic::ColorU,
+        style::BorderStyle,
+    },
+};
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
 
 use crate::parsedfont::ParsedFont;

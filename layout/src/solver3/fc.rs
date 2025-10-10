@@ -15,8 +15,13 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
-    CssProperty, CssPropertyValue, LayoutClear, LayoutDebugMessage, LayoutFloat,
-    LayoutJustifyContent, StyleTextAlign,
+    css::CssPropertyValue,
+    props::{
+        property::CssProperty,
+        layout::{LayoutFloat, LayoutJustifyContent},
+        style::StyleTextAlign,
+    },
+    LayoutDebugMessage,
 };
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 use usvg::Text;

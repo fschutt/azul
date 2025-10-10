@@ -17,7 +17,7 @@ use azul_core::app_resources::{
     GlyphOutline, GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
     OutlineQuadTo, OwnedGlyphBoundingBox, ShapedTextBufferUnsized,
 };
-use azul_css::FontMetrics;
+use azul_css::props::basic::FontMetrics;
 use mock::MockFont;
 
 #[cfg(feature = "text_layout")]

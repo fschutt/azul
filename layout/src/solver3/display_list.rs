@@ -47,7 +47,13 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
-    ColorU, CssProperty, CssPropertyType, CssPropertyValue, LayoutDebugMessage, LayoutOverflow,
+    css::CssPropertyValue,
+    props::{
+        property::{CssProperty, CssPropertyType},
+        basic::ColorU,
+        layout::LayoutOverflow,
+    },
+    LayoutDebugMessage,
 };
 
 use crate::{

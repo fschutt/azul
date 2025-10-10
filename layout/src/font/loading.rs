@@ -5,7 +5,10 @@
 use std::io::Error as IoError;
 
 use azul_core::app_resources::LoadedFontSource;
-use azul_css::{AzString, FontRef, StringVec, StyleFontFamily, U8Vec};
+use azul_css::{
+    AzString, StringVec, U8Vec,
+    props::basic::{FontRef, StyleFontFamily},
+};
 use rust_fontconfig::FcFontCache;
 
 const DEFAULT_FONT_INDEX: i32 = 0;
@@ -61,7 +64,7 @@ pub fn font_source_get_bytes(
     font_family: &StyleFontFamily,
     fc_cache: &FcFontCache,
 ) -> Option<LoadedFontSource> {
-    use azul_css::StyleFontFamily::*;
+    use azul_css::props::basic::StyleFontFamily::*;
 
     let (font_bytes, font_index) = match font_family {
         System(id) => {

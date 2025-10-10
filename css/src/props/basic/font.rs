@@ -510,3 +510,152 @@ pub fn parse_style_font_family<'a>(
 
     Ok(fonts.into())
 }
+
+// --- Font Metrics ---
+
+use crate::corety::{OptionI16, OptionU16, OptionU32};
+
+/// Font metrics structure containing all font-related measurements from
+/// the font file tables (head, hhea, and os/2 tables).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct FontMetrics {
+    // head table
+    pub units_per_em: u16,
+    pub font_flags: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
+
+    // hhea table
+    pub ascender: i16,
+    pub descender: i16,
+    pub line_gap: i16,
+    pub advance_width_max: u16,
+    pub min_left_side_bearing: i16,
+    pub min_right_side_bearing: i16,
+    pub x_max_extent: i16,
+    pub caret_slope_rise: i16,
+    pub caret_slope_run: i16,
+    pub caret_offset: i16,
+    pub num_h_metrics: u16,
+
+    // os/2 table
+    pub x_avg_char_width: i16,
+    pub us_weight_class: u16,
+    pub us_width_class: u16,
+    pub fs_type: u16,
+    pub y_subscript_x_size: i16,
+    pub y_subscript_y_size: i16,
+    pub y_subscript_x_offset: i16,
+    pub y_subscript_y_offset: i16,
+    pub y_superscript_x_size: i16,
+    pub y_superscript_y_size: i16,
+    pub y_superscript_x_offset: i16,
+    pub y_superscript_y_offset: i16,
+    pub y_strikeout_size: i16,
+    pub y_strikeout_position: i16,
+    pub s_family_class: i16,
+    pub panose: [u8; 10],
+    pub ul_unicode_range1: u32,
+    pub ul_unicode_range2: u32,
+    pub ul_unicode_range3: u32,
+    pub ul_unicode_range4: u32,
+    pub ach_vend_id: u32,
+    pub fs_selection: u16,
+    pub us_first_char_index: u16,
+    pub us_last_char_index: u16,
+
+    // os/2 version 0 table
+    pub s_typo_ascender: OptionI16,
+    pub s_typo_descender: OptionI16,
+    pub s_typo_line_gap: OptionI16,
+    pub us_win_ascent: OptionU16,
+    pub us_win_descent: OptionU16,
+
+    // os/2 version 1 table
+    pub ul_code_page_range1: OptionU32,
+    pub ul_code_page_range2: OptionU32,
+
+    // os/2 version 2 table
+    pub sx_height: OptionI16,
+    pub s_cap_height: OptionI16,
+    pub us_default_char: OptionU16,
+    pub us_break_char: OptionU16,
+    pub us_max_context: OptionU16,
+
+    // os/2 version 3 table
+    pub us_lower_optical_point_size: OptionU16,
+    pub us_upper_optical_point_size: OptionU16,
+}
+
+impl Default for FontMetrics {
+    fn default() -> Self {
+        FontMetrics::zero()
+    }
+}
+
+impl FontMetrics {
+    /// Only for testing, zero-sized font, will always return 0 for every metric
+    /// (`units_per_em = 1000`)
+    pub const fn zero() -> Self {
+        FontMetrics {
+            units_per_em: 1000,
+            font_flags: 0,
+            x_min: 0,
+            y_min: 0,
+            x_max: 0,
+            y_max: 0,
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: 0,
+            x_avg_char_width: 0,
+            us_weight_class: 400,
+            us_width_class: 5,
+            fs_type: 0,
+            y_subscript_x_size: 0,
+            y_subscript_y_size: 0,
+            y_subscript_x_offset: 0,
+            y_subscript_y_offset: 0,
+            y_superscript_x_size: 0,
+            y_superscript_y_size: 0,
+            y_superscript_x_offset: 0,
+            y_superscript_y_offset: 0,
+            y_strikeout_size: 0,
+            y_strikeout_position: 0,
+            s_family_class: 0,
+            panose: [0; 10],
+            ul_unicode_range1: 0,
+            ul_unicode_range2: 0,
+            ul_unicode_range3: 0,
+            ul_unicode_range4: 0,
+            ach_vend_id: 0,
+            fs_selection: 0,
+            us_first_char_index: 0,
+            us_last_char_index: 0,
+            s_typo_ascender: OptionI16::None,
+            s_typo_descender: OptionI16::None,
+            s_typo_line_gap: OptionI16::None,
+            us_win_ascent: OptionU16::None,
+            us_win_descent: OptionU16::None,
+            ul_code_page_range1: OptionU32::None,
+            ul_code_page_range2: OptionU32::None,
+            sx_height: OptionI16::None,
+            s_cap_height: OptionI16::None,
+            us_default_char: OptionU16::None,
+            us_break_char: OptionU16::None,
+            us_max_context: OptionU16::None,
+            us_lower_optical_point_size: OptionU16::None,
+            us_upper_optical_point_size: OptionU16::None,
+        }
+    }
+}

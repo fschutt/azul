@@ -24,8 +24,12 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
-    CssProperty, CssPropertyType, CssPropertyValue, LayoutJustifyContent, LayoutOverflow,
-    LayoutWrap, LayoutWritingMode,
+    css::CssPropertyValue,
+    props::{
+        property::{CssProperty, CssPropertyType},
+        layout::{LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode},
+    },
+    LayoutDebugMessage,
 };
 
 use crate::{

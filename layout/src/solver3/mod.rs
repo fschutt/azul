@@ -20,7 +20,10 @@ use azul_core::{
     styled_dom::{DomId, StyledDom},
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{CssProperty, CssPropertyCategory, LayoutDebugMessage};
+use azul_css::{
+    props::property::{CssProperty, CssPropertyCategory},
+    LayoutDebugMessage,
+};
 
 use self::{
     cache::get_writing_mode,

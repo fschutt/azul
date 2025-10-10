@@ -913,7 +913,6 @@ macro_rules! impl_percentage_value_fmt {
     };
 }
 
-impl_percentage_value_fmt!(StyleTabWidth);
 impl_percentage_value_fmt!(StyleLineHeight);
 impl_percentage_value_fmt!(StyleOpacity);
 
@@ -931,6 +930,7 @@ macro_rules! impl_pixel_value_fmt {
     };
 }
 
+impl_pixel_value_fmt!(StyleTabWidth);
 impl_pixel_value_fmt!(StyleBorderTopLeftRadius);
 impl_pixel_value_fmt!(StyleBorderBottomLeftRadius);
 impl_pixel_value_fmt!(StyleBorderTopRightRadius);
@@ -1188,7 +1188,7 @@ impl_enum_fmt!(LayoutBoxSizing, ContentBox, BorderBox);
 
 impl_enum_fmt!(LayoutFlexDirection, Row, RowReverse, Column, ColumnReverse);
 
-impl_enum_fmt!(LayoutFlexWrap, Wrap, NoWrap);
+impl_enum_fmt!(LayoutFlexWrap, Wrap, NoWrap, WrapReverse);
 
 impl_enum_fmt!(
     LayoutJustifyContent,
@@ -1197,18 +1197,10 @@ impl_enum_fmt!(
     Center,
     SpaceBetween,
     SpaceAround,
-    SpaceEvenly,
-    Stretch,
-    Safe,
-    Unsafe,
-    Left,
-    Right,
-    Normal,
-    FlexEnd,
-    FlexStart
+    SpaceEvenly
 );
 
-impl_enum_fmt!(LayoutAlignItems, FlexStart, FlexEnd, Stretch, Center);
+impl_enum_fmt!(LayoutAlignItems, Stretch, Center, Start, End, Baseline);
 
 impl_enum_fmt!(
     LayoutAlignContent,
@@ -1459,12 +1451,12 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
         StyleTransform::Matrix(m) => format!(
             "StyleTransform::Matrix(StyleTransformMatrix2D {{ a: {}, b: {}, c: {}, d: {}, tx: {}, \
              ty: {} }})",
-            format_pixel_value(&m.a),
-            format_pixel_value(&m.b),
-            format_pixel_value(&m.c),
-            format_pixel_value(&m.d),
-            format_pixel_value(&m.tx),
-            format_pixel_value(&m.ty)
+            format_float_value(&m.a),
+            format_float_value(&m.b),
+            format_float_value(&m.c),
+            format_float_value(&m.d),
+            format_float_value(&m.tx),
+            format_float_value(&m.ty)
         ),
         StyleTransform::Matrix3D(m) => format!(
             "StyleTransform::Matrix3D(StyleTransformMatrix3D {{\r\n{tabs}m11: {},\r\n{tabs}m12: \
@@ -1472,22 +1464,22 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
              {},\r\n{tabs}m23: {},\r\n{tabs}m24: {},\r\n{tabs}m31: {},\r\n{tabs}m32: \
              {},\r\n{tabs}m33: {},\r\n{tabs}m34: {},\r\n{tabs}m41: {},\r\n{tabs}m42: \
              {},\r\n{tabs}m43: {},\r\n{tabs}m44: {}\r\n{tabs_minus_one}}})",
-            format_pixel_value(&m.m11),
-            format_pixel_value(&m.m12),
-            format_pixel_value(&m.m13),
-            format_pixel_value(&m.m14),
-            format_pixel_value(&m.m21),
-            format_pixel_value(&m.m22),
-            format_pixel_value(&m.m23),
-            format_pixel_value(&m.m24),
-            format_pixel_value(&m.m31),
-            format_pixel_value(&m.m32),
-            format_pixel_value(&m.m33),
-            format_pixel_value(&m.m34),
-            format_pixel_value(&m.m41),
-            format_pixel_value(&m.m42),
-            format_pixel_value(&m.m43),
-            format_pixel_value(&m.m44),
+            format_float_value(&m.m11),
+            format_float_value(&m.m12),
+            format_float_value(&m.m13),
+            format_float_value(&m.m14),
+            format_float_value(&m.m21),
+            format_float_value(&m.m22),
+            format_float_value(&m.m23),
+            format_float_value(&m.m24),
+            format_float_value(&m.m31),
+            format_float_value(&m.m32),
+            format_float_value(&m.m33),
+            format_float_value(&m.m34),
+            format_float_value(&m.m41),
+            format_float_value(&m.m42),
+            format_float_value(&m.m43),
+            format_float_value(&m.m44),
             tabs = tabs,
             tabs_minus_one = tabs_minus_one,
         ),
@@ -1514,9 +1506,9 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
         StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_angle_value(&r)),
         StyleTransform::Rotate3D(r) => format!(
             "StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})",
-            format_percentage_value(&r.x),
-            format_percentage_value(&r.y),
-            format_percentage_value(&r.z),
+            format_float_value(&r.x),
+            format_float_value(&r.y),
+            format_float_value(&r.z),
             format_angle_value(&r.angle)
         ),
         StyleTransform::RotateX(x) => {
@@ -1530,14 +1522,14 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
         }
         StyleTransform::Scale(s) => format!(
             "StyleTransform::Scale(StyleTransformScale2D {{ x: {}, y: {} }})",
-            format_percentage_value(&s.x),
-            format_percentage_value(&s.y)
+            format_float_value(&s.x),
+            format_float_value(&s.y)
         ),
         StyleTransform::Scale3D(s) => format!(
             "StyleTransform::Scale3D(StyleTransformScale3D {{ x; {}, y: {}, z: {} }})",
-            format_percentage_value(&s.x),
-            format_percentage_value(&s.y),
-            format_percentage_value(&s.z)
+            format_float_value(&s.x),
+            format_float_value(&s.y),
+            format_float_value(&s.z)
         ),
         StyleTransform::ScaleX(x) => {
             format!("StyleTransform::ScaleX({})", format_percentage_value(&x))
@@ -1550,15 +1542,15 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
         }
         StyleTransform::Skew(sk) => format!(
             "StyleTransform::Skew(StyleTransformSkew2D {{ x: {}, y: {} }})",
-            format_percentage_value(&sk.x),
-            format_percentage_value(&sk.y)
+            format_angle_value(&sk.x),
+            format_angle_value(&sk.y)
         ),
         StyleTransform::SkewX(x) => {
-            format!("StyleTransform::SkewX({})", format_percentage_value(&x))
+            format!("StyleTransform::SkewX({})", format_angle_value(&x))
         }
         StyleTransform::SkewY(y) => {
-            format!("StyleTransform::SkewY({})", format_percentage_value(&y))
-        }
+            format!("StyleTransform::SkewY({})", format_angle_value(&y))
+        },
         StyleTransform::Perspective(dist) => {
             format!("StyleTransform::Perspective({})", format_pixel_value(&dist))
         }

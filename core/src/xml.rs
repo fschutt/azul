@@ -1453,7 +1453,7 @@ pub fn str_to_rust_code<'a>(
 
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                let parsed_css = azul_css::parser::new_from_str(&text).0;
+                let parsed_css = azul_css::parser2::new_from_str(&text).0;
                 global_style = parsed_css;
             }
         }
@@ -1792,7 +1792,7 @@ pub fn set_attributes(
     }
 
     if let Some(style) = xml_attributes.get_key("style") {
-        let css_key_map = azul_css::get_css_key_map();
+        let css_key_map = azul_css::props::property::get_css_key_map();
         let mut attributes = Vec::new();
         for s in style.as_str().split(";") {
             let mut s = s.split(":");
@@ -1804,7 +1804,7 @@ pub fn set_attributes(
                 Some(s) => s,
                 None => continue,
             };
-            azul_css::parser::parse_css_declaration(
+            azul_css::parser2::parse_css_declaration(
                 key.trim(),
                 value.trim(),
                 (ErrorLocation::default(), ErrorLocation::default()),
@@ -2144,7 +2144,7 @@ pub fn render_component_inner<'a>(
     let mut css = match find_node_by_type(xml_node.children.as_ref(), "style")
         .and_then(|style_node| style_node.text.as_ref().map(|s| s.as_str()))
     {
-        Some(text) => azul_css::parser::new_from_str(&text).0,
+        Some(text) => azul_css::parser2::new_from_str(&text).0,
         None => Css::empty(),
     };
 

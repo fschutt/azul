@@ -811,7 +811,7 @@ impl RendererResources {
     ) -> Option<FontInstanceKey> {
         // Convert font size to StyleFontSize
         let font_size = StyleFontSize {
-            inner: azul_css::PixelValue::const_px(font_size_px as isize),
+            inner: azul_css::props::basic::PixelValue::const_px(font_size_px as isize),
         };
 
         // Convert to application units
@@ -1173,7 +1173,7 @@ impl RendererResources {
                             None => continue,
                         };
 
-                        let default = azul_css::StyleBackgroundContentVec::from_const_slice(&[]);
+                        let default = azul_css::props::style::StyleBackgroundContentVec::from_const_slice(&[]);
 
                         // TODO: only updates the first image background - usually not a problem
                         let bg_hash = layout_result
@@ -1187,7 +1187,7 @@ impl RendererResources {
                                     .as_ref()
                                     .iter()
                                     .find_map(|b| match b {
-                                        azul_css::StyleBackgroundContent::Image(id) => {
+                                        azul_css::props::style::StyleBackgroundContent::Image(id) => {
                                             let image_ref = image_cache.get_css_image_id(id)?;
                                             Some(image_ref.get_hash())
                                         }
