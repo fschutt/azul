@@ -301,3 +301,80 @@ pub fn parse_layout_left<'a>(input: &'a str) -> Result<LayoutLeft, LayoutLeftPar
         .map(|v| LayoutLeft { inner: v })
         .map_err(Into::into)
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_layout_position() {
+        assert_eq!(
+            parse_layout_position("static").unwrap(),
+            LayoutPosition::Static
+        );
+        assert_eq!(
+            parse_layout_position("relative").unwrap(),
+            LayoutPosition::Relative
+        );
+        assert_eq!(
+            parse_layout_position("absolute").unwrap(),
+            LayoutPosition::Absolute
+        );
+        assert_eq!(
+            parse_layout_position("fixed").unwrap(),
+            LayoutPosition::Fixed
+        );
+    }
+
+    #[test]
+    fn test_parse_layout_position_whitespace() {
+        assert_eq!(
+            parse_layout_position("  absolute  ").unwrap(),
+            LayoutPosition::Absolute
+        );
+    }
+
+    #[test]
+    fn test_parse_layout_position_invalid() {
+        assert!(parse_layout_position("sticky").is_err());
+        assert!(parse_layout_position("").is_err());
+        assert!(parse_layout_position("absolutely").is_err());
+    }
+
+    #[test]
+    fn test_parse_offsets() {
+        assert_eq!(
+            parse_layout_top("10px").unwrap(),
+            LayoutTop {
+                inner: PixelValue::px(10.0)
+            }
+        );
+        assert_eq!(
+            parse_layout_right("5%").unwrap(),
+            LayoutRight {
+                inner: PixelValue::percent(5.0)
+            }
+        );
+        assert_eq!(
+            parse_layout_bottom("2.5em").unwrap(),
+            LayoutBottom {
+                inner: PixelValue::em(2.5)
+            }
+        );
+        assert_eq!(
+            parse_layout_left("0").unwrap(),
+            LayoutLeft {
+                inner: PixelValue::px(0.0)
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_offsets_invalid() {
+        // The simple `parse_pixel_value` does not handle `auto`.
+        assert!(parse_layout_top("auto").is_err());
+        assert!(parse_layout_right("").is_err());
+        assert!(parse_layout_bottom("10 px").is_err());
+        assert!(parse_layout_left("ten pixels").is_err());
+    }
+}

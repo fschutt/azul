@@ -345,3 +345,56 @@ pub fn parse_direction<'a>(input: &'a str) -> Result<Direction, CssDirectionPars
         to: end,
     }))
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::angle::AngleValue;
+
+    #[test]
+    fn test_parse_direction_angle() {
+        assert_eq!(
+            parse_direction("45deg").unwrap(),
+            Direction::Angle(AngleValue::deg(45.0))
+        );
+        assert_eq!(
+            parse_direction("  -0.25turn  ").unwrap(),
+            Direction::Angle(AngleValue::turn(-0.25))
+        );
+    }
+
+    #[test]
+    fn test_parse_direction_corners() {
+        assert_eq!(
+            parse_direction("to right").unwrap(),
+            Direction::FromTo(DirectionCorners {
+                from: DirectionCorner::Left,
+                to: DirectionCorner::Right,
+            })
+        );
+        assert_eq!(
+            parse_direction("to top left").unwrap(),
+            Direction::FromTo(DirectionCorners {
+                from: DirectionCorner::BottomRight,
+                to: DirectionCorner::TopLeft,
+            })
+        );
+        assert_eq!(
+            parse_direction("to left top").unwrap(),
+            Direction::FromTo(DirectionCorners {
+                from: DirectionCorner::BottomRight,
+                to: DirectionCorner::TopLeft,
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_direction_errors() {
+        assert!(parse_direction("").is_err());
+        assert!(parse_direction("to").is_err());
+        assert!(parse_direction("right").is_err());
+        assert!(parse_direction("to center").is_err());
+        assert!(parse_direction("to top right bottom").is_err());
+        assert!(parse_direction("to top top").is_err());
+    }
+}

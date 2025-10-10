@@ -243,3 +243,57 @@ pub fn parse_style_border_bottom_right_radius<'a>(
     let pixel_value = parse_pixel_value(input)?;
     Ok(StyleBorderBottomRightRadius { inner: pixel_value })
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_border_radius_shorthand() {
+        // One value
+        let result = parse_style_border_radius("10px").unwrap();
+        assert_eq!(result.top_left, PixelValue::px(10.0));
+        assert_eq!(result.top_right, PixelValue::px(10.0));
+        assert_eq!(result.bottom_right, PixelValue::px(10.0));
+        assert_eq!(result.bottom_left, PixelValue::px(10.0));
+
+        // Two values
+        let result = parse_style_border_radius("10px 5%").unwrap();
+        assert_eq!(result.top_left, PixelValue::px(10.0));
+        assert_eq!(result.top_right, PixelValue::percent(5.0));
+        assert_eq!(result.bottom_right, PixelValue::px(10.0));
+        assert_eq!(result.bottom_left, PixelValue::percent(5.0));
+
+        // Three values
+        let result = parse_style_border_radius("2px 4px 8px").unwrap();
+        assert_eq!(result.top_left, PixelValue::px(2.0));
+        assert_eq!(result.top_right, PixelValue::px(4.0));
+        assert_eq!(result.bottom_right, PixelValue::px(8.0));
+        assert_eq!(result.bottom_left, PixelValue::px(4.0));
+
+        // Four values
+        let result = parse_style_border_radius("1px 0 3px 4px").unwrap();
+        assert_eq!(result.top_left, PixelValue::px(1.0));
+        assert_eq!(result.top_right, PixelValue::px(0.0));
+        assert_eq!(result.bottom_right, PixelValue::px(3.0));
+        assert_eq!(result.bottom_left, PixelValue::px(4.0));
+
+        // Weird whitespace
+        let result = parse_style_border_radius("  1em   2em  ").unwrap();
+        assert_eq!(result.top_left, PixelValue::em(1.0));
+        assert_eq!(result.top_right, PixelValue::em(2.0));
+    }
+
+    #[test]
+    fn test_parse_border_radius_shorthand_errors() {
+        assert!(parse_style_border_radius("").is_err());
+        assert!(parse_style_border_radius("1px 2px 3px 4px 5px").is_err());
+        assert!(parse_style_border_radius("1px bad 3px").is_err());
+    }
+
+    #[test]
+    fn test_parse_longhand_radius() {
+        let result = parse_style_border_top_left_radius("25%").unwrap();
+        assert_eq!(result.inner, PixelValue::percent(25.0));
+    }
+}

@@ -1483,3 +1483,142 @@ mod parser {
 
 #[cfg(feature = "parser")]
 pub use self::parser::*;
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::{DirectionCorner, DirectionCorners};
+
+    #[test]
+    fn test_parse_single_background_content() {
+        // Color
+        assert_eq!(
+            parse_style_background_content("red").unwrap(),
+            StyleBackgroundContent::Color(ColorU::RED)
+        );
+        assert_eq!(
+            parse_style_background_content("#ff00ff").unwrap(),
+            StyleBackgroundContent::Color(ColorU::new_rgb(255, 0, 255))
+        );
+
+        // Image
+        assert_eq!(
+            parse_style_background_content("url(\"image.png\")").unwrap(),
+            StyleBackgroundContent::Image("image.png".into())
+        );
+
+        // Linear Gradient
+        let lg = parse_style_background_content("linear-gradient(to right, red, blue)").unwrap();
+        assert!(matches!(lg, StyleBackgroundContent::LinearGradient(_)));
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 2);
+            assert_eq!(
+                grad.direction,
+                Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Left,
+                    to: DirectionCorner::Right
+                })
+            );
+        }
+
+        // Radial Gradient
+        let rg = parse_style_background_content("radial-gradient(circle, white, black)").unwrap();
+        assert!(matches!(rg, StyleBackgroundContent::RadialGradient(_)));
+        if let StyleBackgroundContent::RadialGradient(grad) = rg {
+            assert_eq!(grad.stops.len(), 2);
+            assert_eq!(grad.shape, Shape::Circle);
+        }
+
+        // Conic Gradient
+        let cg = parse_style_background_content("conic-gradient(from 90deg, red, blue)").unwrap();
+        assert!(matches!(cg, StyleBackgroundContent::ConicGradient(_)));
+        if let StyleBackgroundContent::ConicGradient(grad) = cg {
+            assert_eq!(grad.stops.len(), 2);
+            assert_eq!(grad.angle, AngleValue::deg(90.0));
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_background_content() {
+        let result =
+            parse_style_background_content_multiple("url(foo.png), linear-gradient(red, blue)")
+                .unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(matches!(
+            result.as_slice()[0],
+            StyleBackgroundContent::Image(_)
+        ));
+        assert!(matches!(
+            result.as_slice()[1],
+            StyleBackgroundContent::LinearGradient(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_background_position() {
+        // One value
+        let result = parse_style_background_position("center").unwrap();
+        assert_eq!(result.horizontal, BackgroundPositionHorizontal::Center);
+        assert_eq!(result.vertical, BackgroundPositionVertical::Center);
+
+        let result = parse_style_background_position("25%").unwrap();
+        assert_eq!(
+            result.horizontal,
+            BackgroundPositionHorizontal::Exact(PixelValue::percent(25.0))
+        );
+        assert_eq!(result.vertical, BackgroundPositionVertical::Center);
+
+        // Two values
+        let result = parse_style_background_position("right 50px").unwrap();
+        assert_eq!(result.horizontal, BackgroundPositionHorizontal::Right);
+        assert_eq!(
+            result.vertical,
+            BackgroundPositionVertical::Exact(PixelValue::px(50.0))
+        );
+
+        // Four values (not supported by this parser, should fail)
+        assert!(parse_style_background_position("left 10px top 20px").is_err());
+    }
+
+    #[test]
+    fn test_parse_background_size() {
+        assert_eq!(
+            parse_style_background_size("contain").unwrap(),
+            StyleBackgroundSize::Contain
+        );
+        assert_eq!(
+            parse_style_background_size("cover").unwrap(),
+            StyleBackgroundSize::Cover
+        );
+        assert_eq!(
+            parse_style_background_size("50%").unwrap(),
+            StyleBackgroundSize::ExactSize([PixelValue::percent(50.0), PixelValue::percent(50.0)])
+        );
+        assert_eq!(
+            parse_style_background_size("100px 20em").unwrap(),
+            StyleBackgroundSize::ExactSize([PixelValue::px(100.0), PixelValue::em(20.0)])
+        );
+        assert!(parse_style_background_size("auto").is_err());
+    }
+
+    #[test]
+    fn test_parse_background_repeat() {
+        assert_eq!(
+            parse_style_background_repeat("repeat").unwrap(),
+            StyleBackgroundRepeat::Repeat
+        );
+        assert_eq!(
+            parse_style_background_repeat("repeat-x").unwrap(),
+            StyleBackgroundRepeat::RepeatX
+        );
+        assert_eq!(
+            parse_style_background_repeat("repeat-y").unwrap(),
+            StyleBackgroundRepeat::RepeatY
+        );
+        assert_eq!(
+            parse_style_background_repeat("no-repeat").unwrap(),
+            StyleBackgroundRepeat::NoRepeat
+        );
+        assert!(parse_style_background_repeat("repeat-xy").is_err());
+    }
+}

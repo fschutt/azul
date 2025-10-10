@@ -824,3 +824,107 @@ pub fn parse_style_vertical_align(
         ))),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::{color::ColorU, length::PercentageValue, pixel::PixelValue};
+
+    #[test]
+    fn test_parse_style_text_color() {
+        assert_eq!(
+            parse_style_text_color("red").unwrap().inner,
+            ColorU::new_rgb(255, 0, 0)
+        );
+        assert_eq!(
+            parse_style_text_color("#aabbcc").unwrap().inner,
+            ColorU::new_rgb(170, 187, 204)
+        );
+        assert!(parse_style_text_color("not-a-color").is_err());
+    }
+
+    #[test]
+    fn test_parse_style_text_align() {
+        assert_eq!(
+            parse_style_text_align("left").unwrap(),
+            StyleTextAlign::Left
+        );
+        assert_eq!(
+            parse_style_text_align("center").unwrap(),
+            StyleTextAlign::Center
+        );
+        assert_eq!(
+            parse_style_text_align("right").unwrap(),
+            StyleTextAlign::Right
+        );
+        assert_eq!(
+            parse_style_text_align("justify").unwrap(),
+            StyleTextAlign::Justify
+        );
+        assert_eq!(
+            parse_style_text_align("start").unwrap(),
+            StyleTextAlign::Start
+        );
+        assert_eq!(parse_style_text_align("end").unwrap(), StyleTextAlign::End);
+        assert!(parse_style_text_align("middle").is_err());
+    }
+
+    #[test]
+    fn test_parse_spacing() {
+        assert_eq!(
+            parse_style_letter_spacing("2px").unwrap().inner,
+            PixelValue::px(2.0)
+        );
+        assert_eq!(
+            parse_style_letter_spacing("-0.1em").unwrap().inner,
+            PixelValue::em(-0.1)
+        );
+        assert_eq!(
+            parse_style_word_spacing("0.5em").unwrap().inner,
+            PixelValue::em(0.5)
+        );
+    }
+
+    #[test]
+    fn test_parse_line_height() {
+        assert_eq!(
+            parse_style_line_height("1.5").unwrap().inner,
+            PercentageValue::new(150.0)
+        );
+        assert_eq!(
+            parse_style_line_height("120%").unwrap().inner,
+            PercentageValue::new(120.0)
+        );
+        assert!(parse_style_line_height("20px").is_err()); // lengths not supported by this parser
+    }
+
+    #[test]
+    fn test_parse_tab_width() {
+        // Unitless number is treated as `em`
+        assert_eq!(
+            parse_style_tab_width("4").unwrap().inner,
+            PixelValue::em(4.0)
+        );
+        assert_eq!(
+            parse_style_tab_width("20px").unwrap().inner,
+            PixelValue::px(20.0)
+        );
+    }
+
+    #[test]
+    fn test_parse_white_space() {
+        assert_eq!(
+            parse_style_white_space("normal").unwrap(),
+            StyleWhiteSpace::Normal
+        );
+        assert_eq!(
+            parse_style_white_space("pre").unwrap(),
+            StyleWhiteSpace::Pre
+        );
+        assert_eq!(
+            parse_style_white_space("nowrap").unwrap(),
+            StyleWhiteSpace::Nowrap
+        );
+        assert!(parse_style_white_space("pre-wrap").is_err());
+    }
+}

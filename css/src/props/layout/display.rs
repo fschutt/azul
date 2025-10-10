@@ -259,3 +259,109 @@ pub fn parse_layout_float<'a>(input: &'a str) -> Result<LayoutFloat, LayoutFloat
         _ => Err(LayoutFloatParseError::InvalidValue(input)),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_layout_display() {
+        assert_eq!(parse_layout_display("block").unwrap(), LayoutDisplay::Block);
+        assert_eq!(
+            parse_layout_display("inline").unwrap(),
+            LayoutDisplay::Inline
+        );
+        assert_eq!(
+            parse_layout_display("inline-block").unwrap(),
+            LayoutDisplay::InlineBlock
+        );
+        assert_eq!(parse_layout_display("flex").unwrap(), LayoutDisplay::Flex);
+        assert_eq!(
+            parse_layout_display("inline-flex").unwrap(),
+            LayoutDisplay::InlineFlex
+        );
+        assert_eq!(parse_layout_display("grid").unwrap(), LayoutDisplay::Grid);
+        assert_eq!(
+            parse_layout_display("inline-grid").unwrap(),
+            LayoutDisplay::InlineGrid
+        );
+        assert_eq!(parse_layout_display("none").unwrap(), LayoutDisplay::None);
+        assert_eq!(
+            parse_layout_display("flow-root").unwrap(),
+            LayoutDisplay::FlowRoot
+        );
+        assert_eq!(
+            parse_layout_display("list-item").unwrap(),
+            LayoutDisplay::ListItem
+        );
+        assert_eq!(
+            parse_layout_display("inherit").unwrap(),
+            LayoutDisplay::Inherit
+        );
+        assert_eq!(
+            parse_layout_display("initial").unwrap(),
+            LayoutDisplay::Initial
+        );
+
+        // Table values
+        assert_eq!(parse_layout_display("table").unwrap(), LayoutDisplay::Table);
+        assert_eq!(
+            parse_layout_display("inline-table").unwrap(),
+            LayoutDisplay::InlineTable
+        );
+        assert_eq!(
+            parse_layout_display("table-row").unwrap(),
+            LayoutDisplay::TableRow
+        );
+        assert_eq!(
+            parse_layout_display("table-cell").unwrap(),
+            LayoutDisplay::TableCell
+        );
+        assert_eq!(
+            parse_layout_display("table-caption").unwrap(),
+            LayoutDisplay::TableCaption
+        );
+        assert_eq!(
+            parse_layout_display("table-column-group").unwrap(),
+            LayoutDisplay::TableColumnGroup
+        );
+        assert_eq!(
+            parse_layout_display("table-header-group").unwrap(),
+            LayoutDisplay::TableHeaderGroup
+        );
+        assert_eq!(
+            parse_layout_display("table-footer-group").unwrap(),
+            LayoutDisplay::TableFooterGroup
+        );
+        assert_eq!(
+            parse_layout_display("table-row-group").unwrap(),
+            LayoutDisplay::TableRowGroup
+        );
+
+        // Whitespace
+        assert_eq!(
+            parse_layout_display("  inline-flex  ").unwrap(),
+            LayoutDisplay::InlineFlex
+        );
+
+        // Invalid values
+        assert!(parse_layout_display("invalid-value").is_err());
+        assert!(parse_layout_display("").is_err());
+        assert!(parse_layout_display("display").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_float() {
+        assert_eq!(parse_layout_float("left").unwrap(), LayoutFloat::Left);
+        assert_eq!(parse_layout_float("right").unwrap(), LayoutFloat::Right);
+        assert_eq!(parse_layout_float("none").unwrap(), LayoutFloat::None);
+
+        // Whitespace
+        assert_eq!(parse_layout_float("  right  ").unwrap(), LayoutFloat::Right);
+
+        // Invalid values
+        assert!(parse_layout_float("center").is_err());
+        assert!(parse_layout_float("").is_err());
+        assert!(parse_layout_float("float-left").is_err());
+    }
+}

@@ -893,3 +893,109 @@ pub fn parse_style_backface_visibility<'a>(
         _ => Err(CssBackfaceVisibilityParseError::InvalidValue(input)),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_transform_vec() {
+        let result =
+            parse_style_transform_vec("translateX(10px) rotate(90deg) scale(0.5, 0.5)").unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(matches!(
+            result.as_slice()[0],
+            StyleTransform::TranslateX(_)
+        ));
+        assert!(matches!(result.as_slice()[1], StyleTransform::Rotate(_)));
+        assert!(matches!(result.as_slice()[2], StyleTransform::Scale(_)));
+    }
+
+    #[test]
+    fn test_parse_transform_functions() {
+        // Translate
+        assert_eq!(
+            parse_style_transform("translateX(50%)").unwrap(),
+            StyleTransform::TranslateX(PixelValue::percent(50.0))
+        );
+        let translate = parse_style_transform("translate(10px, -20px)").unwrap();
+        if let StyleTransform::Translate(t) = translate {
+            assert_eq!(t.x, PixelValue::px(10.0));
+            assert_eq!(t.y, PixelValue::px(-20.0));
+        } else {
+            panic!("Expected Translate");
+        }
+
+        // Scale
+        assert_eq!(
+            parse_style_transform("scaleY(1.2)").unwrap(),
+            StyleTransform::ScaleY(PercentageValue::new(120.0))
+        );
+        let scale = parse_style_transform("scale(2, 0.5)").unwrap();
+        if let StyleTransform::Scale(s) = scale {
+            assert_eq!(s.x.get(), 2.0);
+            assert_eq!(s.y.get(), 0.5);
+        } else {
+            panic!("Expected Scale");
+        }
+
+        // Rotate
+        assert_eq!(
+            parse_style_transform("rotate(0.25turn)").unwrap(),
+            StyleTransform::Rotate(AngleValue::turn(0.25))
+        );
+
+        // Skew
+        assert_eq!(
+            parse_style_transform("skewX(-10deg)").unwrap(),
+            StyleTransform::SkewX(AngleValue::deg(-10.0))
+        );
+        let skew = parse_style_transform("skew(20deg, 30deg)").unwrap();
+        if let StyleTransform::Skew(s) = skew {
+            assert_eq!(s.x, AngleValue::deg(20.0));
+            assert_eq!(s.y, AngleValue::deg(30.0));
+        } else {
+            panic!("Expected Skew");
+        }
+    }
+
+    #[test]
+    fn test_parse_transform_origin() {
+        let result = parse_style_transform_origin("50% 50%").unwrap();
+        assert_eq!(result.x, PixelValue::percent(50.0));
+        assert_eq!(result.y, PixelValue::percent(50.0));
+
+        let result = parse_style_transform_origin("left top").unwrap();
+        assert_eq!(result.x, PixelValue::percent(0.0)); // keywords not yet supported, but parse as 0px
+        assert_eq!(result.y, PixelValue::percent(0.0));
+
+        let result = parse_style_transform_origin("20px bottom").unwrap();
+        assert_eq!(result.x, PixelValue::px(20.0));
+        assert_eq!(result.y, PixelValue::percent(100.0)); // keywords not yet supported
+    }
+
+    #[test]
+    fn test_parse_backface_visibility() {
+        assert_eq!(
+            parse_style_backface_visibility("visible").unwrap(),
+            StyleBackfaceVisibility::Visible
+        );
+        assert_eq!(
+            parse_style_backface_visibility("hidden").unwrap(),
+            StyleBackfaceVisibility::Hidden
+        );
+        assert!(parse_style_backface_visibility("none").is_err());
+    }
+
+    #[test]
+    fn test_parse_transform_errors() {
+        // Wrong function name
+        assert!(parse_style_transform("translatex(10px)").is_err());
+        // Wrong number of args
+        assert!(parse_style_transform("scale(1)").is_err());
+        assert!(parse_style_transform("translate(1, 2, 3)").is_err());
+        // Invalid value
+        assert!(parse_style_transform("rotate(10px)").is_err());
+        assert!(parse_style_transform("translateX(auto)").is_err());
+    }
+}

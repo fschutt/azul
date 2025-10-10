@@ -709,3 +709,79 @@ pub use parser::{
     CssStyleFilterOffsetParseError, CssStyleFilterOffsetParseErrorOwned, CssStyleFilterParseError,
     CssStyleFilterParseErrorOwned,
 };
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::style::filter::parser::parse_style_filter;
+
+    #[test]
+    fn test_parse_single_filter_functions() {
+        // Blur
+        let blur = parse_style_filter("blur(5px)").unwrap();
+        assert!(matches!(blur, StyleFilter::Blur(_)));
+        if let StyleFilter::Blur(b) = blur {
+            assert_eq!(b.width, PixelValue::px(5.0));
+            assert_eq!(b.height, PixelValue::px(5.0));
+        }
+
+        // Blur with two values
+        let blur2 = parse_style_filter("blur(2px 4px)").unwrap();
+        if let StyleFilter::Blur(b) = blur2 {
+            assert_eq!(b.width, PixelValue::px(2.0));
+            assert_eq!(b.height, PixelValue::px(4.0));
+        }
+
+        // Drop Shadow
+        let shadow = parse_style_filter("drop-shadow(10px 5px 5px #888)").unwrap();
+        assert!(matches!(shadow, StyleFilter::DropShadow(_)));
+        if let StyleFilter::DropShadow(s) = shadow {
+            assert_eq!(s.offset[0].inner, PixelValue::px(10.0));
+            assert_eq!(s.blur_radius.inner, PixelValue::px(5.0));
+            assert_eq!(s.color, ColorU::new_rgb(0x88, 0x88, 0x88));
+        }
+
+        // Opacity
+        let opacity = parse_style_filter("opacity(50%)").unwrap();
+        assert!(matches!(opacity, StyleFilter::Opacity(_)));
+        if let StyleFilter::Opacity(p) = opacity {
+            assert_eq!(p.normalized(), 0.5);
+        }
+
+        // Flood
+        let flood = parse_style_filter("flood(red)").unwrap();
+        assert_eq!(flood, StyleFilter::Flood(ColorU::RED));
+
+        // Composite
+        let composite = parse_style_filter("composite(in)").unwrap();
+        assert_eq!(composite, StyleFilter::Composite(StyleCompositeFilter::In));
+
+        // Offset
+        let offset = parse_style_filter("offset(10px 20%)").unwrap();
+        if let StyleFilter::Offset(o) = offset {
+            assert_eq!(o.x, PixelValue::px(10.0));
+            assert_eq!(o.y, PixelValue::percent(20.0));
+        }
+    }
+
+    #[test]
+    fn test_parse_filter_vec() {
+        let filters =
+            parse_style_filter_vec("blur(5px) drop-shadow(10px 5px #888) opacity(0.8)").unwrap();
+        assert_eq!(filters.len(), 3);
+        assert!(matches!(filters.as_slice()[0], StyleFilter::Blur(_)));
+        assert!(matches!(filters.as_slice()[1], StyleFilter::DropShadow(_)));
+        assert!(matches!(filters.as_slice()[2], StyleFilter::Opacity(_)));
+    }
+
+    #[test]
+    fn test_parse_filter_errors() {
+        // Invalid function name
+        assert!(parse_style_filter_vec("blurry(5px)").is_err());
+        // Incorrect arguments
+        assert!(parse_style_filter_vec("blur(5px 10px 15px)").is_err());
+        assert!(parse_style_filter_vec("opacity(2)").is_err()); // opacity must be % or 0-1
+                                                                // Unclosed parenthesis
+        assert!(parse_style_filter_vec("blur(5px").is_err());
+    }
+}

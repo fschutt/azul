@@ -224,3 +224,74 @@ mod parser {
 
 #[cfg(feature = "parser")]
 pub use self::parser::*;
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::pixel::PixelValue;
+
+    #[test]
+    fn test_parse_layout_width() {
+        assert_eq!(
+            parse_layout_width("150px").unwrap(),
+            LayoutWidth {
+                inner: PixelValue::px(150.0)
+            }
+        );
+        assert_eq!(
+            parse_layout_width("2.5em").unwrap(),
+            LayoutWidth {
+                inner: PixelValue::em(2.5)
+            }
+        );
+        assert_eq!(
+            parse_layout_width("75%").unwrap(),
+            LayoutWidth {
+                inner: PixelValue::percent(75.0)
+            }
+        );
+        assert_eq!(
+            parse_layout_width("0").unwrap(),
+            LayoutWidth {
+                inner: PixelValue::px(0.0)
+            }
+        );
+        assert_eq!(
+            parse_layout_width("  100pt  ").unwrap(),
+            LayoutWidth {
+                inner: PixelValue::pt(100.0)
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_layout_height_invalid() {
+        assert!(parse_layout_height("auto").is_err());
+        assert!(parse_layout_height("150 px").is_err());
+        assert!(parse_layout_height("px").is_err());
+        assert!(parse_layout_height("invalid").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_box_sizing() {
+        assert_eq!(
+            parse_layout_box_sizing("content-box").unwrap(),
+            LayoutBoxSizing::ContentBox
+        );
+        assert_eq!(
+            parse_layout_box_sizing("border-box").unwrap(),
+            LayoutBoxSizing::BorderBox
+        );
+        assert_eq!(
+            parse_layout_box_sizing("  border-box  ").unwrap(),
+            LayoutBoxSizing::BorderBox
+        );
+    }
+
+    #[test]
+    fn test_parse_layout_box_sizing_invalid() {
+        assert!(parse_layout_box_sizing("padding-box").is_err());
+        assert!(parse_layout_box_sizing("borderbox").is_err());
+        assert!(parse_layout_box_sizing("").is_err());
+    }
+}

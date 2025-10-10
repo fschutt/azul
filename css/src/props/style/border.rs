@@ -487,3 +487,91 @@ pub fn parse_border_left_color<'a>(
 pub fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBorderParseError<'a>> {
     parse_border_side(input)
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_border_style() {
+        assert_eq!(parse_border_style("solid").unwrap(), BorderStyle::Solid);
+        assert_eq!(parse_border_style("dotted").unwrap(), BorderStyle::Dotted);
+        assert_eq!(parse_border_style("none").unwrap(), BorderStyle::None);
+        assert_eq!(
+            parse_border_style("  dashed  ").unwrap(),
+            BorderStyle::Dashed
+        );
+        assert!(parse_border_style("solidd").is_err());
+    }
+
+    #[test]
+    fn test_parse_border_side_shorthand() {
+        // Full
+        let result = parse_border_side("2px dotted #ff0000").unwrap();
+        assert_eq!(result.border_width, PixelValue::px(2.0));
+        assert_eq!(result.border_style, BorderStyle::Dotted);
+        assert_eq!(result.border_color, ColorU::new_rgb(255, 0, 0));
+
+        // Different order
+        let result = parse_border_side("solid green 1em").unwrap();
+        assert_eq!(result.border_width, PixelValue::em(1.0));
+        assert_eq!(result.border_style, BorderStyle::Solid);
+        assert_eq!(result.border_color, ColorU::new_rgb(0, 128, 0));
+
+        // Missing width
+        let result = parse_border_side("ridge #f0f").unwrap();
+        assert_eq!(result.border_width, MEDIUM_BORDER_THICKNESS); // default
+        assert_eq!(result.border_style, BorderStyle::Ridge);
+        assert_eq!(result.border_color, ColorU::new_rgb(255, 0, 255));
+
+        // Missing style
+        let result = parse_border_side("5pt blue").unwrap();
+        assert_eq!(result.border_width, PixelValue::pt(5.0));
+        assert_eq!(result.border_style, BorderStyle::None); // default
+        assert_eq!(result.border_color, ColorU::BLUE);
+
+        // Missing color
+        let result = parse_border_side("thick double").unwrap();
+        assert_eq!(result.border_width, PixelValue::px(5.0));
+        assert_eq!(result.border_style, BorderStyle::Double);
+        assert_eq!(result.border_color, ColorU::BLACK); // default
+
+        // Only one value
+        let result = parse_border_side("inset").unwrap();
+        assert_eq!(result.border_width, MEDIUM_BORDER_THICKNESS);
+        assert_eq!(result.border_style, BorderStyle::Inset);
+        assert_eq!(result.border_color, ColorU::BLACK);
+    }
+
+    #[test]
+    fn test_parse_border_side_invalid() {
+        // Two widths
+        assert!(parse_border_side("1px 2px solid red").is_err());
+        // Two styles
+        assert!(parse_border_side("solid dashed red").is_err());
+        // Two colors
+        assert!(parse_border_side("red blue solid").is_err());
+        // Empty
+        assert!(parse_border_side("").is_err());
+        // Unknown keyword
+        assert!(parse_border_side("1px unknown red").is_err());
+    }
+
+    #[test]
+    fn test_parse_longhand_border() {
+        assert_eq!(
+            parse_border_top_width("1.5em").unwrap().inner,
+            PixelValue::em(1.5)
+        );
+        assert_eq!(
+            parse_border_left_style("groove").unwrap().inner,
+            BorderStyle::Groove
+        );
+        assert_eq!(
+            parse_border_right_color("rgba(10, 20, 30, 0.5)")
+                .unwrap()
+                .inner,
+            ColorU::new(10, 20, 30, 128)
+        );
+    }
+}

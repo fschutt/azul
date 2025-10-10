@@ -367,3 +367,52 @@ pub mod parsers {
 
 #[cfg(feature = "parser")]
 pub use self::parsers::*;
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_opacity() {
+        assert_eq!(parse_style_opacity("0.5").unwrap().inner.normalized(), 0.5);
+        assert_eq!(parse_style_opacity("1").unwrap().inner.normalized(), 1.0);
+        assert_eq!(parse_style_opacity("50%").unwrap().inner.normalized(), 0.5);
+        assert_eq!(parse_style_opacity("0").unwrap().inner.normalized(), 0.0);
+        assert_eq!(
+            parse_style_opacity("  75%  ").unwrap().inner.normalized(),
+            0.75
+        );
+        assert!(parse_style_opacity("1.1").is_err());
+        assert!(parse_style_opacity("-0.1").is_err());
+        assert!(parse_style_opacity("auto").is_err());
+    }
+
+    #[test]
+    fn test_parse_mix_blend_mode() {
+        assert_eq!(
+            parse_style_mix_blend_mode("multiply").unwrap(),
+            StyleMixBlendMode::Multiply
+        );
+        assert_eq!(
+            parse_style_mix_blend_mode("screen").unwrap(),
+            StyleMixBlendMode::Screen
+        );
+        assert_eq!(
+            parse_style_mix_blend_mode("color-dodge").unwrap(),
+            StyleMixBlendMode::ColorDodge
+        );
+        assert!(parse_style_mix_blend_mode("mix").is_err());
+    }
+
+    #[test]
+    fn test_parse_cursor() {
+        assert_eq!(parse_style_cursor("pointer").unwrap(), StyleCursor::Pointer);
+        assert_eq!(parse_style_cursor("wait").unwrap(), StyleCursor::Wait);
+        assert_eq!(
+            parse_style_cursor("col-resize").unwrap(),
+            StyleCursor::ColResize
+        );
+        assert_eq!(parse_style_cursor("  text  ").unwrap(), StyleCursor::Text);
+        assert!(parse_style_cursor("hand").is_err()); // "hand" is a legacy IE value
+    }
+}

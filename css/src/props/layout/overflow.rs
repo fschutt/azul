@@ -118,3 +118,53 @@ pub fn parse_layout_overflow<'a>(
         _ => Err(LayoutOverflowParseError::InvalidValue(input)),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_layout_overflow_valid() {
+        assert_eq!(
+            parse_layout_overflow("visible").unwrap(),
+            LayoutOverflow::Visible
+        );
+        assert_eq!(
+            parse_layout_overflow("hidden").unwrap(),
+            LayoutOverflow::Hidden
+        );
+        assert_eq!(parse_layout_overflow("clip").unwrap(), LayoutOverflow::Clip);
+        assert_eq!(
+            parse_layout_overflow("scroll").unwrap(),
+            LayoutOverflow::Scroll
+        );
+        assert_eq!(parse_layout_overflow("auto").unwrap(), LayoutOverflow::Auto);
+    }
+
+    #[test]
+    fn test_parse_layout_overflow_whitespace() {
+        assert_eq!(
+            parse_layout_overflow("  scroll  ").unwrap(),
+            LayoutOverflow::Scroll
+        );
+    }
+
+    #[test]
+    fn test_parse_layout_overflow_invalid() {
+        assert!(parse_layout_overflow("none").is_err());
+        assert!(parse_layout_overflow("").is_err());
+        assert!(parse_layout_overflow("auto scroll").is_err());
+        assert!(parse_layout_overflow("hidden-x").is_err());
+    }
+
+    #[test]
+    fn test_needs_scrollbar() {
+        assert!(LayoutOverflow::Scroll.needs_scrollbar(false));
+        assert!(LayoutOverflow::Scroll.needs_scrollbar(true));
+        assert!(LayoutOverflow::Auto.needs_scrollbar(true));
+        assert!(!LayoutOverflow::Auto.needs_scrollbar(false));
+        assert!(!LayoutOverflow::Hidden.needs_scrollbar(true));
+        assert!(!LayoutOverflow::Visible.needs_scrollbar(true));
+        assert!(!LayoutOverflow::Clip.needs_scrollbar(true));
+    }
+}

@@ -247,3 +247,83 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
         Err(UnclosedQuotesError(input))
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_quotes() {
+        assert_eq!(strip_quotes("'hello'").unwrap(), QuoteStripped("hello"));
+        assert_eq!(strip_quotes("\"world\"").unwrap(), QuoteStripped("world"));
+        assert_eq!(
+            strip_quotes("\"  spaced  \"").unwrap(),
+            QuoteStripped("  spaced  ")
+        );
+        assert!(strip_quotes("'unclosed").is_err());
+        assert!(strip_quotes("\"mismatched'").is_err());
+        assert!(strip_quotes("no-quotes").is_err());
+    }
+
+    #[test]
+    fn test_parse_parentheses() {
+        assert_eq!(
+            parse_parentheses("url(image.png)", &["url"]),
+            Ok(("url", "image.png"))
+        );
+        assert_eq!(
+            parse_parentheses("linear-gradient(red, blue)", &["linear-gradient"]),
+            Ok(("linear-gradient", "red, blue"))
+        );
+        assert_eq!(
+            parse_parentheses("var(--my-var, 10px)", &["var"]),
+            Ok(("var", "--my-var, 10px"))
+        );
+        assert_eq!(
+            parse_parentheses("  rgb( 255, 0, 0 )  ", &["rgb", "rgba"]),
+            Ok(("rgb", " 255, 0, 0 "))
+        );
+    }
+
+    #[test]
+    fn test_parse_parentheses_errors() {
+        // Stopword not found
+        assert!(parse_parentheses("rgba(255,0,0,1)", &["rgb"]).is_err());
+        // No opening brace
+        assert!(parse_parentheses("url'image.png'", &["url"]).is_err());
+        // No closing brace
+        assert!(parse_parentheses("url(image.png", &["url"]).is_err());
+    }
+
+    #[test]
+    fn test_split_string_respect_comma() {
+        // Simple case
+        let simple = "one, two, three";
+        assert_eq!(
+            split_string_respect_comma(simple),
+            vec!["one", " two", " three"]
+        );
+
+        // With parentheses
+        let with_parens = "rgba(255, 0, 0, 1), #ff00ff";
+        assert_eq!(
+            split_string_respect_comma(with_parens),
+            vec!["rgba(255, 0, 0, 1)", " #ff00ff"]
+        );
+
+        // Multiple parentheses
+        let multi_parens =
+            "linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,1)), url(image.png)";
+        assert_eq!(
+            split_string_respect_comma(multi_parens),
+            vec![
+                "linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,1))",
+                " url(image.png)"
+            ]
+        );
+
+        // No commas
+        let no_commas = "rgb(0,0,0)";
+        assert_eq!(split_string_respect_comma(no_commas), vec!["rgb(0,0,0)"]);
+    }
+}

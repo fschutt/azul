@@ -659,3 +659,120 @@ impl FontMetrics {
         }
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_font_weight_keywords() {
+        assert_eq!(
+            parse_font_weight("normal").unwrap(),
+            StyleFontWeight::Normal
+        );
+        assert_eq!(parse_font_weight("bold").unwrap(), StyleFontWeight::Bold);
+        assert_eq!(
+            parse_font_weight("lighter").unwrap(),
+            StyleFontWeight::Lighter
+        );
+        assert_eq!(
+            parse_font_weight("bolder").unwrap(),
+            StyleFontWeight::Bolder
+        );
+    }
+
+    #[test]
+    fn test_parse_font_weight_numbers() {
+        assert_eq!(parse_font_weight("100").unwrap(), StyleFontWeight::W100);
+        assert_eq!(parse_font_weight("400").unwrap(), StyleFontWeight::Normal);
+        assert_eq!(parse_font_weight("700").unwrap(), StyleFontWeight::Bold);
+        assert_eq!(parse_font_weight("900").unwrap(), StyleFontWeight::W900);
+    }
+
+    #[test]
+    fn test_parse_font_weight_invalid() {
+        assert!(parse_font_weight("thin").is_err());
+        assert!(parse_font_weight("").is_err());
+        assert!(parse_font_weight("450").is_err());
+        assert!(parse_font_weight("boldest").is_err());
+    }
+
+    #[test]
+    fn test_parse_font_style() {
+        assert_eq!(parse_font_style("normal").unwrap(), StyleFontStyle::Normal);
+        assert_eq!(parse_font_style("italic").unwrap(), StyleFontStyle::Italic);
+        assert_eq!(
+            parse_font_style("oblique").unwrap(),
+            StyleFontStyle::Oblique
+        );
+        assert_eq!(
+            parse_font_style("  italic  ").unwrap(),
+            StyleFontStyle::Italic
+        );
+        assert!(parse_font_style("slanted").is_err());
+    }
+
+    #[test]
+    fn test_parse_font_size() {
+        assert_eq!(
+            parse_style_font_size("16px").unwrap().inner,
+            PixelValue::px(16.0)
+        );
+        assert_eq!(
+            parse_style_font_size("1.2em").unwrap().inner,
+            PixelValue::em(1.2)
+        );
+        assert_eq!(
+            parse_style_font_size("12pt").unwrap().inner,
+            PixelValue::pt(12.0)
+        );
+        assert_eq!(
+            parse_style_font_size("120%").unwrap().inner,
+            PixelValue::percent(120.0)
+        );
+        assert!(parse_style_font_size("medium").is_err());
+    }
+
+    #[test]
+    fn test_parse_font_family() {
+        // Single unquoted
+        let result = parse_style_font_family("Arial").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.as_slice()[0],
+            StyleFontFamily::System("Arial".into())
+        );
+
+        // Single quoted
+        let result = parse_style_font_family("\"Times New Roman\"").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.as_slice()[0],
+            StyleFontFamily::System("Times New Roman".into())
+        );
+
+        // Multiple
+        let result = parse_style_font_family("Georgia, serif").unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.as_slice()[0],
+            StyleFontFamily::System("Georgia".into())
+        );
+        assert_eq!(
+            result.as_slice()[1],
+            StyleFontFamily::System("serif".into())
+        );
+
+        // Multiple with quotes and extra whitespace
+        let result = parse_style_font_family("  'Courier New'  , monospace  ").unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.as_slice()[0],
+            StyleFontFamily::System("Courier New".into())
+        );
+        assert_eq!(
+            result.as_slice()[1],
+            StyleFontFamily::System("monospace".into())
+        );
+    }
+}

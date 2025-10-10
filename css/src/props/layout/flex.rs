@@ -712,3 +712,188 @@ pub fn parse_layout_flex_basis<'a>(
             .map_err(|_| FlexBasisParseError::InvalidValue(input)),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::pixel::PixelValue;
+
+    #[test]
+    fn test_parse_layout_flex_grow() {
+        assert_eq!(parse_layout_flex_grow("0").unwrap().inner.get(), 0.0);
+        assert_eq!(parse_layout_flex_grow("1").unwrap().inner.get(), 1.0);
+        assert_eq!(parse_layout_flex_grow("2.5").unwrap().inner.get(), 2.5);
+        assert_eq!(parse_layout_flex_grow("  0.5  ").unwrap().inner.get(), 0.5);
+        assert!(parse_layout_flex_grow("none").is_err());
+        assert!(parse_layout_flex_grow("-1").is_err()); // Negative values are invalid
+    }
+
+    #[test]
+    fn test_parse_layout_flex_shrink() {
+        assert_eq!(parse_layout_flex_shrink("0").unwrap().inner.get(), 0.0);
+        assert_eq!(parse_layout_flex_shrink("1").unwrap().inner.get(), 1.0);
+        assert_eq!(parse_layout_flex_shrink("3.0").unwrap().inner.get(), 3.0);
+        assert_eq!(parse_layout_flex_shrink(" 0.2 ").unwrap().inner.get(), 0.2);
+        assert!(parse_layout_flex_shrink("auto").is_err());
+        assert!(parse_layout_flex_shrink("-1").is_err()); // Negative values are invalid
+    }
+
+    #[test]
+    fn test_parse_layout_flex_direction() {
+        assert_eq!(
+            parse_layout_flex_direction("row").unwrap(),
+            LayoutFlexDirection::Row
+        );
+        assert_eq!(
+            parse_layout_flex_direction("row-reverse").unwrap(),
+            LayoutFlexDirection::RowReverse
+        );
+        assert_eq!(
+            parse_layout_flex_direction("column").unwrap(),
+            LayoutFlexDirection::Column
+        );
+        assert_eq!(
+            parse_layout_flex_direction("column-reverse").unwrap(),
+            LayoutFlexDirection::ColumnReverse
+        );
+        assert_eq!(
+            parse_layout_flex_direction("  row  ").unwrap(),
+            LayoutFlexDirection::Row
+        );
+        assert!(parse_layout_flex_direction("reversed-row").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_flex_wrap() {
+        assert_eq!(
+            parse_layout_flex_wrap("nowrap").unwrap(),
+            LayoutFlexWrap::NoWrap
+        );
+        assert_eq!(
+            parse_layout_flex_wrap("wrap").unwrap(),
+            LayoutFlexWrap::Wrap
+        );
+        assert_eq!(
+            parse_layout_flex_wrap("wrap-reverse").unwrap(),
+            LayoutFlexWrap::WrapReverse
+        );
+        assert_eq!(
+            parse_layout_flex_wrap("  wrap  ").unwrap(),
+            LayoutFlexWrap::Wrap
+        );
+        assert!(parse_layout_flex_wrap("wrap reverse").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_justify_content() {
+        assert_eq!(
+            parse_layout_justify_content("flex-start").unwrap(),
+            LayoutJustifyContent::Start
+        );
+        assert_eq!(
+            parse_layout_justify_content("flex-end").unwrap(),
+            LayoutJustifyContent::End
+        );
+        assert_eq!(
+            parse_layout_justify_content("center").unwrap(),
+            LayoutJustifyContent::Center
+        );
+        assert_eq!(
+            parse_layout_justify_content("space-between").unwrap(),
+            LayoutJustifyContent::SpaceBetween
+        );
+        assert_eq!(
+            parse_layout_justify_content("space-around").unwrap(),
+            LayoutJustifyContent::SpaceAround
+        );
+        assert_eq!(
+            parse_layout_justify_content("space-evenly").unwrap(),
+            LayoutJustifyContent::SpaceEvenly
+        );
+        assert_eq!(
+            parse_layout_justify_content("  center  ").unwrap(),
+            LayoutJustifyContent::Center
+        );
+        assert!(parse_layout_justify_content("start").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_align_items() {
+        assert_eq!(
+            parse_layout_align_items("stretch").unwrap(),
+            LayoutAlignItems::Stretch
+        );
+        assert_eq!(
+            parse_layout_align_items("flex-start").unwrap(),
+            LayoutAlignItems::Start
+        );
+        assert_eq!(
+            parse_layout_align_items("flex-end").unwrap(),
+            LayoutAlignItems::End
+        );
+        assert_eq!(
+            parse_layout_align_items("center").unwrap(),
+            LayoutAlignItems::Center
+        );
+        assert_eq!(
+            parse_layout_align_items("baseline").unwrap(),
+            LayoutAlignItems::Baseline
+        );
+        assert!(parse_layout_align_items("end").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_align_content() {
+        assert_eq!(
+            parse_layout_align_content("stretch").unwrap(),
+            LayoutAlignContent::Stretch
+        );
+        assert_eq!(
+            parse_layout_align_content("flex-start").unwrap(),
+            LayoutAlignContent::Start
+        );
+        assert_eq!(
+            parse_layout_align_content("flex-end").unwrap(),
+            LayoutAlignContent::End
+        );
+        assert_eq!(
+            parse_layout_align_content("center").unwrap(),
+            LayoutAlignContent::Center
+        );
+        assert_eq!(
+            parse_layout_align_content("space-between").unwrap(),
+            LayoutAlignContent::SpaceBetween
+        );
+        assert_eq!(
+            parse_layout_align_content("space-around").unwrap(),
+            LayoutAlignContent::SpaceAround
+        );
+        assert!(parse_layout_align_content("space-evenly").is_err()); // Not valid for align-content
+    }
+
+    #[test]
+    fn test_parse_layout_flex_basis() {
+        assert_eq!(
+            parse_layout_flex_basis("auto").unwrap(),
+            LayoutFlexBasis::Auto
+        );
+        assert_eq!(
+            parse_layout_flex_basis("200px").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(200.0))
+        );
+        assert_eq!(
+            parse_layout_flex_basis("50%").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::percent(50.0))
+        );
+        assert_eq!(
+            parse_layout_flex_basis("  10em  ").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::em(10.0))
+        );
+        assert!(parse_layout_flex_basis("none").is_err());
+        assert!(parse_layout_flex_basis("200").is_err()); // unit is required unless 0
+        assert_eq!(
+            parse_layout_flex_basis("0").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(0.0))
+        );
+    }
+}

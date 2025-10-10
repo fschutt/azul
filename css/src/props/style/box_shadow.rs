@@ -202,3 +202,81 @@ pub fn parse_style_box_shadow<'a>(
 
     Ok(shadow)
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::pixel::PixelValue;
+
+    fn px_no_percent(val: f32) -> PixelValueNoPercent {
+        PixelValueNoPercent {
+            inner: PixelValue::px(val),
+        }
+    }
+
+    #[test]
+    fn test_parse_box_shadow_simple() {
+        let result = parse_style_box_shadow("10px 5px").unwrap();
+        assert_eq!(result.offset, [px_no_percent(10.0), px_no_percent(5.0)]);
+        assert_eq!(result.blur_radius, px_no_percent(0.0));
+        assert_eq!(result.spread_radius, px_no_percent(0.0));
+        assert_eq!(result.color, ColorU::BLACK);
+        assert_eq!(result.clip_mode, BoxShadowClipMode::Outset);
+    }
+
+    #[test]
+    fn test_parse_box_shadow_with_color() {
+        let result = parse_style_box_shadow("10px 5px #888").unwrap();
+        assert_eq!(result.offset, [px_no_percent(10.0), px_no_percent(5.0)]);
+        assert_eq!(result.color, ColorU::new_rgb(0x88, 0x88, 0x88));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_with_blur() {
+        let result = parse_style_box_shadow("5px 10px 20px").unwrap();
+        assert_eq!(result.offset, [px_no_percent(5.0), px_no_percent(10.0)]);
+        assert_eq!(result.blur_radius, px_no_percent(20.0));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_with_spread() {
+        let result = parse_style_box_shadow("2px 2px 2px 1px rgba(0,0,0,0.2)").unwrap();
+        assert_eq!(result.offset, [px_no_percent(2.0), px_no_percent(2.0)]);
+        assert_eq!(result.blur_radius, px_no_percent(2.0));
+        assert_eq!(result.spread_radius, px_no_percent(1.0));
+        assert_eq!(result.color, ColorU::new(0, 0, 0, 51));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_inset() {
+        let result = parse_style_box_shadow("inset 0 0 10px #000").unwrap();
+        assert_eq!(result.clip_mode, BoxShadowClipMode::Inset);
+        assert_eq!(result.offset, [px_no_percent(0.0), px_no_percent(0.0)]);
+        assert_eq!(result.blur_radius, px_no_percent(10.0));
+        assert_eq!(result.color, ColorU::BLACK);
+    }
+
+    #[test]
+    fn test_parse_box_shadow_mixed_order() {
+        let result = parse_style_box_shadow("5px 1em red inset").unwrap();
+        assert_eq!(result.clip_mode, BoxShadowClipMode::Inset);
+        assert_eq!(
+            result.offset,
+            [
+                px_no_percent(5.0),
+                PixelValueNoPercent {
+                    inner: PixelValue::em(1.0)
+                }
+            ]
+        );
+        assert_eq!(result.color, ColorU::RED);
+    }
+
+    #[test]
+    fn test_parse_box_shadow_invalid() {
+        assert!(parse_style_box_shadow("10px").is_err());
+        assert!(parse_style_box_shadow("10px 5px 4px 3px 2px").is_err());
+        assert!(parse_style_box_shadow("10px 5px red blue").is_err());
+        assert!(parse_style_box_shadow("10% 5px").is_err()); // No percent allowed
+    }
+}

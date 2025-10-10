@@ -298,3 +298,132 @@ typed_pixel_value_parser!(parse_layout_margin_left, LayoutMarginLeft);
 typed_pixel_value_parser!(parse_layout_column_gap, LayoutColumnGap);
 #[cfg(feature = "parser")]
 typed_pixel_value_parser!(parse_layout_row_gap, LayoutRowGap);
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::props::basic::pixel::{PixelValue, PixelValueWithAuto};
+
+    #[test]
+    fn test_parse_layout_padding_shorthand() {
+        // 1 value
+        let result = parse_layout_padding("10px").unwrap();
+        assert_eq!(result.top, PixelValueWithAuto::Exact(PixelValue::px(10.0)));
+        assert_eq!(
+            result.right,
+            PixelValueWithAuto::Exact(PixelValue::px(10.0))
+        );
+        assert_eq!(
+            result.bottom,
+            PixelValueWithAuto::Exact(PixelValue::px(10.0))
+        );
+        assert_eq!(result.left, PixelValueWithAuto::Exact(PixelValue::px(10.0)));
+
+        // 2 values
+        let result = parse_layout_padding("5% 2em").unwrap();
+        assert_eq!(
+            result.top,
+            PixelValueWithAuto::Exact(PixelValue::percent(5.0))
+        );
+        assert_eq!(result.right, PixelValueWithAuto::Exact(PixelValue::em(2.0)));
+        assert_eq!(
+            result.bottom,
+            PixelValueWithAuto::Exact(PixelValue::percent(5.0))
+        );
+        assert_eq!(result.left, PixelValueWithAuto::Exact(PixelValue::em(2.0)));
+
+        // 3 values
+        let result = parse_layout_padding("1px 2px 3px").unwrap();
+        assert_eq!(result.top, PixelValueWithAuto::Exact(PixelValue::px(1.0)));
+        assert_eq!(result.right, PixelValueWithAuto::Exact(PixelValue::px(2.0)));
+        assert_eq!(
+            result.bottom,
+            PixelValueWithAuto::Exact(PixelValue::px(3.0))
+        );
+        assert_eq!(result.left, PixelValueWithAuto::Exact(PixelValue::px(2.0)));
+
+        // 4 values
+        let result = parse_layout_padding("1px 2px 3px 4px").unwrap();
+        assert_eq!(result.top, PixelValueWithAuto::Exact(PixelValue::px(1.0)));
+        assert_eq!(result.right, PixelValueWithAuto::Exact(PixelValue::px(2.0)));
+        assert_eq!(
+            result.bottom,
+            PixelValueWithAuto::Exact(PixelValue::px(3.0))
+        );
+        assert_eq!(result.left, PixelValueWithAuto::Exact(PixelValue::px(4.0)));
+
+        // Whitespace
+        let result = parse_layout_padding("  1px   2px  ").unwrap();
+        assert_eq!(result.top, PixelValueWithAuto::Exact(PixelValue::px(1.0)));
+        assert_eq!(result.right, PixelValueWithAuto::Exact(PixelValue::px(2.0)));
+    }
+
+    #[test]
+    fn test_parse_layout_padding_errors() {
+        assert!(matches!(
+            parse_layout_padding("").err().unwrap(),
+            LayoutPaddingParseError::TooFewValues
+        ));
+        assert!(matches!(
+            parse_layout_padding("1px 2px 3px 4px 5px").err().unwrap(),
+            LayoutPaddingParseError::TooManyValues
+        ));
+        assert!(matches!(
+            parse_layout_padding("1px oops 3px").err().unwrap(),
+            LayoutPaddingParseError::PixelValueParseError(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_layout_margin_shorthand() {
+        // 1 value with auto
+        let result = parse_layout_margin("auto").unwrap();
+        assert_eq!(result.top, PixelValueWithAuto::Auto);
+        assert_eq!(result.right, PixelValueWithAuto::Auto);
+        assert_eq!(result.bottom, PixelValueWithAuto::Auto);
+        assert_eq!(result.left, PixelValueWithAuto::Auto);
+
+        // 2 values
+        let result = parse_layout_margin("10px auto").unwrap();
+        assert_eq!(result.top, PixelValueWithAuto::Exact(PixelValue::px(10.0)));
+        assert_eq!(result.right, PixelValueWithAuto::Auto);
+        assert_eq!(
+            result.bottom,
+            PixelValueWithAuto::Exact(PixelValue::px(10.0))
+        );
+        assert_eq!(result.left, PixelValueWithAuto::Auto);
+    }
+
+    #[test]
+    fn test_parse_layout_margin_errors() {
+        assert!(matches!(
+            parse_layout_margin("").err().unwrap(),
+            LayoutMarginParseError::TooFewValues
+        ));
+        assert!(matches!(
+            parse_layout_margin("1px 2px 3px 4px 5px").err().unwrap(),
+            LayoutMarginParseError::TooManyValues
+        ));
+        assert!(matches!(
+            parse_layout_margin("1px invalid").err().unwrap(),
+            LayoutMarginParseError::PixelValueParseError(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_longhand_spacing() {
+        assert_eq!(
+            parse_layout_padding_left("2em").unwrap(),
+            LayoutPaddingLeft {
+                inner: PixelValue::em(2.0)
+            }
+        );
+        assert!(parse_layout_margin_top("auto").is_err()); // Longhands don't parse "auto"
+        assert_eq!(
+            parse_layout_column_gap("20px").unwrap(),
+            LayoutColumnGap {
+                inner: PixelValue::px(20.0)
+            }
+        );
+    }
+}

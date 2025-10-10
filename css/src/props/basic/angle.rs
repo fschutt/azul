@@ -253,3 +253,73 @@ pub fn parse_angle_value<'a>(input: &'a str) -> Result<AngleValue, CssAngleValue
         Err(_) => Err(CssAngleValueParseError::InvalidAngle(input)),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_angle_value_deg() {
+        assert_eq!(parse_angle_value("90deg").unwrap(), AngleValue::deg(90.0));
+        assert_eq!(
+            parse_angle_value("-45.5deg").unwrap(),
+            AngleValue::deg(-45.5)
+        );
+        // Bare number defaults to degrees
+        assert_eq!(parse_angle_value("180").unwrap(), AngleValue::deg(180.0));
+    }
+
+    #[test]
+    fn test_parse_angle_value_rad() {
+        assert_eq!(parse_angle_value("1.57rad").unwrap(), AngleValue::rad(1.57));
+        assert_eq!(
+            parse_angle_value(" -3.14rad ").unwrap(),
+            AngleValue::rad(-3.14)
+        );
+    }
+
+    #[test]
+    fn test_parse_angle_value_grad() {
+        assert_eq!(
+            parse_angle_value("100grad").unwrap(),
+            AngleValue::grad(100.0)
+        );
+        assert_eq!(
+            parse_angle_value("400grad").unwrap(),
+            AngleValue::grad(400.0)
+        );
+    }
+
+    #[test]
+    fn test_parse_angle_value_turn() {
+        assert_eq!(
+            parse_angle_value("0.25turn").unwrap(),
+            AngleValue::turn(0.25)
+        );
+        assert_eq!(parse_angle_value("1turn").unwrap(), AngleValue::turn(1.0));
+    }
+
+    #[test]
+    fn test_parse_angle_value_percent() {
+        assert_eq!(parse_angle_value("50%").unwrap(), AngleValue::percent(50.0));
+    }
+
+    #[test]
+    fn test_parse_angle_value_errors() {
+        assert!(parse_angle_value("").is_err());
+        assert!(parse_angle_value("deg").is_err());
+        assert!(parse_angle_value("90 degs").is_err());
+        assert!(parse_angle_value("ninety-deg").is_err());
+        assert!(parse_angle_value("1.57 rads").is_err());
+    }
+
+    #[test]
+    fn test_to_degrees_conversion() {
+        assert_eq!(AngleValue::deg(90.0).to_degrees(), 90.0);
+        assert!((AngleValue::rad(core::f32::consts::PI).to_degrees() - 180.0).abs() < 1e-6);
+        assert_eq!(AngleValue::grad(100.0).to_degrees(), 90.0);
+        assert_eq!(AngleValue::turn(0.5).to_degrees(), 180.0);
+        assert_eq!(AngleValue::deg(-90.0).to_degrees(), 270.0);
+        assert_eq!(AngleValue::deg(450.0).to_degrees(), 90.0);
+    }
+}

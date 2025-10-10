@@ -426,3 +426,62 @@ pub fn parse_pixel_value_with_auto<'a>(
         e => Ok(PixelValueWithAuto::Exact(parse_pixel_value(e)?)),
     }
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_pixel_value() {
+        assert_eq!(parse_pixel_value("10px").unwrap(), PixelValue::px(10.0));
+        assert_eq!(parse_pixel_value("1.5em").unwrap(), PixelValue::em(1.5));
+        assert_eq!(parse_pixel_value("-20pt").unwrap(), PixelValue::pt(-20.0));
+        assert_eq!(parse_pixel_value("50%").unwrap(), PixelValue::percent(50.0));
+        assert_eq!(parse_pixel_value("1in").unwrap(), PixelValue::inch(1.0));
+        assert_eq!(parse_pixel_value("2.54cm").unwrap(), PixelValue::cm(2.54));
+        assert_eq!(parse_pixel_value("10mm").unwrap(), PixelValue::mm(10.0));
+        assert_eq!(parse_pixel_value("  0  ").unwrap(), PixelValue::px(0.0));
+    }
+
+    #[test]
+    fn test_parse_pixel_value_no_percent() {
+        assert_eq!(
+            parse_pixel_value_no_percent("10px").unwrap().inner,
+            PixelValue::px(10.0)
+        );
+        assert!(parse_pixel_value_no_percent("50%").is_err());
+    }
+
+    #[test]
+    fn test_parse_pixel_value_with_auto() {
+        assert_eq!(
+            parse_pixel_value_with_auto("10px").unwrap(),
+            PixelValueWithAuto::Exact(PixelValue::px(10.0))
+        );
+        assert_eq!(
+            parse_pixel_value_with_auto("auto").unwrap(),
+            PixelValueWithAuto::Auto
+        );
+        assert_eq!(
+            parse_pixel_value_with_auto("initial").unwrap(),
+            PixelValueWithAuto::Initial
+        );
+        assert_eq!(
+            parse_pixel_value_with_auto("inherit").unwrap(),
+            PixelValueWithAuto::Inherit
+        );
+        assert_eq!(
+            parse_pixel_value_with_auto("none").unwrap(),
+            PixelValueWithAuto::None
+        );
+    }
+
+    #[test]
+    fn test_parse_pixel_value_errors() {
+        assert!(parse_pixel_value("").is_err());
+        assert!(parse_pixel_value("10").is_err()); // Bare number other than 0 is an error
+        assert!(parse_pixel_value("10 px").is_err());
+        assert!(parse_pixel_value("px").is_err());
+        assert!(parse_pixel_value("ten-px").is_err());
+    }
+}

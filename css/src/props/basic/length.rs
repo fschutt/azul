@@ -237,3 +237,43 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
 
     Ok(PercentageValue::new(number))
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_float_value() {
+        assert_eq!(parse_float_value("10").unwrap().get(), 10.0);
+        assert_eq!(parse_float_value("2.5").unwrap().get(), 2.5);
+        assert_eq!(parse_float_value("-50.2").unwrap().get(), -50.2);
+        assert_eq!(parse_float_value("  0  ").unwrap().get(), 0.0);
+        assert!(parse_float_value("10a").is_err());
+        assert!(parse_float_value("").is_err());
+    }
+
+    #[test]
+    fn test_parse_percentage_value() {
+        // With percent sign
+        assert_eq!(parse_percentage_value("50%").unwrap().normalized(), 0.5);
+        assert_eq!(parse_percentage_value("120%").unwrap().normalized(), 1.2);
+        assert_eq!(parse_percentage_value("-25%").unwrap().normalized(), -0.25);
+        assert_eq!(
+            parse_percentage_value("  75.5%  ").unwrap().normalized(),
+            0.755
+        );
+
+        // As a ratio
+        assert!((parse_percentage_value("0.5").unwrap().normalized() - 0.5).abs() < 1e-6);
+        assert!((parse_percentage_value("1.2").unwrap().normalized() - 1.2).abs() < 1e-6);
+        assert!((parse_percentage_value("1").unwrap().normalized() - 1.0).abs() < 1e-6);
+
+        // Errors
+        assert!(matches!(
+            parse_percentage_value("50px").err().unwrap(),
+            PercentageParseError::InvalidUnit(_)
+        ));
+        assert!(parse_percentage_value("fifty%").is_err());
+        assert!(parse_percentage_value("").is_err());
+    }
+}

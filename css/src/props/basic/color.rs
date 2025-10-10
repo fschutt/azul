@@ -750,3 +750,82 @@ fn parse_color_builtin<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
     };
     Ok(ColorU { r, g, b, a })
 }
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_color_keywords() {
+        assert_eq!(parse_css_color("red").unwrap(), ColorU::RED);
+        assert_eq!(parse_css_color("blue").unwrap(), ColorU::BLUE);
+        assert_eq!(parse_css_color("transparent").unwrap(), ColorU::TRANSPARENT);
+        assert_eq!(
+            parse_css_color("rebeccapurple").unwrap(),
+            ColorU::new_rgb(102, 51, 153)
+        );
+    }
+
+    #[test]
+    fn test_parse_color_hex() {
+        // 3-digit
+        assert_eq!(parse_css_color("#f00").unwrap(), ColorU::RED);
+        // 4-digit
+        assert_eq!(
+            parse_css_color("#f008").unwrap(),
+            ColorU::new(255, 0, 0, 136)
+        );
+        // 6-digit
+        assert_eq!(parse_css_color("#00ff00").unwrap(), ColorU::GREEN);
+        // 8-digit
+        assert_eq!(
+            parse_css_color("#0000ff80").unwrap(),
+            ColorU::new(0, 0, 255, 128)
+        );
+        // Uppercase
+        assert_eq!(
+            parse_css_color("#FFC0CB").unwrap(),
+            ColorU::new_rgb(255, 192, 203)
+        ); // Pink
+    }
+
+    #[test]
+    fn test_parse_color_rgb() {
+        assert_eq!(parse_css_color("rgb(255, 0, 0)").unwrap(), ColorU::RED);
+        assert_eq!(
+            parse_css_color("rgba(0, 255, 0, 0.5)").unwrap(),
+            ColorU::new(0, 255, 0, 128)
+        );
+        assert_eq!(
+            parse_css_color("rgba(10, 20, 30, 1)").unwrap(),
+            ColorU::new_rgb(10, 20, 30)
+        );
+        assert_eq!(parse_css_color("rgb( 0 , 0 , 0 )").unwrap(), ColorU::BLACK);
+    }
+
+    #[test]
+    fn test_parse_color_hsl() {
+        assert_eq!(parse_css_color("hsl(0, 100%, 50%)").unwrap(), ColorU::RED);
+        assert_eq!(
+            parse_css_color("hsl(120, 100%, 50%)").unwrap(),
+            ColorU::GREEN
+        );
+        assert_eq!(
+            parse_css_color("hsla(240, 100%, 50%, 0.5)").unwrap(),
+            ColorU::new(0, 0, 255, 128)
+        );
+        assert_eq!(parse_css_color("hsl(0, 0%, 0%)").unwrap(), ColorU::BLACK);
+    }
+
+    #[test]
+    fn test_parse_color_errors() {
+        assert!(parse_css_color("redd").is_err());
+        assert!(parse_css_color("#12345").is_err()); // Invalid length
+        assert!(parse_css_color("#ggg").is_err()); // Invalid hex digit
+        assert!(parse_css_color("rgb(255, 0)").is_err()); // Missing component
+        assert!(parse_css_color("rgba(255, 0, 0, 2)").is_err()); // Alpha out of range
+        assert!(parse_css_color("rgb(256, 0, 0)").is_err()); // Value out of range
+        assert!(parse_css_color("hsl(0, 100, 50%)").is_err()); // Missing %
+        assert!(parse_css_color("rgb(255 0 0)").is_err()); // Missing commas
+    }
+}
