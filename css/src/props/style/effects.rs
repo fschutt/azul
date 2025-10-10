@@ -197,15 +197,18 @@ pub mod parsers {
     #[derive(Clone, PartialEq)]
     pub enum OpacityParseError<'a> {
         ParsePercentage(PercentageParseError, &'a str),
+        OutOfRange(&'a str),
     }
     impl_debug_as_display!(OpacityParseError<'a>);
     impl_display! { OpacityParseError<'a>, {
         ParsePercentage(e, s) => format!("Invalid opacity value \"{}\": {}", s, e),
+        OutOfRange(s) => format!("Invalid opacity value \"{}\": must be between 0 and 1", s),
     }}
 
     #[derive(Debug, Clone, PartialEq)]
     pub enum OpacityParseErrorOwned {
         ParsePercentage(PercentageParseError, String),
+        OutOfRange(String),
     }
 
     impl<'a> OpacityParseError<'a> {
@@ -213,6 +216,9 @@ pub mod parsers {
             match self {
                 Self::ParsePercentage(err, s) => {
                     OpacityParseErrorOwned::ParsePercentage(err.clone(), s.to_string())
+                }
+                Self::OutOfRange(s) => {
+                    OpacityParseErrorOwned::OutOfRange(s.to_string())
                 }
             }
         }
@@ -224,14 +230,23 @@ pub mod parsers {
                 Self::ParsePercentage(err, s) => {
                     OpacityParseError::ParsePercentage(err.clone(), s.as_str())
                 }
+                Self::OutOfRange(s) => {
+                    OpacityParseError::OutOfRange(s.as_str())
+                }
             }
         }
     }
 
     pub fn parse_style_opacity<'a>(input: &'a str) -> Result<StyleOpacity, OpacityParseError<'a>> {
-        parse_percentage_value(input)
-            .map(|val| StyleOpacity { inner: val })
-            .map_err(|e| OpacityParseError::ParsePercentage(e, input))
+        let val = parse_percentage_value(input)
+            .map_err(|e| OpacityParseError::ParsePercentage(e, input))?;
+        
+        let normalized = val.normalized();
+        if normalized < 0.0 || normalized > 1.0 {
+            return Err(OpacityParseError::OutOfRange(input));
+        }
+        
+        Ok(StyleOpacity { inner: val })
     }
 
     // -- Mix Blend Mode Parser --

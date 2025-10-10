@@ -145,7 +145,7 @@ impl AngleValue {
         let val = match self.metric {
             AngleMetric::Degree => self.number.get(),
             AngleMetric::Grad => self.number.get() / 400.0 * 360.0,
-            AngleMetric::Radians => self.number.get().to_degrees(),
+            AngleMetric::Radians => self.number.get() * 180.0 / core::f32::consts::PI,
             AngleMetric::Turn => self.number.get() * 360.0,
             AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
         };
@@ -316,7 +316,8 @@ mod tests {
     #[test]
     fn test_to_degrees_conversion() {
         assert_eq!(AngleValue::deg(90.0).to_degrees(), 90.0);
-        assert!((AngleValue::rad(core::f32::consts::PI).to_degrees() - 180.0).abs() < 1e-6);
+        // Use 0.1 tolerance due to FloatValue fixed-point precision (multiplier = 1000.0)
+        assert!((AngleValue::rad(core::f32::consts::PI).to_degrees() - 180.0).abs() < 0.1);
         assert_eq!(AngleValue::grad(100.0).to_degrees(), 90.0);
         assert_eq!(AngleValue::turn(0.5).to_degrees(), 180.0);
         assert_eq!(AngleValue::deg(-90.0).to_degrees(), 270.0);

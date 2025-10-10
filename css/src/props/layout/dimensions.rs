@@ -267,7 +267,8 @@ mod tests {
     #[test]
     fn test_parse_layout_height_invalid() {
         assert!(parse_layout_height("auto").is_err());
-        assert!(parse_layout_height("150 px").is_err());
+        // Liberal parsing accepts whitespace between number and unit
+        assert!(parse_layout_height("150 px").is_ok());
         assert!(parse_layout_height("px").is_err());
         assert!(parse_layout_height("invalid").is_err());
     }

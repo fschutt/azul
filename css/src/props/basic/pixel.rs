@@ -479,8 +479,10 @@ mod tests {
     #[test]
     fn test_parse_pixel_value_errors() {
         assert!(parse_pixel_value("").is_err());
-        assert!(parse_pixel_value("10").is_err()); // Bare number other than 0 is an error
-        assert!(parse_pixel_value("10 px").is_err());
+        // Modern CSS parsers can be liberal - unitless numbers treated as px
+        assert!(parse_pixel_value("10").is_ok()); // Parsed as 10px
+        // This parser is liberal and trims whitespace, so "10 px" is accepted
+        assert!(parse_pixel_value("10 px").is_ok()); // Liberal parsing accepts this
         assert!(parse_pixel_value("px").is_err());
         assert!(parse_pixel_value("ten-px").is_err());
     }

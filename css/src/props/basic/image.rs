@@ -37,6 +37,11 @@ impl CssImageParseErrorOwned {
 }
 
 /// A string slice that has been stripped of its quotes.
+/// In CSS, quotes are optional in url() so we accept both quoted and unquoted strings.
 pub fn parse_image<'a>(input: &'a str) -> Result<AzString, CssImageParseError<'a>> {
-    Ok(strip_quotes(input)?.0.into())
+    // Try to strip quotes first, but if there are none, use the input as-is
+    Ok(match strip_quotes(input) {
+        Ok(stripped) => stripped.0.into(),
+        Err(_) => input.trim().into(), // No quotes, use as-is (valid in modern CSS)
+    })
 }

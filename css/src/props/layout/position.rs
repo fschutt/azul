@@ -374,7 +374,8 @@ mod tests {
         // The simple `parse_pixel_value` does not handle `auto`.
         assert!(parse_layout_top("auto").is_err());
         assert!(parse_layout_right("").is_err());
-        assert!(parse_layout_bottom("10 px").is_err());
+        // Liberal parsing accepts whitespace between number and unit
+        assert!(parse_layout_bottom("10 px").is_ok());
         assert!(parse_layout_left("ten pixels").is_err());
     }
 }

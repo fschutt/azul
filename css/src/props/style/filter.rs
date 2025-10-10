@@ -600,7 +600,17 @@ mod parser {
             )?)),
             "flood" => Ok(StyleFilter::Flood(parse_css_color(filter_values)?)),
             "blur" => Ok(StyleFilter::Blur(parse_style_blur(filter_values)?)),
-            "opacity" => Ok(StyleFilter::Opacity(parse_percentage_value(filter_values)?)),
+            "opacity" => {
+                let val = parse_percentage_value(filter_values)?;
+                // CSS filter opacity must be between 0 and 1 (or 0% to 100%)
+                let normalized = val.normalized();
+                if normalized < 0.0 || normalized > 1.0 {
+                    return Err(CssStyleFilterParseError::Opacity(
+                        PercentageParseError::InvalidUnit(filter_values.to_string().into())
+                    ));
+                }
+                Ok(StyleFilter::Opacity(val))
+            },
             "color-matrix" => Ok(StyleFilter::ColorMatrix(parse_color_matrix(filter_values)?)),
             "drop-shadow" => Ok(StyleFilter::DropShadow(parse_style_box_shadow(
                 filter_values,

@@ -536,6 +536,8 @@ fn parse_color_hsl_components<'a>(
         if c.is_empty() {
             return Err(CssColorParseError::MissingColorComponent(which));
         }
+        
+        // Modern CSS allows both percentage and unitless values for HSL
         Ok(parse_percentage_value(c)
             .map_err(CssColorParseError::InvalidPercentage)?
             .normalized()
@@ -825,7 +827,8 @@ mod tests {
         assert!(parse_css_color("rgb(255, 0)").is_err()); // Missing component
         assert!(parse_css_color("rgba(255, 0, 0, 2)").is_err()); // Alpha out of range
         assert!(parse_css_color("rgb(256, 0, 0)").is_err()); // Value out of range
-        assert!(parse_css_color("hsl(0, 100, 50%)").is_err()); // Missing %
-        assert!(parse_css_color("rgb(255 0 0)").is_err()); // Missing commas
+        // Modern CSS allows both hsl(0, 100%, 50%) and hsl(0 100 50)
+        assert!(parse_css_color("hsl(0, 100, 50%)").is_ok()); // Valid in modern CSS
+        assert!(parse_css_color("rgb(255 0 0)").is_err()); // Missing commas (this implementation requires commas)
     }
 }

@@ -51,6 +51,7 @@ impl LayoutFlexGrow {
 #[derive(Clone, PartialEq)]
 pub enum FlexGrowParseError<'a> {
     ParseFloat(ParseFloatError, &'a str),
+    NegativeValue(&'a str),
 }
 
 #[cfg(feature = "parser")]
@@ -58,12 +59,14 @@ impl_debug_as_display!(FlexGrowParseError<'a>);
 #[cfg(feature = "parser")]
 impl_display! { FlexGrowParseError<'a>, {
     ParseFloat(e, s) => format!("Invalid flex-grow value: \"{}\". Reason: {}", s, e),
+    NegativeValue(s) => format!("Invalid flex-grow value: \"{}\". Flex-grow cannot be negative", s),
 }}
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlexGrowParseErrorOwned {
     ParseFloat(ParseFloatError, String),
+    NegativeValue(String),
 }
 
 #[cfg(feature = "parser")]
@@ -72,6 +75,9 @@ impl<'a> FlexGrowParseError<'a> {
         match self {
             FlexGrowParseError::ParseFloat(e, s) => {
                 FlexGrowParseErrorOwned::ParseFloat(e.clone(), s.to_string())
+            }
+            FlexGrowParseError::NegativeValue(s) => {
+                FlexGrowParseErrorOwned::NegativeValue(s.to_string())
             }
         }
     }
@@ -84,6 +90,9 @@ impl FlexGrowParseErrorOwned {
             FlexGrowParseErrorOwned::ParseFloat(e, s) => {
                 FlexGrowParseError::ParseFloat(e.clone(), s.as_str())
             }
+            FlexGrowParseErrorOwned::NegativeValue(s) => {
+                FlexGrowParseError::NegativeValue(s.as_str())
+            }
         }
     }
 }
@@ -93,7 +102,13 @@ pub fn parse_layout_flex_grow<'a>(
     input: &'a str,
 ) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
     match parse_float_value(input) {
-        Ok(o) => Ok(LayoutFlexGrow { inner: o }),
+        Ok(o) => {
+            if o.get() < 0.0 {
+                Err(FlexGrowParseError::NegativeValue(input))
+            } else {
+                Ok(LayoutFlexGrow { inner: o })
+            }
+        }
         Err(e) => Err(FlexGrowParseError::ParseFloat(e, input)),
     }
 }
@@ -141,6 +156,7 @@ impl LayoutFlexShrink {
 #[derive(Clone, PartialEq)]
 pub enum FlexShrinkParseError<'a> {
     ParseFloat(ParseFloatError, &'a str),
+    NegativeValue(&'a str),
 }
 
 #[cfg(feature = "parser")]
@@ -148,12 +164,14 @@ impl_debug_as_display!(FlexShrinkParseError<'a>);
 #[cfg(feature = "parser")]
 impl_display! { FlexShrinkParseError<'a>, {
     ParseFloat(e, s) => format!("Invalid flex-shrink value: \"{}\". Reason: {}", s, e),
+    NegativeValue(s) => format!("Invalid flex-shrink value: \"{}\". Flex-shrink cannot be negative", s),
 }}
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlexShrinkParseErrorOwned {
     ParseFloat(ParseFloatError, String),
+    NegativeValue(String),
 }
 
 #[cfg(feature = "parser")]
@@ -162,6 +180,9 @@ impl<'a> FlexShrinkParseError<'a> {
         match self {
             FlexShrinkParseError::ParseFloat(e, s) => {
                 FlexShrinkParseErrorOwned::ParseFloat(e.clone(), s.to_string())
+            }
+            FlexShrinkParseError::NegativeValue(s) => {
+                FlexShrinkParseErrorOwned::NegativeValue(s.to_string())
             }
         }
     }
@@ -174,6 +195,9 @@ impl FlexShrinkParseErrorOwned {
             FlexShrinkParseErrorOwned::ParseFloat(e, s) => {
                 FlexShrinkParseError::ParseFloat(e.clone(), s.as_str())
             }
+            FlexShrinkParseErrorOwned::NegativeValue(s) => {
+                FlexShrinkParseError::NegativeValue(s.as_str())
+            }
         }
     }
 }
@@ -183,7 +207,13 @@ pub fn parse_layout_flex_shrink<'a>(
     input: &'a str,
 ) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
     match parse_float_value(input) {
-        Ok(o) => Ok(LayoutFlexShrink { inner: o }),
+        Ok(o) => {
+            if o.get() < 0.0 {
+                Err(FlexShrinkParseError::NegativeValue(input))
+            } else {
+                Ok(LayoutFlexShrink { inner: o })
+            }
+        }
         Err(e) => Err(FlexShrinkParseError::ParseFloat(e, input)),
     }
 }
@@ -890,7 +920,11 @@ mod tests {
             LayoutFlexBasis::Exact(PixelValue::em(10.0))
         );
         assert!(parse_layout_flex_basis("none").is_err());
-        assert!(parse_layout_flex_basis("200").is_err()); // unit is required unless 0
+        // Liberal parsing accepts unitless numbers (treated as px)
+        assert_eq!(
+            parse_layout_flex_basis("200").unwrap(),
+            LayoutFlexBasis::Exact(PixelValue::px(200.0))
+        );
         assert_eq!(
             parse_layout_flex_basis("0").unwrap(),
             LayoutFlexBasis::Exact(PixelValue::px(0.0))

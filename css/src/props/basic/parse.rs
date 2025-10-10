@@ -6,12 +6,47 @@ use crate::props::basic::CssImageParseError;
 /// "url(another,thing)"]` whereas a normal split by comma would yield `["url(something", "else)",
 /// "url(another", "thing)"]`
 pub fn split_string_respect_comma<'a>(input: &'a str) -> Vec<&'a str> {
+    split_string_by_char(input, ',')
+}
+
+/// Splits a string by whitespace, but respects parentheses/braces
+///
+/// E.g. `translateX(10px) rotate(90deg)` becomes `["translateX(10px)", "rotate(90deg)"]`
+pub fn split_string_respect_whitespace<'a>(input: &'a str) -> Vec<&'a str> {
+    let mut items = Vec::<&str>::new();
+    let mut current_start = 0;
+    let mut depth = 0;
+    let input_bytes = input.as_bytes();
+    
+    for (idx, &ch) in input_bytes.iter().enumerate() {
+        match ch {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => {
+                if current_start < idx {
+                    items.push(&input[current_start..idx]);
+                }
+                current_start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    
+    // Add the last segment
+    if current_start < input.len() {
+        items.push(&input[current_start..]);
+    }
+    
+    items
+}
+
+fn split_string_by_char<'a>(input: &'a str, target_char: char) -> Vec<&'a str> {
     let mut comma_separated_items = Vec::<&str>::new();
     let mut current_input = &input[..];
 
     'outer: loop {
         let (skip_next_braces_result, character_was_found) =
-            match skip_next_braces(&current_input, ',') {
+            match skip_next_braces(&current_input, target_char) {
                 Some(s) => s,
                 None => break 'outer,
             };
