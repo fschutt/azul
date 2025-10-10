@@ -9,15 +9,28 @@ use core::{
 };
 
 use azul_css::{
-    AzString, ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth,
-    LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom,
-    LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat, LayoutHeight,
-    LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
-    LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
-    LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
-    LayoutPoint, LayoutPosition, LayoutRect, LayoutRectVec, LayoutRight, LayoutSize, LayoutTop,
-    LayoutWidth, OptionF32, OptionStyleTextAlign, PixelValue, StyleBoxShadow, StyleFontSize,
-    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
+    css::CssPropertyValue,
+    props::{
+        basic::{
+            ColorU as StyleColorU, LayoutPoint, LayoutRect, LayoutRectVec, LayoutSize, PixelValue,
+            StyleFontSize,
+        },
+        layout::{
+            LayoutBottom, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat,
+            LayoutHeight, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
+            LayoutMarginRight, LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight,
+            LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight, LayoutTop,
+            LayoutWidth,
+        },
+        property::OptionStyleTextAlign,
+        style::{
+            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBoxShadow, StyleTextAlign, StyleTextColor, StyleTransform,
+            StyleTransformOrigin, StyleVerticalAlign,
+        },
+    },
+    AzString, OptionF32,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -198,7 +211,7 @@ impl InlineTextLayout {
 
 #[inline]
 pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlign) -> Option<f32> {
-    use azul_css::StyleTextAlign::*;
+    use azul_css::props::style::StyleTextAlign::*;
     match horizontal_alignment {
         Left => None,
         Start => Some(0.0),
@@ -211,7 +224,7 @@ pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlig
 
 #[inline]
 pub fn calculate_vertical_shift_multiplier(vertical_alignment: StyleVerticalAlign) -> Option<f32> {
-    use azul_css::StyleVerticalAlign::*;
+    use azul_css::props::style::StyleVerticalAlign::*;
     match vertical_alignment {
         Top => None,
         Center => Some(0.5), // move the line by the half width
@@ -2412,7 +2425,7 @@ impl ComputedTransform3D {
         percent_resolve_y: f32,
         rotation_mode: RotationMode,
     ) -> Self {
-        use azul_css::StyleTransform::*;
+        use azul_css::props::style::StyleTransform::*;
         match t {
             Matrix(mat2d) => {
                 let a = mat2d.a.to_pixels(percent_resolve_x);

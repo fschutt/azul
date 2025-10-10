@@ -5,7 +5,12 @@ use alloc::string::ToString;
 use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::hash::Hash;
 
-use azul_css::*;
+// Import all the types we need from the refactored azul_css
+use azul_css::{
+    corety::*,
+    css::*,
+    props::{basic::*, layout::*, property::*, style::*},
+};
 
 // In order to generate the Rust code, all items that implement Drop
 // have to be declared before being used.
@@ -1580,7 +1585,7 @@ impl FormatAsRustCode for StyleFontFamilyVec {
 
 impl FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        use azul_css::StyleFontFamily::*;
+        use azul_css::props::basic::StyleFontFamily::*;
         let t = String::from("    ").repeat(tabs);
         match self {
             System(id) => format!("StyleFontFamily::System(STRING_{})", id.get_hash()),

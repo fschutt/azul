@@ -2,14 +2,21 @@ use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::ToString, vec:
 use core::fmt;
 
 use azul_css::{
-    BoxShadowClipMode, ColorU, ConicGradient, CssPropertyValue, LayoutBorderBottomWidth,
-    LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutDebugMessage,
-    LayoutPoint, LayoutRect, LayoutSize, LinearGradient, RadialGradient, StyleBackgroundPosition,
-    StyleBackgroundRepeat, StyleBackgroundSize, StyleBorderBottomColor,
-    StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderBottomStyle,
-    StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
-    StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle,
-    StyleBoxShadow, StyleMixBlendMode,
+    css::CssPropertyValue,
+    props::{
+        basic::{ColorU, LayoutPoint, LayoutRect, LayoutSize},
+        style::{
+            BoxShadowClipMode, ConicGradient, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+            LayoutBorderRightWidth, LayoutBorderTopWidth, LinearGradient, RadialGradient,
+            StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle,
+            StyleBoxShadow, StyleMixBlendMode,
+        },
+    },
+    LayoutDebugMessage,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -889,7 +896,7 @@ pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
 ) -> Option<DisplayListMsg> {
-    use azul_css::LayoutDisplay;
+    use azul_css::props::layout::LayoutDisplay;
 
     use crate::{app_resources::ResolvedImage, dom::NodeType::*, styled_dom::AzTagId};
 
@@ -1115,7 +1122,7 @@ pub fn displaylist_handle_rect<'a>(
         .get_background_content(&html_node, &rect_idx, &styled_node.state);
 
     if let Some(bg) = bg_opt.as_ref().and_then(|br| br.get_property()) {
-        use azul_css::{
+        use azul_css::props::style::{
             StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec,
         };
 
@@ -1150,7 +1157,7 @@ pub fn displaylist_handle_rect<'a>(
             .unwrap_or(&default_bg_repeat_vec);
 
         for (bg_index, bg) in bg.iter().enumerate() {
-            use azul_css::{AzString, StyleBackgroundContent::*};
+            use azul_css::{props::style::StyleBackgroundContent::*, AzString};
 
             fn get_image_background_key(
                 renderer_resources: &RendererResources,

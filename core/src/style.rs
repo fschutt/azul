@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use azul_css::{
+use azul_css::css::{
     CssContentGroup, CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
 };
 
@@ -300,7 +300,7 @@ pub fn selector_group_matches(
                         }
                     }
                     CssPathPseudoSelector::NthChild(x) => {
-                        use azul_css::CssNthChildPattern;
+                        use azul_css::css::CssNthChildPattern;
                         let index_in_parent = html_node.index_in_parent + 1; // nth-child starts at 1!
                         match *x {
                             Number(value) => {

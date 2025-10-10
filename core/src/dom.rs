@@ -9,7 +9,11 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use azul_css::{AzString, Css, CssProperty, FontRef, LayoutDisplay, NodeTypeTag, OptionAzString};
+use azul_css::{
+    css::{Css, NodeTypeTag},
+    props::{basic::FontRef, layout::LayoutDisplay, property::CssProperty},
+    AzString, OptionAzString,
+};
 
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
 use crate::{
@@ -975,7 +979,7 @@ pub enum NodeDataInlineCssProperty {
 
 macro_rules! parse_from_str {
     ($s:expr, $prop_type:ident) => {{
-        use azul_css::{parser::ErrorLocation, CssDeclaration, CssKeyMap};
+        use azul_css::{css::CssDeclaration, parser2::ErrorLocation, props::property::CssKeyMap};
 
         let s = $s.trim();
         let css_key_map = CssKeyMap::get();
@@ -989,7 +993,7 @@ macro_rules! parse_from_str {
                 let mut declarations = Vec::new();
                 let mut warnings = Vec::new();
 
-                azul_css::parser::parse_css_declaration(
+                azul_css::parser2::parse_css_declaration(
                     key,
                     value,
                     (ErrorLocation::default(), ErrorLocation::default()),

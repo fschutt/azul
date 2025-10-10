@@ -9,11 +9,21 @@ use alloc::{
 use core::{fmt, hash::Hash};
 
 use azul_css::{
-    parser::{CssApiWrapper, CssParseErrorOwned, ErrorLocation},
-    AzString, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssProperty,
-    CssRuleBlock, NodeTypeTag, NormalizedLinearColorStopVec, NormalizedRadialColorStopVec,
-    OptionAzString, StyleBackgroundContentVec, StyleBackgroundPositionVec,
-    StyleBackgroundRepeatVec, StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec,
+    css::{
+        Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock,
+        NodeTypeTag,
+    },
+    parser2::{CssApiWrapper, CssParseErrorOwned, ErrorLocation},
+    props::{
+        basic::StyleFontFamilyVec,
+        property::CssProperty,
+        style::{
+            NormalizedLinearColorStopVec, NormalizedRadialColorStopVec, StyleBackgroundContentVec,
+            StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec,
+            StyleTransformVec,
+        },
+    },
+    AzString, OptionAzString, U8Vec,
 };
 
 use crate::{
@@ -2276,7 +2286,7 @@ impl CssMatcher {
 
 impl CssMatcher {
     fn matches(&self, path: &CssPath) -> bool {
-        use azul_css::CssPathSelector::*;
+        use azul_css::css::CssPathSelector::*;
 
         use crate::style::{CssGroupIterator, CssGroupSplitReason};
 
@@ -2375,7 +2385,7 @@ fn group_matches(
     idx_in_parent: usize,
     parent_children: usize,
 ) -> bool {
-    use azul_css::{CssNthChildSelector, CssPathPseudoSelector, CssPathSelector::*};
+    use azul_css::css::{CssNthChildSelector, CssPathPseudoSelector, CssPathSelector::*};
 
     for selector in a {
         match selector {
@@ -2451,7 +2461,7 @@ pub fn compile_body_node_to_rust_code<'a>(
     css: &Css,
     mut matcher: CssMatcher,
 ) -> Result<String, CompileError> {
-    use azul_css::CssDeclaration;
+    use azul_css::css::CssDeclaration;
 
     let t = "";
     let t2 = "    ";
@@ -2647,7 +2657,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     css: &Css,
     mut matcher: CssMatcher,
 ) -> Result<String, CompileError> {
-    use azul_css::CssDeclaration;
+    use azul_css::css::CssDeclaration;
 
     let t = String::from("    ").repeat(tabs - 1);
     let t2 = String::from("    ").repeat(tabs);

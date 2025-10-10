@@ -7,10 +7,15 @@ use alloc::{
 use core::fmt;
 
 use azul_css::{
-    AzString, ColorF, ColorU, OptionAzString, OptionColorU, OptionLayoutSize, StringVec,
-    StyleTransformOrigin, StyleTransformVec, U32Vec,
+    props::{
+        basic::{
+            ColorF, ColorU, OptionColorU, OptionLayoutSize, SvgCubicCurve, SvgPoint,
+            SvgQuadraticCurve, SvgRect, SvgVector,
+        },
+        style::{StyleTransformOrigin, StyleTransformVec},
+    },
+    AzString, OptionAzString, StringVec, U32Vec,
 };
-pub use azul_css::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector};
 
 use crate::{
     gl::{
@@ -791,7 +796,7 @@ impl TessellatedGPUSvgNode {
         color: ColorU,
         transforms: StyleTransformVec,
     ) -> bool {
-        use azul_css::PixelValue;
+        use azul_css::props::basic::PixelValue;
 
         use crate::gl::{GlShader, Uniform, UniformType};
 
@@ -874,7 +879,7 @@ impl TessellatedColoredGPUSvgNode {
         target_size: PhysicalSizeU32,
         transforms: StyleTransformVec,
     ) -> bool {
-        use azul_css::PixelValue;
+        use azul_css::props::basic::PixelValue;
 
         use crate::gl::{GlShader, Uniform, UniformType};
 

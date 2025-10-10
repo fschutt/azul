@@ -5,28 +5,37 @@ use core::{
 };
 
 use azul_css::{
-    parser::CssApiWrapper, AzString, Css, CssPath, CssProperty, CssPropertyType,
-    LayoutAlignContentValue, LayoutAlignItemsValue, LayoutBorderBottomWidthValue,
-    LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderTopWidthValue,
-    LayoutBottomValue, LayoutBoxSizingValue, LayoutDisplayValue, LayoutFlexDirectionValue,
-    LayoutFlexGrowValue, LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue,
-    LayoutHeightValue, LayoutJustifyContentValue, LayoutLeftValue, LayoutMarginBottomValue,
-    LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue,
-    LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue,
-    LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue,
-    LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutTopValue, LayoutWidthValue,
-    StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
-    StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
-    StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
-    StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
-    StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
-    StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue,
-    StyleBoxShadowValue, StyleCursorValue, StyleDirectionValue, StyleFilterVecValue,
-    StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue, StyleFontSize,
-    StyleFontSizeValue, StyleHyphensValue, StyleLetterSpacingValue, StyleLineHeightValue,
-    StyleMixBlendModeValue, StyleOpacityValue, StylePerspectiveOriginValue, StyleTabWidthValue,
-    StyleTextAlignValue, StyleTextColor, StyleTextColorValue, StyleTransformOriginValue,
-    StyleTransformVecValue, StyleWhiteSpaceValue, StyleWordSpacingValue,
+    css::{Css, CssPath},
+    parser2::CssApiWrapper,
+    props::{
+        basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
+        property::{
+            CssProperty, CssPropertyType, LayoutAlignContentValue, LayoutAlignItemsValue,
+            LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue,
+            LayoutBorderTopWidthValue, LayoutBottomValue, LayoutBoxSizingValue, LayoutDisplayValue,
+            LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue,
+            LayoutFlexWrapValue, LayoutFloatValue, LayoutHeightValue, LayoutJustifyContentValue,
+            LayoutLeftValue, LayoutMarginBottomValue, LayoutMarginLeftValue,
+            LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue,
+            LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue,
+            LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue,
+            LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutTopValue,
+            LayoutWidthValue, StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue,
+            StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue,
+            StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
+            StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
+            StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
+            StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
+            StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue,
+            StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCursorValue, StyleDirectionValue,
+            StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleHyphensValue,
+            StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue,
+            StyleOpacityValue, StylePerspectiveOriginValue, StyleTabWidthValue,
+            StyleTextAlignValue, StyleTextColor, StyleTextColorValue, StyleTransformOriginValue,
+            StyleTransformVecValue, StyleWhiteSpaceValue, StyleWordSpacingValue,
+        },
+    },
+    AzString,
 };
 
 use crate::{
@@ -264,7 +273,10 @@ impl CssPropertyCache {
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
-        use azul_css::{CssDeclaration, CssPathPseudoSelector::*, LayoutDisplay};
+        use azul_css::{
+            css::{CssDeclaration, CssPathPseudoSelector::*},
+            props::layout::LayoutDisplay,
+        };
 
         let css_is_empty = css.is_empty();
 
@@ -2997,7 +3009,7 @@ impl StyledDom {
     /// this way scrollbars aren't treated as "special" objects (the event
     /// handling for scrollbars are just regular callback handlers).
     pub fn inject_scroll_bars(&mut self) {
-        use azul_css::parser::CssApiWrapper;
+        use azul_css::parser2::CssApiWrapper;
 
         // allocate 14 nodes for every node
         //
@@ -3112,7 +3124,7 @@ impl StyledDom {
 
     /// Inject a menu bar into the root component
     pub fn inject_menu_bar(mut self, menu_bar: &Menu) -> Self {
-        use azul_css::parser::CssApiWrapper;
+        use azul_css::parser2::CssApiWrapper;
 
         use crate::window::MenuItem;
 
@@ -3329,7 +3341,7 @@ impl StyledDom {
 
     /// Scans the display list for all image keys
     pub fn scan_for_image_keys(&self, css_image_cache: &ImageCache) -> FastBTreeSet<ImageRef> {
-        use azul_css::StyleBackgroundContentVec;
+        use azul_css::props::style::StyleBackgroundContentVec;
 
         use crate::{app_resources::OptionImageMask, dom::NodeType::*};
 
@@ -3370,7 +3382,7 @@ impl StyledDom {
                         .unwrap_or(&default_backgrounds)
                         .iter()
                         .filter_map(|bg| {
-                            use azul_css::StyleBackgroundContent::*;
+                            use azul_css::props::style::StyleBackgroundContent::*;
                             let css_image_id = match bg {
                                 Image(i) => i,
                                 _ => return None,
@@ -4178,7 +4190,7 @@ fn sort_children_by_position<'a>(
     node_data_container: &NodeDataContainerRef<NodeData>,
     css_property_cache: &CssPropertyCache,
 ) -> Vec<NodeHierarchyItemId> {
-    use azul_css::LayoutPosition::*;
+    use azul_css::props::layout::LayoutPosition::*;
 
     let children_positions = parent
         .az_children(node_hierarchy)

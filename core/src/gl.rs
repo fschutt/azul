@@ -11,7 +11,10 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 
-use azul_css::{AzString, ColorF, ColorU, StringVec, U8Vec};
+use azul_css::{
+    props::basic::{ColorF, ColorU},
+    AzString, StringVec, U8Vec,
+};
 pub use gl_context_loader::{
     ctypes::*, GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat,
     GLint, GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid,

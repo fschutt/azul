@@ -22,7 +22,7 @@ use std::time::Duration as StdDuration;
 #[cfg(feature = "std")]
 use std::time::Instant as StdInstant;
 
-use azul_css::{AzString, CssProperty};
+use azul_css::{props::property::CssProperty, AzString};
 use rust_fontconfig::FcFontCache;
 
 use crate::{

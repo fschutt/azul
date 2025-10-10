@@ -8,7 +8,13 @@ use alloc::{
     vec::Vec,
 };
 
-use azul_css::{AzString, CssProperty, LayoutDebugMessage, LayoutPoint, LayoutRect, LayoutSize};
+use azul_css::{
+    props::{
+        basic::{LayoutPoint, LayoutRect, LayoutSize},
+        property::CssProperty,
+    },
+    AzString, LayoutDebugMessage,
+};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
@@ -564,7 +570,7 @@ impl StyleAndLayoutChanges {
     }
 
     pub fn did_resize_nodes(&self) -> bool {
-        use azul_css::CssPropertyType;
+        use azul_css::props::property::CssPropertyType;
 
         if let Some(l) = self.nodes_that_changed_size.as_ref() {
             if !l.is_empty() {

@@ -14,8 +14,12 @@ use core::{
 };
 
 use azul_css::{
-    AzString, ColorU, CssPath, CssProperty, FloatValue, LayoutDebugMessage, LayoutPoint,
-    LayoutRect, LayoutSize, OptionAzString, OptionF32, OptionI32, U8Vec,
+    css::CssPath,
+    props::{
+        basic::{ColorU, FloatValue, LayoutPoint, LayoutRect, LayoutSize},
+        property::CssProperty,
+    },
+    AzString, LayoutDebugMessage, OptionAzString, OptionF32, OptionI32, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -793,7 +797,7 @@ pub struct CursorTypeHitTest {
 
 impl CursorTypeHitTest {
     pub fn new(hit_test: &FullHitTest, layout_results: &[LayoutResult]) -> Self {
-        use azul_css::StyleCursor;
+        use azul_css::props::style::StyleCursor;
 
         let mut cursor_node = None;
         let mut cursor_icon = MouseCursorType::Default;

@@ -7,11 +7,15 @@ use core::{
     sync::atomic::{AtomicU32, AtomicUsize, Ordering as AtomicOrdering},
 };
 
-pub use azul_css::FontMetrics;
 use azul_css::{
-    AzString, ColorU, F32Vec, FloatValue, FontRef, LayoutRect, LayoutSize, OptionI32,
-    StyleFontFamily, StyleFontFamilyVec, StyleFontSize, U16Vec, U32Vec, U8Vec,
+    props::basic::{
+        ColorU, FloatValue, FontRef, LayoutRect, LayoutSize, StyleFontFamily, StyleFontFamilyVec,
+        StyleFontSize,
+    },
+    AzString, F32Vec, OptionI32, U16Vec, U32Vec, U8Vec,
 };
+// pub use azul_css::props::basic::FontMetrics; // TODO: FontMetrics needs to be moved to new
+// structure
 use rust_fontconfig::FcFontCache;
 
 use crate::{

@@ -12,8 +12,14 @@ use core::{
 use std::hash::Hash;
 
 use azul_css::{
-    AnimationInterpolationFunction, AzString, CssPath, CssProperty, CssPropertyType, FontRef,
-    InterpolateResolver, LayoutRect, LayoutSize,
+    css::{CssPath, CssPropertyValue},
+    props::{
+        basic::{
+            AnimationInterpolationFunction, FontRef, InterpolateResolver, LayoutRect, LayoutSize,
+        },
+        property::{CssProperty, CssPropertyType},
+    },
+    AzString,
 };
 use rust_fontconfig::{FcFontCache, FontSource};
 
