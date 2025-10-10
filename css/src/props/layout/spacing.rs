@@ -23,6 +23,12 @@ macro_rules! define_spacing_property {
             pub inner: PixelValue,
         }
 
+        impl ::core::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
+        }
+
         impl PixelValueTaker for $struct_name {
             fn from_pixel_value(inner: PixelValue) -> Self {
                 Self { inner }
@@ -54,7 +60,7 @@ define_spacing_property!(LayoutMarginLeft);
 // -- Padding Shorthand Parser --
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
     PixelValueParseError(CssPixelValueParseError<'a>),
     TooManyValues,
@@ -182,7 +188,7 @@ pub fn parse_layout_padding<'a>(
 // -- Margin Shorthand Parser --
 
 #[cfg(feature = "parser")]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum LayoutMarginParseError<'a> {
     PixelValueParseError(CssPixelValueParseError<'a>),
     TooManyValues,

@@ -24,6 +24,12 @@ pub struct StyleTextColor {
     pub inner: crate::props::basic::color::ColorU,
 }
 
+impl fmt::Debug for StyleTextColor {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.print_as_css_value())
+    }
+}
+
 impl StyleTextColor {
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
@@ -85,6 +91,12 @@ impl PrintAsCssValue for StyleTextAlign {
 pub struct StyleLetterSpacing {
     pub inner: PixelValue,
 }
+
+impl fmt::Debug for StyleLetterSpacing {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
 impl Default for StyleLetterSpacing {
     fn default() -> Self {
         Self {
@@ -111,6 +123,12 @@ impl PrintAsCssValue for StyleLetterSpacing {
 #[repr(C)]
 pub struct StyleWordSpacing {
     pub inner: PixelValue,
+}
+
+impl fmt::Debug for StyleWordSpacing {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
 }
 impl Default for StyleWordSpacing {
     fn default() -> Self {
@@ -160,6 +178,12 @@ impl PrintAsCssValue for StyleLineHeight {
 #[repr(C)]
 pub struct StyleTabWidth {
     pub inner: PixelValue, // Can be a number (space characters, em-based) or a length
+}
+
+impl fmt::Debug for StyleTabWidth {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
 }
 impl Default for StyleTabWidth {
     fn default() -> Self {
@@ -341,7 +365,9 @@ impl StyleTextColorParseErrorOwned {
 
 #[cfg(feature = "parser")]
 pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextColorParseError> {
-    parse_css_color(input).map(|inner| StyleTextColor { inner })
+    parse_css_color(input)
+        .map(|inner| StyleTextColor { inner })
+        .map_err(|e| StyleTextColorParseError::ColorParseError(e))
 }
 
 #[cfg(feature = "parser")]
@@ -442,7 +468,9 @@ impl StyleLetterSpacingParseErrorOwned {
 pub fn parse_style_letter_spacing(
     input: &str,
 ) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError> {
-    crate::props::basic::pixel::parse_pixel_value(input).map(|inner| StyleLetterSpacing { inner })
+    crate::props::basic::pixel::parse_pixel_value(input)
+        .map(|inner| StyleLetterSpacing { inner })
+        .map_err(|e| StyleLetterSpacingParseError::PixelValue(e))
 }
 
 #[cfg(feature = "parser")]
@@ -490,7 +518,9 @@ impl StyleWordSpacingParseErrorOwned {
 pub fn parse_style_word_spacing(
     input: &str,
 ) -> Result<StyleWordSpacing, StyleWordSpacingParseError> {
-    crate::props::basic::pixel::parse_pixel_value(input).map(|inner| StyleWordSpacing { inner })
+    crate::props::basic::pixel::parse_pixel_value(input)
+        .map(|inner| StyleWordSpacing { inner })
+        .map_err(|e| StyleWordSpacingParseError::PixelValue(e))
 }
 
 #[cfg(feature = "parser")]
@@ -535,6 +565,7 @@ impl StyleLineHeightParseErrorOwned {
 pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLineHeightParseError> {
     crate::props::basic::length::parse_percentage_value(input)
         .map(|inner| StyleLineHeight { inner })
+        .map_err(|e| StyleLineHeightParseError::Percentage(e))
 }
 
 #[cfg(feature = "parser")]
@@ -585,7 +616,9 @@ pub fn parse_style_tab_width(input: &str) -> Result<StyleTabWidth, StyleTabWidth
             inner: PixelValue::em(number),
         })
     } else {
-        crate::props::basic::pixel::parse_pixel_value(input).map(|v| StyleTabWidth { inner: v })
+        crate::props::basic::pixel::parse_pixel_value(input)
+            .map(|v| StyleTabWidth { inner: v })
+            .map_err(|e| StyleTabWidthParseError::PixelValue(e))
     }
 }
 

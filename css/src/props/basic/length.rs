@@ -182,6 +182,33 @@ impl_display! { PercentageParseError, {
     InvalidUnit(u) => format!("Error parsing percentage: invalid unit \"{}\"", u.as_str()),
 }}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PercentageParseErrorOwned {
+    ValueParseErr(ParseFloatError),
+    NoPercentSign,
+    InvalidUnit(String),
+}
+
+impl PercentageParseError {
+    pub fn to_contained(&self) -> PercentageParseErrorOwned {
+        match self {
+            Self::ValueParseErr(e) => PercentageParseErrorOwned::ValueParseErr(e.clone()),
+            Self::NoPercentSign => PercentageParseErrorOwned::NoPercentSign,
+            Self::InvalidUnit(u) => PercentageParseErrorOwned::InvalidUnit(u.as_str().to_string()),
+        }
+    }
+}
+
+impl PercentageParseErrorOwned {
+    pub fn to_shared(&self) -> PercentageParseError {
+        match self {
+            Self::ValueParseErr(e) => PercentageParseError::ValueParseErr(e.clone()),
+            Self::NoPercentSign => PercentageParseError::NoPercentSign,
+            Self::InvalidUnit(u) => PercentageParseError::InvalidUnit(u.clone().into()),
+        }
+    }
+}
+
 /// Parse "1.2" or "120%" (similar to parse_pixel_value)
 pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, PercentageParseError> {
     let mut split_pos = 0;

@@ -19,6 +19,12 @@ pub struct LayoutFlexGrow {
     pub inner: FloatValue,
 }
 
+impl core::fmt::Debug for LayoutFlexGrow {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self.inner.get())
+    }
+}
+
 impl Default for LayoutFlexGrow {
     fn default() -> Self {
         Self {
@@ -93,6 +99,12 @@ pub fn parse_layout_flex_grow<'a>(
 #[repr(C)]
 pub struct LayoutFlexShrink {
     pub inner: FloatValue,
+}
+
+impl core::fmt::Debug for LayoutFlexShrink {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self.inner.get())
+    }
 }
 
 impl Default for LayoutFlexShrink {

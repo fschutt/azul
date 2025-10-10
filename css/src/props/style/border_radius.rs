@@ -21,6 +21,12 @@ macro_rules! define_border_radius_property {
             pub inner: PixelValue,
         }
 
+        impl ::core::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
+        }
+
         impl PixelValueTaker for $struct_name {
             fn from_pixel_value(inner: PixelValue) -> Self {
                 Self { inner }

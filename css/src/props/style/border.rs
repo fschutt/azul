@@ -72,6 +72,11 @@ macro_rules! define_border_side_property {
         pub struct $struct_name {
             pub inner: $inner_type,
         }
+        impl ::core::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
+        }
         impl Default for $struct_name {
             fn default() -> Self {
                 Self { inner: $default }
@@ -84,6 +89,11 @@ macro_rules! define_border_side_property {
         #[repr(C)]
         pub struct $struct_name {
             pub inner: ColorU,
+        }
+        impl ::core::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner.to_hash())
+            }
         }
         // The default border color is 'currentcolor', but for simplicity we default to BLACK.
         // The style property resolver should handle the 'currentcolor' logic.
@@ -108,6 +118,11 @@ macro_rules! define_border_side_property {
         #[repr(C)]
         pub struct $struct_name {
             pub inner: PixelValue,
+        }
+        impl ::core::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
         }
         impl Default for $struct_name {
             fn default() -> Self {
@@ -164,7 +179,7 @@ pub struct StyleBorderSide {
 // -- BorderStyle Parser --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub enum CssBorderStyleParseError<'a> {
     InvalidStyle(&'a str),
 }
@@ -224,7 +239,7 @@ pub fn parse_border_style<'a>(input: &'a str) -> Result<BorderStyle, CssBorderSt
 // -- Shorthand Parser (for `border`, `border-top`, etc.) --
 
 #[cfg(feature = "parser")]
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub enum CssBorderSideParseError<'a> {
     InvalidDeclaration(&'a str),
     Width(CssPixelValueParseError<'a>),

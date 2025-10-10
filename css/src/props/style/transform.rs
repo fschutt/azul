@@ -351,7 +351,7 @@ impl_display! { CssStyleTransformParseError<'a>, {
 impl_from! { ParenthesisParseError<'a>, CssStyleTransformParseError::InvalidParenthesis }
 impl_from! { CssPixelValueParseError<'a>, CssStyleTransformParseError::PixelValueParseError }
 impl_from! { CssAngleValueParseError<'a>, CssStyleTransformParseError::AngleValueParseError }
-impl_from! { ParseFloatError, CssStyleTransformParseError::NumberParseError }
+impl_from! { ParseFloatError, CssStyleTransformParseError<'a>::NumberParseError }
 
 impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
     fn from(p: PercentageParseError) -> Self {

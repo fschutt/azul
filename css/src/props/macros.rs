@@ -91,6 +91,15 @@ macro_rules! impl_from {
         }
     };
 
+    // From a type without a lifetime to a type with a lifetime
+    ($a:ident, $b:ident < $c:lifetime > :: $enum_type:ident) => {
+        impl<$c> From<$a> for $b<$c> {
+            fn from(e: $a) -> Self {
+                $b::$enum_type(e)
+            }
+        }
+    };
+
     // From a type without a lifetime to a type which also does not have a lifetime
     ($a:ident, $b:ident:: $enum_type:ident) => {
         impl From<$a> for $b {
