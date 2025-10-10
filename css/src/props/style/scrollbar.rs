@@ -1,17 +1,15 @@
 //! CSS properties for styling scrollbars.
 
 use alloc::string::{String, ToString};
-use crate::{
-    parser::{impl_debug_as_display, impl_display},
-    props::{
-        formatter::PrintAsCssValue,
-        basic::color::ColorU,
-        layout::{
-            dimensions::LayoutWidth,
-            spacing::{LayoutPaddingLeft, LayoutPaddingRight},
-        },
-        style::background::StyleBackgroundContent,
+
+use crate::props::{
+    basic::color::ColorU,
+    formatter::PrintAsCssValue,
+    layout::{
+        dimensions::LayoutWidth,
+        spacing::{LayoutPaddingLeft, LayoutPaddingRight},
     },
+    style::background::StyleBackgroundContent,
 };
 
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
@@ -47,9 +45,24 @@ impl Default for ScrollbarInfo {
             width: LayoutWidth::px(17.0),
             padding_left: LayoutPaddingLeft::px(2.0),
             padding_right: LayoutPaddingRight::px(2.0),
-            track: StyleBackgroundContent::Color(ColorU { r: 241, g: 241, b: 241, a: 255 }),
-            thumb: StyleBackgroundContent::Color(ColorU { r: 193, g: 193, b: 193, a: 255 }),
-            button: StyleBackgroundContent::Color(ColorU { r: 163, g: 163, b: 163, a: 255 }),
+            track: StyleBackgroundContent::Color(ColorU {
+                r: 241,
+                g: 241,
+                b: 241,
+                a: 255,
+            }),
+            thumb: StyleBackgroundContent::Color(ColorU {
+                r: 193,
+                g: 193,
+                b: 193,
+                a: 255,
+            }),
+            button: StyleBackgroundContent::Color(ColorU {
+                r: 163,
+                g: 163,
+                b: 163,
+                a: 255,
+            }),
             corner: StyleBackgroundContent::default(),
             resizer: StyleBackgroundContent::default(),
         }
@@ -60,7 +73,8 @@ impl PrintAsCssValue for ScrollbarInfo {
     fn print_as_css_value(&self) -> String {
         // This is a custom format, not standard CSS
         format!(
-            "width: {}; padding-left: {}; padding-right: {}; track: {}; thumb: {}; button: {}; corner: {}; resizer: {}",
+            "width: {}; padding-left: {}; padding-right: {}; track: {}; thumb: {}; button: {}; \
+             corner: {}; resizer: {}",
             self.width.print_as_css_value(),
             self.padding_left.print_as_css_value(),
             self.padding_right.print_as_css_value(),
@@ -132,7 +146,7 @@ impl CssScrollbarStyleParseErrorOwned {
     }
 }
 
-#[cfg(feature="parser")]
+#[cfg(feature = "parser")]
 pub fn parse_scrollbar_style<'a>(
     _input: &'a str,
 ) -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>> {

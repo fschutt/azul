@@ -3,7 +3,7 @@
 use alloc::string::{String, ToString};
 use core::{fmt, num::ParseFloatError};
 
-use crate::props::{basic::value::FloatValue, formatter::PrintAsCssValue};
+use crate::props::{basic::length::FloatValue, formatter::PrintAsCssValue};
 
 /// Enum representing the metric associated with an angle (deg, rad, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

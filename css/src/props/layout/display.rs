@@ -2,8 +2,6 @@
 
 use alloc::string::{String, ToString};
 
-#[cfg(feature = "parser")]
-use crate::parser::{impl_debug_as_display, impl_display};
 use crate::props::formatter::PrintAsCssValue;
 
 /// Represents a `display` CSS property value

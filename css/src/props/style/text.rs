@@ -3,17 +3,14 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use crate::{
-    impl_option,
-    parser::{impl_debug_as_display, impl_display, impl_from, InvalidValueErr, InvalidValueErrOwned},
-    props::{
-        basic::value::{
-            CssPixelValueParseError, CssPixelValueParseErrorOwned, PercentageParseError,
-            PercentageParseErrorOwned, PercentageValue, PixelValue,
-        },
-        formatter::PrintAsCssValue,
-        macros::{impl_percentage_value, impl_pixel_value, PixelValueTaker},
+use crate::props::{
+    basic::{
+        error::{InvalidValueErr, InvalidValueErrOwned},
+        length::{PercentageParseError, PercentageParseErrorOwned, PercentageValue},
+        pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
     },
+    formatter::PrintAsCssValue,
+    macros::PixelValueTaker,
 };
 
 // -- StyleTextColor (color property) --
@@ -294,7 +291,6 @@ impl PrintAsCssValue for StyleVerticalAlign {
     }
 }
 
-
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
@@ -312,7 +308,10 @@ impl_display! { StyleTextColorParseError<'a>, {
     ColorParseError(e) => format!("Invalid color: {}", e),
 }}
 #[cfg(feature = "parser")]
-impl_from!(CssColorParseError<'a>, StyleTextColorParseError::ColorParseError);
+impl_from!(
+    CssColorParseError<'a>,
+    StyleTextColorParseError::ColorParseError
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -324,7 +323,9 @@ pub enum StyleTextColorParseErrorOwned {
 impl<'a> StyleTextColorParseError<'a> {
     pub fn to_contained(&self) -> StyleTextColorParseErrorOwned {
         match self {
-            Self::ColorParseError(e) => StyleTextColorParseErrorOwned::ColorParseError(e.to_contained()),
+            Self::ColorParseError(e) => {
+                StyleTextColorParseErrorOwned::ColorParseError(e.to_contained())
+            }
         }
     }
 }
@@ -342,7 +343,6 @@ impl StyleTextColorParseErrorOwned {
 pub fn parse_style_text_color(input: &str) -> Result<StyleTextColor, StyleTextColorParseError> {
     parse_css_color(input).map(|inner| StyleTextColor { inner })
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -391,10 +391,11 @@ pub fn parse_style_text_align(input: &str) -> Result<StyleTextAlign, StyleTextAl
         "justify" => Ok(StyleTextAlign::Justify),
         "start" => Ok(StyleTextAlign::Start),
         "end" => Ok(StyleTextAlign::End),
-        other => Err(StyleTextAlignParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleTextAlignParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -408,7 +409,10 @@ impl_display! { StyleLetterSpacingParseError<'a>, {
     PixelValue(e) => format!("Invalid letter-spacing value: {}", e),
 }}
 #[cfg(feature = "parser")]
-impl_from!(CssPixelValueParseError<'a>, StyleLetterSpacingParseError::PixelValue);
+impl_from!(
+    CssPixelValueParseError<'a>,
+    StyleLetterSpacingParseError::PixelValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -435,10 +439,11 @@ impl StyleLetterSpacingParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_letter_spacing(input: &str) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError> {
-    crate::props::basic::value::parse_pixel_value(input).map(|inner| StyleLetterSpacing { inner })
+pub fn parse_style_letter_spacing(
+    input: &str,
+) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError> {
+    crate::props::basic::pixel::parse_pixel_value(input).map(|inner| StyleLetterSpacing { inner })
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -452,7 +457,10 @@ impl_display! { StyleWordSpacingParseError<'a>, {
     PixelValue(e) => format!("Invalid word-spacing value: {}", e),
 }}
 #[cfg(feature = "parser")]
-impl_from!(CssPixelValueParseError<'a>, StyleWordSpacingParseError::PixelValue);
+impl_from!(
+    CssPixelValueParseError<'a>,
+    StyleWordSpacingParseError::PixelValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -479,10 +487,11 @@ impl StyleWordSpacingParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_word_spacing(input: &str) -> Result<StyleWordSpacing, StyleWordSpacingParseError> {
-    crate::props::basic::value::parse_pixel_value(input).map(|inner| StyleWordSpacing { inner })
+pub fn parse_style_word_spacing(
+    input: &str,
+) -> Result<StyleWordSpacing, StyleWordSpacingParseError> {
+    crate::props::basic::pixel::parse_pixel_value(input).map(|inner| StyleWordSpacing { inner })
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -524,9 +533,9 @@ impl StyleLineHeightParseErrorOwned {
 
 #[cfg(feature = "parser")]
 pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLineHeightParseError> {
-    crate::props::basic::value::parse_percentage_value(input).map(|inner| StyleLineHeight { inner })
+    crate::props::basic::length::parse_percentage_value(input)
+        .map(|inner| StyleLineHeight { inner })
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -540,7 +549,10 @@ impl_display! { StyleTabWidthParseError<'a>, {
     PixelValue(e) => format!("Invalid tab-width value: {}", e),
 }}
 #[cfg(feature = "parser")]
-impl_from!(CssPixelValueParseError<'a>, StyleTabWidthParseError::PixelValue);
+impl_from!(
+    CssPixelValueParseError<'a>,
+    StyleTabWidthParseError::PixelValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -569,12 +581,13 @@ impl StyleTabWidthParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_style_tab_width(input: &str) -> Result<StyleTabWidth, StyleTabWidthParseError> {
     if let Ok(number) = input.trim().parse::<f32>() {
-        Ok(StyleTabWidth { inner: PixelValue::em(number) })
+        Ok(StyleTabWidth {
+            inner: PixelValue::em(number),
+        })
     } else {
-        crate::props::basic::value::parse_pixel_value(input).map(|v| StyleTabWidth { inner: v })
+        crate::props::basic::pixel::parse_pixel_value(input).map(|v| StyleTabWidth { inner: v })
     }
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -620,10 +633,11 @@ pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhit
         "normal" => Ok(StyleWhiteSpace::Normal),
         "pre" => Ok(StyleWhiteSpace::Pre),
         "nowrap" => Ok(StyleWhiteSpace::Nowrap),
-        other => Err(StyleWhiteSpaceParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleWhiteSpaceParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -672,7 +686,6 @@ pub fn parse_style_hyphens(input: &str) -> Result<StyleHyphens, StyleHyphensPars
     }
 }
 
-
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
 pub enum StyleDirectionParseError<'a> {
@@ -716,10 +729,11 @@ pub fn parse_style_direction(input: &str) -> Result<StyleDirection, StyleDirecti
     match input.trim() {
         "ltr" => Ok(StyleDirection::Ltr),
         "rtl" => Ok(StyleDirection::Rtl),
-        other => Err(StyleDirectionParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleDirectionParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
-
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -733,7 +747,10 @@ impl_display! { StyleVerticalAlignParseError<'a>, {
     InvalidValue(e) => format!("Invalid vertical-align value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleVerticalAlignParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleVerticalAlignParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -745,7 +762,9 @@ pub enum StyleVerticalAlignParseErrorOwned {
 impl<'a> StyleVerticalAlignParseError<'a> {
     pub fn to_contained(&self) -> StyleVerticalAlignParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleVerticalAlignParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleVerticalAlignParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
@@ -760,11 +779,15 @@ impl StyleVerticalAlignParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_vertical_align(input: &str) -> Result<StyleVerticalAlign, StyleVerticalAlignParseError> {
+pub fn parse_style_vertical_align(
+    input: &str,
+) -> Result<StyleVerticalAlign, StyleVerticalAlignParseError> {
     match input.trim() {
         "top" => Ok(StyleVerticalAlign::Top),
         "center" => Ok(StyleVerticalAlign::Center),
         "bottom" => Ok(StyleVerticalAlign::Bottom),
-        other => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }

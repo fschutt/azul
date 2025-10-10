@@ -3,18 +3,15 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use crate::{
-    parser::{impl_debug_as_display, impl_display, impl_from},
-    props::{
-        basic::{
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-            value::{
-                parse_pixel_value_no_percent, PixelValueNoPercent, CssPixelValueParseError,
-                CssPixelValueParseErrorOwned,
-            },
+use crate::props::{
+    basic::{
+        color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        pixel::{
+            parse_pixel_value_no_percent, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+            PixelValueNoPercent,
         },
-        formatter::PrintAsCssValue,
     },
+    formatter::PrintAsCssValue,
 };
 
 /// What direction should a `box-shadow` be clipped in (inset or outset).
@@ -49,7 +46,10 @@ pub struct StyleBoxShadow {
 impl Default for StyleBoxShadow {
     fn default() -> Self {
         Self {
-            offset: [PixelValueNoPercent::default(), PixelValueNoPercent::default()],
+            offset: [
+                PixelValueNoPercent::default(),
+                PixelValueNoPercent::default(),
+            ],
             color: ColorU::BLACK,
             blur_radius: PixelValueNoPercent::default(),
             spread_radius: PixelValueNoPercent::default(),
@@ -88,8 +88,9 @@ impl PrintAsCssValue for StyleBoxShadow {
         if self.spread_radius.inner.number.get() != 0.0 {
             components.push(self.spread_radius.to_string());
         }
-        if self.color != ColorU::BLACK { // Assuming black is the default
-             components.push(self.color.to_hash());
+        if self.color != ColorU::BLACK {
+            // Assuming black is the default
+            components.push(self.color.to_hash());
         }
 
         components.join(" ")
@@ -112,7 +113,10 @@ impl_display! { CssShadowParseError<'a>, {
     ColorParseError(e) => format!("Invalid color value in box-shadow: {}", e),
 }}
 
-impl_from!(CssPixelValueParseError<'a>, CssShadowParseError::ValueParseErr);
+impl_from!(
+    CssPixelValueParseError<'a>,
+    CssShadowParseError::ValueParseErr
+);
 impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 /// Owned version of `CssShadowParseError`.
@@ -198,4 +202,3 @@ pub fn parse_style_box_shadow<'a>(
 
     Ok(shadow)
 }
-

@@ -3,16 +3,14 @@
 use alloc::string::String;
 use core::{fmt, num::ParseFloatError};
 
-use crate::{
-    parser::{
-        impl_debug_as_display, impl_display, impl_from, CssAngleValueParseError,
-        CssAngleValueParseErrorOwned,
+use crate::props::{
+    basic::{
+        angle::{
+            parse_angle_value, AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned,
+        },
+        geometry::{LayoutPoint, LayoutRect},
     },
-    props::{
-        basic::angle::{parse_angle_value, AngleValue},
-        formatter::PrintAsCssValue,
-    },
-    LayoutPoint, LayoutRect,
+    formatter::PrintAsCssValue,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

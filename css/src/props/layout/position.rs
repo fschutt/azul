@@ -3,14 +3,11 @@
 use alloc::string::{String, ToString};
 
 #[cfg(feature = "parser")]
-use crate::props::basic::value::parse_pixel_value;
-use crate::{
-    parser::{impl_debug_as_display, impl_display, impl_from},
-    props::{
-        basic::value::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
-        formatter::PrintAsCssValue,
-        macros::{impl_pixel_value, PixelValueTaker},
-    },
+use crate::props::basic::pixel::parse_pixel_value;
+use crate::props::{
+    basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+    formatter::PrintAsCssValue,
+    macros::PixelValueTaker,
 };
 
 // --- LayoutPosition ---

@@ -2,21 +2,15 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::{
-    parser::{impl_debug_as_display, impl_display, impl_from},
-    props::{
-        formatter::PrintAsCssValue,
-        basic::value::{PercentageValue, PercentageParseError},
-    },
-};
 
 #[cfg(feature = "parser")]
-use crate::{
-    parser::{
-        InvalidValueErr, InvalidValueErrOwned,
-        parse_percentage_value,
-    },
-    props::macros::impl_percentage_value
+use crate::props::basic::{
+    error::{InvalidValueErr, InvalidValueErrOwned},
+    length::parse_percentage_value,
+};
+use crate::props::{
+    basic::length::{PercentageParseError, PercentageValue},
+    formatter::PrintAsCssValue,
 };
 
 // -- Opacity --
@@ -30,7 +24,9 @@ pub struct StyleOpacity {
 
 impl Default for StyleOpacity {
     fn default() -> Self {
-        StyleOpacity { inner: PercentageValue::const_new(100) }
+        StyleOpacity {
+            inner: PercentageValue::const_new(100),
+        }
     }
 }
 
@@ -50,9 +46,22 @@ impl_percentage_value!(StyleOpacity);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleMixBlendMode {
-    Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge,
-    ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue,
-    Saturation, Color, Luminosity,
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
 }
 
 impl Default for StyleMixBlendMode {
@@ -63,15 +72,28 @@ impl Default for StyleMixBlendMode {
 
 impl fmt::Display for StyleMixBlendMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::Normal => "normal", Self::Multiply => "multiply", Self::Screen => "screen",
-            Self::Overlay => "overlay", Self::Darken => "darken", Self::Lighten => "lighten",
-            Self::ColorDodge => "color-dodge", Self::ColorBurn => "color-burn",
-            Self::HardLight => "hard-light", Self::SoftLight => "soft-light",
-            Self::Difference => "difference", Self::Exclusion => "exclusion",
-            Self::Hue => "hue", Self::Saturation => "saturation",
-            Self::Color => "color", Self::Luminosity => "luminosity",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Normal => "normal",
+                Self::Multiply => "multiply",
+                Self::Screen => "screen",
+                Self::Overlay => "overlay",
+                Self::Darken => "darken",
+                Self::Lighten => "lighten",
+                Self::ColorDodge => "color-dodge",
+                Self::ColorBurn => "color-burn",
+                Self::HardLight => "hard-light",
+                Self::SoftLight => "soft-light",
+                Self::Difference => "difference",
+                Self::Exclusion => "exclusion",
+                Self::Hue => "hue",
+                Self::Saturation => "saturation",
+                Self::Color => "color",
+                Self::Luminosity => "luminosity",
+            }
+        )
     }
 }
 
@@ -88,10 +110,36 @@ impl PrintAsCssValue for StyleMixBlendMode {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleCursor {
-    Alias, AllScroll, Cell, ColResize, ContextMenu, Copy, Crosshair, Default,
-    EResize, EwResize, Grab, Grabbing, Help, Move, NResize, NsResize, NeswResize,
-    NwseResize, Pointer, Progress, RowResize, SResize, SeResize, Text, Unset,
-    VerticalText, WResize, Wait, ZoomIn, ZoomOut,
+    Alias,
+    AllScroll,
+    Cell,
+    ColResize,
+    ContextMenu,
+    Copy,
+    Crosshair,
+    Default,
+    EResize,
+    EwResize,
+    Grab,
+    Grabbing,
+    Help,
+    Move,
+    NResize,
+    NsResize,
+    NeswResize,
+    NwseResize,
+    Pointer,
+    Progress,
+    RowResize,
+    SResize,
+    SeResize,
+    Text,
+    Unset,
+    VerticalText,
+    WResize,
+    Wait,
+    ZoomIn,
+    ZoomOut,
 }
 
 impl Default for StyleCursor {
@@ -103,18 +151,36 @@ impl Default for StyleCursor {
 impl PrintAsCssValue for StyleCursor {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            Self::Alias => "alias", Self::AllScroll => "all-scroll", Self::Cell => "cell",
-            Self::ColResize => "col-resize", Self::ContextMenu => "context-menu",
-            Self::Copy => "copy", Self::Crosshair => "crosshair", Self::Default => "default",
-            Self::EResize => "e-resize", Self::EwResize => "ew-resize", Self::Grab => "grab",
-            Self::Grabbing => "grabbing", Self::Help => "help", Self::Move => "move",
-            Self::NResize => "n-resize", Self::NsResize => "ns-resize",
-            Self::NeswResize => "nesw-resize", Self::NwseResize => "nwse-resize",
-            Self::Pointer => "pointer", Self::Progress => "progress",
-            Self::RowResize => "row-resize", Self::SResize => "s-resize",
-            Self::SeResize => "se-resize", Self::Text => "text", Self::Unset => "unset",
-            Self::VerticalText => "vertical-text", Self::WResize => "w-resize",
-            Self::Wait => "wait", Self::ZoomIn => "zoom-in", Self::ZoomOut => "zoom-out",
+            Self::Alias => "alias",
+            Self::AllScroll => "all-scroll",
+            Self::Cell => "cell",
+            Self::ColResize => "col-resize",
+            Self::ContextMenu => "context-menu",
+            Self::Copy => "copy",
+            Self::Crosshair => "crosshair",
+            Self::Default => "default",
+            Self::EResize => "e-resize",
+            Self::EwResize => "ew-resize",
+            Self::Grab => "grab",
+            Self::Grabbing => "grabbing",
+            Self::Help => "help",
+            Self::Move => "move",
+            Self::NResize => "n-resize",
+            Self::NsResize => "ns-resize",
+            Self::NeswResize => "nesw-resize",
+            Self::NwseResize => "nwse-resize",
+            Self::Pointer => "pointer",
+            Self::Progress => "progress",
+            Self::RowResize => "row-resize",
+            Self::SResize => "s-resize",
+            Self::SeResize => "se-resize",
+            Self::Text => "text",
+            Self::Unset => "unset",
+            Self::VerticalText => "vertical-text",
+            Self::WResize => "w-resize",
+            Self::Wait => "wait",
+            Self::ZoomIn => "zoom-in",
+            Self::ZoomOut => "zoom-out",
         })
     }
 }
@@ -124,7 +190,7 @@ impl PrintAsCssValue for StyleCursor {
 #[cfg(feature = "parser")]
 pub mod parsers {
     use super::*;
-    use crate::parser::{InvalidValueErr, InvalidValueErrOwned};
+    use crate::props::basic::error::{InvalidValueErr, InvalidValueErrOwned};
 
     // -- Opacity Parser --
 
@@ -145,7 +211,9 @@ pub mod parsers {
     impl<'a> OpacityParseError<'a> {
         pub fn to_contained(&self) -> OpacityParseErrorOwned {
             match self {
-                Self::ParsePercentage(err, s) => OpacityParseErrorOwned::ParsePercentage(err.clone(), s.to_string()),
+                Self::ParsePercentage(err, s) => {
+                    OpacityParseErrorOwned::ParsePercentage(err.clone(), s.to_string())
+                }
             }
         }
     }
@@ -153,7 +221,9 @@ pub mod parsers {
     impl OpacityParseErrorOwned {
         pub fn to_shared<'a>(&'a self) -> OpacityParseError<'a> {
             match self {
-                Self::ParsePercentage(err, s) => OpacityParseError::ParsePercentage(err.clone(), s.as_str()),
+                Self::ParsePercentage(err, s) => {
+                    OpacityParseError::ParsePercentage(err.clone(), s.as_str())
+                }
             }
         }
     }
@@ -184,7 +254,9 @@ pub mod parsers {
     impl<'a> MixBlendModeParseError<'a> {
         pub fn to_contained(&self) -> MixBlendModeParseErrorOwned {
             match self {
-                Self::InvalidValue(e) => MixBlendModeParseErrorOwned::InvalidValue(e.to_contained()),
+                Self::InvalidValue(e) => {
+                    MixBlendModeParseErrorOwned::InvalidValue(e.to_contained())
+                }
             }
         }
     }
@@ -197,17 +269,27 @@ pub mod parsers {
         }
     }
 
-    pub fn parse_style_mix_blend_mode<'a>(input: &'a str) -> Result<StyleMixBlendMode, MixBlendModeParseError<'a>> {
+    pub fn parse_style_mix_blend_mode<'a>(
+        input: &'a str,
+    ) -> Result<StyleMixBlendMode, MixBlendModeParseError<'a>> {
         let input = input.trim();
         match input {
-            "normal" => Ok(StyleMixBlendMode::Normal), "multiply" => Ok(StyleMixBlendMode::Multiply),
-            "screen" => Ok(StyleMixBlendMode::Screen), "overlay" => Ok(StyleMixBlendMode::Overlay),
-            "darken" => Ok(StyleMixBlendMode::Darken), "lighten" => Ok(StyleMixBlendMode::Lighten),
-            "color-dodge" => Ok(StyleMixBlendMode::ColorDodge), "color-burn" => Ok(StyleMixBlendMode::ColorBurn),
-            "hard-light" => Ok(StyleMixBlendMode::HardLight), "soft-light" => Ok(StyleMixBlendMode::SoftLight),
-            "difference" => Ok(StyleMixBlendMode::Difference), "exclusion" => Ok(StyleMixBlendMode::Exclusion),
-            "hue" => Ok(StyleMixBlendMode::Hue), "saturation" => Ok(StyleMixBlendMode::Saturation),
-            "color" => Ok(StyleMixBlendMode::Color), "luminosity" => Ok(StyleMixBlendMode::Luminosity),
+            "normal" => Ok(StyleMixBlendMode::Normal),
+            "multiply" => Ok(StyleMixBlendMode::Multiply),
+            "screen" => Ok(StyleMixBlendMode::Screen),
+            "overlay" => Ok(StyleMixBlendMode::Overlay),
+            "darken" => Ok(StyleMixBlendMode::Darken),
+            "lighten" => Ok(StyleMixBlendMode::Lighten),
+            "color-dodge" => Ok(StyleMixBlendMode::ColorDodge),
+            "color-burn" => Ok(StyleMixBlendMode::ColorBurn),
+            "hard-light" => Ok(StyleMixBlendMode::HardLight),
+            "soft-light" => Ok(StyleMixBlendMode::SoftLight),
+            "difference" => Ok(StyleMixBlendMode::Difference),
+            "exclusion" => Ok(StyleMixBlendMode::Exclusion),
+            "hue" => Ok(StyleMixBlendMode::Hue),
+            "saturation" => Ok(StyleMixBlendMode::Saturation),
+            "color" => Ok(StyleMixBlendMode::Color),
+            "luminosity" => Ok(StyleMixBlendMode::Luminosity),
             _ => Err(InvalidValueErr(input).into()),
         }
     }
@@ -248,22 +330,40 @@ pub mod parsers {
     pub fn parse_style_cursor<'a>(input: &'a str) -> Result<StyleCursor, CursorParseError<'a>> {
         let input = input.trim();
         match input {
-            "alias" => Ok(StyleCursor::Alias), "all-scroll" => Ok(StyleCursor::AllScroll),
-            "cell" => Ok(StyleCursor::Cell), "col-resize" => Ok(StyleCursor::ColResize),
-            "context-menu" => Ok(StyleCursor::ContextMenu), "copy" => Ok(StyleCursor::Copy),
-            "crosshair" => Ok(StyleCursor::Crosshair), "default" => Ok(StyleCursor::Default),
-            "e-resize" => Ok(StyleCursor::EResize), "ew-resize" => Ok(StyleCursor::EwResize),
-            "grab" => Ok(StyleCursor::Grab), "grabbing" => Ok(StyleCursor::Grabbing),
-            "help" => Ok(StyleCursor::Help), "move" => Ok(StyleCursor::Move),
-            "n-resize" => Ok(StyleCursor::NResize), "ns-resize" => Ok(StyleCursor::NsResize),
-            "nesw-resize" => Ok(StyleCursor::NeswResize), "nwse-resize" => Ok(StyleCursor::NwseResize),
-            "pointer" => Ok(StyleCursor::Pointer), "progress" => Ok(StyleCursor::Progress),
-            "row-resize" => Ok(StyleCursor::RowResize), "s-resize" => Ok(StyleCursor::SResize),
-            "se-resize" => Ok(StyleCursor::SeResize), "text" => Ok(StyleCursor::Text),
-            "unset" => Ok(StyleCursor::Unset), "vertical-text" => Ok(StyleCursor::VerticalText),
-            "w-resize" => Ok(StyleCursor::WResize), "wait" => Ok(StyleCursor::Wait),
-            "zoom-in" => Ok(StyleCursor::ZoomIn), "zoom-out" => Ok(StyleCursor::ZoomOut),
+            "alias" => Ok(StyleCursor::Alias),
+            "all-scroll" => Ok(StyleCursor::AllScroll),
+            "cell" => Ok(StyleCursor::Cell),
+            "col-resize" => Ok(StyleCursor::ColResize),
+            "context-menu" => Ok(StyleCursor::ContextMenu),
+            "copy" => Ok(StyleCursor::Copy),
+            "crosshair" => Ok(StyleCursor::Crosshair),
+            "default" => Ok(StyleCursor::Default),
+            "e-resize" => Ok(StyleCursor::EResize),
+            "ew-resize" => Ok(StyleCursor::EwResize),
+            "grab" => Ok(StyleCursor::Grab),
+            "grabbing" => Ok(StyleCursor::Grabbing),
+            "help" => Ok(StyleCursor::Help),
+            "move" => Ok(StyleCursor::Move),
+            "n-resize" => Ok(StyleCursor::NResize),
+            "ns-resize" => Ok(StyleCursor::NsResize),
+            "nesw-resize" => Ok(StyleCursor::NeswResize),
+            "nwse-resize" => Ok(StyleCursor::NwseResize),
+            "pointer" => Ok(StyleCursor::Pointer),
+            "progress" => Ok(StyleCursor::Progress),
+            "row-resize" => Ok(StyleCursor::RowResize),
+            "s-resize" => Ok(StyleCursor::SResize),
+            "se-resize" => Ok(StyleCursor::SeResize),
+            "text" => Ok(StyleCursor::Text),
+            "unset" => Ok(StyleCursor::Unset),
+            "vertical-text" => Ok(StyleCursor::VerticalText),
+            "w-resize" => Ok(StyleCursor::WResize),
+            "wait" => Ok(StyleCursor::Wait),
+            "zoom-in" => Ok(StyleCursor::ZoomIn),
+            "zoom-out" => Ok(StyleCursor::ZoomOut),
             _ => Err(InvalidValueErr(input).into()),
         }
     }
 }
+
+#[cfg(feature = "parser")]
+pub use self::parsers::*;

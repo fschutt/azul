@@ -3,16 +3,16 @@
 use alloc::string::{String, ToString};
 
 use crate::props::{
-    basic::value::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+    basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
     formatter::PrintAsCssValue,
-    macros::{impl_pixel_value, PixelValueTaker},
+    macros::PixelValueTaker,
 };
 
 // -- Type Definitions --
 
 macro_rules! define_dimension_property {
     ($struct_name:ident, $default_fn:expr) => {
-        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(C)]
         pub struct $struct_name {
             pub inner: PixelValue,
@@ -90,10 +90,7 @@ mod parser {
     use alloc::string::ToString;
 
     use super::*;
-    use crate::{
-        parser::{impl_debug_as_display, impl_display, impl_from},
-        props::basic::value::parse_pixel_value,
-    };
+    use crate::props::basic::pixel::parse_pixel_value;
 
     macro_rules! define_pixel_dimension_parser {
         ($fn_name:ident, $struct_name:ident, $error_name:ident, $error_owned_name:ident) => {

@@ -2,10 +2,7 @@
 
 use alloc::string::{String, ToString};
 
-use crate::{
-    parser::{impl_debug_as_display, impl_display},
-    props::formatter::PrintAsCssValue,
-};
+use crate::props::formatter::PrintAsCssValue;
 
 /// Represents an `overflow-x` or `overflow-y` property.
 ///
@@ -67,7 +64,7 @@ impl PrintAsCssValue for LayoutOverflow {
 // -- Parser
 
 /// Error returned when parsing an `overflow` property fails.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LayoutOverflowParseError<'a> {
     /// The provided value is not a valid `overflow` keyword.
     InvalidValue(&'a str),

@@ -3,9 +3,10 @@
 use alloc::string::{String, ToString};
 use core::num::ParseFloatError;
 
-#[cfg(feature = "parser")]
-use crate::parser::{impl_debug_as_display, impl_display, parse_float_value};
-use crate::props::{basic::value::FloatValue, formatter::PrintAsCssValue};
+use crate::props::{
+    basic::length::{parse_float_value, FloatValue},
+    formatter::PrintAsCssValue,
+};
 
 // --- flex-grow ---
 

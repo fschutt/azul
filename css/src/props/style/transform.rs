@@ -5,28 +5,25 @@ use alloc::{
     vec::Vec,
 };
 use core::fmt;
-
-use crate::{
-    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_ord,
-    impl_vec_partialeq, impl_vec_partialord,
-    parser::{impl_debug_as_display, impl_display, impl_from, split_string_respect_comma},
-    props::{
-        basic::{
-            angle::{
-                parse_angle_value, AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned,
-            },
-            value::{
-                parse_percentage_value, parse_pixel_value, CssPixelValueParseError,
-                CssPixelValueParseErrorOwned, PercentageParseError, PercentageValue, PixelValue,
-            },
-        },
-        formatter::PrintAsCssValue,
-    },
-};
+use std::num::ParseFloatError;
 
 #[cfg(feature = "parser")]
-use crate::parser::{
-    parse_float_value, parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned,
+use crate::props::basic::{
+    length::parse_float_value,
+    parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
+};
+use crate::props::{
+    basic::{
+        angle::{
+            parse_angle_value, AngleValue, CssAngleValueParseError, CssAngleValueParseErrorOwned,
+        },
+        length::{PercentageParseError, PercentageValue},
+        pixel::{
+            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+        },
+        FloatValue,
+    },
+    formatter::PrintAsCssValue,
 };
 
 // -- Data Structures --
@@ -167,8 +164,22 @@ impl PrintAsCssValue for StyleTransform {
             ),
             StyleTransform::Matrix3D(m) => format!(
                 "matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
-                m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34,
-                m.m41, m.m42, m.m43, m.m44
+                m.m11,
+                m.m12,
+                m.m13,
+                m.m14,
+                m.m21,
+                m.m22,
+                m.m23,
+                m.m24,
+                m.m31,
+                m.m32,
+                m.m33,
+                m.m34,
+                m.m41,
+                m.m42,
+                m.m43,
+                m.m44
             ),
             StyleTransform::Translate(t) => format!("translate({}, {})", t.x, t.y),
             StyleTransform::Translate3D(t) => format!("translate3d({}, {}, {})", t.x, t.y, t.z),
@@ -198,16 +209,69 @@ impl PrintAsCssValue for StyleTransform {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformMatrix2D {
-    pub a: f32, pub b: f32, pub c: f32, pub d: f32, pub tx: f32, pub ty: f32,
+    pub a: FloatValue,
+    pub b: FloatValue,
+    pub c: FloatValue,
+    pub d: FloatValue,
+    pub tx: FloatValue,
+    pub ty: FloatValue,
+}
+
+impl Default for StyleTransformMatrix2D {
+    fn default() -> Self {
+        Self {
+            a: FloatValue::const_new(1),
+            b: FloatValue::const_new(0),
+            c: FloatValue::const_new(0),
+            d: FloatValue::const_new(1),
+            tx: FloatValue::const_new(0),
+            ty: FloatValue::const_new(0),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformMatrix3D {
-    pub m11: f32, pub m12: f32, pub m13: f32, pub m14: f32,
-    pub m21: f32, pub m22: f32, pub m23: f32, pub m24: f32,
-    pub m31: f32, pub m32: f32, pub m33: f32, pub m34: f32,
-    pub m41: f32, pub m42: f32, pub m43: f32, pub m44: f32,
+    pub m11: FloatValue,
+    pub m12: FloatValue,
+    pub m13: FloatValue,
+    pub m14: FloatValue,
+    pub m21: FloatValue,
+    pub m22: FloatValue,
+    pub m23: FloatValue,
+    pub m24: FloatValue,
+    pub m31: FloatValue,
+    pub m32: FloatValue,
+    pub m33: FloatValue,
+    pub m34: FloatValue,
+    pub m41: FloatValue,
+    pub m42: FloatValue,
+    pub m43: FloatValue,
+    pub m44: FloatValue,
+}
+
+impl Default for StyleTransformMatrix3D {
+    fn default() -> Self {
+        Self {
+            m11: FloatValue::const_new(1),
+            m12: FloatValue::const_new(0),
+            m13: FloatValue::const_new(0),
+            m14: FloatValue::const_new(0),
+            m21: FloatValue::const_new(0),
+            m22: FloatValue::const_new(1),
+            m23: FloatValue::const_new(0),
+            m24: FloatValue::const_new(0),
+            m31: FloatValue::const_new(0),
+            m32: FloatValue::const_new(0),
+            m33: FloatValue::const_new(1),
+            m34: FloatValue::const_new(0),
+            m41: FloatValue::const_new(0),
+            m42: FloatValue::const_new(0),
+            m43: FloatValue::const_new(0),
+            m44: FloatValue::const_new(1),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -228,25 +292,25 @@ pub struct StyleTransformTranslate3D {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformRotate3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
+    pub x: FloatValue,
+    pub y: FloatValue,
+    pub z: FloatValue,
     pub angle: AngleValue,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformScale2D {
-    pub x: f32,
-    pub y: f32,
+    pub x: FloatValue,
+    pub y: FloatValue,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformScale3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
+    pub x: FloatValue,
+    pub y: FloatValue,
+    pub z: FloatValue,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -287,10 +351,12 @@ impl_display! { CssStyleTransformParseError<'a>, {
 impl_from! { ParenthesisParseError<'a>, CssStyleTransformParseError::InvalidParenthesis }
 impl_from! { CssPixelValueParseError<'a>, CssStyleTransformParseError::PixelValueParseError }
 impl_from! { CssAngleValueParseError<'a>, CssStyleTransformParseError::AngleValueParseError }
-impl_from! { core::num::ParseFloatError, CssStyleTransformParseError::NumberParseError }
+impl_from! { ParseFloatError, CssStyleTransformParseError::NumberParseError }
 
 impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
-    fn from(p: PercentageParseError) -> Self { Self::PercentageValueParseError(p) }
+    fn from(p: PercentageParseError) -> Self {
+        Self::PercentageValueParseError(p)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -311,15 +377,33 @@ pub enum CssStyleTransformParseErrorOwned {
 impl<'a> CssStyleTransformParseError<'a> {
     pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
         match self {
-            Self::InvalidTransform(s) => CssStyleTransformParseErrorOwned::InvalidTransform(s.to_string()),
-            Self::InvalidParenthesis(e) => CssStyleTransformParseErrorOwned::InvalidParenthesis(e.to_contained()),
-            Self::WrongNumberOfComponents { expected, got, input } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents {
-                expected: *expected, got: *got, input: input.to_string(),
+            Self::InvalidTransform(s) => {
+                CssStyleTransformParseErrorOwned::InvalidTransform(s.to_string())
+            }
+            Self::InvalidParenthesis(e) => {
+                CssStyleTransformParseErrorOwned::InvalidParenthesis(e.to_contained())
+            }
+            Self::WrongNumberOfComponents {
+                expected,
+                got,
+                input,
+            } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
             },
-            Self::NumberParseError(e) => CssStyleTransformParseErrorOwned::NumberParseError(e.clone()),
-            Self::PixelValueParseError(e) => CssStyleTransformParseErrorOwned::PixelValueParseError(e.to_contained()),
-            Self::AngleValueParseError(e) => CssStyleTransformParseErrorOwned::AngleValueParseError(e.to_contained()),
-            Self::PercentageValueParseError(e) => CssStyleTransformParseErrorOwned::PercentageValueParseError(e.clone()),
+            Self::NumberParseError(e) => {
+                CssStyleTransformParseErrorOwned::NumberParseError(e.clone())
+            }
+            Self::PixelValueParseError(e) => {
+                CssStyleTransformParseErrorOwned::PixelValueParseError(e.to_contained())
+            }
+            Self::AngleValueParseError(e) => {
+                CssStyleTransformParseErrorOwned::AngleValueParseError(e.to_contained())
+            }
+            Self::PercentageValueParseError(e) => {
+                CssStyleTransformParseErrorOwned::PercentageValueParseError(e.clone())
+            }
         }
     }
 }
@@ -328,18 +412,31 @@ impl CssStyleTransformParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssStyleTransformParseError<'a> {
         match self {
             Self::InvalidTransform(s) => CssStyleTransformParseError::InvalidTransform(s),
-            Self::InvalidParenthesis(e) => CssStyleTransformParseError::InvalidParenthesis(e.to_shared()),
-            Self::WrongNumberOfComponents { expected, got, input } => CssStyleTransformParseError::WrongNumberOfComponents {
-                expected: *expected, got: *got, input,
+            Self::InvalidParenthesis(e) => {
+                CssStyleTransformParseError::InvalidParenthesis(e.to_shared())
+            }
+            Self::WrongNumberOfComponents {
+                expected,
+                got,
+                input,
+            } => CssStyleTransformParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input,
             },
             Self::NumberParseError(e) => CssStyleTransformParseError::NumberParseError(e.clone()),
-            Self::PixelValueParseError(e) => CssStyleTransformParseError::PixelValueParseError(e.to_shared()),
-            Self::AngleValueParseError(e) => CssStyleTransformParseError::AngleValueParseError(e.to_shared()),
-            Self::PercentageValueParseError(e) => CssStyleTransformParseError::PercentageValueParseError(e.clone()),
+            Self::PixelValueParseError(e) => {
+                CssStyleTransformParseError::PixelValueParseError(e.to_shared())
+            }
+            Self::AngleValueParseError(e) => {
+                CssStyleTransformParseError::AngleValueParseError(e.to_shared())
+            }
+            Self::PercentageValueParseError(e) => {
+                CssStyleTransformParseError::PercentageValueParseError(e.clone())
+            }
         }
     }
 }
-
 
 #[derive(Clone, PartialEq)]
 pub enum CssStyleTransformOriginParseError<'a> {
@@ -371,12 +468,18 @@ pub enum CssStyleTransformOriginParseErrorOwned {
 impl<'a> CssStyleTransformOriginParseError<'a> {
     pub fn to_contained(&self) -> CssStyleTransformOriginParseErrorOwned {
         match self {
-            Self::WrongNumberOfComponents { expected, got, input } => {
-                CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents {
-                    expected: *expected, got: *got, input: input.to_string(),
-                }
+            Self::WrongNumberOfComponents {
+                expected,
+                got,
+                input,
+            } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+            Self::PixelValueParseError(e) => {
+                CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained())
             }
-            Self::PixelValueParseError(e) => CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained()),
         }
     }
 }
@@ -384,12 +487,18 @@ impl<'a> CssStyleTransformOriginParseError<'a> {
 impl CssStyleTransformOriginParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssStyleTransformOriginParseError<'a> {
         match self {
-            Self::WrongNumberOfComponents { expected, got, input } => {
-                CssStyleTransformOriginParseError::WrongNumberOfComponents {
-                    expected: *expected, got: *got, input,
-                }
+            Self::WrongNumberOfComponents {
+                expected,
+                got,
+                input,
+            } => CssStyleTransformOriginParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input,
+            },
+            Self::PixelValueParseError(e) => {
+                CssStyleTransformOriginParseError::PixelValueParseError(e.to_shared())
             }
-            Self::PixelValueParseError(e) => CssStyleTransformOriginParseError::PixelValueParseError(e.to_shared()),
         }
     }
 }
@@ -424,12 +533,18 @@ pub enum CssStylePerspectiveOriginParseErrorOwned {
 impl<'a> CssStylePerspectiveOriginParseError<'a> {
     pub fn to_contained(&self) -> CssStylePerspectiveOriginParseErrorOwned {
         match self {
-            Self::WrongNumberOfComponents { expected, got, input } => {
-                CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents {
-                    expected: *expected, got: *got, input: input.to_string(),
-                }
+            Self::WrongNumberOfComponents {
+                expected,
+                got,
+                input,
+            } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+            Self::PixelValueParseError(e) => {
+                CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained())
             }
-            Self::PixelValueParseError(e) => CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained()),
         }
     }
 }
@@ -437,16 +552,21 @@ impl<'a> CssStylePerspectiveOriginParseError<'a> {
 impl CssStylePerspectiveOriginParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssStylePerspectiveOriginParseError<'a> {
         match self {
-            Self::WrongNumberOfComponents { expected, got, input } => {
-                CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
-                    expected: *expected, got: *got, input,
-                }
+            Self::WrongNumberOfComponents {
+                expected,
+                got,
+                input,
+            } => CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input,
+            },
+            Self::PixelValueParseError(e) => {
+                CssStylePerspectiveOriginParseError::PixelValueParseError(e.to_shared())
             }
-            Self::PixelValueParseError(e) => CssStylePerspectiveOriginParseError::PixelValueParseError(e.to_shared()),
         }
     }
 }
-
 
 #[derive(Clone, PartialEq)]
 pub enum CssBackfaceVisibilityParseError<'a> {
@@ -466,7 +586,9 @@ pub enum CssBackfaceVisibilityParseErrorOwned {
 impl<'a> CssBackfaceVisibilityParseError<'a> {
     pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => CssBackfaceVisibilityParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => {
+                CssBackfaceVisibilityParseErrorOwned::InvalidValue(s.to_string())
+            }
         }
     }
 }
@@ -485,7 +607,7 @@ impl CssBackfaceVisibilityParseErrorOwned {
 pub fn parse_style_transform_vec<'a>(
     input: &'a str,
 ) -> Result<StyleTransformVec, CssStyleTransformParseError<'a>> {
-    split_string_respect_comma(input)
+    crate::props::basic::parse::split_string_respect_comma(input)
         .iter()
         .map(|i| parse_style_transform(i))
         .collect::<Result<Vec<_>, _>>()
@@ -496,84 +618,231 @@ pub fn parse_style_transform_vec<'a>(
 pub fn parse_style_transform<'a>(
     input: &'a str,
 ) -> Result<StyleTransform, CssStyleTransformParseError<'a>> {
-
     let (transform_type, transform_values) = parse_parentheses(
         input,
         &[
-            "matrix", "matrix3d", "translate", "translate3d", "translateX",
-            "translateY", "translateZ", "rotate", "rotate3d", "rotateX",
-            "rotateY", "rotateZ", "scale", "scale3d", "scaleX", "scaleY",
-            "scaleZ", "skew", "skewX", "skewY", "perspective",
+            "matrix",
+            "matrix3d",
+            "translate",
+            "translate3d",
+            "translateX",
+            "translateY",
+            "translateZ",
+            "rotate",
+            "rotate3d",
+            "rotateX",
+            "rotateY",
+            "rotateZ",
+            "scale",
+            "scale3d",
+            "scaleX",
+            "scaleY",
+            "scaleZ",
+            "skew",
+            "skewX",
+            "skewY",
+            "perspective",
         ],
     )?;
 
-    fn get_numbers<'a>(input: &'a str, expected: usize) -> Result<Vec<f32>, CssStyleTransformParseError<'a>> {
-        let numbers: Vec<_> = input.split(',').map(|s| s.trim().parse::<f32>()).collect::<Result<_, _>>()?;
+    fn get_numbers<'a>(
+        input: &'a str,
+        expected: usize,
+    ) -> Result<Vec<f32>, CssStyleTransformParseError<'a>> {
+        let numbers: Vec<_> = input
+            .split(',')
+            .map(|s| s.trim().parse::<f32>())
+            .collect::<Result<_, _>>()?;
         if numbers.len() != expected {
-            Err(CssStyleTransformParseError::WrongNumberOfComponents { expected, got: numbers.len(), input })
+            Err(CssStyleTransformParseError::WrongNumberOfComponents {
+                expected,
+                got: numbers.len(),
+                input,
+            })
         } else {
             Ok(numbers)
         }
     }
-    
+
     match transform_type {
         "matrix" => {
             let nums = get_numbers(transform_values, 6)?;
-            Ok(StyleTransform::Matrix(StyleTransformMatrix2D { a: nums[0], b: nums[1], c: nums[2], d: nums[3], tx: nums[4], ty: nums[5] }))
-        },
+            Ok(StyleTransform::Matrix(StyleTransformMatrix2D {
+                a: FloatValue::new(nums[0]),
+                b: FloatValue::new(nums[1]),
+                c: FloatValue::new(nums[2]),
+                d: FloatValue::new(nums[3]),
+                tx: FloatValue::new(nums[4]),
+                ty: FloatValue::new(nums[5]),
+            }))
+        }
         "matrix3d" => {
             let nums = get_numbers(transform_values, 16)?;
-            Ok(StyleTransform::Matrix3D(StyleTransformMatrix3D { 
-                m11: nums[0], m12: nums[1], m13: nums[2], m14: nums[3],
-                m21: nums[4], m22: nums[5], m23: nums[6], m24: nums[7],
-                m31: nums[8], m32: nums[9], m33: nums[10], m34: nums[11],
-                m41: nums[12], m42: nums[13], m43: nums[14], m44: nums[15],
+            Ok(StyleTransform::Matrix3D(StyleTransformMatrix3D {
+                m11: FloatValue::new(nums[0]),
+                m12: FloatValue::new(nums[1]),
+                m13: FloatValue::new(nums[2]),
+                m14: FloatValue::new(nums[3]),
+                m21: FloatValue::new(nums[4]),
+                m22: FloatValue::new(nums[5]),
+                m23: FloatValue::new(nums[6]),
+                m24: FloatValue::new(nums[7]),
+                m31: FloatValue::new(nums[8]),
+                m32: FloatValue::new(nums[9]),
+                m33: FloatValue::new(nums[10]),
+                m34: FloatValue::new(nums[11]),
+                m41: FloatValue::new(nums[12]),
+                m42: FloatValue::new(nums[13]),
+                m43: FloatValue::new(nums[14]),
+                m44: FloatValue::new(nums[15]),
             }))
-        },
+        }
         "translate" => {
             let components: Vec<_> = transform_values.split(',').collect();
-            let x = parse_pixel_value(components.get(0).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 0, input: transform_values })?.trim())?;
-            let y = parse_pixel_value(components.get(1).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input: transform_values })?.trim())?;
-            Ok(StyleTransform::Translate(StyleTransformTranslate2D { x, y }))
-        },
+            let x = parse_pixel_value(
+                components
+                    .get(0)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 2,
+                        got: 0,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
+            let y = parse_pixel_value(
+                components
+                    .get(1)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 2,
+                        got: 1,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
+            Ok(StyleTransform::Translate(StyleTransformTranslate2D {
+                x,
+                y,
+            }))
+        }
         "translate3d" => {
             let components: Vec<_> = transform_values.split(',').collect();
-            let x = parse_pixel_value(components.get(0).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 3, got: 0, input: transform_values })?.trim())?;
-            let y = parse_pixel_value(components.get(1).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 3, got: 1, input: transform_values })?.trim())?;
-            let z = parse_pixel_value(components.get(2).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 3, got: 2, input: transform_values })?.trim())?;
-            Ok(StyleTransform::Translate3D(StyleTransformTranslate3D { x, y, z }))
-        },
-        "translateX" => Ok(StyleTransform::TranslateX(parse_pixel_value(transform_values)?)),
-        "translateY" => Ok(StyleTransform::TranslateY(parse_pixel_value(transform_values)?)),
-        "translateZ" => Ok(StyleTransform::TranslateZ(parse_pixel_value(transform_values)?)),
+            let x = parse_pixel_value(
+                components
+                    .get(0)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 3,
+                        got: 0,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
+            let y = parse_pixel_value(
+                components
+                    .get(1)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 3,
+                        got: 1,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
+            let z = parse_pixel_value(
+                components
+                    .get(2)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 3,
+                        got: 2,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
+            Ok(StyleTransform::Translate3D(StyleTransformTranslate3D {
+                x,
+                y,
+                z,
+            }))
+        }
+        "translateX" => Ok(StyleTransform::TranslateX(parse_pixel_value(
+            transform_values,
+        )?)),
+        "translateY" => Ok(StyleTransform::TranslateY(parse_pixel_value(
+            transform_values,
+        )?)),
+        "translateZ" => Ok(StyleTransform::TranslateZ(parse_pixel_value(
+            transform_values,
+        )?)),
         "rotate" => Ok(StyleTransform::Rotate(parse_angle_value(transform_values)?)),
         "rotate3d" => {
             let nums = get_numbers(transform_values, 4)?;
-            Ok(StyleTransform::Rotate3D(StyleTransformRotate3D { x: nums[0], y: nums[1], z: nums[2], angle: AngleValue::deg(nums[3]) }))
-        },
-        "rotateX" => Ok(StyleTransform::RotateX(parse_angle_value(transform_values)?)),
-        "rotateY" => Ok(StyleTransform::RotateY(parse_angle_value(transform_values)?)),
-        "rotateZ" => Ok(StyleTransform::RotateZ(parse_angle_value(transform_values)?)),
+            Ok(StyleTransform::Rotate3D(StyleTransformRotate3D {
+                x: FloatValue::new(nums[0]),
+                y: FloatValue::new(nums[1]),
+                z: FloatValue::new(nums[2]),
+                angle: AngleValue::deg(nums[3]),
+            }))
+        }
+        "rotateX" => Ok(StyleTransform::RotateX(parse_angle_value(
+            transform_values,
+        )?)),
+        "rotateY" => Ok(StyleTransform::RotateY(parse_angle_value(
+            transform_values,
+        )?)),
+        "rotateZ" => Ok(StyleTransform::RotateZ(parse_angle_value(
+            transform_values,
+        )?)),
         "scale" => {
             let nums = get_numbers(transform_values, 2)?;
-            Ok(StyleTransform::Scale(StyleTransformScale2D { x: nums[0], y: nums[1] }))
-        },
+            Ok(StyleTransform::Scale(StyleTransformScale2D {
+                x: FloatValue::new(nums[0]),
+                y: FloatValue::new(nums[1]),
+            }))
+        }
         "scale3d" => {
             let nums = get_numbers(transform_values, 3)?;
-            Ok(StyleTransform::Scale3D(StyleTransformScale3D { x: nums[0], y: nums[1], z: nums[2] }))
-        },
-        "scaleX" => Ok(StyleTransform::ScaleX(PercentageValue::new(transform_values.trim().parse::<f32>()? * 100.0))),
-        "scaleY" => Ok(StyleTransform::ScaleY(PercentageValue::new(transform_values.trim().parse::<f32>()? * 100.0))),
-        "scaleZ" => Ok(StyleTransform::ScaleZ(PercentageValue::new(transform_values.trim().parse::<f32>()? * 100.0))),
+            Ok(StyleTransform::Scale3D(StyleTransformScale3D {
+                x: FloatValue::new(nums[0]),
+                y: FloatValue::new(nums[1]),
+                z: FloatValue::new(nums[2]),
+            }))
+        }
+        "scaleX" => Ok(StyleTransform::ScaleX(PercentageValue::new(
+            transform_values.trim().parse::<f32>()? * 100.0,
+        ))),
+        "scaleY" => Ok(StyleTransform::ScaleY(PercentageValue::new(
+            transform_values.trim().parse::<f32>()? * 100.0,
+        ))),
+        "scaleZ" => Ok(StyleTransform::ScaleZ(PercentageValue::new(
+            transform_values.trim().parse::<f32>()? * 100.0,
+        ))),
         "skew" => {
             let components: Vec<_> = transform_values.split(',').collect();
-            let x = parse_angle_value(components.get(0).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 0, input: transform_values })?.trim())?;
-            let y = parse_angle_value(components.get(1).ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input: transform_values })?.trim())?;
+            let x = parse_angle_value(
+                components
+                    .get(0)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 2,
+                        got: 0,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
+            let y = parse_angle_value(
+                components
+                    .get(1)
+                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
+                        expected: 2,
+                        got: 1,
+                        input: transform_values,
+                    })?
+                    .trim(),
+            )?;
             Ok(StyleTransform::Skew(StyleTransformSkew2D { x, y }))
-        },
+        }
         "skewX" => Ok(StyleTransform::SkewX(parse_angle_value(transform_values)?)),
         "skewY" => Ok(StyleTransform::SkewY(parse_angle_value(transform_values)?)),
-        "perspective" => Ok(StyleTransform::Perspective(parse_pixel_value(transform_values)?)),
+        "perspective" => Ok(StyleTransform::Perspective(parse_pixel_value(
+            transform_values,
+        )?)),
         _ => unreachable!(),
     }
 }
@@ -601,11 +870,13 @@ pub fn parse_style_perspective_origin<'a>(
 ) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'a>> {
     let components: Vec<_> = input.trim().split_whitespace().collect();
     if components.len() != 2 {
-        return Err(CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
-            expected: 2,
-            got: components.len(),
-            input,
-        });
+        return Err(
+            CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
+                expected: 2,
+                got: components.len(),
+                input,
+            },
+        );
     }
     let x = parse_pixel_value(components[0])?;
     let y = parse_pixel_value(components[1])?;

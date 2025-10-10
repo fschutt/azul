@@ -8,15 +8,11 @@ use core::{
 
 use crate::{
     impl_option,
-    parser::{
-        impl_debug_as_display, impl_display, impl_from, parse_parentheses, ParenthesisParseError,
-        ParenthesisParseErrorOwned,
-    },
     props::basic::{
         direction::{
             parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
         },
-        value::{parse_percentage_value, PercentageParseError, PercentageValue},
+        length::{PercentageParseError, PercentageValue},
     },
 };
 
@@ -360,7 +356,7 @@ pub fn parse_css_color<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
     if input.starts_with('#') {
         parse_color_no_hash(&input[1..])
     } else {
-        use crate::parser::ParenthesisParseError::*;
+        use crate::props::basic::parse::{parse_parentheses, ParenthesisParseError};
         match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {
             Ok((stopword, inner_value)) => match stopword {
                 "rgba" => parse_color_rgb(inner_value, true),
@@ -370,13 +366,17 @@ pub fn parse_css_color<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
                 _ => unreachable!(),
             },
             Err(e) => match e {
-                UnclosedBraces => Err(CssColorParseError::UnclosedColor(input)),
-                EmptyInput => Err(CssColorParseError::EmptyInput),
-                StopWordNotFound(stopword) => {
+                ParenthesisParseError::UnclosedBraces => {
+                    Err(CssColorParseError::UnclosedColor(input))
+                }
+                ParenthesisParseError::EmptyInput => Err(CssColorParseError::EmptyInput),
+                ParenthesisParseError::StopWordNotFound(stopword) => {
                     Err(CssColorParseError::InvalidFunctionName(stopword))
                 }
-                NoClosingBraceFound => Err(CssColorParseError::UnclosedColor(input)),
-                NoOpeningBraceFound => parse_color_builtin(input),
+                ParenthesisParseError::NoClosingBraceFound => {
+                    Err(CssColorParseError::UnclosedColor(input))
+                }
+                ParenthesisParseError::NoOpeningBraceFound => parse_color_builtin(input),
             },
         }
     }
@@ -528,6 +528,8 @@ fn parse_color_hsl_components<'a>(
         components: &mut dyn Iterator<Item = &'a str>,
         which: CssColorComponent,
     ) -> Result<f32, CssColorParseError<'a>> {
+        use crate::props::basic::parse_percentage_value;
+
         let c = components
             .next()
             .ok_or(CssColorParseError::MissingColorComponent(which))?;

@@ -6,14 +6,11 @@ use alloc::{
 };
 
 #[cfg(feature = "parser")]
-use crate::parser::{
-    impl_debug_as_display, impl_display, impl_from, parse_pixel_value_with_auto,
-    typed_pixel_value_parser, PixelValueWithAuto,
-};
+use crate::props::basic::pixel::{parse_pixel_value_with_auto, PixelValueWithAuto};
 use crate::props::{
-    basic::value::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+    basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
     formatter::PrintAsCssValue,
-    macros::{impl_pixel_value, PixelValueTaker},
+    macros::PixelValueTaker,
 };
 
 // --- TYPE DEFINITIONS ---

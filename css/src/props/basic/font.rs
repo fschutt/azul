@@ -15,21 +15,19 @@ use core::{
 };
 
 #[cfg(feature = "parser")]
-use crate::parser::{strip_quotes, UnclosedQuotesError};
+use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
 use crate::{
-    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash,
-    impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
-    parser::{
-        impl_debug_as_display, impl_display, impl_from, InvalidValueErr, InvalidValueErrOwned,
-    },
+    corety::{AzString, U8Vec},
     props::{
-        basic::value::{
-            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+        basic::{
+            error::{InvalidValueErr, InvalidValueErrOwned},
+            pixel::{
+                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+                PixelValue,
+            },
         },
         formatter::PrintAsCssValue,
-        macros::impl_pixel_value,
     },
-    AzString, U8Vec,
 };
 
 // --- Font Weight ---
@@ -39,18 +37,16 @@ use crate::{
 #[repr(u16)]
 pub enum StyleFontWeight {
     Lighter = 0,
-    Normal = 400,
-    Bold = 700,
-    Bolder = 1000,
     W100 = 100,
     W200 = 200,
     W300 = 300,
-    W400 = 400, // Same as Normal
+    Normal = 400,
     W500 = 500,
     W600 = 600,
-    W700 = 700, // Same as Bold
+    Bold = 700,
     W800 = 800,
     W900 = 900,
+    Bolder = 1000,
 }
 
 impl Default for StyleFontWeight {
@@ -63,8 +59,8 @@ impl PrintAsCssValue for StyleFontWeight {
     fn print_as_css_value(&self) -> String {
         match self {
             StyleFontWeight::Lighter => "lighter".to_string(),
-            StyleFontWeight::Normal | StyleFontWeight::W400 => "normal".to_string(),
-            StyleFontWeight::Bold | StyleFontWeight::W700 => "bold".to_string(),
+            StyleFontWeight::Normal => "normal".to_string(),
+            StyleFontWeight::Bold => "bold".to_string(),
             StyleFontWeight::Bolder => "bolder".to_string(),
             _ => (*self as u16).to_string(),
         }
@@ -298,7 +294,7 @@ impl PrintAsCssValue for StyleFontFamilyVec {
 
 // -- Font Weight Parser --
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssFontWeightParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
     InvalidNumber(ParseIntError),
@@ -356,10 +352,10 @@ pub fn parse_font_weight<'a>(
         "100" => Ok(StyleFontWeight::W100),
         "200" => Ok(StyleFontWeight::W200),
         "300" => Ok(StyleFontWeight::W300),
-        "400" => Ok(StyleFontWeight::W400),
+        "400" => Ok(StyleFontWeight::Normal),
         "500" => Ok(StyleFontWeight::W500),
         "600" => Ok(StyleFontWeight::W600),
-        "700" => Ok(StyleFontWeight::W700),
+        "700" => Ok(StyleFontWeight::Bold),
         "800" => Ok(StyleFontWeight::W800),
         "900" => Ok(StyleFontWeight::W900),
         _ => Err(InvalidValueErr(input).into()),
@@ -368,7 +364,7 @@ pub fn parse_font_weight<'a>(
 
 // -- Font Style Parser --
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssFontStyleParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -409,7 +405,7 @@ pub fn parse_font_style<'a>(input: &'a str) -> Result<StyleFontStyle, CssFontSty
 
 // -- Font Size Parser --
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssStyleFontSizeParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
@@ -449,7 +445,7 @@ pub fn parse_style_font_size<'a>(
 
 // -- Font Family Parser --
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
 pub enum CssStyleFontFamilyParseError<'a> {
     InvalidStyleFontFamily(&'a str),
     UnclosedQuotes(UnclosedQuotesError<'a>),

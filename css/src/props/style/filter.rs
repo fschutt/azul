@@ -1,21 +1,26 @@
 //! CSS properties for graphical effects like blur, drop-shadow, etc.
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use core::fmt;
-use core::num::ParseFloatError;
-
-use crate::{
-    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_ord,
-    impl_vec_partialeq, impl_vec_partialord,
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
 };
+use core::{fmt, num::ParseFloatError};
 
+#[cfg(feature = "parser")]
+use crate::props::basic::{
+    error::{InvalidValueErr, InvalidValueErrOwned},
+    length::parse_float_value,
+    parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
+};
 use crate::props::{
     basic::{
         color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-        value::{
-            parse_percentage_value, parse_pixel_value, FloatValue, PercentageParseError,
-            PercentageValue, PixelValue, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+        length::{
+            parse_length, CssLengthParseError, CssLengthParseErrorOwned, FloatValue, LengthValue,
+            PercentageParseError, PercentageValue,
+        },
+        pixel::{
+            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
         },
     },
     formatter::PrintAsCssValue,
@@ -25,12 +30,6 @@ use crate::props::{
         },
         effects::{parse_style_mix_blend_mode, StyleMixBlendMode},
     },
-};
-
-#[cfg(feature = "parser")]
-use crate::parser::{
-    impl_debug_as_display, impl_display, impl_from, parse_float_value, parse_parentheses,
-    InvalidValueErr, InvalidValueErrOwned, ParenthesisParseError, ParenthesisParseErrorOwned,
 };
 
 // --- TYPE DEFINITIONS ---
@@ -158,6 +157,7 @@ impl PrintAsCssValue for StyleCompositeFilter {
 #[cfg(feature = "parser")]
 mod parser {
     use super::*;
+    use crate::props::basic::parse_percentage_value;
 
     // -- Top-level Filter Error --
 
@@ -189,17 +189,31 @@ mod parser {
         Composite(e) => format!("Error parsing composite(): {}", e),
     }}
 
-    impl_from!(ParenthesisParseError<'a>, CssStyleFilterParseError::InvalidParenthesis);
+    impl_from!(
+        ParenthesisParseError<'a>,
+        CssStyleFilterParseError::InvalidParenthesis
+    );
     impl_from!(InvalidValueErr<'a>, CssStyleFilterParseError::BlendMode);
     impl_from!(CssStyleBlurParseError<'a>, CssStyleFilterParseError::Blur);
     impl_from!(CssColorParseError<'a>, CssStyleFilterParseError::Color);
-    impl_from!(CssStyleColorMatrixParseError<'a>, CssStyleFilterParseError::ColorMatrix);
-    impl_from!(CssStyleFilterOffsetParseError<'a>, CssStyleFilterParseError::Offset);
-    impl_from!(CssStyleCompositeFilterParseError<'a>, CssStyleFilterParseError::Composite);
+    impl_from!(
+        CssStyleColorMatrixParseError<'a>,
+        CssStyleFilterParseError::ColorMatrix
+    );
+    impl_from!(
+        CssStyleFilterOffsetParseError<'a>,
+        CssStyleFilterParseError::Offset
+    );
+    impl_from!(
+        CssStyleCompositeFilterParseError<'a>,
+        CssStyleFilterParseError::Composite
+    );
     impl_from!(CssShadowParseError<'a>, CssStyleFilterParseError::Shadow);
 
     impl<'a> From<PercentageParseError> for CssStyleFilterParseError<'a> {
-        fn from(p: PercentageParseError) -> Self { Self::Opacity(p) }
+        fn from(p: PercentageParseError) -> Self {
+            Self::Opacity(p)
+        }
     }
 
     #[derive(Debug, Clone, PartialEq)]
@@ -219,14 +233,20 @@ mod parser {
     impl<'a> CssStyleFilterParseError<'a> {
         pub fn to_contained(&self) -> CssStyleFilterParseErrorOwned {
             match self {
-                Self::InvalidFilter(s) => CssStyleFilterParseErrorOwned::InvalidFilter(s.to_string()),
-                Self::InvalidParenthesis(e) => CssStyleFilterParseErrorOwned::InvalidParenthesis(e.to_contained()),
+                Self::InvalidFilter(s) => {
+                    CssStyleFilterParseErrorOwned::InvalidFilter(s.to_string())
+                }
+                Self::InvalidParenthesis(e) => {
+                    CssStyleFilterParseErrorOwned::InvalidParenthesis(e.to_contained())
+                }
                 Self::Shadow(e) => CssStyleFilterParseErrorOwned::Shadow(e.to_contained()),
                 Self::BlendMode(e) => CssStyleFilterParseErrorOwned::BlendMode(e.to_contained()),
                 Self::Color(e) => CssStyleFilterParseErrorOwned::Color(e.to_contained()),
                 Self::Opacity(e) => CssStyleFilterParseErrorOwned::Opacity(e.clone()),
                 Self::Blur(e) => CssStyleFilterParseErrorOwned::Blur(e.to_contained()),
-                Self::ColorMatrix(e) => CssStyleFilterParseErrorOwned::ColorMatrix(e.to_contained()),
+                Self::ColorMatrix(e) => {
+                    CssStyleFilterParseErrorOwned::ColorMatrix(e.to_contained())
+                }
                 Self::Offset(e) => CssStyleFilterParseErrorOwned::Offset(e.to_contained()),
                 Self::Composite(e) => CssStyleFilterParseErrorOwned::Composite(e.to_contained()),
             }
@@ -237,7 +257,9 @@ mod parser {
         pub fn to_shared<'a>(&'a self) -> CssStyleFilterParseError<'a> {
             match self {
                 Self::InvalidFilter(s) => CssStyleFilterParseError::InvalidFilter(s),
-                Self::InvalidParenthesis(e) => CssStyleFilterParseError::InvalidParenthesis(e.to_shared()),
+                Self::InvalidParenthesis(e) => {
+                    CssStyleFilterParseError::InvalidParenthesis(e.to_shared())
+                }
                 Self::Shadow(e) => CssStyleFilterParseError::Shadow(e.to_shared()),
                 Self::BlendMode(e) => CssStyleFilterParseError::BlendMode(e.to_shared()),
                 Self::Color(e) => CssStyleFilterParseError::Color(e.to_shared()),
@@ -275,7 +297,9 @@ mod parser {
         pub fn to_contained(&self) -> CssStyleBlurParseErrorOwned {
             match self {
                 Self::Pixel(e) => CssStyleBlurParseErrorOwned::Pixel(e.to_contained()),
-                Self::TooManyComponents(s) => CssStyleBlurParseErrorOwned::TooManyComponents(s.to_string()),
+                Self::TooManyComponents(s) => {
+                    CssStyleBlurParseErrorOwned::TooManyComponents(s.to_string())
+                }
             }
         }
     }
@@ -292,7 +316,11 @@ mod parser {
     #[derive(Clone, PartialEq)]
     pub enum CssStyleColorMatrixParseError<'a> {
         Float(ParseFloatError),
-        WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+        WrongNumberOfComponents {
+            expected: usize,
+            got: usize,
+            input: &'a str,
+        },
     }
 
     impl_debug_as_display!(CssStyleColorMatrixParseError<'a>);
@@ -301,29 +329,51 @@ mod parser {
         WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
     }}
     impl<'a> From<ParseFloatError> for CssStyleColorMatrixParseError<'a> {
-        fn from(p: ParseFloatError) -> Self { Self::Float(p) }
+        fn from(p: ParseFloatError) -> Self {
+            Self::Float(p)
+        }
     }
 
     #[derive(Debug, Clone, PartialEq)]
     pub enum CssStyleColorMatrixParseErrorOwned {
         Float(ParseFloatError),
-        WrongNumberOfComponents { expected: usize, got: usize, input: String },
+        WrongNumberOfComponents {
+            expected: usize,
+            got: usize,
+            input: String,
+        },
     }
 
     impl<'a> CssStyleColorMatrixParseError<'a> {
         pub fn to_contained(&self) -> CssStyleColorMatrixParseErrorOwned {
             match self {
                 Self::Float(e) => CssStyleColorMatrixParseErrorOwned::Float(e.clone()),
-                Self::WrongNumberOfComponents { expected, got, input } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents { expected: *expected, got: *got, input: input.to_string() },
+                Self::WrongNumberOfComponents {
+                    expected,
+                    got,
+                    input,
+                } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.to_string(),
+                },
             }
         }
     }
-    
+
     impl CssStyleColorMatrixParseErrorOwned {
         pub fn to_shared<'a>(&'a self) -> CssStyleColorMatrixParseError<'a> {
             match self {
                 Self::Float(e) => CssStyleColorMatrixParseError::Float(e.clone()),
-                Self::WrongNumberOfComponents { expected, got, input } => CssStyleColorMatrixParseError::WrongNumberOfComponents { expected: *expected, got: *got, input: input },
+                Self::WrongNumberOfComponents {
+                    expected,
+                    got,
+                    input,
+                } => CssStyleColorMatrixParseError::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input,
+                },
             }
         }
     }
@@ -331,7 +381,11 @@ mod parser {
     #[derive(Clone, PartialEq)]
     pub enum CssStyleFilterOffsetParseError<'a> {
         Pixel(CssPixelValueParseError<'a>),
-        WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+        WrongNumberOfComponents {
+            expected: usize,
+            got: usize,
+            input: &'a str,
+        },
     }
 
     impl_debug_as_display!(CssStyleFilterOffsetParseError<'a>);
@@ -339,19 +393,34 @@ mod parser {
         Pixel(e) => format!("Invalid pixel value: {}", e),
         WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
     }}
-    impl_from!(CssPixelValueParseError<'a>, CssStyleFilterOffsetParseError::Pixel);
-    
+    impl_from!(
+        CssPixelValueParseError<'a>,
+        CssStyleFilterOffsetParseError::Pixel
+    );
+
     #[derive(Debug, Clone, PartialEq)]
     pub enum CssStyleFilterOffsetParseErrorOwned {
         Pixel(CssPixelValueParseErrorOwned),
-        WrongNumberOfComponents { expected: usize, got: usize, input: String },
+        WrongNumberOfComponents {
+            expected: usize,
+            got: usize,
+            input: String,
+        },
     }
 
     impl<'a> CssStyleFilterOffsetParseError<'a> {
         pub fn to_contained(&self) -> CssStyleFilterOffsetParseErrorOwned {
             match self {
                 Self::Pixel(e) => CssStyleFilterOffsetParseErrorOwned::Pixel(e.to_contained()),
-                Self::WrongNumberOfComponents { expected, got, input } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents { expected: *expected, got: *got, input: input.to_string() },
+                Self::WrongNumberOfComponents {
+                    expected,
+                    got,
+                    input,
+                } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.to_string(),
+                },
             }
         }
     }
@@ -360,7 +429,15 @@ mod parser {
         pub fn to_shared<'a>(&'a self) -> CssStyleFilterOffsetParseError<'a> {
             match self {
                 Self::Pixel(e) => CssStyleFilterOffsetParseError::Pixel(e.to_shared()),
-                Self::WrongNumberOfComponents { expected, got, input } => CssStyleFilterOffsetParseError::WrongNumberOfComponents { expected: *expected, got: *got, input: input },
+                Self::WrongNumberOfComponents {
+                    expected,
+                    got,
+                    input,
+                } => CssStyleFilterOffsetParseError::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input,
+                },
             }
         }
     }
@@ -369,7 +446,11 @@ mod parser {
     pub enum CssStyleCompositeFilterParseError<'a> {
         Invalid(InvalidValueErr<'a>),
         Float(ParseFloatError),
-        WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+        WrongNumberOfComponents {
+            expected: usize,
+            got: usize,
+            input: &'a str,
+        },
     }
 
     impl_debug_as_display!(CssStyleCompositeFilterParseError<'a>);
@@ -378,24 +459,43 @@ mod parser {
         Float(e) => format!("Error parsing floating-point value for arithmetic(): {}", e),
         WrongNumberOfComponents { expected, got, input } => format!("Expected {} components for arithmetic(), got {}: \"{}\"", expected, got, input),
     }}
-    impl_from!(InvalidValueErr<'a>, CssStyleCompositeFilterParseError::Invalid);
+    impl_from!(
+        InvalidValueErr<'a>,
+        CssStyleCompositeFilterParseError::Invalid
+    );
     impl<'a> From<ParseFloatError> for CssStyleCompositeFilterParseError<'a> {
-        fn from(p: ParseFloatError) -> Self { Self::Float(p) }
+        fn from(p: ParseFloatError) -> Self {
+            Self::Float(p)
+        }
     }
 
     #[derive(Debug, Clone, PartialEq)]
     pub enum CssStyleCompositeFilterParseErrorOwned {
         Invalid(InvalidValueErrOwned),
         Float(ParseFloatError),
-        WrongNumberOfComponents { expected: usize, got: usize, input: String },
+        WrongNumberOfComponents {
+            expected: usize,
+            got: usize,
+            input: String,
+        },
     }
 
     impl<'a> CssStyleCompositeFilterParseError<'a> {
         pub fn to_contained(&self) -> CssStyleCompositeFilterParseErrorOwned {
             match self {
-                Self::Invalid(e) => CssStyleCompositeFilterParseErrorOwned::Invalid(e.to_contained()),
+                Self::Invalid(e) => {
+                    CssStyleCompositeFilterParseErrorOwned::Invalid(e.to_contained())
+                }
                 Self::Float(e) => CssStyleCompositeFilterParseErrorOwned::Float(e.clone()),
-                Self::WrongNumberOfComponents { expected, got, input } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents { expected: *expected, got: *got, input: input.to_string() },
+                Self::WrongNumberOfComponents {
+                    expected,
+                    got,
+                    input,
+                } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.to_string(),
+                },
             }
         }
     }
@@ -405,15 +505,25 @@ mod parser {
             match self {
                 Self::Invalid(e) => CssStyleCompositeFilterParseError::Invalid(e.to_shared()),
                 Self::Float(e) => CssStyleCompositeFilterParseError::Float(e.clone()),
-                Self::WrongNumberOfComponents { expected, got, input } => CssStyleCompositeFilterParseError::WrongNumberOfComponents { expected: *expected, got: *got, input: input },
+                Self::WrongNumberOfComponents {
+                    expected,
+                    got,
+                    input,
+                } => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input,
+                },
             }
         }
     }
-    
+
     // -- Parser Implementation --
 
     /// Parses a space-separated list of filter functions.
-    pub fn parse_style_filter_vec<'a>(input: &'a str) -> Result<StyleFilterVec, CssStyleFilterParseError<'a>> {
+    pub fn parse_style_filter_vec<'a>(
+        input: &'a str,
+    ) -> Result<StyleFilterVec, CssStyleFilterParseError<'a>> {
         let mut filters = Vec::new();
         let mut remaining = input.trim();
         while !remaining.is_empty() {
@@ -426,10 +536,14 @@ mod parser {
 
     /// Parses one `function(...)` from the beginning of a string and returns the parsed
     /// filter and the rest of the string.
-    fn parse_one_filter_function<'a>(input: &'a str) -> Result<(StyleFilter, &'a str), CssStyleFilterParseError<'a>> {
-        let open_paren = input.find('(').ok_or(CssStyleFilterParseError::InvalidFilter(input))?;
+    fn parse_one_filter_function<'a>(
+        input: &'a str,
+    ) -> Result<(StyleFilter, &'a str), CssStyleFilterParseError<'a>> {
+        let open_paren = input
+            .find('(')
+            .ok_or(CssStyleFilterParseError::InvalidFilter(input))?;
         let func_name = &input[..open_paren];
-        
+
         let mut balance = 1;
         let mut close_paren = 0;
         for (i, c) in input.char_indices().skip(open_paren + 1) {
@@ -456,25 +570,40 @@ mod parser {
     }
 
     /// Parses a single filter function string, like `blur(5px)`.
-    pub fn parse_style_filter<'a>(input: &'a str) -> Result<StyleFilter, CssStyleFilterParseError<'a>> {
+    pub fn parse_style_filter<'a>(
+        input: &'a str,
+    ) -> Result<StyleFilter, CssStyleFilterParseError<'a>> {
         let (filter_type, filter_values) = parse_parentheses(
             input,
             &[
-                "blend", "flood", "blur", "opacity", "color-matrix", "drop-shadow",
-                "component-transfer", "offset", "composite",
+                "blend",
+                "flood",
+                "blur",
+                "opacity",
+                "color-matrix",
+                "drop-shadow",
+                "component-transfer",
+                "offset",
+                "composite",
             ],
         )?;
 
         match filter_type {
-            "blend" => Ok(StyleFilter::Blend(parse_style_mix_blend_mode(filter_values)?)),
+            "blend" => Ok(StyleFilter::Blend(parse_style_mix_blend_mode(
+                filter_values,
+            )?)),
             "flood" => Ok(StyleFilter::Flood(parse_css_color(filter_values)?)),
             "blur" => Ok(StyleFilter::Blur(parse_style_blur(filter_values)?)),
             "opacity" => Ok(StyleFilter::Opacity(parse_percentage_value(filter_values)?)),
             "color-matrix" => Ok(StyleFilter::ColorMatrix(parse_color_matrix(filter_values)?)),
-            "drop-shadow" => Ok(StyleFilter::DropShadow(parse_style_box_shadow(filter_values)?)),
+            "drop-shadow" => Ok(StyleFilter::DropShadow(parse_style_box_shadow(
+                filter_values,
+            )?)),
             "component-transfer" => Ok(StyleFilter::ComponentTransfer),
             "offset" => Ok(StyleFilter::Offset(parse_filter_offset(filter_values)?)),
-            "composite" => Ok(StyleFilter::Composite(parse_filter_composite(filter_values)?)),
+            "composite" => Ok(StyleFilter::Composite(parse_filter_composite(
+                filter_values,
+            )?)),
             _ => unreachable!(),
         }
     }
@@ -497,7 +626,9 @@ mod parser {
         Ok(StyleBlur { width, height })
     }
 
-    fn parse_color_matrix<'a>(input: &'a str) -> Result<StyleColorMatrix, CssStyleColorMatrixParseError<'a>> {
+    fn parse_color_matrix<'a>(
+        input: &'a str,
+    ) -> Result<StyleColorMatrix, CssStyleColorMatrixParseError<'a>> {
         let components: Vec<_> = input.split_whitespace().collect();
         if components.len() != 20 {
             return Err(CssStyleColorMatrixParseError::WrongNumberOfComponents {
@@ -506,16 +637,18 @@ mod parser {
                 input,
             });
         }
-        
+
         let mut matrix = [FloatValue::const_new(0); 20];
         for (i, comp) in components.iter().enumerate() {
             matrix[i] = parse_float_value(comp)?;
         }
-        
+
         Ok(StyleColorMatrix { matrix })
     }
 
-    fn parse_filter_offset<'a>(input: &'a str) -> Result<StyleFilterOffset, CssStyleFilterOffsetParseError<'a>> {
+    fn parse_filter_offset<'a>(
+        input: &'a str,
+    ) -> Result<StyleFilterOffset, CssStyleFilterOffsetParseError<'a>> {
         let components: Vec<_> = input.split_whitespace().collect();
         if components.len() != 2 {
             return Err(CssStyleFilterOffsetParseError::WrongNumberOfComponents {
@@ -524,14 +657,16 @@ mod parser {
                 input,
             });
         }
-        
+
         let x = parse_pixel_value(components[0])?;
         let y = parse_pixel_value(components[1])?;
-        
+
         Ok(StyleFilterOffset { x, y })
     }
 
-    fn parse_filter_composite<'a>(input: &'a str) -> Result<StyleCompositeFilter, CssStyleCompositeFilterParseError<'a>> {
+    fn parse_filter_composite<'a>(
+        input: &'a str,
+    ) -> Result<StyleCompositeFilter, CssStyleCompositeFilterParseError<'a>> {
         let mut iter = input.split_whitespace();
         let operator = iter.next().unwrap_or("");
 
@@ -545,9 +680,13 @@ mod parser {
             "arithmetic" => {
                 let mut params = [FloatValue::const_new(0); 4];
                 for (i, val) in params.iter_mut().enumerate() {
-                    let s = iter.next().ok_or(CssStyleCompositeFilterParseError::WrongNumberOfComponents {
-                        expected: 4, got: i, input
-                    })?;
+                    let s = iter.next().ok_or(
+                        CssStyleCompositeFilterParseError::WrongNumberOfComponents {
+                            expected: 4,
+                            got: i,
+                            input,
+                        },
+                    )?;
                     *val = parse_float_value(s)?;
                 }
                 Ok(StyleCompositeFilter::Arithmetic(params))

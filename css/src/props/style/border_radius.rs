@@ -2,15 +2,13 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::{
-    parser::{impl_debug_as_display, impl_display, impl_from},
-    props::{
-        basic::value::{
-            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
-        },
-        formatter::PrintAsCssValue,
-        macros::{impl_pixel_value, PixelValueTaker},
+
+use crate::props::{
+    basic::pixel::{
+        parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
     },
+    formatter::PrintAsCssValue,
+    macros::PixelValueTaker,
 };
 
 // --- Property Struct Definitions ---
@@ -30,12 +28,6 @@ macro_rules! define_border_radius_property {
         }
 
         impl_pixel_value!($struct_name);
-
-        impl PrintAsCssValue for $struct_name {
-            fn print_as_css_value(&self) -> String {
-                format!("{}", self.inner)
-            }
-        }
     };
 }
 
