@@ -3,12 +3,14 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use crate::props::{
-    basic::pixel::{
-        parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+use crate::{
+    css::PrintAsCssValue,
+    props::{
+        basic::pixel::{
+            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+        },
+        macros::PixelValueTaker,
     },
-    formatter::PrintAsCssValue,
-    macros::PixelValueTaker,
 };
 
 // --- Property Struct Definitions ---

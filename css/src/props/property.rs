@@ -1020,6 +1020,408 @@ pub fn parse_css_property<'a>(
     })
 }
 
+#[cfg(feature = "parser")]
+
+/// Parses a combined CSS property or a CSS property shorthand, for example "margin"
+/// (as a shorthand for setting all four properties of "margin-top", "margin-bottom",
+/// "margin-left" and "margin-right")
+///
+/// ```rust
+/// # extern crate azul_css;
+/// # use azul_css::*;
+/// assert_eq!(
+///     azul_css::parser::parse_combined_css_property(
+///         CombinedCssPropertyType::BorderRadius,
+///         "10px"
+///     ),
+///     Ok(vec![
+///         CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(
+///             StyleBorderTopLeftRadius::px(10.0)
+///         )),
+///         CssProperty::BorderTopRightRadius(CssPropertyValue::Exact(
+///             StyleBorderTopRightRadius::px(10.0)
+///         )),
+///         CssProperty::BorderBottomLeftRadius(CssPropertyValue::Exact(
+///             StyleBorderBottomLeftRadius::px(10.0)
+///         )),
+///         CssProperty::BorderBottomRightRadius(CssPropertyValue::Exact(
+///             StyleBorderBottomRightRadius::px(10.0)
+///         )),
+///     ])
+/// )
+/// ```
+pub fn parse_combined_css_property<'a>(
+    key: CombinedCssPropertyType,
+    value: &'a str,
+) -> Result<Vec<CssProperty>, CssParsingError<'a>> {
+    use self::CombinedCssPropertyType::*;
+
+    macro_rules! convert_value {
+        ($thing:expr, $prop_type:ident, $wrapper:ident) => {
+            match $thing {
+                PixelValueWithAuto::None => CssProperty::none(CssPropertyType::$prop_type),
+                PixelValueWithAuto::Initial => CssProperty::initial(CssPropertyType::$prop_type),
+                PixelValueWithAuto::Inherit => CssProperty::inherit(CssPropertyType::$prop_type),
+                PixelValueWithAuto::Auto => CssProperty::auto(CssPropertyType::$prop_type),
+                PixelValueWithAuto::Exact(x) => {
+                    CssProperty::$prop_type($wrapper { inner: x }.into())
+                }
+            }
+        };
+    }
+
+    let keys = match key {
+        BorderRadius => {
+            vec![
+                CssPropertyType::BorderTopLeftRadius,
+                CssPropertyType::BorderTopRightRadius,
+                CssPropertyType::BorderBottomLeftRadius,
+                CssPropertyType::BorderBottomRightRadius,
+            ]
+        }
+        Overflow => {
+            vec![CssPropertyType::OverflowX, CssPropertyType::OverflowY]
+        }
+        Padding => {
+            vec![
+                CssPropertyType::PaddingTop,
+                CssPropertyType::PaddingBottom,
+                CssPropertyType::PaddingLeft,
+                CssPropertyType::PaddingRight,
+            ]
+        }
+        Margin => {
+            vec![
+                CssPropertyType::MarginTop,
+                CssPropertyType::MarginBottom,
+                CssPropertyType::MarginLeft,
+                CssPropertyType::MarginRight,
+            ]
+        }
+        Border => {
+            vec![
+                CssPropertyType::BorderTopColor,
+                CssPropertyType::BorderRightColor,
+                CssPropertyType::BorderLeftColor,
+                CssPropertyType::BorderBottomColor,
+                CssPropertyType::BorderTopStyle,
+                CssPropertyType::BorderRightStyle,
+                CssPropertyType::BorderLeftStyle,
+                CssPropertyType::BorderBottomStyle,
+                CssPropertyType::BorderTopWidth,
+                CssPropertyType::BorderRightWidth,
+                CssPropertyType::BorderLeftWidth,
+                CssPropertyType::BorderBottomWidth,
+            ]
+        }
+        BorderLeft => {
+            vec![
+                CssPropertyType::BorderLeftColor,
+                CssPropertyType::BorderLeftStyle,
+                CssPropertyType::BorderLeftWidth,
+            ]
+        }
+        BorderRight => {
+            vec![
+                CssPropertyType::BorderRightColor,
+                CssPropertyType::BorderRightStyle,
+                CssPropertyType::BorderRightWidth,
+            ]
+        }
+        BorderTop => {
+            vec![
+                CssPropertyType::BorderTopColor,
+                CssPropertyType::BorderTopStyle,
+                CssPropertyType::BorderTopWidth,
+            ]
+        }
+        BorderBottom => {
+            vec![
+                CssPropertyType::BorderBottomColor,
+                CssPropertyType::BorderBottomStyle,
+                CssPropertyType::BorderBottomWidth,
+            ]
+        }
+        BoxShadow => {
+            vec![
+                CssPropertyType::BoxShadowLeft,
+                CssPropertyType::BoxShadowRight,
+                CssPropertyType::BoxShadowTop,
+                CssPropertyType::BoxShadowBottom,
+            ]
+        }
+        BackgroundColor => {
+            vec![CssPropertyType::BackgroundContent]
+        }
+        BackgroundImage => {
+            vec![CssPropertyType::BackgroundContent]
+        }
+    };
+
+    match value {
+        "auto" => return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect()),
+        "none" => return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect()),
+        "initial" => {
+            return Ok(keys
+                .into_iter()
+                .map(|ty| CssProperty::initial(ty))
+                .collect());
+        }
+        "inherit" => {
+            return Ok(keys
+                .into_iter()
+                .map(|ty| CssProperty::inherit(ty))
+                .collect());
+        }
+        _ => {}
+    };
+
+    match key {
+        BorderRadius => {
+            let border_radius = parse_style_border_radius(value)?;
+            Ok(vec![
+                CssProperty::BorderTopLeftRadius(
+                    StyleBorderTopLeftRadius {
+                        inner: border_radius.top_left,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderTopRightRadius(
+                    StyleBorderTopRightRadius {
+                        inner: border_radius.top_right,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomLeftRadius(
+                    StyleBorderBottomLeftRadius {
+                        inner: border_radius.bottom_left,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomRightRadius(
+                    StyleBorderBottomRightRadius {
+                        inner: border_radius.bottom_right,
+                    }
+                    .into(),
+                ),
+            ])
+        }
+        Overflow => {
+            let overflow = parse_layout_overflow(value)?;
+            Ok(vec![
+                CssProperty::OverflowX(overflow.into()),
+                CssProperty::OverflowY(overflow.into()),
+            ])
+        }
+        Padding => {
+            let padding = parse_layout_padding(value)?;
+            Ok(vec![
+                convert_value!(padding.top, PaddingTop, LayoutPaddingTop),
+                convert_value!(padding.bottom, PaddingBottom, LayoutPaddingBottom),
+                convert_value!(padding.left, PaddingLeft, LayoutPaddingLeft),
+                convert_value!(padding.right, PaddingRight, LayoutPaddingRight),
+            ])
+        }
+        Margin => {
+            let margin = parse_layout_margin(value)?;
+            Ok(vec![
+                convert_value!(margin.top, MarginTop, LayoutMarginTop),
+                convert_value!(margin.bottom, MarginBottom, LayoutMarginBottom),
+                convert_value!(margin.left, MarginLeft, LayoutMarginLeft),
+                convert_value!(margin.right, MarginRight, LayoutMarginRight),
+            ])
+        }
+        Border => {
+            let border = parse_style_border(value)?;
+            Ok(vec![
+                CssProperty::BorderTopColor(
+                    StyleBorderTopColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderRightColor(
+                    StyleBorderRightColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderLeftColor(
+                    StyleBorderLeftColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomColor(
+                    StyleBorderBottomColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderTopStyle(
+                    StyleBorderTopStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderRightStyle(
+                    StyleBorderRightStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderLeftStyle(
+                    StyleBorderLeftStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomStyle(
+                    StyleBorderBottomStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderTopWidth(
+                    LayoutBorderTopWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderRightWidth(
+                    LayoutBorderRightWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderLeftWidth(
+                    LayoutBorderLeftWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomWidth(
+                    LayoutBorderBottomWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+            ])
+        }
+        BorderLeft => {
+            let border = parse_style_border(value)?;
+            Ok(vec![
+                CssProperty::BorderLeftColor(
+                    StyleBorderLeftColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderLeftStyle(
+                    StyleBorderLeftStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderLeftWidth(
+                    LayoutBorderLeftWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+            ])
+        }
+        BorderRight => {
+            let border = parse_style_border(value)?;
+            Ok(vec![
+                CssProperty::BorderRightColor(
+                    StyleBorderRightColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderRightStyle(
+                    StyleBorderRightStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderRightWidth(
+                    LayoutBorderRightWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+            ])
+        }
+        BorderTop => {
+            let border = parse_style_border(value)?;
+            Ok(vec![
+                CssProperty::BorderTopColor(
+                    StyleBorderTopColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderTopStyle(
+                    StyleBorderTopStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderTopWidth(
+                    LayoutBorderTopWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+            ])
+        }
+        BorderBottom => {
+            let border = parse_style_border(value)?;
+            Ok(vec![
+                CssProperty::BorderBottomColor(
+                    StyleBorderBottomColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomStyle(
+                    StyleBorderBottomStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::BorderBottomWidth(
+                    LayoutBorderBottomWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+            ])
+        }
+        BoxShadow => {
+            let box_shadow = parse_style_box_shadow(value)?;
+            Ok(vec![
+                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(box_shadow)),
+                CssProperty::BoxShadowRight(CssPropertyValue::Exact(box_shadow)),
+                CssProperty::BoxShadowTop(CssPropertyValue::Exact(box_shadow)),
+                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(box_shadow)),
+            ])
+        }
+        BackgroundColor => {
+            let color = parse_css_color(value)?;
+            let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            Ok(vec![CssProperty::BackgroundContent(vec.into())])
+        }
+        BackgroundImage => {
+            let background_content = parse_style_background_content(value)?;
+            let vec: StyleBackgroundContentVec = vec![background_content].into();
+            Ok(vec![CssProperty::BackgroundContent(vec.into())])
+        }
+    }
+}
+
 // Re-add the From implementations for convenience
 macro_rules! impl_from_css_prop {
     ($a:ident, $b:ident:: $enum_type:ident) => {

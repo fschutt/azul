@@ -7,10 +7,12 @@ use alloc::{
 
 #[cfg(feature = "parser")]
 use crate::props::basic::pixel::{parse_pixel_value_with_auto, PixelValueWithAuto};
-use crate::props::{
-    basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
-    formatter::PrintAsCssValue,
-    macros::PixelValueTaker,
+use crate::{
+    css::PrintAsCssValue,
+    props::{
+        basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+        macros::PixelValueTaker,
+    },
 };
 
 // --- TYPE DEFINITIONS ---
@@ -36,12 +38,6 @@ macro_rules! define_spacing_property {
         }
 
         impl_pixel_value!($struct_name);
-
-        impl PrintAsCssValue for $struct_name {
-            fn print_as_css_value(&self) -> String {
-                format!("{}", self.inner)
-            }
-        }
     };
 }
 

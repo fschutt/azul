@@ -6,6 +6,8 @@ use alloc::{
 };
 use core::fmt;
 
+// Re-export the PrintAsCssValue trait from the css module
+pub use crate::css::PrintAsCssValue;
 use crate::props::{
     basic::{
         angle::AngleValue,
@@ -31,12 +33,6 @@ use crate::props::{
 
 pub trait FormatAsCssValue {
     fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
-}
-
-/// A trait for any type that can be formatted as a valid CSS value string.
-pub trait PrintAsCssValue {
-    /// Formats the type as a CSS value string.
-    fn print_as_css_value(&self) -> String;
 }
 
 // --- Style Properties ---
@@ -120,6 +116,50 @@ impl PrintAsCssValue for LayoutBorderBottomWidth {
     }
 }
 impl PrintAsCssValue for LayoutBorderLeftWidth {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+
+// --- Layout Spacing Properties ---
+
+impl PrintAsCssValue for LayoutPaddingTop {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+impl PrintAsCssValue for LayoutPaddingLeft {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+impl PrintAsCssValue for LayoutPaddingRight {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+impl PrintAsCssValue for LayoutPaddingBottom {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+
+impl PrintAsCssValue for LayoutMarginTop {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+impl PrintAsCssValue for LayoutMarginLeft {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+impl PrintAsCssValue for LayoutMarginRight {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+impl PrintAsCssValue for LayoutMarginBottom {
     fn print_as_css_value(&self) -> String {
         format!("{}", self.inner)
     }

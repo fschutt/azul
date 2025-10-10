@@ -5,13 +5,15 @@ use core::fmt;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{color::parse_css_color, pixel::parse_pixel_value};
-use crate::props::{
-    basic::{
-        color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
-        pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+use crate::{
+    css::PrintAsCssValue,
+    props::{
+        basic::{
+            color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
+            pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+        },
+        macros::PixelValueTaker,
     },
-    formatter::PrintAsCssValue,
-    macros::PixelValueTaker,
 };
 
 /// Style of a `border`: solid, double, dash, ridge, etc.
@@ -135,9 +137,11 @@ macro_rules! define_border_side_property {
                 Self { inner }
             }
         }
-        impl PrintAsCssValue for $struct_name {
-            fn print_as_css_value(&self) -> String {
-                format!("{}", self.inner)
+        impl $struct_name {
+            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+                Self {
+                    inner: self.inner.interpolate(&other.inner, t),
+                }
             }
         }
     };
@@ -164,6 +168,39 @@ define_border_side_property!(LayoutBorderTopWidth, PixelValue, MEDIUM_BORDER_THI
 define_border_side_property!(LayoutBorderRightWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 define_border_side_property!(LayoutBorderBottomWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 define_border_side_property!(LayoutBorderLeftWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
+
+// Interpolate implementations for border width types
+impl LayoutBorderTopWidth {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+        }
+    }
+}
+
+impl LayoutBorderRightWidth {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+        }
+    }
+}
+
+impl LayoutBorderLeftWidth {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+        }
+    }
+}
+
+impl LayoutBorderBottomWidth {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+        }
+    }
+}
 
 /// Represents the three components of a border shorthand property, used as an intermediate
 /// representation during parsing.

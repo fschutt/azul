@@ -39,6 +39,14 @@ impl PrintAsCssValue for LayoutFlexGrow {
     }
 }
 
+impl LayoutFlexGrow {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+        }
+    }
+}
+
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
 pub enum FlexGrowParseError<'a> {
@@ -118,6 +126,14 @@ impl Default for LayoutFlexShrink {
 impl PrintAsCssValue for LayoutFlexShrink {
     fn print_as_css_value(&self) -> String {
         format!("{}", self.inner)
+    }
+}
+
+impl LayoutFlexShrink {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+        }
     }
 }
 

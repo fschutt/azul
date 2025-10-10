@@ -5,12 +5,17 @@ use core::{fmt, num::ParseIntError};
 pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
-pub use crate::props::basic::error::{CssParsingError, CssParsingErrorOwned};
+pub use crate::props::{basic::error::CssParsingErrorOwned, property::CssParsingError};
 use crate::{
-    AzString, CombinedCssPropertyType, Css, CssDeclaration, CssKeyMap, CssNthChildSelector,
-    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector, CssPropertyType,
-    CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
-    NodeTypeTagParseErrorOwned, Stylesheet,
+    corety::AzString,
+    css::{
+        Css, CssDeclaration, CssNthChildSelector, CssPath, CssPathPseudoSelector, CssPathSelector,
+        CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError, Stylesheet,
+    },
+    props::{
+        basic::parse::parse_parentheses,
+        property::{parse_css_property, CombinedCssPropertyType, CssKeyMap, CssPropertyType},
+    },
 };
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
@@ -391,13 +396,13 @@ fn parse_nth_child_selector<'a>(
     }
 
     if let Ok(number) = value.parse::<u32>() {
-        return Ok(Number(number));
+        return Ok(CssNthChildSelector::Number(number));
     }
 
     // If the value is not a number
     match value.as_ref() {
-        "even" => Ok(Even),
-        "odd" => Ok(Odd),
+        "even" => Ok(CssNthChildSelector::Even),
+        "odd" => Ok(CssNthChildSelector::Odd),
         other => parse_nth_child_pattern(value),
     }
 }
@@ -406,7 +411,7 @@ fn parse_nth_child_selector<'a>(
 fn parse_nth_child_pattern<'a>(
     value: &'a str,
 ) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
-    use crate::CssNthChildPattern;
+    use crate::css::CssNthChildPattern;
 
     let value = value.trim();
 
@@ -440,7 +445,10 @@ fn parse_nth_child_pattern<'a>(
         None => 0,
     };
 
-    Ok(Pattern(CssNthChildPattern { repeat, offset }))
+    Ok(CssNthChildSelector::Pattern(CssNthChildPattern {
+        repeat,
+        offset,
+    }))
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1065,7 +1073,7 @@ fn css_blocks_to_stylesheet<'a>(
     css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
     css_string: &'a str,
 ) -> (Stylesheet, Vec<CssParseWarnMsg<'a>>) {
-    let css_key_map = crate::get_css_key_map();
+    let css_key_map = crate::props::property::get_css_key_map();
     let mut warnings = Vec::new();
     let mut parsed_css_blocks = Vec::new();
 
@@ -1124,7 +1132,7 @@ fn parse_declaration_resilient<'a>(
         }
 
         // Attempt to parse combined properties, continue with what succeeds
-        match crate::parser::parse_combined_css_property(combined_key, unparsed_css_value) {
+        match parse_combined_css_property(combined_key, unparsed_css_value) {
             Ok(parsed_props) => {
                 declarations.extend(parsed_props.into_iter().map(CssDeclaration::Static));
             }
@@ -1133,7 +1141,7 @@ fn parse_declaration_resilient<'a>(
     } else if let Some(normal_key) = CssPropertyType::from_str(unparsed_css_key, css_key_map) {
         if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
             let (css_var_id, css_var_default) = css_var?;
-            match crate::parser::parse_css_property(normal_key, css_var_default) {
+            match parse_css_property(normal_key, css_var_default) {
                 Ok(parsed_default) => {
                     declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
                         dynamic_id: css_var_id.to_string().into(),
@@ -1143,7 +1151,7 @@ fn parse_declaration_resilient<'a>(
                 Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
             }
         } else {
-            match crate::parser::parse_css_property(normal_key, unparsed_css_value) {
+            match parse_css_property(normal_key, unparsed_css_value) {
                 Ok(parsed_value) => {
                     declarations.push(CssDeclaration::Static(parsed_value));
                 }
@@ -1166,7 +1174,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(
 ) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
     // Actually parse the properties (TODO: this could be done in parallel and in a separate
     // function)
-    let css_key_map = crate::get_css_key_map();
+    let css_key_map = crate::props::property::get_css_key_map();
 
     let mut warnings = Vec::new();
 
@@ -1235,8 +1243,7 @@ fn check_if_value_is_css_var<'a>(
 ) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
     const DEFAULT_VARIABLE_DEFAULT: &str = "none";
 
-    let (_, brace_contents) =
-        crate::parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
+    let (_, brace_contents) = parse_parentheses(unparsed_css_value, &["var"]).ok()?;
 
     // value is a CSS variable, i.e. var(--main-bg-color)
     Some(match parse_css_variable_brace_contents(brace_contents) {
