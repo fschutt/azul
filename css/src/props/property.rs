@@ -21,7 +21,7 @@ use crate::props::{
         pixel::{
             parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
         },
-        InvalidValueErrOwned, PercentageParseError,
+        InterpolateResolver, InvalidValueErrOwned, PercentageParseError,
     },
     formatter::PrintAsCssValue,
     layout::{dimensions::*, display::*, flex::*, overflow::*, position::*, spacing::*},
@@ -800,8 +800,8 @@ impl_from!(
 );
 impl_from!(CssStyleFilterParseError<'a>, CssParsingError::Filter);
 
-impl<'a> From<crate::parser::InvalidValueErr<'a>> for CssParsingError<'a> {
-    fn from(e: crate::parser::InvalidValueErr<'a>) -> Self {
+impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
+    fn from(e: InvalidValueErr<'a>) -> Self {
         CssParsingError::InvalidValue(e)
     }
 }
@@ -1050,6 +1050,7 @@ pub fn parse_css_property<'a>(
 ///     ])
 /// )
 /// ```
+#[cfg(feature = "parser")]
 pub fn parse_combined_css_property<'a>(
     key: CombinedCssPropertyType,
     value: &'a str,

@@ -5,16 +5,20 @@ use core::{fmt, num::ParseIntError};
 pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
-pub use crate::props::{basic::error::CssParsingErrorOwned, property::CssParsingError};
+pub use crate::props::property::CssParsingError;
 use crate::{
     corety::AzString,
     css::{
         Css, CssDeclaration, CssNthChildSelector, CssPath, CssPathPseudoSelector, CssPathSelector,
-        CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError, Stylesheet,
+        CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
+        NodeTypeTagParseErrorOwned, Stylesheet,
     },
     props::{
         basic::parse::parse_parentheses,
-        property::{parse_css_property, CombinedCssPropertyType, CssKeyMap, CssPropertyType},
+        property::{
+            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
+            CssParsingErrorOwned, CssPropertyType,
+        },
     },
 };
 

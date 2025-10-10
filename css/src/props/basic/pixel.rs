@@ -30,6 +30,12 @@ impl FormatAsCssValue for PixelValue {
     }
 }
 
+impl crate::css::PrintAsCssValue for PixelValue {
+    fn print_as_css_value(&self) -> String {
+        format!("{}{}", self.number, self.metric)
+    }
+}
+
 impl fmt::Debug for PixelValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)

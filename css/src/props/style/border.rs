@@ -344,6 +344,12 @@ impl CssBorderSideParseErrorOwned {
     }
 }
 
+// Type alias for compatibility with old code
+#[cfg(feature = "parser")]
+pub type CssBorderParseError<'a> = CssBorderSideParseError<'a>;
+#[cfg(feature = "parser")]
+pub type CssBorderParseErrorOwned = CssBorderSideParseErrorOwned;
+
 /// Parses a border shorthand property such as "1px solid red".
 /// Handles any order of components and applies defaults for missing values.
 #[cfg(feature = "parser")]
@@ -474,4 +480,10 @@ pub fn parse_border_left_color<'a>(
     input: &'a str,
 ) -> Result<StyleBorderLeftColor, CssColorParseError<'a>> {
     parse_css_color(input).map(|inner| StyleBorderLeftColor { inner })
+}
+
+// Compatibility alias
+#[cfg(feature = "parser")]
+pub fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBorderParseError<'a>> {
+    parse_border_side(input)
 }

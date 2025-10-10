@@ -67,6 +67,9 @@ pub enum CssBorderRadiusParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
 
+// Type alias for compatibility with old code
+pub type CssStyleBorderRadiusParseError<'a> = CssBorderRadiusParseError<'a>;
+
 impl_debug_as_display!(CssBorderRadiusParseError<'a>);
 impl_display! { CssBorderRadiusParseError<'a>, {
     TooManyValues(val) => format!("Too many values for border-radius: \"{}\"", val),
@@ -83,6 +86,9 @@ pub enum CssBorderRadiusParseErrorOwned {
     TooManyValues(String),
     PixelValue(CssPixelValueParseErrorOwned),
 }
+
+// Type alias for compatibility with old code
+pub type CssStyleBorderRadiusParseErrorOwned = CssBorderRadiusParseErrorOwned;
 
 impl<'a> CssBorderRadiusParseError<'a> {
     pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {

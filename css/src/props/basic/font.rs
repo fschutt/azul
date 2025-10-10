@@ -97,7 +97,7 @@ impl PrintAsCssValue for StyleFontStyle {
 // --- Font Size ---
 
 /// Represents a `font-size` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFontSize {
     pub inner: PixelValue,

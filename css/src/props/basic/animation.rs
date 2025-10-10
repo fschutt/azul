@@ -4,7 +4,15 @@ use core::fmt;
 
 use crate::impl_option;
 
-// First, define all the structs and enums.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct InterpolateResolver {
+    pub interpolate_func: AnimationInterpolationFunction,
+    pub parent_rect_width: f32,
+    pub parent_rect_height: f32,
+    pub current_rect_width: f32,
+    pub current_rect_height: f32,
+}
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

@@ -25,7 +25,7 @@ use crate::props::{
         box_shadow::{
             parse_style_box_shadow, CssShadowParseError, CssShadowParseErrorOwned, StyleBoxShadow,
         },
-        effects::{parse_style_mix_blend_mode, StyleMixBlendMode},
+        effects::{parse_style_mix_blend_mode, MixBlendModeParseError, StyleMixBlendMode},
     },
 };
 
@@ -210,6 +210,12 @@ mod parser {
     impl<'a> From<PercentageParseError> for CssStyleFilterParseError<'a> {
         fn from(p: PercentageParseError) -> Self {
             Self::Opacity(p)
+        }
+    }
+
+    impl<'a> From<MixBlendModeParseError<'a>> for CssStyleFilterParseError<'a> {
+        fn from(e: MixBlendModeParseError<'a>) -> Self {
+            Self::BlendMode(InvalidValueErr(e))
         }
     }
 

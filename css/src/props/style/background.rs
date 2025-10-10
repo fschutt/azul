@@ -27,12 +27,14 @@ use crate::{
             direction::{
                 parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
             },
-            length::{parse_percentage_value, OptionPercentageValue, PercentageValue},
+            length::{
+                parse_percentage_value, OptionPercentageValue, PercentageParseError,
+                PercentageParseErrorOwned, PercentageValue,
+            },
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
                 PixelValue,
             },
-            PercentageParseError,
         },
         formatter::PrintAsCssValue,
     },
@@ -720,7 +722,7 @@ impl<'a> CssGradientStopParseError<'a> {
     pub fn to_contained(&self) -> CssGradientStopParseErrorOwned {
         match self {
             Self::Error(s) => CssGradientStopParseErrorOwned::Error(s.to_string()),
-            Self::Percentage(e) => CssGradientStopParseErrorOwned::Percentage(e.clone()),
+            Self::Percentage(e) => CssGradientStopParseErrorOwned::Percentage(e.to_contained()),
             Self::Angle(e) => CssGradientStopParseErrorOwned::Angle(e.to_contained()),
             Self::ColorParseError(e) => {
                 CssGradientStopParseErrorOwned::ColorParseError(e.to_contained())
@@ -733,7 +735,7 @@ impl CssGradientStopParseErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssGradientStopParseError<'a> {
         match self {
             Self::Error(s) => CssGradientStopParseError::Error(s),
-            Self::Percentage(e) => CssGradientStopParseError::Percentage(e.clone()),
+            Self::Percentage(e) => CssGradientStopParseError::Percentage(e.to_shared()),
             Self::Angle(e) => CssGradientStopParseError::Angle(e.to_shared()),
             Self::ColorParseError(e) => CssGradientStopParseError::ColorParseError(e.to_shared()),
         }
@@ -1254,11 +1256,139 @@ mod parser {
     // -- Normalization Functions --
 
     fn get_normalized_linear_stops(stops: &[LinearColorStop]) -> Vec<NormalizedLinearColorStop> {
-        // ... (Implementation from css_properties.rs)
+        const MIN_STOP_DEGREE: f32 = 0.0;
+        const MAX_STOP_DEGREE: f32 = 100.0;
+
+        if stops.is_empty() {
+            return Vec::new();
+        }
+
+        let self_stops = stops;
+
+        let mut stops = self_stops
+            .iter()
+            .map(|s| NormalizedLinearColorStop {
+                offset: s
+                    .offset
+                    .as_ref()
+                    .copied()
+                    .unwrap_or(PercentageValue::new(MIN_STOP_DEGREE)),
+                color: s.color,
+            })
+            .collect::<Vec<_>>();
+
+        let mut stops_to_distribute = 0;
+        let mut last_stop = None;
+        let stops_len = stops.len();
+
+        for (stop_id, stop) in self_stops.iter().enumerate() {
+            if let Some(s) = stop.offset.into_option() {
+                let current_stop_val = s.normalized() * 100.0;
+                if stops_to_distribute != 0 {
+                    let last_stop_val =
+                        stops[(stop_id - stops_to_distribute)].offset.normalized() * 100.0;
+                    let value_to_add_per_stop = (current_stop_val.max(last_stop_val)
+                        - last_stop_val)
+                        / (stops_to_distribute - 1) as f32;
+                    for (s_id, s) in stops[(stop_id - stops_to_distribute)..stop_id]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        s.offset = PercentageValue::new(
+                            last_stop_val + (s_id as f32 * value_to_add_per_stop),
+                        );
+                    }
+                }
+                stops_to_distribute = 0;
+                last_stop = Some(s);
+            } else {
+                stops_to_distribute += 1;
+            }
+        }
+
+        if stops_to_distribute != 0 {
+            let last_stop_val = last_stop
+                .unwrap_or(PercentageValue::new(MIN_STOP_DEGREE))
+                .normalized()
+                * 100.0;
+            let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val)
+                / (stops_to_distribute - 1) as f32;
+            for (s_id, s) in stops[(stops_len - stops_to_distribute)..]
+                .iter_mut()
+                .enumerate()
+            {
+                s.offset =
+                    PercentageValue::new(last_stop_val + (s_id as f32 * value_to_add_per_stop));
+            }
+        }
+
+        stops
     }
 
     fn get_normalized_radial_stops(stops: &[RadialColorStop]) -> Vec<NormalizedRadialColorStop> {
-        // ... (Implementation from css_properties.rs)
+        const MIN_STOP_DEGREE: f32 = 0.0;
+        const MAX_STOP_DEGREE: f32 = 360.0;
+
+        if stops.is_empty() {
+            return Vec::new();
+        }
+
+        let self_stops = stops;
+
+        let mut stops = self_stops
+            .iter()
+            .map(|s| NormalizedRadialColorStop {
+                angle: s
+                    .offset
+                    .as_ref()
+                    .copied()
+                    .unwrap_or(AngleValue::deg(MIN_STOP_DEGREE)),
+                color: s.color,
+            })
+            .collect::<Vec<_>>();
+
+        let mut stops_to_distribute = 0;
+        let mut last_stop = None;
+        let stops_len = stops.len();
+
+        for (stop_id, stop) in self_stops.iter().enumerate() {
+            if let Some(s) = stop.offset.into_option() {
+                let current_stop_val = s.to_degrees();
+                if stops_to_distribute != 0 {
+                    let last_stop_val = stops[(stop_id - stops_to_distribute)].angle.to_degrees();
+                    let value_to_add_per_stop = (current_stop_val.max(last_stop_val)
+                        - last_stop_val)
+                        / (stops_to_distribute - 1) as f32;
+                    for (s_id, s) in stops[(stop_id - stops_to_distribute)..stop_id]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        s.angle =
+                            AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));
+                    }
+                }
+                stops_to_distribute = 0;
+                last_stop = Some(s);
+            } else {
+                stops_to_distribute += 1;
+            }
+        }
+
+        if stops_to_distribute != 0 {
+            let last_stop_val = last_stop
+                .unwrap_or(AngleValue::deg(MIN_STOP_DEGREE))
+                .to_degrees();
+            let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val)
+                / (stops_to_distribute - 1) as f32;
+            for (s_id, s) in stops[(stops_len - stops_to_distribute)..]
+                .iter_mut()
+                .enumerate()
+            {
+                s.angle = AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));
+            }
+        }
+
+        stops
     }
 
     // -- Other Background Helpers --
