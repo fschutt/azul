@@ -17,8 +17,6 @@ use crate::props::basic::{
 };
 use crate::{
     corety::AzString,
-    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash,
-    impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
     props::{
         basic::{
             angle::{

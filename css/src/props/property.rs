@@ -13,15 +13,15 @@ use core::fmt;
 use crate::props::{
     basic::{
         color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-        font::*,
         font::{
             parse_style_font_family, CssStyleFontFamilyParseError,
-            CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec,
+            CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec, *,
         },
         length::{parse_float_value, parse_percentage_value, FloatValue, PercentageValue},
         pixel::{
             parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
         },
+        InvalidValueErrOwned, PercentageParseError,
     },
     formatter::PrintAsCssValue,
     layout::{dimensions::*, display::*, flex::*, overflow::*, position::*, spacing::*},
@@ -216,6 +216,86 @@ pub type LayoutJustifyContentValue = CssPropertyValue<LayoutJustifyContent>;
 pub type LayoutAlignItemsValue = CssPropertyValue<LayoutAlignItems>;
 pub type LayoutAlignContentValue = CssPropertyValue<LayoutAlignContent>;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CssKeyMap {
+    // Contains all keys that have no shorthand
+    pub non_shorthands: BTreeMap<&'static str, CssPropertyType>,
+    // Contains all keys that act as a shorthand for other types
+    pub shorthands: BTreeMap<&'static str, CombinedCssPropertyType>,
+}
+
+impl CssKeyMap {
+    pub fn get() -> Self {
+        get_css_key_map()
+    }
+}
+
+/// Returns a map useful for parsing the keys of CSS stylesheets
+pub fn get_css_key_map() -> CssKeyMap {
+    CssKeyMap {
+        non_shorthands: CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect(),
+        shorthands: COMBINED_CSS_PROPERTIES_KEY_MAP
+            .iter()
+            .map(|(v, k)| (*k, *v))
+            .collect(),
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CombinedCssPropertyType {
+    BorderRadius,
+    Overflow,
+    Margin,
+    Border,
+    BorderLeft,
+    BorderRight,
+    BorderTop,
+    BorderBottom,
+    Padding,
+    BoxShadow,
+    BackgroundColor, // BackgroundContent::Color
+    BackgroundImage, // BackgroundContent::Image
+}
+
+impl fmt::Display for CombinedCssPropertyType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let key = COMBINED_CSS_PROPERTIES_KEY_MAP
+            .iter()
+            .find(|(v, _)| *v == *self)
+            .and_then(|(k, _)| Some(k))
+            .unwrap();
+        write!(f, "{}", key)
+    }
+}
+
+impl CombinedCssPropertyType {
+    /// Parses a CSS key, such as `width` from a string:
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use azul_css::{CombinedCssPropertyType, get_css_key_map};
+    /// let map = get_css_key_map();
+    /// assert_eq!(
+    ///     Some(CombinedCssPropertyType::Border),
+    ///     CombinedCssPropertyType::from_str("border", &map)
+    /// );
+    /// ```
+    pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
+        let input = input.trim();
+        map.shorthands.get(input).map(|x| *x)
+    }
+
+    /// Returns the original string that was used to construct this `CssPropertyType`.
+    pub fn to_str(&self, map: &CssKeyMap) -> &'static str {
+        map.shorthands
+            .iter()
+            .find(|(_, v)| *v == self)
+            .map(|(k, _)| k)
+            .unwrap()
+    }
+}
+
 /// Represents one parsed CSS key-value pair, such as `"width: 20px"` =>
 /// `CssProperty::Width(LayoutWidth::px(20.0))`
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -298,6 +378,20 @@ pub enum CssProperty {
     Filter(StyleFilterVecValue),
     BackdropFilter(StyleFilterVecValue),
     TextShadow(StyleBoxShadowValue),
+}
+
+/// Categorizes a CSS property by its effect on the layout pipeline.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CssPropertyCategory {
+    GpuOnly,
+    /// Affects geometry (width, height, margin, padding, font-size, etc.)
+    Layout,
+    /// Affects only appearance (color, background-color, etc.)
+    Paint,
+    /// A layout-affecting property that also requires children to be re-evaluated.
+    InheritedLayout,
+    /// A paint-affecting property that also requires children to be re-evaluated.
+    InheritedPaint,
 }
 
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
@@ -384,6 +478,206 @@ pub enum CssPropertyType {
     TextShadow,
 }
 
+impl fmt::Debug for CssPropertyType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
+impl fmt::Display for CssPropertyType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
+impl CssPropertyType {
+    /// Parses a CSS key, such as `width` from a string:
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use azul_css::{CssPropertyType, get_css_key_map};
+    /// let map = get_css_key_map();
+    /// assert_eq!(
+    ///     Some(CssPropertyType::Width),
+    ///     CssPropertyType::from_str("width", &map)
+    /// );
+    /// assert_eq!(
+    ///     Some(CssPropertyType::JustifyContent),
+    ///     CssPropertyType::from_str("justify-content", &map)
+    /// );
+    /// assert_eq!(None, CssPropertyType::from_str("asdfasdfasdf", &map));
+    /// ```
+    pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
+        let input = input.trim();
+        map.non_shorthands.get(input).and_then(|x| Some(*x))
+    }
+
+    /// Returns the original string that was used to construct this `CssPropertyType`.
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            CssPropertyType::TextColor => "color",
+            CssPropertyType::FontSize => "font-size",
+            CssPropertyType::FontFamily => "font-family",
+            CssPropertyType::TextAlign => "text-align",
+            CssPropertyType::LetterSpacing => "letter-spacing",
+            CssPropertyType::LineHeight => "line-height",
+            CssPropertyType::WordSpacing => "word-spacing",
+            CssPropertyType::TabWidth => "tab-width",
+            CssPropertyType::Cursor => "cursor",
+            CssPropertyType::Display => "display",
+            CssPropertyType::Float => "float",
+            CssPropertyType::BoxSizing => "box-sizing",
+            CssPropertyType::Width => "width",
+            CssPropertyType::Height => "height",
+            CssPropertyType::MinWidth => "min-width",
+            CssPropertyType::MinHeight => "min-height",
+            CssPropertyType::MaxWidth => "max-width",
+            CssPropertyType::MaxHeight => "max-height",
+            CssPropertyType::Position => "position",
+            CssPropertyType::Top => "top",
+            CssPropertyType::Right => "right",
+            CssPropertyType::Left => "left",
+            CssPropertyType::Bottom => "bottom",
+            CssPropertyType::FlexWrap => "flex-wrap",
+            CssPropertyType::FlexDirection => "flex-direction",
+            CssPropertyType::FlexGrow => "flex-grow",
+            CssPropertyType::FlexShrink => "flex-shrink",
+            CssPropertyType::JustifyContent => "justify-content",
+            CssPropertyType::AlignItems => "align-items",
+            CssPropertyType::AlignContent => "align-content",
+            CssPropertyType::BackgroundContent => "background",
+            CssPropertyType::BackgroundPosition => "background-position",
+            CssPropertyType::BackgroundSize => "background-size",
+            CssPropertyType::BackgroundRepeat => "background-repeat",
+            CssPropertyType::OverflowX => "overflow-x",
+            CssPropertyType::OverflowY => "overflow-y",
+            CssPropertyType::PaddingTop => "padding-top",
+            CssPropertyType::PaddingLeft => "padding-left",
+            CssPropertyType::PaddingRight => "padding-right",
+            CssPropertyType::PaddingBottom => "padding-bottom",
+            CssPropertyType::MarginTop => "margin-top",
+            CssPropertyType::MarginLeft => "margin-left",
+            CssPropertyType::MarginRight => "margin-right",
+            CssPropertyType::MarginBottom => "margin-bottom",
+            CssPropertyType::BorderTopLeftRadius => "border-top-left-radius",
+            CssPropertyType::BorderTopRightRadius => "border-top-right-radius",
+            CssPropertyType::BorderBottomLeftRadius => "border-bottom-left-radius",
+            CssPropertyType::BorderBottomRightRadius => "border-bottom-right-radius",
+            CssPropertyType::BorderTopColor => "border-top-color",
+            CssPropertyType::BorderRightColor => "border-right-color",
+            CssPropertyType::BorderLeftColor => "border-left-color",
+            CssPropertyType::BorderBottomColor => "border-bottom-color",
+            CssPropertyType::BorderTopStyle => "border-top-style",
+            CssPropertyType::BorderRightStyle => "border-right-style",
+            CssPropertyType::BorderLeftStyle => "border-left-style",
+            CssPropertyType::BorderBottomStyle => "border-bottom-style",
+            CssPropertyType::BorderTopWidth => "border-top-width",
+            CssPropertyType::BorderRightWidth => "border-right-width",
+            CssPropertyType::BorderLeftWidth => "border-left-width",
+            CssPropertyType::BorderBottomWidth => "border-bottom-width",
+            CssPropertyType::BoxShadowLeft => "-azul-box-shadow-left",
+            CssPropertyType::BoxShadowRight => "-azul-box-shadow-right",
+            CssPropertyType::BoxShadowTop => "-azul-box-shadow-top",
+            CssPropertyType::BoxShadowBottom => "-azul-box-shadow-bottom",
+            CssPropertyType::ScrollbarStyle => "-azul-scrollbar-style",
+            CssPropertyType::Opacity => "opacity",
+            CssPropertyType::Transform => "transform",
+            CssPropertyType::TransformOrigin => "transform-origin",
+            CssPropertyType::PerspectiveOrigin => "perspective-origin",
+            CssPropertyType::BackfaceVisibility => "backface-visibility",
+            CssPropertyType::MixBlendMode => "mix-blend-mode",
+            CssPropertyType::Filter => "filter",
+            CssPropertyType::BackdropFilter => "backdrop-filter",
+            CssPropertyType::TextShadow => "text-shadow",
+            CssPropertyType::WhiteSpace => "white-space",
+            CssPropertyType::Hyphens => "hyphens",
+            CssPropertyType::Direction => "direction",
+        }
+    }
+
+    /// Returns whether this property will be inherited during cascading
+    pub fn is_inheritable(&self) -> bool {
+        use self::CssPropertyType::*;
+        match self {
+            TextColor | FontFamily | FontSize | LineHeight | TextAlign => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_category(&self) -> CssPropertyCategory {
+        if self.is_gpu_only_property() {
+            CssPropertyCategory::GpuOnly
+        } else {
+            let is_inheritable = self.is_inheritable();
+            let can_trigger_layout = self.can_trigger_relayout();
+            match (is_inheritable, can_trigger_layout) {
+                (true, true) => CssPropertyCategory::InheritedLayout,
+                (true, false) => CssPropertyCategory::InheritedPaint,
+                (false, true) => CssPropertyCategory::Layout,
+                (false, false) => CssPropertyCategory::Paint,
+            }
+        }
+    }
+
+    /// Returns whether this property can trigger a re-layout (important for incremental layout and
+    /// caching layouted DOMs).
+    pub fn can_trigger_relayout(&self) -> bool {
+        use self::CssPropertyType::*;
+
+        // Since the border can be larger than the content,
+        // in which case the content needs to be re-layouted, assume true for Border
+
+        // FontFamily, FontSize, LetterSpacing and LineHeight can affect
+        // the text layout and therefore the screen layout
+
+        match self {
+            TextColor
+            | Cursor
+            | BackgroundContent
+            | BackgroundPosition
+            | BackgroundSize
+            | BackgroundRepeat
+            | BorderTopLeftRadius
+            | BorderTopRightRadius
+            | BorderBottomLeftRadius
+            | BorderBottomRightRadius
+            | BorderTopColor
+            | BorderRightColor
+            | BorderLeftColor
+            | BorderBottomColor
+            | BorderTopStyle
+            | BorderRightStyle
+            | BorderLeftStyle
+            | BorderBottomStyle
+            | BoxShadowLeft
+            | BoxShadowRight
+            | BoxShadowTop
+            | BoxShadowBottom
+            | ScrollbarStyle
+            | Opacity
+            | Transform
+            | TransformOrigin
+            | PerspectiveOrigin
+            | BackfaceVisibility
+            | MixBlendMode
+            | Filter
+            | BackdropFilter
+            | TextShadow => false,
+            _ => true,
+        }
+    }
+
+    /// Returns whether the property is a GPU property (currently only opacity and transforms)
+    pub fn is_gpu_only_property(&self) -> bool {
+        match self {
+            CssPropertyType::Opacity |
+            CssPropertyType::Transform /* | CssPropertyType::Color */ => true,
+            _ => false
+        }
+    }
+}
+
 // -- PARSING --
 
 /// Master error type that aggregates all possible CSS parsing errors.
@@ -394,7 +688,7 @@ pub enum CssParsingError<'a> {
     BorderRadius(CssStyleBorderRadiusParseError<'a>),
     Padding(LayoutPaddingParseError<'a>),
     Margin(LayoutMarginParseError<'a>),
-    Overflow(crate::parser::InvalidValueErr<'a>),
+    Overflow(InvalidValueErr<'a>),
     BoxShadow(CssShadowParseError<'a>),
 
     // Individual properties
@@ -402,7 +696,7 @@ pub enum CssParsingError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
     Percentage(PercentageParseError),
     FontFamily(CssStyleFontFamilyParseError<'a>),
-    InvalidValue(crate::parser::InvalidValueErr<'a>),
+    InvalidValue(InvalidValueErr<'a>),
     FlexGrow(FlexGrowParseError<'a>),
     FlexShrink(FlexShrinkParseError<'a>),
     Background(CssBackgroundParseError<'a>),
@@ -423,7 +717,7 @@ pub enum CssParsingErrorOwned {
     BorderRadius(CssStyleBorderRadiusParseErrorOwned),
     Padding(LayoutPaddingParseErrorOwned),
     Margin(LayoutMarginParseErrorOwned),
-    Overflow(crate::parser::InvalidValueErrOwned),
+    Overflow(InvalidValueErrOwned),
     BoxShadow(CssShadowParseErrorOwned),
 
     // Individual properties
@@ -431,7 +725,7 @@ pub enum CssParsingErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
     Percentage(PercentageParseError),
     FontFamily(CssStyleFontFamilyParseErrorOwned),
-    InvalidValue(crate::parser::InvalidValueErrOwned),
+    InvalidValue(InvalidValueErrOwned),
     FlexGrow(FlexGrowParseErrorOwned),
     FlexShrink(FlexShrinkParseErrorOwned),
     Background(CssBackgroundParseErrorOwned),

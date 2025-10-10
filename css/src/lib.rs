@@ -10,4 +10,13 @@ extern crate core;
 #[macro_use]
 pub mod macros;
 pub mod corety;
+pub mod css;
+#[cfg(feature = "parser")]
+pub mod parser2;
 pub mod props;
+
+pub use self::corety::*;
+
+// pub mod parser; --- OLD CODE, IGNORE, ONLY USE AS REFERENCE ---
+// pub mod css_properties; --- OLD CODE, IGNORE, ONLY USE AS REFERENCE ---
+// pub mod print_css; --- OLD CODE, IGNORE, ONLY USE AS REFERENCE ---

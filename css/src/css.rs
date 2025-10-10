@@ -3,7 +3,7 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use crate::{
-    css_properties::{CssProperty, CssPropertyType},
+    props::property::{CssProperty, CssPropertyType},
     AzString,
 };
 
@@ -38,7 +38,7 @@ impl Css {
 
     #[cfg(feature = "parser")]
     pub fn from_string(s: crate::AzString) -> Self {
-        crate::parser::new_from_str(s.as_str()).0
+        crate::parser2::new_from_str(s.as_str()).0
     }
 }
 

@@ -3,6 +3,8 @@ use alloc::{
     vec::Vec,
 };
 
+use crate::props::basic::ColorU;
+
 // Define a struct for debug messages
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -162,12 +164,6 @@ impl core::ops::Deref for AzString {
         self.as_str()
     }
 }
-
-impl_option!(
-    ColorU,
-    OptionColorU,
-    [Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash]
-);
 
 impl_vec!(u8, U8Vec, U8VecDestructor);
 impl_vec_debug!(u8, U8Vec);
