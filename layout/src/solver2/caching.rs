@@ -12,11 +12,11 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
-    AzString, LayoutDebugMessage,
     props::{
-        property::{CssProperty, CssPropertyType},
         basic::LayoutRect,
+        property::{CssProperty, CssPropertyType},
     },
+    AzString, LayoutDebugMessage,
 };
 
 use super::{

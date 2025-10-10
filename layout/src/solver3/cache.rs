@@ -26,8 +26,8 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        property::{CssProperty, CssPropertyType},
         layout::{LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode},
+        property::{CssProperty, CssPropertyType},
     },
     LayoutDebugMessage,
 };

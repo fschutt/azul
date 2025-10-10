@@ -28,7 +28,11 @@ use azul_core::{
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
-    AzString, CssProperty, CssPropertyType, LayoutDebugMessage, LayoutPoint, LayoutRect, LayoutSize,
+    props::{
+        basic::{LayoutPoint, LayoutRect, LayoutSize},
+        property::{CssProperty, CssPropertyType},
+    },
+    AzString, LayoutDebugMessage,
 };
 use rust_fontconfig::FcFontCache;
 

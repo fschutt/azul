@@ -11,7 +11,7 @@ use azul_core::{
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{LayoutDebugMessage, StyleTextAlign};
+use azul_css::{props::style::StyleTextAlign, LayoutDebugMessage};
 
 pub mod layout;
 pub mod script;
@@ -64,7 +64,7 @@ pub trait FontImpl {
     fn lookup_glyph_index(&self, c: u32) -> Option<u16>;
 
     /// Returns a reference to the font metrics
-    fn get_font_metrics(&self) -> &azul_core::app_resources::FontMetrics;
+    fn get_font_metrics(&self) -> &azul_css::props::basic::FontMetrics;
 }
 
 /// Layout text with exclusion areas for floats

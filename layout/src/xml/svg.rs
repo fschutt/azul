@@ -74,8 +74,8 @@ use azul_core::{
     window::PhysicalSizeU32,
 };
 use azul_css::{
-    AzString, ColorU, LayoutSize, OptionAzString, OptionColorU, OptionI16, OptionLayoutSize,
-    OptionU16, StringVec, U8Vec,
+    props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},
+    AzString, OptionAzString, OptionI16, OptionU16, StringVec, U8Vec,
 };
 #[cfg(feature = "svg")]
 use lyon::{

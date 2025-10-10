@@ -51,6 +51,9 @@ define_spacing_property!(LayoutMarginRight);
 define_spacing_property!(LayoutMarginBottom);
 define_spacing_property!(LayoutMarginLeft);
 
+define_spacing_property!(LayoutColumnGap);
+define_spacing_property!(LayoutRowGap);
+
 // --- PARSERS ---
 
 // -- Padding Shorthand Parser --
@@ -290,3 +293,8 @@ typed_pixel_value_parser!(parse_layout_margin_right, LayoutMarginRight);
 typed_pixel_value_parser!(parse_layout_margin_bottom, LayoutMarginBottom);
 #[cfg(feature = "parser")]
 typed_pixel_value_parser!(parse_layout_margin_left, LayoutMarginLeft);
+
+#[cfg(feature = "parser")]
+typed_pixel_value_parser!(parse_layout_column_gap, LayoutColumnGap);
+#[cfg(feature = "parser")]
+typed_pixel_value_parser!(parse_layout_row_gap, LayoutRowGap);

@@ -356,6 +356,7 @@ macro_rules! css_property_from_type {
             }
             CssPropertyType::FlexGrow => CssProperty::FlexGrow(CssPropertyValue::$content_type),
             CssPropertyType::FlexShrink => CssProperty::FlexShrink(CssPropertyValue::$content_type),
+            CssPropertyType::FlexBasis => CssProperty::FlexBasis(CssPropertyValue::$content_type),
             CssPropertyType::JustifyContent => {
                 CssProperty::JustifyContent(CssPropertyValue::$content_type)
             }
@@ -363,6 +364,26 @@ macro_rules! css_property_from_type {
             CssPropertyType::AlignContent => {
                 CssProperty::AlignContent(CssPropertyValue::$content_type)
             }
+            CssPropertyType::ColumnGap => CssProperty::ColumnGap(CssPropertyValue::$content_type),
+            CssPropertyType::RowGap => CssProperty::RowGap(CssPropertyValue::$content_type),
+            CssPropertyType::GridTemplateColumns => {
+                CssProperty::GridTemplateColumns(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::GridTemplateRows => {
+                CssProperty::GridTemplateRows(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::GridAutoColumns => {
+                CssProperty::GridAutoColumns(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::GridAutoRows => {
+                CssProperty::GridAutoRows(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::GridColumn => CssProperty::GridColumn(CssPropertyValue::$content_type),
+            CssPropertyType::GridRow => CssProperty::GridRow(CssPropertyValue::$content_type),
+            CssPropertyType::WritingMode => {
+                CssProperty::WritingMode(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::Clear => CssProperty::Clear(CssPropertyValue::$content_type),
             CssPropertyType::OverflowX => CssProperty::OverflowX(CssPropertyValue::$content_type),
             CssPropertyType::OverflowY => CssProperty::OverflowY(CssPropertyValue::$content_type),
             CssPropertyType::PaddingTop => CssProperty::PaddingTop(CssPropertyValue::$content_type),

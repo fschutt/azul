@@ -25,8 +25,8 @@ use azul_css::{
         },
         style::{
             LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-            LayoutBorderTopWidth, OptionStyleTextAlign, StyleBoxShadow, StyleTextAlign, StyleTextColor, StyleTransform,
-            StyleTransformOrigin, StyleVerticalAlign,
+            LayoutBorderTopWidth, OptionStyleTextAlign, StyleBoxShadow, StyleTextAlign,
+            StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
         },
     },
     AzString, OptionF32,
@@ -2534,11 +2534,7 @@ impl ComputedTransform3D {
                 )
             }
             Scale(scale2d) => Self::new_scale(scale2d.x.get(), scale2d.y.get(), 1.0),
-            Scale3D(scale3d) => Self::new_scale(
-                scale3d.x.get(),
-                scale3d.y.get(),
-                scale3d.z.get(),
-            ),
+            Scale3D(scale3d) => Self::new_scale(scale3d.x.get(), scale3d.y.get(), scale3d.z.get()),
             ScaleX(scale_x) => Self::new_scale(scale_x.normalized(), 1.0, 1.0),
             ScaleY(scale_y) => Self::new_scale(1.0, scale_y.normalized(), 1.0),
             ScaleZ(scale_z) => Self::new_scale(1.0, 1.0, scale_z.normalized()),

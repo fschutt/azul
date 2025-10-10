@@ -30,7 +30,7 @@ pub mod xml;
 #[cfg(feature = "text_layout")]
 pub fn parse_font_fn(
     source: azul_core::app_resources::LoadedFontSource,
-) -> Option<azul_css::FontRef> {
+) -> Option<azul_css::props::basic::FontRef> {
     use core::ffi::c_void;
 
     use crate::parsedfont::ParsedFont;
@@ -47,7 +47,7 @@ pub fn parse_font_fn(
         source.load_outlines,
     )
     .map(|parsed_font| {
-        azul_css::FontRef::new(azul_css::FontData {
+        azul_css::props::basic::FontRef::new(azul_css::props::basic::FontData {
             bytes: source.data,
             font_index: source.index,
             parsed: Box::into_raw(Box::new(parsed_font)) as *const c_void,

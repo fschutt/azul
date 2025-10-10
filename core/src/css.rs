@@ -1550,7 +1550,7 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
         }
         StyleTransform::SkewY(y) => {
             format!("StyleTransform::SkewY({})", format_angle_value(&y))
-        },
+        }
         StyleTransform::Perspective(dist) => {
             format!("StyleTransform::Perspective({})", format_pixel_value(&dist))
         }

@@ -17,8 +17,8 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        property::CssProperty,
         layout::{LayoutFloat, LayoutJustifyContent},
+        property::CssProperty,
         style::StyleTextAlign,
     },
     LayoutDebugMessage,

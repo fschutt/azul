@@ -5,10 +5,11 @@ use azul_core::{
         LayoutRectContent, RectBackground, StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
     },
 };
-use azul_css::{
-    props::{
-        basic::ColorU,
-        style::BorderStyle,
+use azul_css::props::{
+    basic::ColorU,
+    style::{
+        BackgroundPositionHorizontal, BackgroundPositionVertical, BorderStyle,
+        StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize,
     },
 };
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
@@ -267,9 +268,9 @@ fn render_content(
 
 fn render_background(
     content: &RectBackground,
-    size: Option<azul_css::StyleBackgroundSize>,
-    offset: Option<azul_css::StyleBackgroundPosition>,
-    repeat: Option<azul_css::StyleBackgroundRepeat>,
+    size: Option<StyleBackgroundSize>,
+    offset: Option<StyleBackgroundPosition>,
+    repeat: Option<StyleBackgroundRepeat>,
     pixmap: &mut Pixmap,
     rect: Rect,
     transform: Transform,
@@ -318,24 +319,24 @@ fn render_background(
 
 fn calculate_background_rect(
     rect: Rect,
-    size: Option<azul_css::StyleBackgroundSize>,
-    offset: Option<azul_css::StyleBackgroundPosition>,
+    size: Option<StyleBackgroundSize>,
+    offset: Option<StyleBackgroundPosition>,
 ) -> Option<Rect> {
     // Default: use the entire rect
     let (width, height) = (rect.width(), rect.height());
 
     // Calculate size if specified
     let (bg_width, bg_height) = match size {
-        Some(azul_css::StyleBackgroundSize::ExactSize([w, h])) => {
+        Some(StyleBackgroundSize::ExactSize([w, h])) => {
             let width_px = w.to_pixels(width) as f32;
             let height_px = h.to_pixels(height) as f32;
             (width_px, height_px)
         }
-        Some(azul_css::StyleBackgroundSize::Contain) => {
+        Some(StyleBackgroundSize::Contain) => {
             // Simplified contain logic - not fully implemented
             (width, height)
         }
-        Some(azul_css::StyleBackgroundSize::Cover) => {
+        Some(StyleBackgroundSize::Cover) => {
             // Simplified cover logic - not fully implemented
             (width, height)
         }
@@ -347,18 +348,18 @@ fn calculate_background_rect(
         Some(pos) => {
             // Simple horizontal position
             let x = match pos.horizontal {
-                azul_css::BackgroundPositionHorizontal::Left => 0.0,
-                azul_css::BackgroundPositionHorizontal::Center => (width - bg_width) / 2.0,
-                azul_css::BackgroundPositionHorizontal::Right => width - bg_width,
-                azul_css::BackgroundPositionHorizontal::Exact(val) => val.to_pixels(width) as f32,
+                BackgroundPositionHorizontal::Left => 0.0,
+                BackgroundPositionHorizontal::Center => (width - bg_width) / 2.0,
+                BackgroundPositionHorizontal::Right => width - bg_width,
+                BackgroundPositionHorizontal::Exact(val) => val.to_pixels(width) as f32,
             };
 
             // Simple vertical position
             let y = match pos.vertical {
-                azul_css::BackgroundPositionVertical::Top => 0.0,
-                azul_css::BackgroundPositionVertical::Center => (height - bg_height) / 2.0,
-                azul_css::BackgroundPositionVertical::Bottom => height - bg_height,
-                azul_css::BackgroundPositionVertical::Exact(val) => val.to_pixels(height) as f32,
+                BackgroundPositionVertical::Top => 0.0,
+                BackgroundPositionVertical::Center => (height - bg_height) / 2.0,
+                BackgroundPositionVertical::Bottom => height - bg_height,
+                BackgroundPositionVertical::Exact(val) => val.to_pixels(height) as f32,
             };
 
             (x, y)
@@ -663,7 +664,7 @@ fn render_border(
 fn render_text(
     glyphs: &[azul_core::display_list::GlyphInstance],
     font_instance_key: azul_core::app_resources::FontInstanceKey,
-    color: azul_css::ColorU,
+    color: ColorU,
     pixmap: &mut Pixmap,
     rect: Rect,
     transform: Transform,
@@ -799,7 +800,7 @@ fn render_image(
     size: azul_core::window::LogicalSize,
     offset: azul_core::window::LogicalPosition,
     image_key: azul_core::app_resources::ImageKey,
-    bg_color: azul_css::ColorU,
+    bg_color: ColorU,
     pixmap: &mut Pixmap,
     rect: Rect,
     transform: Transform,

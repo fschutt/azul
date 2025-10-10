@@ -20,10 +20,11 @@ use allsorts::{
     },
 };
 use azul_core::app_resources::{
-    Advance, Anchor, FontMetrics, GlyphInfo, GlyphOrigin, GlyphOutline, GlyphOutlineOperation,
-    OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo, OwnedGlyphBoundingBox, Placement,
-    RawGlyph, ShapedTextBufferUnsized, VariationSelector,
+    Advance, Anchor, GlyphInfo, GlyphOrigin, GlyphOutline, GlyphOutlineOperation, OutlineCubicTo,
+    OutlineLineTo, OutlineMoveTo, OutlineQuadTo, OwnedGlyphBoundingBox, Placement, RawGlyph,
+    ShapedTextBufferUnsized, VariationSelector,
 };
+use azul_css::props::basic::FontMetrics;
 use tinyvec::tiny_vec;
 
 use super::FontImpl;

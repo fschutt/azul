@@ -624,3 +624,91 @@ pub fn parse_layout_align_content<'a>(
         _ => Err(AlignContentParseError::InvalidValue(input)),
     }
 }
+
+// --- flex-basis ---
+
+/// Represents a `flex-basis` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutFlexBasis {
+    /// auto
+    Auto,
+    /// Fixed size
+    Exact(crate::props::basic::pixel::PixelValue),
+}
+
+impl core::fmt::Debug for LayoutFlexBasis {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self.print_as_css_value())
+    }
+}
+
+impl Default for LayoutFlexBasis {
+    fn default() -> Self {
+        LayoutFlexBasis::Auto
+    }
+}
+
+impl PrintAsCssValue for LayoutFlexBasis {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            LayoutFlexBasis::Auto => "auto".to_string(),
+            LayoutFlexBasis::Exact(px) => px.print_as_css_value(),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum FlexBasisParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+impl_debug_as_display!(FlexBasisParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { FlexBasisParseError<'a>, {
+    InvalidValue(e) => format!("Invalid flex-basis value: \"{}\"", e),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlexBasisParseErrorOwned {
+    InvalidValue(String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> FlexBasisParseError<'a> {
+    pub fn to_contained(&self) -> FlexBasisParseErrorOwned {
+        match self {
+            FlexBasisParseError::InvalidValue(s) => {
+                FlexBasisParseErrorOwned::InvalidValue(s.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl FlexBasisParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> FlexBasisParseError<'a> {
+        match self {
+            FlexBasisParseErrorOwned::InvalidValue(s) => {
+                FlexBasisParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_flex_basis<'a>(
+    input: &'a str,
+) -> Result<LayoutFlexBasis, FlexBasisParseError<'a>> {
+    use crate::props::basic::pixel::parse_pixel_value;
+
+    match input.trim() {
+        "auto" => Ok(LayoutFlexBasis::Auto),
+        s => parse_pixel_value(s)
+            .map(LayoutFlexBasis::Exact)
+            .map_err(|_| FlexBasisParseError::InvalidValue(input)),
+    }
+}

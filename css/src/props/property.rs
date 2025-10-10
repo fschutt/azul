@@ -24,7 +24,10 @@ use crate::props::{
         InterpolateResolver, InvalidValueErrOwned, PercentageParseError,
     },
     formatter::PrintAsCssValue,
-    layout::{dimensions::*, display::*, flex::*, overflow::*, position::*, spacing::*},
+    layout::{
+        dimensions::*, display::*, flex::*, grid::*, overflow::*, position::*, spacing::*,
+        wrapping::*,
+    },
     style::{
         background::*, border::*, border_radius::*, box_shadow::*, effects::*, filter::*,
         scrollbar::*, text::*, transform::*,
@@ -51,7 +54,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::BackgroundImage, "background-image"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 77] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 88] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -82,9 +85,23 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 77] = [
     (CssPropertyType::FlexDirection, "flex-direction"),
     (CssPropertyType::FlexGrow, "flex-grow"),
     (CssPropertyType::FlexShrink, "flex-shrink"),
+    (CssPropertyType::FlexBasis, "flex-basis"),
     (CssPropertyType::JustifyContent, "justify-content"),
     (CssPropertyType::AlignItems, "align-items"),
     (CssPropertyType::AlignContent, "align-content"),
+    (CssPropertyType::ColumnGap, "column-gap"),
+    (CssPropertyType::RowGap, "row-gap"),
+    (
+        CssPropertyType::GridTemplateColumns,
+        "grid-template-columns",
+    ),
+    (CssPropertyType::GridTemplateRows, "grid-template-rows"),
+    (CssPropertyType::GridAutoColumns, "grid-auto-columns"),
+    (CssPropertyType::GridAutoRows, "grid-auto-rows"),
+    (CssPropertyType::GridColumn, "grid-column"),
+    (CssPropertyType::GridRow, "grid-row"),
+    (CssPropertyType::WritingMode, "writing-mode"),
+    (CssPropertyType::Clear, "clear"),
     (CssPropertyType::OverflowX, "overflow-x"),
     (CssPropertyType::OverflowY, "overflow-y"),
     (CssPropertyType::PaddingTop, "padding-top"),
@@ -212,9 +229,20 @@ pub type LayoutFlexDirectionValue = CssPropertyValue<LayoutFlexDirection>;
 pub type LayoutFlexWrapValue = CssPropertyValue<LayoutFlexWrap>;
 pub type LayoutFlexGrowValue = CssPropertyValue<LayoutFlexGrow>;
 pub type LayoutFlexShrinkValue = CssPropertyValue<LayoutFlexShrink>;
+pub type LayoutFlexBasisValue = CssPropertyValue<LayoutFlexBasis>;
 pub type LayoutJustifyContentValue = CssPropertyValue<LayoutJustifyContent>;
 pub type LayoutAlignItemsValue = CssPropertyValue<LayoutAlignItems>;
 pub type LayoutAlignContentValue = CssPropertyValue<LayoutAlignContent>;
+pub type LayoutColumnGapValue = CssPropertyValue<LayoutColumnGap>;
+pub type LayoutRowGapValue = CssPropertyValue<LayoutRowGap>;
+pub type LayoutGridTemplateColumnsValue = CssPropertyValue<GridTemplate>;
+pub type LayoutGridTemplateRowsValue = CssPropertyValue<GridTemplate>;
+pub type LayoutGridAutoColumnsValue = CssPropertyValue<GridAutoTracks>;
+pub type LayoutGridAutoRowsValue = CssPropertyValue<GridAutoTracks>;
+pub type LayoutGridColumnValue = CssPropertyValue<GridPlacement>;
+pub type LayoutGridRowValue = CssPropertyValue<GridPlacement>;
+pub type LayoutWritingModeValue = CssPropertyValue<LayoutWritingMode>;
+pub type LayoutClearValue = CssPropertyValue<LayoutClear>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -331,9 +359,20 @@ pub enum CssProperty {
     FlexDirection(LayoutFlexDirectionValue),
     FlexGrow(LayoutFlexGrowValue),
     FlexShrink(LayoutFlexShrinkValue),
+    FlexBasis(LayoutFlexBasisValue),
     JustifyContent(LayoutJustifyContentValue),
     AlignItems(LayoutAlignItemsValue),
     AlignContent(LayoutAlignContentValue),
+    ColumnGap(LayoutColumnGapValue),
+    RowGap(LayoutRowGapValue),
+    GridTemplateColumns(LayoutGridTemplateColumnsValue),
+    GridTemplateRows(LayoutGridTemplateRowsValue),
+    GridAutoColumns(LayoutGridAutoColumnsValue),
+    GridAutoRows(LayoutGridAutoRowsValue),
+    GridColumn(LayoutGridColumnValue),
+    GridRow(LayoutGridRowValue),
+    WritingMode(LayoutWritingModeValue),
+    Clear(LayoutClearValue),
     BackgroundContent(StyleBackgroundContentVecValue),
     BackgroundPosition(StyleBackgroundPositionVecValue),
     BackgroundSize(StyleBackgroundSizeVecValue),
@@ -429,9 +468,20 @@ pub enum CssPropertyType {
     FlexDirection,
     FlexGrow,
     FlexShrink,
+    FlexBasis,
     JustifyContent,
     AlignItems,
     AlignContent,
+    ColumnGap,
+    RowGap,
+    GridTemplateColumns,
+    GridTemplateRows,
+    GridAutoColumns,
+    GridAutoRows,
+    GridColumn,
+    GridRow,
+    WritingMode,
+    Clear,
     BackgroundContent,
     BackgroundPosition,
     BackgroundSize,
@@ -543,9 +593,20 @@ impl CssPropertyType {
             CssPropertyType::FlexDirection => "flex-direction",
             CssPropertyType::FlexGrow => "flex-grow",
             CssPropertyType::FlexShrink => "flex-shrink",
+            CssPropertyType::FlexBasis => "flex-basis",
             CssPropertyType::JustifyContent => "justify-content",
             CssPropertyType::AlignItems => "align-items",
             CssPropertyType::AlignContent => "align-content",
+            CssPropertyType::ColumnGap => "column-gap",
+            CssPropertyType::RowGap => "row-gap",
+            CssPropertyType::GridTemplateColumns => "grid-template-columns",
+            CssPropertyType::GridTemplateRows => "grid-template-rows",
+            CssPropertyType::GridAutoColumns => "grid-auto-columns",
+            CssPropertyType::GridAutoRows => "grid-auto-rows",
+            CssPropertyType::GridColumn => "grid-column",
+            CssPropertyType::GridRow => "grid-row",
+            CssPropertyType::WritingMode => "writing-mode",
+            CssPropertyType::Clear => "clear",
             CssPropertyType::BackgroundContent => "background",
             CssPropertyType::BackgroundPosition => "background-position",
             CssPropertyType::BackgroundSize => "background-size",
@@ -744,9 +805,18 @@ pub enum CssParsingError<'a> {
     // Layout flex
     FlexWrap(FlexWrapParseError<'a>),
     FlexDirection(FlexDirectionParseError<'a>),
+    FlexBasis(FlexBasisParseError<'a>),
     JustifyContent(JustifyContentParseError<'a>),
     AlignItems(AlignItemsParseError<'a>),
     AlignContent(AlignContentParseError<'a>),
+
+    // Layout grid
+    Grid(GridParseError<'a>),
+
+    // Layout wrapping
+    LayoutWrap(LayoutWrapParseError<'a>),
+    LayoutWritingMode(LayoutWritingModeParseError<'a>),
+    LayoutClear(LayoutClearParseError<'a>),
 
     // Layout overflow
     LayoutOverflow(LayoutOverflowParseError<'a>),
@@ -829,9 +899,18 @@ pub enum CssParsingErrorOwned {
     // Layout flex
     FlexWrap(FlexWrapParseErrorOwned),
     FlexDirection(FlexDirectionParseErrorOwned),
+    FlexBasis(FlexBasisParseErrorOwned),
     JustifyContent(JustifyContentParseErrorOwned),
     AlignItems(AlignItemsParseErrorOwned),
     AlignContent(AlignContentParseErrorOwned),
+
+    // Layout grid
+    Grid(GridParseErrorOwned),
+
+    // Layout wrapping
+    LayoutWrap(LayoutWrapParseErrorOwned),
+    LayoutWritingMode(LayoutWritingModeParseErrorOwned),
+    LayoutClear(LayoutClearParseErrorOwned),
 
     // Layout overflow
     LayoutOverflow(LayoutOverflowParseErrorOwned),
@@ -888,9 +967,14 @@ impl_display! { CssParsingError<'a>, {
     LayoutBottom(e) => format!("Invalid bottom value: {}", e),
     FlexWrap(e) => format!("Invalid flex-wrap value: {}", e),
     FlexDirection(e) => format!("Invalid flex-direction value: {}", e),
+    FlexBasis(e) => format!("Invalid flex-basis value: {}", e),
     JustifyContent(e) => format!("Invalid justify-content value: {}", e),
     AlignItems(e) => format!("Invalid align-items value: {}", e),
     AlignContent(e) => format!("Invalid align-content value: {}", e),
+    Grid(e) => format!("Invalid grid value: {}", e),
+    LayoutWrap(e) => format!("Invalid wrap value: {}", e),
+    LayoutWritingMode(e) => format!("Invalid writing-mode value: {}", e),
+    LayoutClear(e) => format!("Invalid clear value: {}", e),
     LayoutOverflow(e) => format!("Invalid overflow value: {}", e),
     BorderTopLeftRadius(e) => format!("Invalid border-top-left-radius: {}", e),
     BorderTopRightRadius(e) => format!("Invalid border-top-right-radius: {}", e),
@@ -983,12 +1067,24 @@ impl_from!(LayoutBottomParseError<'a>, CssParsingError::LayoutBottom);
 // Layout flex
 impl_from!(FlexWrapParseError<'a>, CssParsingError::FlexWrap);
 impl_from!(FlexDirectionParseError<'a>, CssParsingError::FlexDirection);
+impl_from!(FlexBasisParseError<'a>, CssParsingError::FlexBasis);
 impl_from!(
     JustifyContentParseError<'a>,
     CssParsingError::JustifyContent
 );
 impl_from!(AlignItemsParseError<'a>, CssParsingError::AlignItems);
 impl_from!(AlignContentParseError<'a>, CssParsingError::AlignContent);
+
+// Layout grid
+impl_from!(GridParseError<'a>, CssParsingError::Grid);
+
+// Layout wrapping
+impl_from!(LayoutWrapParseError<'a>, CssParsingError::LayoutWrap);
+impl_from!(
+    LayoutWritingModeParseError<'a>,
+    CssParsingError::LayoutWritingMode
+);
+impl_from!(LayoutClearParseError<'a>, CssParsingError::LayoutClear);
 
 // Layout overflow
 impl_from!(
@@ -1128,6 +1224,7 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::FlexDirection(e) => {
                 CssParsingErrorOwned::FlexDirection(e.to_contained())
             }
+            CssParsingError::FlexBasis(e) => CssParsingErrorOwned::FlexBasis(e.to_contained()),
             CssParsingError::JustifyContent(e) => {
                 CssParsingErrorOwned::JustifyContent(e.to_contained())
             }
@@ -1135,6 +1232,12 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::AlignContent(e) => {
                 CssParsingErrorOwned::AlignContent(e.to_contained())
             }
+            CssParsingError::Grid(e) => CssParsingErrorOwned::Grid(e.to_contained()),
+            CssParsingError::LayoutWrap(e) => CssParsingErrorOwned::LayoutWrap(e.to_contained()),
+            CssParsingError::LayoutWritingMode(e) => {
+                CssParsingErrorOwned::LayoutWritingMode(e.to_contained())
+            }
+            CssParsingError::LayoutClear(e) => CssParsingErrorOwned::LayoutClear(e.to_contained()),
             CssParsingError::LayoutOverflow(e) => {
                 CssParsingErrorOwned::LayoutOverflow(e.to_contained())
             }
@@ -1234,11 +1337,18 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::LayoutBottom(e) => CssParsingError::LayoutBottom(e.to_shared()),
             CssParsingErrorOwned::FlexWrap(e) => CssParsingError::FlexWrap(e.to_shared()),
             CssParsingErrorOwned::FlexDirection(e) => CssParsingError::FlexDirection(e.to_shared()),
+            CssParsingErrorOwned::FlexBasis(e) => CssParsingError::FlexBasis(e.to_shared()),
             CssParsingErrorOwned::JustifyContent(e) => {
                 CssParsingError::JustifyContent(e.to_shared())
             }
             CssParsingErrorOwned::AlignItems(e) => CssParsingError::AlignItems(e.to_shared()),
             CssParsingErrorOwned::AlignContent(e) => CssParsingError::AlignContent(e.to_shared()),
+            CssParsingErrorOwned::Grid(e) => CssParsingError::Grid(e.to_shared()),
+            CssParsingErrorOwned::LayoutWrap(e) => CssParsingError::LayoutWrap(e.to_shared()),
+            CssParsingErrorOwned::LayoutWritingMode(e) => {
+                CssParsingError::LayoutWritingMode(e.to_shared())
+            }
+            CssParsingErrorOwned::LayoutClear(e) => CssParsingError::LayoutClear(e.to_shared()),
             CssParsingErrorOwned::LayoutOverflow(e) => {
                 CssParsingError::LayoutOverflow(e.to_shared())
             }
@@ -1323,9 +1433,30 @@ pub fn parse_css_property<'a>(
             CssPropertyType::FlexDirection => parse_layout_flex_direction(value)?.into(),
             CssPropertyType::FlexGrow => parse_layout_flex_grow(value)?.into(),
             CssPropertyType::FlexShrink => parse_layout_flex_shrink(value)?.into(),
+            CssPropertyType::FlexBasis => parse_layout_flex_basis(value)?.into(),
             CssPropertyType::JustifyContent => parse_layout_justify_content(value)?.into(),
             CssPropertyType::AlignItems => parse_layout_align_items(value)?.into(),
             CssPropertyType::AlignContent => parse_layout_align_content(value)?.into(),
+            CssPropertyType::ColumnGap => parse_layout_column_gap(value)?.into(),
+            CssPropertyType::RowGap => parse_layout_row_gap(value)?.into(),
+            CssPropertyType::GridTemplateColumns => {
+                CssProperty::GridTemplateColumns(parse_grid_template(value)?.into())
+            }
+            CssPropertyType::GridTemplateRows => {
+                CssProperty::GridTemplateRows(parse_grid_template(value)?.into())
+            }
+            CssPropertyType::GridAutoColumns => {
+                CssProperty::GridAutoColumns(parse_grid_template(value)?.into())
+            }
+            CssPropertyType::GridAutoRows => {
+                CssProperty::GridAutoRows(parse_grid_template(value)?.into())
+            }
+            CssPropertyType::GridColumn => {
+                CssProperty::GridColumn(parse_grid_placement(value)?.into())
+            }
+            CssPropertyType::GridRow => CssProperty::GridRow(parse_grid_placement(value)?.into()),
+            CssPropertyType::WritingMode => parse_layout_writing_mode(value)?.into(),
+            CssPropertyType::Clear => parse_layout_clear(value)?.into(),
 
             CssPropertyType::BackgroundContent => {
                 parse_style_background_content_multiple(value)?.into()
@@ -1856,10 +1987,16 @@ impl_from_css_prop!(LayoutFlexWrap, CssProperty::FlexWrap);
 impl_from_css_prop!(LayoutFlexDirection, CssProperty::FlexDirection);
 impl_from_css_prop!(LayoutFlexGrow, CssProperty::FlexGrow);
 impl_from_css_prop!(LayoutFlexShrink, CssProperty::FlexShrink);
+impl_from_css_prop!(LayoutFlexBasis, CssProperty::FlexBasis);
 impl_from_css_prop!(LayoutJustifyContent, CssProperty::JustifyContent);
 impl_from_css_prop!(LayoutAlignItems, CssProperty::AlignItems);
 impl_from_css_prop!(LayoutAlignContent, CssProperty::AlignContent);
+impl_from_css_prop!(LayoutColumnGap, CssProperty::ColumnGap);
+impl_from_css_prop!(LayoutRowGap, CssProperty::RowGap);
+impl_from_css_prop!(LayoutWritingMode, CssProperty::WritingMode);
+impl_from_css_prop!(LayoutClear, CssProperty::Clear);
 impl_from_css_prop!(StyleBackgroundContentVec, CssProperty::BackgroundContent);
+
 impl_from_css_prop!(StyleBackgroundPositionVec, CssProperty::BackgroundPosition);
 impl_from_css_prop!(StyleBackgroundSizeVec, CssProperty::BackgroundSize);
 impl_from_css_prop!(StyleBackgroundRepeatVec, CssProperty::BackgroundRepeat);
@@ -1938,9 +2075,20 @@ impl CssProperty {
             CssProperty::FlexDirection(v) => v.get_css_value_fmt(),
             CssProperty::FlexGrow(v) => v.get_css_value_fmt(),
             CssProperty::FlexShrink(v) => v.get_css_value_fmt(),
+            CssProperty::FlexBasis(v) => v.get_css_value_fmt(),
             CssProperty::JustifyContent(v) => v.get_css_value_fmt(),
             CssProperty::AlignItems(v) => v.get_css_value_fmt(),
             CssProperty::AlignContent(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnGap(v) => v.get_css_value_fmt(),
+            CssProperty::RowGap(v) => v.get_css_value_fmt(),
+            CssProperty::GridTemplateColumns(v) => v.get_css_value_fmt(),
+            CssProperty::GridTemplateRows(v) => v.get_css_value_fmt(),
+            CssProperty::GridAutoColumns(v) => v.get_css_value_fmt(),
+            CssProperty::GridAutoRows(v) => v.get_css_value_fmt(),
+            CssProperty::GridColumn(v) => v.get_css_value_fmt(),
+            CssProperty::GridRow(v) => v.get_css_value_fmt(),
+            CssProperty::WritingMode(v) => v.get_css_value_fmt(),
+            CssProperty::Clear(v) => v.get_css_value_fmt(),
             CssProperty::BackgroundContent(v) => v.get_css_value_fmt(),
             CssProperty::BackgroundPosition(v) => v.get_css_value_fmt(),
             CssProperty::BackgroundSize(v) => v.get_css_value_fmt(),
@@ -2294,9 +2442,20 @@ impl CssProperty {
             CssProperty::FlexDirection(_) => CssPropertyType::FlexDirection,
             CssProperty::FlexGrow(_) => CssPropertyType::FlexGrow,
             CssProperty::FlexShrink(_) => CssPropertyType::FlexShrink,
+            CssProperty::FlexBasis(_) => CssPropertyType::FlexBasis,
             CssProperty::JustifyContent(_) => CssPropertyType::JustifyContent,
             CssProperty::AlignItems(_) => CssPropertyType::AlignItems,
             CssProperty::AlignContent(_) => CssPropertyType::AlignContent,
+            CssProperty::ColumnGap(_) => CssPropertyType::ColumnGap,
+            CssProperty::RowGap(_) => CssPropertyType::RowGap,
+            CssProperty::GridTemplateColumns(_) => CssPropertyType::GridTemplateColumns,
+            CssProperty::GridTemplateRows(_) => CssPropertyType::GridTemplateRows,
+            CssProperty::GridAutoColumns(_) => CssPropertyType::GridAutoColumns,
+            CssProperty::GridAutoRows(_) => CssPropertyType::GridAutoRows,
+            CssProperty::GridColumn(_) => CssPropertyType::GridColumn,
+            CssProperty::GridRow(_) => CssPropertyType::GridRow,
+            CssProperty::WritingMode(_) => CssPropertyType::WritingMode,
+            CssProperty::Clear(_) => CssPropertyType::Clear,
             CssProperty::BackgroundContent(_) => CssPropertyType::BackgroundContent,
             CssProperty::BackgroundPosition(_) => CssPropertyType::BackgroundPosition,
             CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
@@ -3064,9 +3223,20 @@ impl CssProperty {
             FlexDirection(c) => c.is_initial(),
             FlexGrow(c) => c.is_initial(),
             FlexShrink(c) => c.is_initial(),
+            FlexBasis(c) => c.is_initial(),
             JustifyContent(c) => c.is_initial(),
             AlignItems(c) => c.is_initial(),
             AlignContent(c) => c.is_initial(),
+            ColumnGap(c) => c.is_initial(),
+            RowGap(c) => c.is_initial(),
+            GridTemplateColumns(c) => c.is_initial(),
+            GridTemplateRows(c) => c.is_initial(),
+            GridAutoColumns(c) => c.is_initial(),
+            GridAutoRows(c) => c.is_initial(),
+            GridColumn(c) => c.is_initial(),
+            GridRow(c) => c.is_initial(),
+            WritingMode(c) => c.is_initial(),
+            Clear(c) => c.is_initial(),
             BackgroundContent(c) => c.is_initial(),
             BackgroundPosition(c) => c.is_initial(),
             BackgroundSize(c) => c.is_initial(),

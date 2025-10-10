@@ -17,8 +17,8 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        property::{CssProperty, CssPropertyType},
         basic::PixelValue,
+        property::{CssProperty, CssPropertyType},
     },
     LayoutDebugMessage,
 };

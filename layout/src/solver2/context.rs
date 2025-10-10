@@ -3,7 +3,10 @@
 use azul_core::{
     dom::NodeType, id_tree::NodeDataContainer, styled_dom::StyledDom, ui_solver::FormattingContext,
 };
-use azul_css::{CssProperty, LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition};
+use azul_css::props::{
+    layout::{LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
+    property::CssProperty,
+};
 
 /// Determines the formatting context for each node in the DOM
 pub fn determine_formatting_contexts(

@@ -3,8 +3,12 @@
 pub mod dimensions;
 pub mod display;
 pub mod flex;
+pub mod grid;
 pub mod overflow;
 pub mod position;
 pub mod spacing;
+pub mod wrapping;
 
-pub use self::{dimensions::*, display::*, flex::*, overflow::*, position::*, spacing::*};
+pub use self::{
+    dimensions::*, display::*, flex::*, grid::*, overflow::*, position::*, spacing::*, wrapping::*,
+};

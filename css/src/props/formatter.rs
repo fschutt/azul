@@ -164,3 +164,15 @@ impl PrintAsCssValue for LayoutMarginBottom {
         format!("{}", self.inner)
     }
 }
+
+impl PrintAsCssValue for LayoutColumnGap {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+
+impl PrintAsCssValue for LayoutRowGap {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}

@@ -6,7 +6,7 @@ use azul_core::{
     ui_solver::{FormattingContext, IntrinsicSizes},
     window::LogicalSize,
 };
-use azul_css::*;
+use azul_css::{props::layout::LayoutAxis, *};
 
 use crate::parsedfont::ParsedFont;
 

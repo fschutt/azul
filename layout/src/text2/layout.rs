@@ -29,7 +29,13 @@ use azul_core::{
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::*;
+use azul_css::{
+    props::{
+        basic::{FontRef, StyleFontSize},
+        style::{StyleDirection, StyleTextAlign},
+    },
+    *,
+};
 
 use super::{FontImpl, TextLayoutOffsets};
 use crate::parsedfont::ParsedFont;

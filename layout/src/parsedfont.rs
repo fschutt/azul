@@ -89,7 +89,7 @@ impl FontImpl for ParsedFont {
         self.lookup_glyph_index(c)
     }
 
-    fn get_font_metrics(&self) -> &azul_core::app_resources::FontMetrics {
+    fn get_font_metrics(&self) -> &azul_css::props::basic::FontMetrics {
         &self.font_metrics
     }
 }
@@ -591,8 +591,9 @@ pub mod mock {
     use alloc::collections::btree_map::BTreeMap;
 
     use azul_core::app_resources::{
-        Advance, FontMetrics, GlyphInfo, GlyphOrigin, Placement, RawGlyph, ShapedTextBufferUnsized,
+        Advance, GlyphInfo, GlyphOrigin, Placement, RawGlyph, ShapedTextBufferUnsized,
     };
+    use azul_css::props::basic::FontMetrics;
 
     #[cfg(feature = "text_layout")]
     use super::FontImpl;

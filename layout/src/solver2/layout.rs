@@ -23,9 +23,11 @@ use azul_core::{
 };
 use azul_css::{
     props::{
-        property::{CssProperty, CssPropertyType},
         basic::{LayoutPoint, LayoutRect, LayoutSize},
-        layout::{LayoutAxis, LayoutBoxSizing, LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
+        layout::{
+            LayoutAxis, LayoutBoxSizing, LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition,
+        },
+        property::{CssProperty, CssPropertyType},
         style::{StyleDirection, StyleTextAlign},
     },
     LayoutDebugMessage,
@@ -1463,7 +1465,7 @@ fn process_text_node(
 
     let tab_width = css_property_cache
         .get_tab_width(node_data, &node_id, styled_node_state)
-        .and_then(|tw| Some(tw.get_property()?.inner.normalized()));
+        .and_then(|tw| Some(tw.get_property()?.inner.number.get())); // TODO: .normalized()?
 
     // Create resolved text layout options
     let text_layout_options = ResolvedTextLayoutOptions {
@@ -2573,7 +2575,7 @@ fn extract_text_layout_options(
     // Get tab width
     let tab_width = css_property_cache
         .get_tab_width(node_data, &node_id, styled_node_state)
-        .and_then(|tw| Some(tw.get_property()?.inner.normalized()))
+        .and_then(|tw| Some(tw.get_property()?.inner.number.get())) // TODO: .normalized() ?
         .into();
 
     // Create and return ResolvedTextLayoutOptions
