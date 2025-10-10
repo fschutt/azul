@@ -215,7 +215,10 @@ mod parser {
 
     impl<'a> From<MixBlendModeParseError<'a>> for CssStyleFilterParseError<'a> {
         fn from(e: MixBlendModeParseError<'a>) -> Self {
-            Self::BlendMode(InvalidValueErr(e))
+            // Extract the InvalidValueErr from the MixBlendModeParseError
+            match e {
+                MixBlendModeParseError::InvalidValue(err) => Self::BlendMode(err),
+            }
         }
     }
 

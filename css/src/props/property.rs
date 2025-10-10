@@ -707,6 +707,62 @@ pub enum CssParsingError<'a> {
     TransformOrigin(CssStyleTransformOriginParseError<'a>),
     PerspectiveOrigin(CssStylePerspectiveOriginParseError<'a>),
     Filter(CssStyleFilterParseError<'a>),
+
+    // Text/Style properties
+    TextColor(StyleTextColorParseError<'a>),
+    FontSize(CssStyleFontSizeParseError<'a>),
+    TextAlign(StyleTextAlignParseError<'a>),
+    LetterSpacing(StyleLetterSpacingParseError<'a>),
+    LineHeight(StyleLineHeightParseError),
+    WordSpacing(StyleWordSpacingParseError<'a>),
+    TabWidth(StyleTabWidthParseError<'a>),
+    WhiteSpace(StyleWhiteSpaceParseError<'a>),
+    Hyphens(StyleHyphensParseError<'a>),
+    Direction(StyleDirectionParseError<'a>),
+    Cursor(CursorParseError<'a>),
+
+    // Layout basic properties
+    LayoutDisplay(LayoutDisplayParseError<'a>),
+    LayoutFloat(LayoutFloatParseError<'a>),
+    LayoutBoxSizing(LayoutBoxSizingParseError<'a>),
+
+    // Layout dimensions
+    LayoutWidth(LayoutWidthParseError<'a>),
+    LayoutHeight(LayoutHeightParseError<'a>),
+    LayoutMinWidth(LayoutMinWidthParseError<'a>),
+    LayoutMinHeight(LayoutMinHeightParseError<'a>),
+    LayoutMaxWidth(LayoutMaxWidthParseError<'a>),
+    LayoutMaxHeight(LayoutMaxHeightParseError<'a>),
+
+    // Layout position
+    LayoutPosition(LayoutPositionParseError<'a>),
+    LayoutTop(LayoutTopParseError<'a>),
+    LayoutRight(LayoutRightParseError<'a>),
+    LayoutLeft(LayoutLeftParseError<'a>),
+    LayoutBottom(LayoutBottomParseError<'a>),
+
+    // Layout flex
+    FlexWrap(FlexWrapParseError<'a>),
+    FlexDirection(FlexDirectionParseError<'a>),
+    JustifyContent(JustifyContentParseError<'a>),
+    AlignItems(AlignItemsParseError<'a>),
+    AlignContent(AlignContentParseError<'a>),
+
+    // Layout overflow
+    LayoutOverflow(LayoutOverflowParseError<'a>),
+
+    // Border radius individual corners
+    BorderTopLeftRadius(StyleBorderTopLeftRadiusParseError<'a>),
+    BorderTopRightRadius(StyleBorderTopRightRadiusParseError<'a>),
+    BorderBottomLeftRadius(StyleBorderBottomLeftRadiusParseError<'a>),
+    BorderBottomRightRadius(StyleBorderBottomRightRadiusParseError<'a>),
+
+    // Border style
+    BorderStyle(CssBorderStyleParseError<'a>),
+
+    // Effects
+    BackfaceVisibility(CssBackfaceVisibilityParseError<'a>),
+    MixBlendMode(MixBlendModeParseError<'a>),
 }
 
 /// Owned version of `CssParsingError`.
@@ -736,6 +792,62 @@ pub enum CssParsingErrorOwned {
     TransformOrigin(CssStyleTransformOriginParseErrorOwned),
     PerspectiveOrigin(CssStylePerspectiveOriginParseErrorOwned),
     Filter(CssStyleFilterParseErrorOwned),
+
+    // Text/Style properties
+    TextColor(StyleTextColorParseErrorOwned),
+    FontSize(CssStyleFontSizeParseErrorOwned),
+    TextAlign(StyleTextAlignParseErrorOwned),
+    LetterSpacing(StyleLetterSpacingParseErrorOwned),
+    LineHeight(StyleLineHeightParseError),
+    WordSpacing(StyleWordSpacingParseErrorOwned),
+    TabWidth(StyleTabWidthParseErrorOwned),
+    WhiteSpace(StyleWhiteSpaceParseErrorOwned),
+    Hyphens(StyleHyphensParseErrorOwned),
+    Direction(StyleDirectionParseErrorOwned),
+    Cursor(CursorParseErrorOwned),
+
+    // Layout basic properties
+    LayoutDisplay(LayoutDisplayParseErrorOwned),
+    LayoutFloat(LayoutFloatParseErrorOwned),
+    LayoutBoxSizing(LayoutBoxSizingParseErrorOwned),
+
+    // Layout dimensions
+    LayoutWidth(LayoutWidthParseErrorOwned),
+    LayoutHeight(LayoutHeightParseErrorOwned),
+    LayoutMinWidth(LayoutMinWidthParseErrorOwned),
+    LayoutMinHeight(LayoutMinHeightParseErrorOwned),
+    LayoutMaxWidth(LayoutMaxWidthParseErrorOwned),
+    LayoutMaxHeight(LayoutMaxHeightParseErrorOwned),
+
+    // Layout position
+    LayoutPosition(LayoutPositionParseErrorOwned),
+    LayoutTop(LayoutTopParseErrorOwned),
+    LayoutRight(LayoutRightParseErrorOwned),
+    LayoutLeft(LayoutLeftParseErrorOwned),
+    LayoutBottom(LayoutBottomParseErrorOwned),
+
+    // Layout flex
+    FlexWrap(FlexWrapParseErrorOwned),
+    FlexDirection(FlexDirectionParseErrorOwned),
+    JustifyContent(JustifyContentParseErrorOwned),
+    AlignItems(AlignItemsParseErrorOwned),
+    AlignContent(AlignContentParseErrorOwned),
+
+    // Layout overflow
+    LayoutOverflow(LayoutOverflowParseErrorOwned),
+
+    // Border radius individual corners
+    BorderTopLeftRadius(StyleBorderTopLeftRadiusParseErrorOwned),
+    BorderTopRightRadius(StyleBorderTopRightRadiusParseErrorOwned),
+    BorderBottomLeftRadius(StyleBorderBottomLeftRadiusParseErrorOwned),
+    BorderBottomRightRadius(StyleBorderBottomRightRadiusParseErrorOwned),
+
+    // Border style
+    BorderStyle(CssBorderStyleParseErrorOwned),
+
+    // Effects
+    BackfaceVisibility(CssBackfaceVisibilityParseErrorOwned),
+    MixBlendMode(MixBlendModeParseErrorOwned),
 }
 
 // -- PARSING ERROR IMPLEMENTATIONS --
@@ -763,6 +875,44 @@ impl_display! { CssParsingError<'a>, {
     TransformOrigin(e) => format!("Invalid transform-origin: {}", e),
     PerspectiveOrigin(e) => format!("Invalid perspective-origin: {}", e),
     Filter(e) => format!("Invalid filter property: {}", e),
+    LayoutWidth(e) => format!("Invalid width value: {}", e),
+    LayoutHeight(e) => format!("Invalid height value: {}", e),
+    LayoutMinWidth(e) => format!("Invalid min-width value: {}", e),
+    LayoutMinHeight(e) => format!("Invalid min-height value: {}", e),
+    LayoutMaxWidth(e) => format!("Invalid max-width value: {}", e),
+    LayoutMaxHeight(e) => format!("Invalid max-height value: {}", e),
+    LayoutPosition(e) => format!("Invalid position value: {}", e),
+    LayoutTop(e) => format!("Invalid top value: {}", e),
+    LayoutRight(e) => format!("Invalid right value: {}", e),
+    LayoutLeft(e) => format!("Invalid left value: {}", e),
+    LayoutBottom(e) => format!("Invalid bottom value: {}", e),
+    FlexWrap(e) => format!("Invalid flex-wrap value: {}", e),
+    FlexDirection(e) => format!("Invalid flex-direction value: {}", e),
+    JustifyContent(e) => format!("Invalid justify-content value: {}", e),
+    AlignItems(e) => format!("Invalid align-items value: {}", e),
+    AlignContent(e) => format!("Invalid align-content value: {}", e),
+    LayoutOverflow(e) => format!("Invalid overflow value: {}", e),
+    BorderTopLeftRadius(e) => format!("Invalid border-top-left-radius: {}", e),
+    BorderTopRightRadius(e) => format!("Invalid border-top-right-radius: {}", e),
+    BorderBottomLeftRadius(e) => format!("Invalid border-bottom-left-radius: {}", e),
+    BorderBottomRightRadius(e) => format!("Invalid border-bottom-right-radius: {}", e),
+    BorderStyle(e) => format!("Invalid border style: {}", e),
+    BackfaceVisibility(e) => format!("Invalid backface-visibility: {}", e),
+    MixBlendMode(e) => format!("Invalid mix-blend-mode: {}", e),
+    TextColor(e) => format!("Invalid text color: {}", e),
+    FontSize(e) => format!("Invalid font-size: {}", e),
+    TextAlign(e) => format!("Invalid text-align: {}", e),
+    LetterSpacing(e) => format!("Invalid letter-spacing: {}", e),
+    LineHeight(e) => format!("Invalid line-height: {}", e),
+    WordSpacing(e) => format!("Invalid word-spacing: {}", e),
+    TabWidth(e) => format!("Invalid tab-width: {}", e),
+    WhiteSpace(e) => format!("Invalid white-space: {}", e),
+    Hyphens(e) => format!("Invalid hyphens: {}", e),
+    Direction(e) => format!("Invalid direction: {}", e),
+    Cursor(e) => format!("Invalid cursor: {}", e),
+    LayoutDisplay(e) => format!("Invalid display: {}", e),
+    LayoutFloat(e) => format!("Invalid float: {}", e),
+    LayoutBoxSizing(e) => format!("Invalid box-sizing: {}", e),
 }}
 
 // From impls for CssParsingError
@@ -800,6 +950,103 @@ impl_from!(
 );
 impl_from!(CssStyleFilterParseError<'a>, CssParsingError::Filter);
 
+// Layout dimensions
+impl_from!(LayoutWidthParseError<'a>, CssParsingError::LayoutWidth);
+impl_from!(LayoutHeightParseError<'a>, CssParsingError::LayoutHeight);
+impl_from!(
+    LayoutMinWidthParseError<'a>,
+    CssParsingError::LayoutMinWidth
+);
+impl_from!(
+    LayoutMinHeightParseError<'a>,
+    CssParsingError::LayoutMinHeight
+);
+impl_from!(
+    LayoutMaxWidthParseError<'a>,
+    CssParsingError::LayoutMaxWidth
+);
+impl_from!(
+    LayoutMaxHeightParseError<'a>,
+    CssParsingError::LayoutMaxHeight
+);
+
+// Layout position
+impl_from!(
+    LayoutPositionParseError<'a>,
+    CssParsingError::LayoutPosition
+);
+impl_from!(LayoutTopParseError<'a>, CssParsingError::LayoutTop);
+impl_from!(LayoutRightParseError<'a>, CssParsingError::LayoutRight);
+impl_from!(LayoutLeftParseError<'a>, CssParsingError::LayoutLeft);
+impl_from!(LayoutBottomParseError<'a>, CssParsingError::LayoutBottom);
+
+// Layout flex
+impl_from!(FlexWrapParseError<'a>, CssParsingError::FlexWrap);
+impl_from!(FlexDirectionParseError<'a>, CssParsingError::FlexDirection);
+impl_from!(
+    JustifyContentParseError<'a>,
+    CssParsingError::JustifyContent
+);
+impl_from!(AlignItemsParseError<'a>, CssParsingError::AlignItems);
+impl_from!(AlignContentParseError<'a>, CssParsingError::AlignContent);
+
+// Layout overflow
+impl_from!(
+    LayoutOverflowParseError<'a>,
+    CssParsingError::LayoutOverflow
+);
+
+// Border radius individual corners
+impl_from!(
+    StyleBorderTopLeftRadiusParseError<'a>,
+    CssParsingError::BorderTopLeftRadius
+);
+impl_from!(
+    StyleBorderTopRightRadiusParseError<'a>,
+    CssParsingError::BorderTopRightRadius
+);
+impl_from!(
+    StyleBorderBottomLeftRadiusParseError<'a>,
+    CssParsingError::BorderBottomLeftRadius
+);
+impl_from!(
+    StyleBorderBottomRightRadiusParseError<'a>,
+    CssParsingError::BorderBottomRightRadius
+);
+
+// Border style
+impl_from!(CssBorderStyleParseError<'a>, CssParsingError::BorderStyle);
+
+// Effects
+impl_from!(
+    CssBackfaceVisibilityParseError<'a>,
+    CssParsingError::BackfaceVisibility
+);
+impl_from!(MixBlendModeParseError<'a>, CssParsingError::MixBlendMode);
+
+// Text/Style properties
+impl_from!(StyleTextColorParseError<'a>, CssParsingError::TextColor);
+impl_from!(CssStyleFontSizeParseError<'a>, CssParsingError::FontSize);
+impl_from!(StyleTextAlignParseError<'a>, CssParsingError::TextAlign);
+impl_from!(
+    StyleLetterSpacingParseError<'a>,
+    CssParsingError::LetterSpacing
+);
+impl_from!(StyleWordSpacingParseError<'a>, CssParsingError::WordSpacing);
+impl_from!(StyleTabWidthParseError<'a>, CssParsingError::TabWidth);
+impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
+impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
+impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
+impl_from!(CursorParseError<'a>, CssParsingError::Cursor);
+
+// Layout basic properties
+impl_from!(LayoutDisplayParseError<'a>, CssParsingError::LayoutDisplay);
+impl_from!(LayoutFloatParseError<'a>, CssParsingError::LayoutFloat);
+impl_from!(
+    LayoutBoxSizingParseError<'a>,
+    CssParsingError::LayoutBoxSizing
+);
+
 impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
     fn from(e: InvalidValueErr<'a>) -> Self {
         CssParsingError::InvalidValue(e)
@@ -809,6 +1056,12 @@ impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
 impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     fn from(e: PercentageParseError) -> Self {
         CssParsingError::Percentage(e)
+    }
+}
+
+impl<'a> From<StyleLineHeightParseError> for CssParsingError<'a> {
+    fn from(e: StyleLineHeightParseError) -> Self {
+        CssParsingError::LineHeight(e)
     }
 }
 
@@ -846,6 +1099,84 @@ impl<'a> CssParsingError<'a> {
                 CssParsingErrorOwned::PerspectiveOrigin(e.to_contained())
             }
             CssParsingError::Filter(e) => CssParsingErrorOwned::Filter(e.to_contained()),
+            CssParsingError::LayoutWidth(e) => CssParsingErrorOwned::LayoutWidth(e.to_contained()),
+            CssParsingError::LayoutHeight(e) => {
+                CssParsingErrorOwned::LayoutHeight(e.to_contained())
+            }
+            CssParsingError::LayoutMinWidth(e) => {
+                CssParsingErrorOwned::LayoutMinWidth(e.to_contained())
+            }
+            CssParsingError::LayoutMinHeight(e) => {
+                CssParsingErrorOwned::LayoutMinHeight(e.to_contained())
+            }
+            CssParsingError::LayoutMaxWidth(e) => {
+                CssParsingErrorOwned::LayoutMaxWidth(e.to_contained())
+            }
+            CssParsingError::LayoutMaxHeight(e) => {
+                CssParsingErrorOwned::LayoutMaxHeight(e.to_contained())
+            }
+            CssParsingError::LayoutPosition(e) => {
+                CssParsingErrorOwned::LayoutPosition(e.to_contained())
+            }
+            CssParsingError::LayoutTop(e) => CssParsingErrorOwned::LayoutTop(e.to_contained()),
+            CssParsingError::LayoutRight(e) => CssParsingErrorOwned::LayoutRight(e.to_contained()),
+            CssParsingError::LayoutLeft(e) => CssParsingErrorOwned::LayoutLeft(e.to_contained()),
+            CssParsingError::LayoutBottom(e) => {
+                CssParsingErrorOwned::LayoutBottom(e.to_contained())
+            }
+            CssParsingError::FlexWrap(e) => CssParsingErrorOwned::FlexWrap(e.to_contained()),
+            CssParsingError::FlexDirection(e) => {
+                CssParsingErrorOwned::FlexDirection(e.to_contained())
+            }
+            CssParsingError::JustifyContent(e) => {
+                CssParsingErrorOwned::JustifyContent(e.to_contained())
+            }
+            CssParsingError::AlignItems(e) => CssParsingErrorOwned::AlignItems(e.to_contained()),
+            CssParsingError::AlignContent(e) => {
+                CssParsingErrorOwned::AlignContent(e.to_contained())
+            }
+            CssParsingError::LayoutOverflow(e) => {
+                CssParsingErrorOwned::LayoutOverflow(e.to_contained())
+            }
+            CssParsingError::BorderTopLeftRadius(e) => {
+                CssParsingErrorOwned::BorderTopLeftRadius(e.to_contained())
+            }
+            CssParsingError::BorderTopRightRadius(e) => {
+                CssParsingErrorOwned::BorderTopRightRadius(e.to_contained())
+            }
+            CssParsingError::BorderBottomLeftRadius(e) => {
+                CssParsingErrorOwned::BorderBottomLeftRadius(e.to_contained())
+            }
+            CssParsingError::BorderBottomRightRadius(e) => {
+                CssParsingErrorOwned::BorderBottomRightRadius(e.to_contained())
+            }
+            CssParsingError::BorderStyle(e) => CssParsingErrorOwned::BorderStyle(e.to_contained()),
+            CssParsingError::BackfaceVisibility(e) => {
+                CssParsingErrorOwned::BackfaceVisibility(e.to_contained())
+            }
+            CssParsingError::MixBlendMode(e) => {
+                CssParsingErrorOwned::MixBlendMode(e.to_contained())
+            }
+            CssParsingError::TextColor(e) => CssParsingErrorOwned::TextColor(e.to_contained()),
+            CssParsingError::FontSize(e) => CssParsingErrorOwned::FontSize(e.to_contained()),
+            CssParsingError::TextAlign(e) => CssParsingErrorOwned::TextAlign(e.to_contained()),
+            CssParsingError::LetterSpacing(e) => {
+                CssParsingErrorOwned::LetterSpacing(e.to_contained())
+            }
+            CssParsingError::LineHeight(e) => CssParsingErrorOwned::LineHeight(e.clone()),
+            CssParsingError::WordSpacing(e) => CssParsingErrorOwned::WordSpacing(e.to_contained()),
+            CssParsingError::TabWidth(e) => CssParsingErrorOwned::TabWidth(e.to_contained()),
+            CssParsingError::WhiteSpace(e) => CssParsingErrorOwned::WhiteSpace(e.to_contained()),
+            CssParsingError::Hyphens(e) => CssParsingErrorOwned::Hyphens(e.to_contained()),
+            CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
+            CssParsingError::Cursor(e) => CssParsingErrorOwned::Cursor(e.to_contained()),
+            CssParsingError::LayoutDisplay(e) => {
+                CssParsingErrorOwned::LayoutDisplay(e.to_contained())
+            }
+            CssParsingError::LayoutFloat(e) => CssParsingErrorOwned::LayoutFloat(e.to_contained()),
+            CssParsingError::LayoutBoxSizing(e) => {
+                CssParsingErrorOwned::LayoutBoxSizing(e.to_contained())
+            }
         }
     }
 }
@@ -880,6 +1211,70 @@ impl CssParsingErrorOwned {
                 CssParsingError::PerspectiveOrigin(e.to_shared())
             }
             CssParsingErrorOwned::Filter(e) => CssParsingError::Filter(e.to_shared()),
+            CssParsingErrorOwned::LayoutWidth(e) => CssParsingError::LayoutWidth(e.to_shared()),
+            CssParsingErrorOwned::LayoutHeight(e) => CssParsingError::LayoutHeight(e.to_shared()),
+            CssParsingErrorOwned::LayoutMinWidth(e) => {
+                CssParsingError::LayoutMinWidth(e.to_shared())
+            }
+            CssParsingErrorOwned::LayoutMinHeight(e) => {
+                CssParsingError::LayoutMinHeight(e.to_shared())
+            }
+            CssParsingErrorOwned::LayoutMaxWidth(e) => {
+                CssParsingError::LayoutMaxWidth(e.to_shared())
+            }
+            CssParsingErrorOwned::LayoutMaxHeight(e) => {
+                CssParsingError::LayoutMaxHeight(e.to_shared())
+            }
+            CssParsingErrorOwned::LayoutPosition(e) => {
+                CssParsingError::LayoutPosition(e.to_shared())
+            }
+            CssParsingErrorOwned::LayoutTop(e) => CssParsingError::LayoutTop(e.to_shared()),
+            CssParsingErrorOwned::LayoutRight(e) => CssParsingError::LayoutRight(e.to_shared()),
+            CssParsingErrorOwned::LayoutLeft(e) => CssParsingError::LayoutLeft(e.to_shared()),
+            CssParsingErrorOwned::LayoutBottom(e) => CssParsingError::LayoutBottom(e.to_shared()),
+            CssParsingErrorOwned::FlexWrap(e) => CssParsingError::FlexWrap(e.to_shared()),
+            CssParsingErrorOwned::FlexDirection(e) => CssParsingError::FlexDirection(e.to_shared()),
+            CssParsingErrorOwned::JustifyContent(e) => {
+                CssParsingError::JustifyContent(e.to_shared())
+            }
+            CssParsingErrorOwned::AlignItems(e) => CssParsingError::AlignItems(e.to_shared()),
+            CssParsingErrorOwned::AlignContent(e) => CssParsingError::AlignContent(e.to_shared()),
+            CssParsingErrorOwned::LayoutOverflow(e) => {
+                CssParsingError::LayoutOverflow(e.to_shared())
+            }
+            CssParsingErrorOwned::BorderTopLeftRadius(e) => {
+                CssParsingError::BorderTopLeftRadius(e.to_shared())
+            }
+            CssParsingErrorOwned::BorderTopRightRadius(e) => {
+                CssParsingError::BorderTopRightRadius(e.to_shared())
+            }
+            CssParsingErrorOwned::BorderBottomLeftRadius(e) => {
+                CssParsingError::BorderBottomLeftRadius(e.to_shared())
+            }
+            CssParsingErrorOwned::BorderBottomRightRadius(e) => {
+                CssParsingError::BorderBottomRightRadius(e.to_shared())
+            }
+            CssParsingErrorOwned::BorderStyle(e) => CssParsingError::BorderStyle(e.to_shared()),
+            CssParsingErrorOwned::BackfaceVisibility(e) => {
+                CssParsingError::BackfaceVisibility(e.to_shared())
+            }
+            CssParsingErrorOwned::MixBlendMode(e) => CssParsingError::MixBlendMode(e.to_shared()),
+            CssParsingErrorOwned::TextColor(e) => CssParsingError::TextColor(e.to_shared()),
+            CssParsingErrorOwned::FontSize(e) => CssParsingError::FontSize(e.to_shared()),
+            CssParsingErrorOwned::TextAlign(e) => CssParsingError::TextAlign(e.to_shared()),
+            CssParsingErrorOwned::LetterSpacing(e) => CssParsingError::LetterSpacing(e.to_shared()),
+            CssParsingErrorOwned::LineHeight(e) => CssParsingError::LineHeight(e.clone()),
+            CssParsingErrorOwned::WordSpacing(e) => CssParsingError::WordSpacing(e.to_shared()),
+            CssParsingErrorOwned::TabWidth(e) => CssParsingError::TabWidth(e.to_shared()),
+            CssParsingErrorOwned::WhiteSpace(e) => CssParsingError::WhiteSpace(e.to_shared()),
+            CssParsingErrorOwned::Hyphens(e) => CssParsingError::Hyphens(e.to_shared()),
+            CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
+            CssParsingErrorOwned::Cursor(e) => CssParsingError::Cursor(e.to_shared()),
+            CssParsingErrorOwned::LayoutDisplay(e) => CssParsingError::LayoutDisplay(e.to_shared()),
+            CssParsingErrorOwned::LayoutFloat(e) => CssParsingError::LayoutFloat(e.to_shared()),
+            CssParsingErrorOwned::LayoutBoxSizing(e) => {
+                CssParsingError::LayoutBoxSizing(e.to_shared())
+            }
         }
     }
 }
