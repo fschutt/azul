@@ -5759,7 +5759,7 @@ pub enum LayoutDisplay {
     TableCaption,
 
     FlowRoot,
-        
+
     // List layout
     ListItem,
 
