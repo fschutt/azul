@@ -2,10 +2,7 @@
 //!
 //! Formatting context managers for different CSS display types
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::collections::BTreeMap;
 
 use azul_core::{
     app_resources::RendererResources,
@@ -17,18 +14,17 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        layout::{LayoutFloat, LayoutJustifyContent},
+        layout::{LayoutClear, LayoutFloat, LayoutJustifyContent},
         property::CssProperty,
         style::StyleTextAlign,
     },
-    LayoutDebugMessage,
 };
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 use usvg::Text;
 
 use crate::{
     solver3::{
-        geometry::{BoxProps, Clear, DisplayType, EdgeSizes, Float, IntrinsicSizes},
+        geometry::{BoxProps, DisplayType, EdgeSizes, IntrinsicSizes},
         layout_tree::{LayoutNode, LayoutTree},
         positioning::{get_position_type, PositionType},
         sizing::extract_text_from_node,
@@ -134,7 +130,7 @@ pub enum TextAlign {
 #[derive(Debug, Clone, Copy)]
 struct FloatBox {
     /// The type of float (Left or Right).
-    kind: Float,
+    kind: LayoutFloat,
     /// The rectangle occupied by the float's margin-box.
     rect: LogicalRect,
 }
@@ -171,7 +167,7 @@ impl FloatingContext {
                 let float_cross_start = float.rect.origin.cross(wm);
                 let float_cross_end = float_cross_start + float.rect.size.cross(wm);
 
-                if float.kind == Float::Left {
+                if float.kind == LayoutFloat::Left {
                     // "line-left", i.e., cross-start
                     available_cross_start = available_cross_start.max(float_cross_end);
                 } else {
@@ -184,15 +180,20 @@ impl FloatingContext {
     }
 
     /// Returns the main-axis offset needed to be clear of floats of the given type.
-    pub fn clearance_offset(&self, clear: Clear, current_main_offset: f32, wm: WritingMode) -> f32 {
+    pub fn clearance_offset(
+        &self,
+        clear: LayoutClear,
+        current_main_offset: f32,
+        wm: WritingMode,
+    ) -> f32 {
         let mut max_end_offset = 0.0_f32;
 
-        let check_left = clear == Clear::Left || clear == Clear::Both;
-        let check_right = clear == Clear::Right || clear == Clear::Both;
+        let check_left = clear == LayoutClear::Left || clear == LayoutClear::Both;
+        let check_right = clear == LayoutClear::Right || clear == LayoutClear::Both;
 
         for float in &self.floats {
-            let should_clear_this_float = (check_left && float.kind == Float::Left)
-                || (check_right && float.kind == Float::Right);
+            let should_clear_this_float = (check_left && float.kind == LayoutFloat::Left)
+                || (check_right && float.kind == LayoutFloat::Right);
 
             if should_clear_this_float {
                 let float_main_end = float.rect.origin.main(wm) + float.rect.size.main(wm);
@@ -326,7 +327,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_size = child_node.used_size.unwrap_or_default(); // This is border-box size
         let child_margin = &child_node.box_props.margin;
 
-        if float_type != Float::None {
+        if float_type != LayoutFloat::None {
             // Floated elements are taken out of the normal flow.
             let margin_box_size = LogicalSize::new(
                 child_size.width + child_margin.cross_sum(writing_mode),
@@ -361,7 +362,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             let static_main_pos;
 
             if clear_pen > flow_bottom {
-                // Clearance is applied. This creates a hard separation.
+                // LayoutClearance is applied. This creates a hard separation.
                 // The top of the new element's MARGIN box is now at `clear_pen`.
                 static_main_pos = clear_pen; // Position of the top MARGIN edge
                                              // The previous margin does not collapse across a clearance.
@@ -738,7 +739,7 @@ fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperti
 fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     _child_index: usize,
     child_margin_box_size: LogicalSize,
-    float_type: Float,
+    float_type: LayoutFloat,
     constraints: &LayoutConstraints,
     _bfc_content_box: LogicalRect,
     current_main_offset: f32,
@@ -766,9 +767,9 @@ fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         if child_cross_size <= available_cross_width {
             // It fits! Determine the final position and add it to the context.
             let final_cross_pos = match float_type {
-                Float::Left => available_cross_start,
-                Float::Right => available_cross_end - child_cross_size,
-                Float::None => unreachable!(),
+                LayoutFloat::Left => available_cross_start,
+                LayoutFloat::Right => available_cross_end - child_cross_size,
+                LayoutFloat::None => unreachable!(),
             };
             let final_pos =
                 LogicalPosition::from_main_cross(placement_main_offset, final_cross_pos, wm);
@@ -803,41 +804,41 @@ fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 // STUB: Functions to get CSS properties
-fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Float {
+fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutFloat {
     let Some(id) = dom_id else {
-        return Float::None;
+        return LayoutFloat::None;
     };
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
         if let Some(CssProperty::Float(CssPropertyValue::Exact(float))) =
             styled_node.state.get_style().get(&CssProperty::Float)
         {
             return match float {
-                LayoutFloat::Left => Float::Left,
-                LayoutFloat::Right => Float::Right,
-                LayoutFloat::None => Float::None,
+                LayoutFloat::Left => LayoutFloat::Left,
+                LayoutFloat::Right => LayoutFloat::Right,
+                LayoutFloat::None => LayoutFloat::None,
             };
         }
     }
-    Float::None
+    LayoutFloat::None
 }
 
-fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Clear {
+fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutClear {
     let Some(id) = dom_id else {
-        return Clear::None;
+        return LayoutClear::None;
     };
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
         if let Some(CssProperty::Clear(CssPropertyValue::Exact(clear))) =
             styled_node.state.get_style().get(&CssProperty::Clear)
         {
             return match clear {
-                LayoutClear::Left => Clear::Left,
-                LayoutClear::Right => Clear::Right,
-                LayoutClear::Both => Clear::Both,
-                LayoutClear::None => Clear::None,
+                LayoutClear::Left => LayoutClear::Left,
+                LayoutClear::Right => LayoutClear::Right,
+                LayoutClear::Both => LayoutClear::Both,
+                LayoutClear::None => LayoutClear::None,
             };
         }
     }
-    Clear::None
+    LayoutClear::None
 }
 
 /// Helper to determine if scrollbars are needed

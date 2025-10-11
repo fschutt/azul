@@ -129,24 +129,8 @@ impl BoxProps {
     }
 }
 
-/// Represents the CSS `float` property.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Float {
-    #[default]
-    None,
-    Left,
-    Right,
-}
-
-/// Represents the CSS `clear` property.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Clear {
-    #[default]
-    None,
-    Left,
-    Right,
-    Both,
-}
+// Verwende die Typen aus azul_css für float und clear
+pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
 
 /// Represents the intrinsic sizing information for an element, calculated
 /// without knowledge of the final containing block size.

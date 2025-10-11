@@ -18,6 +18,7 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::PixelValue,
+        layout::LayoutWritingMode,
         property::{CssProperty, CssPropertyType},
     },
     LayoutDebugMessage,

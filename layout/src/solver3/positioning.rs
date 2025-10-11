@@ -11,7 +11,13 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
-    CssProperty, CssPropertyType, CssPropertyValue, LayoutDebugMessage, LayoutPosition, PixelValue,
+    corety::LayoutDebugMessage,
+    css::CssPropertyValue,
+    props::{
+        basic::pixel::PixelValue,
+        layout::{LayoutPosition, LayoutWritingMode},
+        property::{CssProperty, CssPropertyType},
+    },
 };
 
 use crate::{
