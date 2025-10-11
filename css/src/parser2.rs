@@ -1176,8 +1176,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(
     css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
     css_string: &'a str,
 ) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
-    // Actually parse the properties (TODO: this could be done in parallel and in a separate
-    // function)
+    // Actually parse the properties
     let css_key_map = crate::props::property::get_css_key_map();
 
     let mut warnings = Vec::new();

@@ -62,7 +62,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 120] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 122] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -159,6 +159,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 120] = [
     (CssPropertyType::BoxShadowLeft, "-azul-box-shadow-left"),
     (CssPropertyType::BoxShadowBottom, "-azul-box-shadow-bottom"),
     (CssPropertyType::ScrollbarStyle, "-azul-scrollbar-style"),
+    (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
+    (CssPropertyType::ScrollbarColor, "scrollbar-color"),
     (CssPropertyType::Opacity, "opacity"),
     (CssPropertyType::Visibility, "visibility"),
     (CssPropertyType::Transform, "transform"),
@@ -239,6 +241,8 @@ pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility
 pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type ScrollbarStyleValue = CssPropertyValue<ScrollbarStyle>;
+pub type LayoutScrollbarWidthValue = CssPropertyValue<LayoutScrollbarWidth>;
+pub type StyleScrollbarColorValue = CssPropertyValue<StyleScrollbarColor>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
 pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
@@ -499,6 +503,8 @@ pub enum CssProperty {
     BoxShadowTop(StyleBoxShadowValue),
     BoxShadowBottom(StyleBoxShadowValue),
     ScrollbarStyle(ScrollbarStyleValue),
+    ScrollbarWidth(LayoutScrollbarWidthValue),
+    ScrollbarColor(StyleScrollbarColorValue),
     Opacity(StyleOpacityValue),
     Visibility(StyleVisibilityValue),
     Transform(StyleTransformVecValue),
@@ -640,6 +646,8 @@ pub enum CssPropertyType {
     BoxShadowTop,
     BoxShadowBottom,
     ScrollbarStyle,
+    ScrollbarWidth,
+    ScrollbarColor,
     Opacity,
     Visibility,
     Transform,
@@ -797,6 +805,8 @@ impl CssPropertyType {
             CssPropertyType::BoxShadowTop => "-azul-box-shadow-top",
             CssPropertyType::BoxShadowBottom => "-azul-box-shadow-bottom",
             CssPropertyType::ScrollbarStyle => "-azul-scrollbar-style",
+            CssPropertyType::ScrollbarWidth => "scrollbar-width",
+            CssPropertyType::ScrollbarColor => "scrollbar-color",
             CssPropertyType::Opacity => "opacity",
             CssPropertyType::Visibility => "visibility",
             CssPropertyType::Transform => "transform",
@@ -947,6 +957,8 @@ pub enum CssParsingError<'a> {
     Opacity(OpacityParseError<'a>),
     Visibility(StyleVisibilityParseError<'a>),
     Scrollbar(CssScrollbarStyleParseError<'a>),
+    LayoutScrollbarWidth(LayoutScrollbarWidthParseError<'a>),
+    StyleScrollbarColor(StyleScrollbarColorParseError<'a>),
     Transform(CssStyleTransformParseError<'a>),
     TransformOrigin(CssStyleTransformOriginParseError<'a>),
     PerspectiveOrigin(CssStylePerspectiveOriginParseError<'a>),
@@ -1074,6 +1086,8 @@ pub enum CssParsingErrorOwned {
     Opacity(OpacityParseErrorOwned),
     Visibility(StyleVisibilityParseErrorOwned),
     Scrollbar(CssScrollbarStyleParseErrorOwned),
+    LayoutScrollbarWidth(LayoutScrollbarWidthParseErrorOwned),
+    StyleScrollbarColor(StyleScrollbarColorParseErrorOwned),
     Transform(CssStyleTransformParseErrorOwned),
     TransformOrigin(CssStyleTransformOriginParseErrorOwned),
     PerspectiveOrigin(CssStylePerspectiveOriginParseErrorOwned),
@@ -1199,6 +1213,8 @@ impl_display! { CssParsingError<'a>, {
     Opacity(e) => format!("Invalid opacity value: {}", e),
     Visibility(e) => format!("Invalid visibility value: {}", e),
     Scrollbar(e) => format!("Invalid scrollbar style: {}", e),
+    LayoutScrollbarWidth(e) => format!("Invalid scrollbar-width: {}", e),
+    StyleScrollbarColor(e) => format!("Invalid scrollbar-color: {}", e),
     Transform(e) => format!("Invalid transform property: {}", e),
     TransformOrigin(e) => format!("Invalid transform-origin: {}", e),
     PerspectiveOrigin(e) => format!("Invalid perspective-origin: {}", e),
@@ -1297,6 +1313,14 @@ impl_from!(
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
 impl_from!(StyleVisibilityParseError<'a>, CssParsingError::Visibility);
 impl_from!(CssScrollbarStyleParseError<'a>, CssParsingError::Scrollbar);
+impl_from!(
+    LayoutScrollbarWidthParseError<'a>,
+    CssParsingError::LayoutScrollbarWidth
+);
+impl_from!(
+    StyleScrollbarColorParseError<'a>,
+    CssParsingError::StyleScrollbarColor
+);
 impl_from!(CssStyleTransformParseError<'a>, CssParsingError::Transform);
 impl_from!(
     CssStyleTransformOriginParseError<'a>,
@@ -1506,6 +1530,12 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
             CssParsingError::Visibility(e) => CssParsingErrorOwned::Visibility(e.to_contained()),
             CssParsingError::Scrollbar(e) => CssParsingErrorOwned::Scrollbar(e.to_contained()),
+            CssParsingError::LayoutScrollbarWidth(e) => {
+                CssParsingErrorOwned::LayoutScrollbarWidth(e.to_contained())
+            }
+            CssParsingError::StyleScrollbarColor(e) => {
+                CssParsingErrorOwned::StyleScrollbarColor(e.to_contained())
+            }
             CssParsingError::Transform(e) => CssParsingErrorOwned::Transform(e.to_contained()),
             CssParsingError::TransformOrigin(e) => {
                 CssParsingErrorOwned::TransformOrigin(e.to_contained())
@@ -1657,6 +1687,12 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::Opacity(e) => CssParsingError::Opacity(e.to_shared()),
             CssParsingErrorOwned::Visibility(e) => CssParsingError::Visibility(e.to_shared()),
             CssParsingErrorOwned::Scrollbar(e) => CssParsingError::Scrollbar(e.to_shared()),
+            CssParsingErrorOwned::LayoutScrollbarWidth(e) => {
+                CssParsingError::LayoutScrollbarWidth(e.to_shared())
+            }
+            CssParsingErrorOwned::StyleScrollbarColor(e) => {
+                CssParsingError::StyleScrollbarColor(e.to_shared())
+            }
             CssParsingErrorOwned::Transform(e) => CssParsingError::Transform(e.to_shared()),
             CssParsingErrorOwned::TransformOrigin(e) => {
                 CssParsingError::TransformOrigin(e.to_shared())
@@ -1936,6 +1972,8 @@ pub fn parse_css_property<'a>(
             }
 
             CssPropertyType::ScrollbarStyle => parse_scrollbar_style(value)?.into(),
+            CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
+            CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
             CssPropertyType::Opacity => parse_style_opacity(value)?.into(),
             CssPropertyType::Visibility => parse_style_visibility(value)?.into(),
             CssPropertyType::Transform => parse_style_transform_vec(value)?.into(),
@@ -2704,6 +2742,8 @@ impl_from_css_prop!(LayoutBorderRightWidth, CssProperty::BorderRightWidth);
 impl_from_css_prop!(LayoutBorderLeftWidth, CssProperty::BorderLeftWidth);
 impl_from_css_prop!(LayoutBorderBottomWidth, CssProperty::BorderBottomWidth);
 impl_from_css_prop!(ScrollbarStyle, CssProperty::ScrollbarStyle);
+impl_from_css_prop!(LayoutScrollbarWidth, CssProperty::ScrollbarWidth);
+impl_from_css_prop!(StyleScrollbarColor, CssProperty::ScrollbarColor);
 impl_from_css_prop!(StyleOpacity, CssProperty::Opacity);
 impl_from_css_prop!(StyleVisibility, CssProperty::Visibility);
 impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
@@ -2829,6 +2869,8 @@ impl CssProperty {
             CssProperty::BoxShadowTop(v) => v.get_css_value_fmt(),
             CssProperty::BoxShadowBottom(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarStyle(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarWidth(v) => v.get_css_value_fmt(),
+            CssProperty::ScrollbarColor(v) => v.get_css_value_fmt(),
             CssProperty::Opacity(v) => v.get_css_value_fmt(),
             CssProperty::Visibility(v) => v.get_css_value_fmt(),
             CssProperty::Transform(v) => v.get_css_value_fmt(),
@@ -3230,6 +3272,8 @@ impl CssProperty {
             CssProperty::BoxShadowTop(_) => CssPropertyType::BoxShadowTop,
             CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
             CssProperty::ScrollbarStyle(_) => CssPropertyType::ScrollbarStyle,
+            CssProperty::ScrollbarWidth(_) => CssPropertyType::ScrollbarWidth,
+            CssProperty::ScrollbarColor(_) => CssPropertyType::ScrollbarColor,
             CssProperty::Opacity(_) => CssPropertyType::Opacity,
             CssProperty::Visibility(_) => CssPropertyType::Visibility,
             CssProperty::Transform(_) => CssPropertyType::Transform,
@@ -4226,6 +4270,19 @@ impl CssProperty {
         }
     }
 
+    pub const fn as_scrollbar_width(&self) -> Option<&LayoutScrollbarWidthValue> {
+        match self {
+            CssProperty::ScrollbarWidth(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_scrollbar_color(&self) -> Option<&StyleScrollbarColorValue> {
+        match self {
+            CssProperty::ScrollbarColor(f) => Some(f),
+            _ => None,
+        }
+    }
+
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
         match self {
@@ -4315,6 +4372,8 @@ impl CssProperty {
             BoxShadowTop(c) => c.is_initial(),
             BoxShadowBottom(c) => c.is_initial(),
             ScrollbarStyle(c) => c.is_initial(),
+            ScrollbarWidth(c) => c.is_initial(),
+            ScrollbarColor(c) => c.is_initial(),
             Opacity(c) => c.is_initial(),
             Visibility(c) => c.is_initial(),
             Transform(c) => c.is_initial(),

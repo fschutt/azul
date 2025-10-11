@@ -441,6 +441,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::ScrollbarStyle => {
                 CssProperty::ScrollbarStyle(CssPropertyValue::$content_type)
             }
+            CssPropertyType::ScrollbarWidth => {
+                CssProperty::ScrollbarWidth(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarColor => {
+                CssProperty::ScrollbarColor(CssPropertyValue::$content_type)
+            }
             CssPropertyType::Opacity => CssProperty::Opacity(CssPropertyValue::$content_type),
             CssPropertyType::Visibility => CssProperty::Visibility(CssPropertyValue::$content_type),
             CssPropertyType::Transform => CssProperty::Transform(CssPropertyValue::$content_type),

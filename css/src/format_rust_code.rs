@@ -686,6 +686,29 @@ impl FormatAsRustCode for ScrollbarStyle {
     }
 }
 
+impl FormatAsRustCode for LayoutScrollbarWidth {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutScrollbarWidth::Auto => String::from("LayoutScrollbarWidth::Auto"),
+            LayoutScrollbarWidth::Thin => String::from("LayoutScrollbarWidth::Thin"),
+            LayoutScrollbarWidth::None => String::from("LayoutScrollbarWidth::None"),
+        }
+    }
+}
+
+impl FormatAsRustCode for StyleScrollbarColor {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            StyleScrollbarColor::Auto => String::from("StyleScrollbarColor::Auto"),
+            StyleScrollbarColor::Custom { thumb, track } => format!(
+                "StyleScrollbarColor::Custom {{ thumb: {}, track: {} }}",
+                format_color_value(thumb),
+                format_color_value(track)
+            ),
+        }
+    }
+}
+
 fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
@@ -1875,6 +1898,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::BoxShadowBottom(p) => format!(
             "CssProperty::BoxShadowBottom({})",
             print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::ScrollbarWidth(p) => format!(
+            "CssProperty::ScrollbarWidth({})",
+            print_css_property_value(p, tabs, "LayoutScrollbarWidth")
+        ),
+        CssProperty::ScrollbarColor(p) => format!(
+            "CssProperty::ScrollbarColor({})",
+            print_css_property_value(p, tabs, "StyleScrollbarColor")
         ),
         CssProperty::ScrollbarStyle(p) => format!(
             "CssProperty::ScrollbarStyle({})",
