@@ -1413,6 +1413,10 @@ fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
 
 pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
+        CssProperty::LayoutTextJustify(j) => format!(
+            "CssProperty::LayoutTextJustify({})",
+            print_css_property_value(j, tabs, "LayoutText")
+        ),
         CssProperty::TextColor(p) => format!(
             "CssProperty::TextColor({})",
             print_css_property_value(p, tabs, "StyleTextColor")

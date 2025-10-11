@@ -17,7 +17,3 @@ pub mod parser2;
 pub mod props;
 
 pub use self::corety::*;
-
-// pub mod parser; --- OLD CODE, IGNORE, ONLY USE AS REFERENCE ---
-// pub mod css_properties; --- OLD CODE, IGNORE, ONLY USE AS REFERENCE ---
-// pub mod print_css; --- OLD CODE, IGNORE, ONLY USE AS REFERENCE ---

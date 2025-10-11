@@ -26,7 +26,7 @@ use crate::props::{
     formatter::PrintAsCssValue,
     layout::{
         dimensions::*, display::*, flex::*, grid::*, overflow::*, position::*, spacing::*,
-        wrapping::*,
+        wrapping::*, text::*,
     },
     style::{
         background::*, border::*, border_radius::*, box_shadow::*, effects::*, filter::*,
@@ -222,6 +222,7 @@ pub type LayoutPaddingLeftValue = CssPropertyValue<LayoutPaddingLeft>;
 pub type LayoutPaddingRightValue = CssPropertyValue<LayoutPaddingRight>;
 pub type LayoutMarginTopValue = CssPropertyValue<LayoutMarginTop>;
 pub type LayoutMarginBottomValue = CssPropertyValue<LayoutMarginBottom>;
+pub type LayoutTextJustifyValue = CssPropertyValue<LayoutTextJustify>;
 pub type LayoutMarginLeftValue = CssPropertyValue<LayoutMarginLeft>;
 pub type LayoutMarginRightValue = CssPropertyValue<LayoutMarginRight>;
 pub type LayoutBorderTopWidthValue = CssPropertyValue<LayoutBorderTopWidth>;
@@ -393,6 +394,7 @@ pub enum CssProperty {
     MarginRight(LayoutMarginRightValue),
     MarginBottom(LayoutMarginBottomValue),
     BorderTopLeftRadius(StyleBorderTopLeftRadiusValue),
+    LayoutTextJustify(LayoutTextJustifyValue),
     BorderTopRightRadius(StyleBorderTopRightRadiusValue),
     BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue),
     BorderBottomRightRadius(StyleBorderBottomRightRadiusValue),
@@ -2075,7 +2077,8 @@ impl CssProperty {
     }
 
     pub fn value(&self) -> String {
-        match self {
+    match self {
+            CssProperty::LayoutTextJustify(v) => format!("{:?}", v),
             CssProperty::TextColor(v) => v.get_css_value_fmt(),
             CssProperty::FontSize(v) => v.get_css_value_fmt(),
             CssProperty::FontFamily(v) => v.get_css_value_fmt(),
@@ -2445,6 +2448,7 @@ impl CssProperty {
     /// Return the type (key) of this property as a statically typed enum
     pub const fn get_type(&self) -> CssPropertyType {
         match &self {
+            CssProperty::LayoutTextJustify(_) => CssPropertyType::TextAlign, // oder ggf. ein eigener Typ
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
@@ -3234,6 +3238,7 @@ impl CssProperty {
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
         match self {
+            LayoutTextJustify(_) => false,
             TextColor(c) => c.is_initial(),
             FontSize(c) => c.is_initial(),
             FontFamily(c) => c.is_initial(),
