@@ -257,7 +257,7 @@ macro_rules! multi_type_parser {
         multi_type_parser!($fn, stringify!($return), $return,
             concat!(
                 "# extern crate azul_css;", "\r\n",
-                "# use azul_css::parser::", stringify!($fn), ";", "\r\n",
+                "# use azul_css::parser2::", stringify!($fn), ";", "\r\n",
                 "# use azul_css::", stringify!($return), ";"
             ),
             $([
@@ -301,11 +301,12 @@ macro_rules! typed_pixel_value_parser {
             concat!(
                 "# extern crate azul_css;",
                 "\r\n",
-                "# use azul_css::parser::",
+                "# use azul_css::parser2::",
                 stringify!($fn),
                 ";",
                 "\r\n",
-                "# use azul_css::{PixelValue, ",
+                "# use azul_css::props::basic::pixel::PixelValue;\r\n",
+                "# use azul_css::{",
                 stringify!($return),
                 "};"
             ),
@@ -350,6 +351,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::Right => CssProperty::Right(CssPropertyValue::$content_type),
             CssPropertyType::Left => CssProperty::Left(CssPropertyValue::$content_type),
             CssPropertyType::Bottom => CssProperty::Bottom(CssPropertyValue::$content_type),
+            CssPropertyType::ZIndex => CssProperty::ZIndex(CssPropertyValue::$content_type),
             CssPropertyType::FlexWrap => CssProperty::FlexWrap(CssPropertyValue::$content_type),
             CssPropertyType::FlexDirection => {
                 CssProperty::FlexDirection(CssPropertyValue::$content_type)
@@ -480,6 +482,7 @@ macro_rules! css_property_from_type {
                 CssProperty::ScrollbarStyle(CssPropertyValue::$content_type)
             }
             CssPropertyType::Opacity => CssProperty::Opacity(CssPropertyValue::$content_type),
+            CssPropertyType::Visibility => CssProperty::Visibility(CssPropertyValue::$content_type),
             CssPropertyType::Transform => CssProperty::Transform(CssPropertyValue::$content_type),
             CssPropertyType::PerspectiveOrigin => {
                 CssProperty::PerspectiveOrigin(CssPropertyValue::$content_type)

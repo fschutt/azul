@@ -41,6 +41,33 @@ impl_percentage_value!(StyleOpacity);
 
 // -- Mix Blend Mode --
 
+/// Represents a `visibility` attribute, controlling element visibility.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleVisibility {
+    Visible,
+    Hidden,
+    Collapse,
+}
+
+impl Default for StyleVisibility {
+    fn default() -> StyleVisibility {
+        StyleVisibility::Visible
+    }
+}
+
+impl PrintAsCssValue for StyleVisibility {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Visible => "visible",
+            Self::Hidden => "hidden",
+            Self::Collapse => "collapse",
+        })
+    }
+}
+
+// -- Mix Blend Mode --
+
 /// Represents a `mix-blend-mode` attribute, which determines how an element's
 /// content should blend with the content of the element's parent.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -217,9 +244,7 @@ pub mod parsers {
                 Self::ParsePercentage(err, s) => {
                     OpacityParseErrorOwned::ParsePercentage(err.clone(), s.to_string())
                 }
-                Self::OutOfRange(s) => {
-                    OpacityParseErrorOwned::OutOfRange(s.to_string())
-                }
+                Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange(s.to_string()),
             }
         }
     }
@@ -230,9 +255,7 @@ pub mod parsers {
                 Self::ParsePercentage(err, s) => {
                     OpacityParseError::ParsePercentage(err.clone(), s.as_str())
                 }
-                Self::OutOfRange(s) => {
-                    OpacityParseError::OutOfRange(s.as_str())
-                }
+                Self::OutOfRange(s) => OpacityParseError::OutOfRange(s.as_str()),
             }
         }
     }
@@ -240,13 +263,60 @@ pub mod parsers {
     pub fn parse_style_opacity<'a>(input: &'a str) -> Result<StyleOpacity, OpacityParseError<'a>> {
         let val = parse_percentage_value(input)
             .map_err(|e| OpacityParseError::ParsePercentage(e, input))?;
-        
+
         let normalized = val.normalized();
         if normalized < 0.0 || normalized > 1.0 {
             return Err(OpacityParseError::OutOfRange(input));
         }
-        
+
         Ok(StyleOpacity { inner: val })
+    }
+
+    // -- Visibility Parser --
+
+    #[derive(Clone, PartialEq)]
+    pub enum StyleVisibilityParseError<'a> {
+        InvalidValue(InvalidValueErr<'a>),
+    }
+    impl_debug_as_display!(StyleVisibilityParseError<'a>);
+    impl_display! { StyleVisibilityParseError<'a>, {
+        InvalidValue(e) => format!("Invalid visibility value: \"{}\"", e.0),
+    }}
+    impl_from!(InvalidValueErr<'a>, StyleVisibilityParseError::InvalidValue);
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum StyleVisibilityParseErrorOwned {
+        InvalidValue(InvalidValueErrOwned),
+    }
+
+    impl<'a> StyleVisibilityParseError<'a> {
+        pub fn to_contained(&self) -> StyleVisibilityParseErrorOwned {
+            match self {
+                Self::InvalidValue(e) => {
+                    StyleVisibilityParseErrorOwned::InvalidValue(e.to_contained())
+                }
+            }
+        }
+    }
+
+    impl StyleVisibilityParseErrorOwned {
+        pub fn to_shared<'a>(&'a self) -> StyleVisibilityParseError<'a> {
+            match self {
+                Self::InvalidValue(e) => StyleVisibilityParseError::InvalidValue(e.to_shared()),
+            }
+        }
+    }
+
+    pub fn parse_style_visibility<'a>(
+        input: &'a str,
+    ) -> Result<StyleVisibility, StyleVisibilityParseError<'a>> {
+        let input = input.trim();
+        match input {
+            "visible" => Ok(StyleVisibility::Visible),
+            "hidden" => Ok(StyleVisibility::Hidden),
+            "collapse" => Ok(StyleVisibility::Collapse),
+            _ => Err(InvalidValueErr(input).into()),
+        }
     }
 
     // -- Mix Blend Mode Parser --
@@ -417,6 +487,28 @@ mod tests {
             StyleMixBlendMode::ColorDodge
         );
         assert!(parse_style_mix_blend_mode("mix").is_err());
+    }
+
+    #[test]
+    fn test_parse_visibility() {
+        assert_eq!(
+            parse_style_visibility("visible").unwrap(),
+            StyleVisibility::Visible
+        );
+        assert_eq!(
+            parse_style_visibility("hidden").unwrap(),
+            StyleVisibility::Hidden
+        );
+        assert_eq!(
+            parse_style_visibility("collapse").unwrap(),
+            StyleVisibility::Collapse
+        );
+        assert_eq!(
+            parse_style_visibility("  visible  ").unwrap(),
+            StyleVisibility::Visible
+        );
+        assert!(parse_style_visibility("none").is_err());
+        assert!(parse_style_visibility("show").is_err());
     }
 
     #[test]

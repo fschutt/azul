@@ -699,7 +699,7 @@ pub fn parse_style_transform<'a>(
         }
         "translate" => {
             let components: Vec<_> = transform_values.split(',').collect();
-            
+
             // translate() takes exactly 1 or 2 parameters (x, or x and y)
             if components.len() > 2 {
                 return Err(CssStyleTransformParseError::WrongNumberOfComponents {
@@ -708,7 +708,7 @@ pub fn parse_style_transform<'a>(
                     input: transform_values,
                 });
             }
-            
+
             let x = parse_pixel_value(
                 components
                     .get(0)
@@ -869,9 +869,12 @@ pub fn parse_style_transform_origin<'a>(
             input,
         });
     }
-    
+
     // Helper to parse position keywords or pixel values
-    fn parse_position_component(s: &str, is_horizontal: bool) -> Result<PixelValue, CssPixelValueParseError> {
+    fn parse_position_component(
+        s: &str,
+        is_horizontal: bool,
+    ) -> Result<PixelValue, CssPixelValueParseError> {
         match s.trim() {
             "left" if is_horizontal => Ok(PixelValue::percent(0.0)),
             "center" => Ok(PixelValue::percent(50.0)),
@@ -881,7 +884,7 @@ pub fn parse_style_transform_origin<'a>(
             _ => parse_pixel_value(s),
         }
     }
-    
+
     let x = parse_position_component(components[0], true)?;
     let y = parse_position_component(components[1], false)?;
     Ok(StyleTransformOrigin { x, y })

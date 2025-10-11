@@ -54,7 +54,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::BackgroundImage, "background-image"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 88] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 90] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -81,6 +81,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 88] = [
     (CssPropertyType::Right, "right"),
     (CssPropertyType::Left, "left"),
     (CssPropertyType::Bottom, "bottom"),
+    (CssPropertyType::ZIndex, "z-index"),
     (CssPropertyType::FlexWrap, "flex-wrap"),
     (CssPropertyType::FlexDirection, "flex-direction"),
     (CssPropertyType::FlexGrow, "flex-grow"),
@@ -150,6 +151,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 88] = [
     (CssPropertyType::BoxShadowBottom, "-azul-box-shadow-bottom"),
     (CssPropertyType::ScrollbarStyle, "-azul-scrollbar-style"),
     (CssPropertyType::Opacity, "opacity"),
+    (CssPropertyType::Visibility, "visibility"),
     (CssPropertyType::Transform, "transform"),
     (CssPropertyType::PerspectiveOrigin, "perspective-origin"),
     (CssPropertyType::TransformOrigin, "transform-origin"),
@@ -188,6 +190,7 @@ pub type StyleBorderTopRightRadiusValue = CssPropertyValue<StyleBorderTopRightRa
 pub type StyleBorderBottomLeftRadiusValue = CssPropertyValue<StyleBorderBottomLeftRadius>;
 pub type StyleBorderBottomRightRadiusValue = CssPropertyValue<StyleBorderBottomRightRadius>;
 pub type StyleOpacityValue = CssPropertyValue<StyleOpacity>;
+pub type StyleVisibilityValue = CssPropertyValue<StyleVisibility>;
 pub type StyleTransformVecValue = CssPropertyValue<StyleTransformVec>;
 pub type StyleTransformOriginValue = CssPropertyValue<StyleTransformOrigin>;
 pub type StylePerspectiveOriginValue = CssPropertyValue<StylePerspectiveOrigin>;
@@ -212,6 +215,7 @@ pub type LayoutTopValue = CssPropertyValue<LayoutTop>;
 pub type LayoutBottomValue = CssPropertyValue<LayoutBottom>;
 pub type LayoutRightValue = CssPropertyValue<LayoutRight>;
 pub type LayoutLeftValue = CssPropertyValue<LayoutLeft>;
+pub type LayoutZIndexValue = CssPropertyValue<LayoutZIndex>;
 pub type LayoutPaddingTopValue = CssPropertyValue<LayoutPaddingTop>;
 pub type LayoutPaddingBottomValue = CssPropertyValue<LayoutPaddingBottom>;
 pub type LayoutPaddingLeftValue = CssPropertyValue<LayoutPaddingLeft>;
@@ -302,7 +306,7 @@ impl CombinedCssPropertyType {
     /// # Example
     ///
     /// ```rust
-    /// # use azul_css::{CombinedCssPropertyType, get_css_key_map};
+    /// # use azul_css::props::property::{CombinedCssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
     /// assert_eq!(
     ///     Some(CombinedCssPropertyType::Border),
@@ -355,6 +359,7 @@ pub enum CssProperty {
     Right(LayoutRightValue),
     Left(LayoutLeftValue),
     Bottom(LayoutBottomValue),
+    ZIndex(LayoutZIndexValue),
     FlexWrap(LayoutFlexWrapValue),
     FlexDirection(LayoutFlexDirectionValue),
     FlexGrow(LayoutFlexGrowValue),
@@ -409,6 +414,7 @@ pub enum CssProperty {
     BoxShadowBottom(StyleBoxShadowValue),
     ScrollbarStyle(ScrollbarStyleValue),
     Opacity(StyleOpacityValue),
+    Visibility(StyleVisibilityValue),
     Transform(StyleTransformVecValue),
     TransformOrigin(StyleTransformOriginValue),
     PerspectiveOrigin(StylePerspectiveOriginValue),
@@ -464,6 +470,7 @@ pub enum CssPropertyType {
     Right,
     Left,
     Bottom,
+    ZIndex,
     FlexWrap,
     FlexDirection,
     FlexGrow,
@@ -518,6 +525,7 @@ pub enum CssPropertyType {
     BoxShadowBottom,
     ScrollbarStyle,
     Opacity,
+    Visibility,
     Transform,
     TransformOrigin,
     PerspectiveOrigin,
@@ -546,7 +554,7 @@ impl CssPropertyType {
     /// # Example
     ///
     /// ```rust
-    /// # use azul_css::{CssPropertyType, get_css_key_map};
+    /// # use azul_css::props::property::{CssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
     /// assert_eq!(
     ///     Some(CssPropertyType::Width),
@@ -589,6 +597,7 @@ impl CssPropertyType {
             CssPropertyType::Right => "right",
             CssPropertyType::Left => "left",
             CssPropertyType::Bottom => "bottom",
+            CssPropertyType::ZIndex => "z-index",
             CssPropertyType::FlexWrap => "flex-wrap",
             CssPropertyType::FlexDirection => "flex-direction",
             CssPropertyType::FlexGrow => "flex-grow",
@@ -643,6 +652,7 @@ impl CssPropertyType {
             CssPropertyType::BoxShadowBottom => "-azul-box-shadow-bottom",
             CssPropertyType::ScrollbarStyle => "-azul-scrollbar-style",
             CssPropertyType::Opacity => "opacity",
+            CssPropertyType::Visibility => "visibility",
             CssPropertyType::Transform => "transform",
             CssPropertyType::TransformOrigin => "transform-origin",
             CssPropertyType::PerspectiveOrigin => "perspective-origin",
@@ -763,6 +773,7 @@ pub enum CssParsingError<'a> {
     Background(CssBackgroundParseError<'a>),
     BackgroundPosition(CssBackgroundPositionParseError<'a>),
     Opacity(OpacityParseError<'a>),
+    Visibility(StyleVisibilityParseError<'a>),
     Scrollbar(CssScrollbarStyleParseError<'a>),
     Transform(CssStyleTransformParseError<'a>),
     TransformOrigin(CssStyleTransformOriginParseError<'a>),
@@ -801,6 +812,7 @@ pub enum CssParsingError<'a> {
     LayoutRight(LayoutRightParseError<'a>),
     LayoutLeft(LayoutLeftParseError<'a>),
     LayoutBottom(LayoutBottomParseError<'a>),
+    LayoutZIndex(LayoutZIndexParseError<'a>),
 
     // Layout flex
     FlexWrap(FlexWrapParseError<'a>),
@@ -857,6 +869,7 @@ pub enum CssParsingErrorOwned {
     Background(CssBackgroundParseErrorOwned),
     BackgroundPosition(CssBackgroundPositionParseErrorOwned),
     Opacity(OpacityParseErrorOwned),
+    Visibility(StyleVisibilityParseErrorOwned),
     Scrollbar(CssScrollbarStyleParseErrorOwned),
     Transform(CssStyleTransformParseErrorOwned),
     TransformOrigin(CssStyleTransformOriginParseErrorOwned),
@@ -895,6 +908,7 @@ pub enum CssParsingErrorOwned {
     LayoutRight(LayoutRightParseErrorOwned),
     LayoutLeft(LayoutLeftParseErrorOwned),
     LayoutBottom(LayoutBottomParseErrorOwned),
+    LayoutZIndex(LayoutZIndexParseErrorOwned),
 
     // Layout flex
     FlexWrap(FlexWrapParseErrorOwned),
@@ -949,6 +963,8 @@ impl_display! { CssParsingError<'a>, {
     Background(e) => format!("Invalid background property: {}", e),
     BackgroundPosition(e) => format!("Invalid background-position: {}", e),
     Opacity(e) => format!("Invalid opacity value: {}", e),
+    Visibility(e) => format!("Invalid visibility value: {}", e),
+    Visibility(e) => format!("Invalid visibility value: {}", e),
     Scrollbar(e) => format!("Invalid scrollbar style: {}", e),
     Transform(e) => format!("Invalid transform property: {}", e),
     TransformOrigin(e) => format!("Invalid transform-origin: {}", e),
@@ -965,6 +981,7 @@ impl_display! { CssParsingError<'a>, {
     LayoutRight(e) => format!("Invalid right value: {}", e),
     LayoutLeft(e) => format!("Invalid left value: {}", e),
     LayoutBottom(e) => format!("Invalid bottom value: {}", e),
+    LayoutZIndex(e) => format!("Invalid z-index value: {}", e),
     FlexWrap(e) => format!("Invalid flex-wrap value: {}", e),
     FlexDirection(e) => format!("Invalid flex-direction value: {}", e),
     FlexBasis(e) => format!("Invalid flex-basis value: {}", e),
@@ -1022,6 +1039,7 @@ impl_from!(
     CssParsingError::BackgroundPosition
 );
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
+impl_from!(StyleVisibilityParseError<'a>, CssParsingError::Visibility);
 impl_from!(CssScrollbarStyleParseError<'a>, CssParsingError::Scrollbar);
 impl_from!(CssStyleTransformParseError<'a>, CssParsingError::Transform);
 impl_from!(
@@ -1063,6 +1081,7 @@ impl_from!(LayoutTopParseError<'a>, CssParsingError::LayoutTop);
 impl_from!(LayoutRightParseError<'a>, CssParsingError::LayoutRight);
 impl_from!(LayoutLeftParseError<'a>, CssParsingError::LayoutLeft);
 impl_from!(LayoutBottomParseError<'a>, CssParsingError::LayoutBottom);
+impl_from!(LayoutZIndexParseError<'a>, CssParsingError::LayoutZIndex);
 
 // Layout flex
 impl_from!(FlexWrapParseError<'a>, CssParsingError::FlexWrap);
@@ -1186,6 +1205,7 @@ impl<'a> CssParsingError<'a> {
                 CssParsingErrorOwned::BackgroundPosition(e.to_contained())
             }
             CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
+            CssParsingError::Visibility(e) => CssParsingErrorOwned::Visibility(e.to_contained()),
             CssParsingError::Scrollbar(e) => CssParsingErrorOwned::Scrollbar(e.to_contained()),
             CssParsingError::Transform(e) => CssParsingErrorOwned::Transform(e.to_contained()),
             CssParsingError::TransformOrigin(e) => {
@@ -1219,6 +1239,9 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::LayoutLeft(e) => CssParsingErrorOwned::LayoutLeft(e.to_contained()),
             CssParsingError::LayoutBottom(e) => {
                 CssParsingErrorOwned::LayoutBottom(e.to_contained())
+            }
+            CssParsingError::LayoutZIndex(e) => {
+                CssParsingErrorOwned::LayoutZIndex(e.to_contained())
             }
             CssParsingError::FlexWrap(e) => CssParsingErrorOwned::FlexWrap(e.to_contained()),
             CssParsingError::FlexDirection(e) => {
@@ -1305,6 +1328,7 @@ impl CssParsingErrorOwned {
                 CssParsingError::BackgroundPosition(e.to_shared())
             }
             CssParsingErrorOwned::Opacity(e) => CssParsingError::Opacity(e.to_shared()),
+            CssParsingErrorOwned::Visibility(e) => CssParsingError::Visibility(e.to_shared()),
             CssParsingErrorOwned::Scrollbar(e) => CssParsingError::Scrollbar(e.to_shared()),
             CssParsingErrorOwned::Transform(e) => CssParsingError::Transform(e.to_shared()),
             CssParsingErrorOwned::TransformOrigin(e) => {
@@ -1335,6 +1359,7 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::LayoutRight(e) => CssParsingError::LayoutRight(e.to_shared()),
             CssParsingErrorOwned::LayoutLeft(e) => CssParsingError::LayoutLeft(e.to_shared()),
             CssParsingErrorOwned::LayoutBottom(e) => CssParsingError::LayoutBottom(e.to_shared()),
+            CssParsingErrorOwned::LayoutZIndex(e) => CssParsingError::LayoutZIndex(e.to_shared()),
             CssParsingErrorOwned::FlexWrap(e) => CssParsingError::FlexWrap(e.to_shared()),
             CssParsingErrorOwned::FlexDirection(e) => CssParsingError::FlexDirection(e.to_shared()),
             CssParsingErrorOwned::FlexBasis(e) => CssParsingError::FlexBasis(e.to_shared()),
@@ -1428,6 +1453,7 @@ pub fn parse_css_property<'a>(
             CssPropertyType::Right => parse_layout_right(value)?.into(),
             CssPropertyType::Left => parse_layout_left(value)?.into(),
             CssPropertyType::Bottom => parse_layout_bottom(value)?.into(),
+            CssPropertyType::ZIndex => CssProperty::ZIndex(parse_layout_z_index(value)?.into()),
 
             CssPropertyType::FlexWrap => parse_layout_flex_wrap(value)?.into(),
             CssPropertyType::FlexDirection => parse_layout_flex_direction(value)?.into(),
@@ -1529,6 +1555,7 @@ pub fn parse_css_property<'a>(
 
             CssPropertyType::ScrollbarStyle => parse_scrollbar_style(value)?.into(),
             CssPropertyType::Opacity => parse_style_opacity(value)?.into(),
+            CssPropertyType::Visibility => parse_style_visibility(value)?.into(),
             CssPropertyType::Transform => parse_style_transform_vec(value)?.into(),
             CssPropertyType::TransformOrigin => parse_style_transform_origin(value)?.into(),
             CssPropertyType::PerspectiveOrigin => parse_style_perspective_origin(value)?.into(),
@@ -1555,11 +1582,11 @@ pub fn parse_css_property<'a>(
 /// ```rust
 /// # extern crate azul_css;
 /// # use azul_css::*;
+/// # use azul_css::props::style::*;
+/// # use azul_css::css::CssPropertyValue;
+/// # use azul_css::props::property::*;
 /// assert_eq!(
-///     azul_css::parser::parse_combined_css_property(
-///         CombinedCssPropertyType::BorderRadius,
-///         "10px"
-///     ),
+///     parse_combined_css_property(CombinedCssPropertyType::BorderRadius, "10px"),
 ///     Ok(vec![
 ///         CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(
 ///             StyleBorderTopLeftRadius::px(10.0)
@@ -2032,6 +2059,7 @@ impl_from_css_prop!(LayoutBorderLeftWidth, CssProperty::BorderLeftWidth);
 impl_from_css_prop!(LayoutBorderBottomWidth, CssProperty::BorderBottomWidth);
 impl_from_css_prop!(ScrollbarStyle, CssProperty::ScrollbarStyle);
 impl_from_css_prop!(StyleOpacity, CssProperty::Opacity);
+impl_from_css_prop!(StyleVisibility, CssProperty::Visibility);
 impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
 impl_from_css_prop!(StyleTransformOrigin, CssProperty::TransformOrigin);
 impl_from_css_prop!(StylePerspectiveOrigin, CssProperty::PerspectiveOrigin);
@@ -2071,6 +2099,7 @@ impl CssProperty {
             CssProperty::Right(v) => v.get_css_value_fmt(),
             CssProperty::Left(v) => v.get_css_value_fmt(),
             CssProperty::Bottom(v) => v.get_css_value_fmt(),
+            CssProperty::ZIndex(v) => v.get_css_value_fmt(),
             CssProperty::FlexWrap(v) => v.get_css_value_fmt(),
             CssProperty::FlexDirection(v) => v.get_css_value_fmt(),
             CssProperty::FlexGrow(v) => v.get_css_value_fmt(),
@@ -2125,6 +2154,7 @@ impl CssProperty {
             CssProperty::BoxShadowBottom(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarStyle(v) => v.get_css_value_fmt(),
             CssProperty::Opacity(v) => v.get_css_value_fmt(),
+            CssProperty::Visibility(v) => v.get_css_value_fmt(),
             CssProperty::Transform(v) => v.get_css_value_fmt(),
             CssProperty::TransformOrigin(v) => v.get_css_value_fmt(),
             CssProperty::PerspectiveOrigin(v) => v.get_css_value_fmt(),
@@ -2438,6 +2468,7 @@ impl CssProperty {
             CssProperty::Right(_) => CssPropertyType::Right,
             CssProperty::Left(_) => CssPropertyType::Left,
             CssProperty::Bottom(_) => CssPropertyType::Bottom,
+            CssProperty::ZIndex(_) => CssPropertyType::ZIndex,
             CssProperty::FlexWrap(_) => CssPropertyType::FlexWrap,
             CssProperty::FlexDirection(_) => CssPropertyType::FlexDirection,
             CssProperty::FlexGrow(_) => CssPropertyType::FlexGrow,
@@ -2492,6 +2523,7 @@ impl CssProperty {
             CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
             CssProperty::ScrollbarStyle(_) => CssPropertyType::ScrollbarStyle,
             CssProperty::Opacity(_) => CssPropertyType::Opacity,
+            CssProperty::Visibility(_) => CssPropertyType::Visibility,
             CssProperty::Transform(_) => CssPropertyType::Transform,
             CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
             CssProperty::TransformOrigin(_) => CssPropertyType::TransformOrigin,
@@ -2589,6 +2621,9 @@ impl CssProperty {
     }
     pub const fn bottom(input: LayoutBottom) -> Self {
         CssProperty::Bottom(CssPropertyValue::Exact(input))
+    }
+    pub const fn z_index(input: LayoutZIndex) -> Self {
+        CssProperty::ZIndex(CssPropertyValue::Exact(input))
     }
     pub const fn flex_wrap(input: LayoutFlexWrap) -> Self {
         CssProperty::FlexWrap(CssPropertyValue::Exact(input))
@@ -2715,6 +2750,9 @@ impl CssProperty {
     }
     pub const fn opacity(input: StyleOpacity) -> Self {
         CssProperty::Opacity(CssPropertyValue::Exact(input))
+    }
+    pub const fn visibility(input: StyleVisibility) -> Self {
+        CssProperty::Visibility(CssPropertyValue::Exact(input))
     }
     pub const fn transform(input: StyleTransformVec) -> Self {
         CssProperty::Transform(CssPropertyValue::Exact(input))
@@ -3219,6 +3257,7 @@ impl CssProperty {
             Right(c) => c.is_initial(),
             Left(c) => c.is_initial(),
             Bottom(c) => c.is_initial(),
+            ZIndex(c) => c.is_initial(),
             FlexWrap(c) => c.is_initial(),
             FlexDirection(c) => c.is_initial(),
             FlexGrow(c) => c.is_initial(),
@@ -3273,6 +3312,7 @@ impl CssProperty {
             BoxShadowBottom(c) => c.is_initial(),
             ScrollbarStyle(c) => c.is_initial(),
             Opacity(c) => c.is_initial(),
+            Visibility(c) => c.is_initial(),
             Transform(c) => c.is_initial(),
             TransformOrigin(c) => c.is_initial(),
             PerspectiveOrigin(c) => c.is_initial(),

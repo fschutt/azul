@@ -11,7 +11,13 @@ use azul_core::{
     },
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{props::style::StyleTextAlign, LayoutDebugMessage};
+use azul_css::{
+    props::{
+        basic::{FontMetrics as CssFontMetrics, FontRef as CssFontRef},
+        style::StyleTextAlign,
+    },
+    LayoutDebugMessage,
+};
 
 pub mod layout;
 pub mod script;
@@ -206,7 +212,7 @@ fn adjust_line_alignment(
     line.bounds
 }
 
-pub fn get_font_metrics_fontref(font_ref: &azul_css::FontRef) -> azul_css::FontMetrics {
+pub fn get_font_metrics_fontref(font_ref: &CssFontRef) -> CssFontMetrics {
     let parsed_font = unsafe { &*(font_ref.get_data().parsed as *const ParsedFont) };
     parsed_font.font_metrics.clone()
 }

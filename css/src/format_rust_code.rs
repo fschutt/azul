@@ -402,6 +402,17 @@ impl_pixel_value_fmt!(LayoutMaxWidth);
 impl_pixel_value_fmt!(LayoutMaxHeight);
 impl_pixel_value_fmt!(LayoutTop);
 impl_pixel_value_fmt!(LayoutBottom);
+
+impl FormatAsRustCode for LayoutZIndex {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutZIndex::Auto => String::from("LayoutZIndex::Auto"),
+            LayoutZIndex::Integer(val) => {
+                format!("LayoutZIndex::Integer({})", val)
+            }
+        }
+    }
+}
 impl_pixel_value_fmt!(LayoutRight);
 impl_pixel_value_fmt!(LayoutLeft);
 
@@ -489,6 +500,8 @@ impl_enum_fmt!(StyleHyphens, Auto, None);
 impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 
 impl_enum_fmt!(StyleWhiteSpace, Normal, Pre, Nowrap);
+
+impl_enum_fmt!(StyleVisibility, Visible, Hidden, Collapse);
 
 impl_enum_fmt!(LayoutWritingMode, HorizontalTb, VerticalRl, VerticalLr);
 
@@ -1492,6 +1505,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::Bottom({})",
             print_css_property_value(p, tabs, "LayoutBottom")
         ),
+        CssProperty::ZIndex(p) => format!(
+            "CssProperty::ZIndex({})",
+            print_css_property_value(p, tabs, "LayoutZIndex")
+        ),
         CssProperty::FlexWrap(p) => format!(
             "CssProperty::FlexWrap({})",
             print_css_property_value(p, tabs, "LayoutFlexWrap")
@@ -1663,6 +1680,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::Opacity(p) => format!(
             "CssProperty::Opacity({})",
             print_css_property_value(p, tabs, "StyleOpacity")
+        ),
+        CssProperty::Visibility(p) => format!(
+            "CssProperty::Visibility({})",
+            print_css_property_value(p, tabs, "StyleVisibility")
         ),
         CssProperty::Transform(p) => format!(
             "CssProperty::Transform({})",

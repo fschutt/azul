@@ -212,11 +212,13 @@ impl PercentageParseErrorOwned {
 /// Parse "1.2" or "120%" (similar to parse_pixel_value)
 pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, PercentageParseError> {
     let input = input.trim();
-    
+
     if input.is_empty() {
-        return Err(PercentageParseError::ValueParseErr("empty string".parse::<f32>().unwrap_err()));
+        return Err(PercentageParseError::ValueParseErr(
+            "empty string".parse::<f32>().unwrap_err(),
+        ));
     }
-    
+
     let mut split_pos = 0;
     let mut found_numeric = false;
     for (idx, ch) in input.char_indices() {
@@ -225,9 +227,11 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
             found_numeric = true;
         }
     }
-    
+
     if !found_numeric {
-        return Err(PercentageParseError::ValueParseErr("no numeric value".parse::<f32>().unwrap_err()));
+        return Err(PercentageParseError::ValueParseErr(
+            "no numeric value".parse::<f32>().unwrap_err(),
+        ));
     }
 
     split_pos += 1;

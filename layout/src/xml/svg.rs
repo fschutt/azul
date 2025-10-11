@@ -18,7 +18,6 @@ pub use azul_core::svg::{
     SvgColoredVertex,
     SvgColoredVertexVec,
     SvgColoredVertexVecDestructor,
-    SvgCubicCurve,
     SvgDashPattern,
     SvgFillRule,
     SvgFillStyle,
@@ -38,9 +37,6 @@ pub use azul_core::svg::{
     SvgPathElementVecDestructor,
     SvgPathVec,
     SvgPathVecDestructor,
-    SvgPoint,
-    SvgQuadraticCurve,
-    SvgRect,
     SvgRenderOptions,
     SvgRenderTransform,
 
@@ -52,7 +48,6 @@ pub use azul_core::svg::{
     SvgStyle,
     SvgStyledNode,
     SvgTransform,
-    SvgVector,
     SvgVertex,
     SvgVertexVec,
     SvgVertexVecDestructor,
@@ -72,6 +67,10 @@ use azul_core::{
     app_resources::{RawImage, RawImageFormat},
     gl::{GlContextPtr, Texture},
     window::PhysicalSizeU32,
+};
+#[cfg(feature = "svg")]
+pub use azul_css::props::basic::animation::{
+    SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector,
 };
 use azul_css::{
     props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},

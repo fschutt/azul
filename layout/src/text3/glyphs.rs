@@ -7,7 +7,7 @@ use azul_core::{
     display_list::GlyphInstance,
     window::{LogicalPosition, LogicalSize},
 };
-use azul_css::ColorU;
+use azul_css::props::basic::ColorU;
 
 use crate::text3::cache::{
     get_item_vertical_metrics, ParsedFontTrait, Point, PositionedItem, ShapedGlyph, ShapedItem,

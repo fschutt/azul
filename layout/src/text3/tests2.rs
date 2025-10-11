@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use azul_css::ColorU;
+use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 

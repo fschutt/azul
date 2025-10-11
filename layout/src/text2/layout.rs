@@ -251,7 +251,7 @@ fn create_text_layout_options(
     // Tab width
     let tab_width = css_property_cache
         .get_tab_width(node_data, &node_id, styled_node_state)
-        .and_then(|tw| Some(tw.get_property()?.inner.normalized()))
+        .and_then(|tw| Some(tw.get_property()?.inner.number.get())) // TODO: .normalized()?
         .into();
 
     // Text direction

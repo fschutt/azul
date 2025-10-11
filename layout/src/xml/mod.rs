@@ -17,6 +17,8 @@ use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml {
+    use azul_css::parser2::CssApiWrapper;
+
     let mut error_css = CssApiWrapper::empty();
 
     let parsed = match parse_xml_string(&xml) {
@@ -55,6 +57,8 @@ pub fn domxml_from_file<I: AsRef<Path>>(
     component_map: &mut XmlComponentMap,
 ) -> DomXml {
     use std::fs;
+
+    use azul_css::parser2::CssApiWrapper;
 
     let mut error_css = CssApiWrapper::empty();
 

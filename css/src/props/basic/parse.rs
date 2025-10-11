@@ -17,7 +17,7 @@ pub fn split_string_respect_whitespace<'a>(input: &'a str) -> Vec<&'a str> {
     let mut current_start = 0;
     let mut depth = 0;
     let input_bytes = input.as_bytes();
-    
+
     for (idx, &ch) in input_bytes.iter().enumerate() {
         match ch {
             b'(' => depth += 1,
@@ -31,12 +31,12 @@ pub fn split_string_respect_whitespace<'a>(input: &'a str) -> Vec<&'a str> {
             _ => {}
         }
     }
-    
+
     // Add the last segment
     if current_start < input.len() {
         items.push(&input[current_start..]);
     }
-    
+
     items
 }
 
@@ -172,8 +172,7 @@ impl ParenthesisParseErrorOwned {
 /// on failure returns None.
 ///
 /// ```rust
-/// # use azul_css::parser::parse_parentheses;
-/// # use azul_css::parser::ParenthesisParseError::*;
+/// # use azul_css::props::basic::parse::{parse_parentheses, ParenthesisParseError::*};
 /// // Search for the nearest "abc()" brace
 /// assert_eq!(
 ///     parse_parentheses("abc(def(g))", &["abc"]),
@@ -244,7 +243,7 @@ pub struct QuoteStripped<'a>(pub &'a str);
 ///
 /// ```rust
 /// # extern crate azul_css;
-/// # use azul_css::parser::{strip_quotes, QuoteStripped, UnclosedQuotesError};
+/// # use azul_css::props::basic::parse::{strip_quotes, QuoteStripped, UnclosedQuotesError};
 /// assert_eq!(
 ///     strip_quotes("\"Helvetica\""),
 ///     Ok(QuoteStripped("Helvetica"))

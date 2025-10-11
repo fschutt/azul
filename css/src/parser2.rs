@@ -600,8 +600,8 @@ impl CssPathParseErrorOwned {
 ///
 /// ```rust
 /// # extern crate azul_css;
-/// # use azul_css::parser::parse_css_path;
-/// # use azul_css::{
+/// # use azul_css::parser2::parse_css_path;
+/// # use azul_css::css::{
 /// #     CssPathSelector::*, CssPathPseudoSelector::*, CssPath,
 /// #     NodeTypeTag::*, CssNthChildSelector::*
 /// # };

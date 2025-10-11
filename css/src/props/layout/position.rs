@@ -302,6 +302,92 @@ pub fn parse_layout_left<'a>(input: &'a str) -> Result<LayoutLeft, LayoutLeftPar
         .map_err(Into::into)
 }
 
+// --- LayoutZIndex ---
+
+/// Represents a `z-index` attribute - controls stacking order of positioned elements
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutZIndex {
+    Auto,
+    Integer(i32),
+}
+
+impl Default for LayoutZIndex {
+    fn default() -> Self {
+        LayoutZIndex::Auto
+    }
+}
+
+impl PrintAsCssValue for LayoutZIndex {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            LayoutZIndex::Auto => String::from("auto"),
+            LayoutZIndex::Integer(val) => val.to_string(),
+        }
+    }
+}
+
+// -- Parser for LayoutZIndex
+
+#[derive(Clone, PartialEq)]
+pub enum LayoutZIndexParseError<'a> {
+    InvalidValue(&'a str),
+    ParseInt(::core::num::ParseIntError, &'a str),
+}
+impl_debug_as_display!(LayoutZIndexParseError<'a>);
+impl_display! { LayoutZIndexParseError<'a>, {
+    InvalidValue(val) => format!("Invalid z-index value: \"{}\"", val),
+    ParseInt(e, s) => format!("Invalid z-index integer \"{}\": {}", s, e),
+}}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutZIndexParseErrorOwned {
+    InvalidValue(String),
+    ParseInt(String, String),
+}
+
+impl<'a> LayoutZIndexParseError<'a> {
+    pub fn to_contained(&self) -> LayoutZIndexParseErrorOwned {
+        match self {
+            LayoutZIndexParseError::InvalidValue(s) => {
+                LayoutZIndexParseErrorOwned::InvalidValue(s.to_string())
+            }
+            LayoutZIndexParseError::ParseInt(e, s) => {
+                LayoutZIndexParseErrorOwned::ParseInt(e.to_string(), s.to_string())
+            }
+        }
+    }
+}
+
+impl LayoutZIndexParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> LayoutZIndexParseError<'a> {
+        match self {
+            LayoutZIndexParseErrorOwned::InvalidValue(s) => {
+                LayoutZIndexParseError::InvalidValue(s.as_str())
+            }
+            LayoutZIndexParseErrorOwned::ParseInt(_e, s) => {
+                // We can't reconstruct ParseIntError, so use InvalidValue
+                LayoutZIndexParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_z_index<'a>(
+    input: &'a str,
+) -> Result<LayoutZIndex, LayoutZIndexParseError<'a>> {
+    let input = input.trim();
+    if input == "auto" {
+        return Ok(LayoutZIndex::Auto);
+    }
+
+    match input.parse::<i32>() {
+        Ok(val) => Ok(LayoutZIndex::Integer(val)),
+        Err(e) => Err(LayoutZIndexParseError::ParseInt(e, input)),
+    }
+}
+
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;
@@ -339,6 +425,32 @@ mod tests {
         assert!(parse_layout_position("sticky").is_err());
         assert!(parse_layout_position("").is_err());
         assert!(parse_layout_position("absolutely").is_err());
+    }
+
+    #[test]
+    fn test_parse_layout_z_index() {
+        assert_eq!(parse_layout_z_index("auto").unwrap(), LayoutZIndex::Auto);
+        assert_eq!(
+            parse_layout_z_index("10").unwrap(),
+            LayoutZIndex::Integer(10)
+        );
+        assert_eq!(parse_layout_z_index("0").unwrap(), LayoutZIndex::Integer(0));
+        assert_eq!(
+            parse_layout_z_index("-5").unwrap(),
+            LayoutZIndex::Integer(-5)
+        );
+        assert_eq!(
+            parse_layout_z_index("  999  ").unwrap(),
+            LayoutZIndex::Integer(999)
+        );
+    }
+
+    #[test]
+    fn test_parse_layout_z_index_invalid() {
+        assert!(parse_layout_z_index("10px").is_err());
+        assert!(parse_layout_z_index("1.5").is_err());
+        assert!(parse_layout_z_index("none").is_err());
+        assert!(parse_layout_z_index("").is_err());
     }
 
     #[test]

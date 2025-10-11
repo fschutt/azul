@@ -276,6 +276,59 @@ pub fn parse_layout_margin<'a>(input: &'a str) -> Result<LayoutMargin, LayoutMar
 
 // -- Longhand Property Parsers --
 
+macro_rules! typed_pixel_value_parser {
+    (
+        $fn:ident, $fn_str:expr, $return:ident, $return_str:expr, $import_str:expr, $test_str:expr
+    ) => {
+        ///Parses a `
+        #[doc = $return_str]
+        ///` attribute from a `&str`
+        ///
+        ///# Example
+        ///
+        ///```rust
+        #[doc = $import_str]
+        #[doc = $test_str]
+        ///```
+        pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
+            crate::props::basic::parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
+        }
+
+        impl crate::props::formatter::FormatAsCssValue for $return {
+            fn format_as_css_value(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                self.inner.format_as_css_value(f)
+            }
+        }
+    };
+    ($fn:ident, $return:ident) => {
+        typed_pixel_value_parser!(
+            $fn,
+            stringify!($fn),
+            $return,
+            stringify!($return),
+            concat!(
+                "# extern crate azul_css;",
+                "\r\n",
+                "# use azul_css::props::layout::spacing::",
+                stringify!($fn),
+                ";",
+                "\r\n",
+                "# use azul_css::props::basic::pixel::PixelValue;\r\n",
+                "# use azul_css::props::layout::spacing::",
+                stringify!($return),
+                ";\r\n"
+            ),
+            concat!(
+                "assert_eq!(",
+                stringify!($fn),
+                "(\"5px\"), Ok(",
+                stringify!($return),
+                " { inner: PixelValue::px(5.0) }));"
+            )
+        );
+    };
+}
+
 #[cfg(feature = "parser")]
 typed_pixel_value_parser!(parse_layout_padding_top, LayoutPaddingTop);
 #[cfg(feature = "parser")]

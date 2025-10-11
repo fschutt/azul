@@ -606,11 +606,11 @@ mod parser {
                 let normalized = val.normalized();
                 if normalized < 0.0 || normalized > 1.0 {
                     return Err(CssStyleFilterParseError::Opacity(
-                        PercentageParseError::InvalidUnit(filter_values.to_string().into())
+                        PercentageParseError::InvalidUnit(filter_values.to_string().into()),
                     ));
                 }
                 Ok(StyleFilter::Opacity(val))
-            },
+            }
             "color-matrix" => Ok(StyleFilter::ColorMatrix(parse_color_matrix(filter_values)?)),
             "drop-shadow" => Ok(StyleFilter::DropShadow(parse_style_box_shadow(
                 filter_values,

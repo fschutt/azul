@@ -655,6 +655,93 @@ pub fn parse_layout_align_content<'a>(
     }
 }
 
+// --- align-self ---
+
+/// Represents an `align-self` attribute, which allows the default alignment
+/// (or the one specified by align-items) to be overridden for individual flex items.
+/// Default: `Auto`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutAlignSelf {
+    Auto,
+    Stretch,
+    Center,
+    Start,
+    End,
+    Baseline,
+}
+
+impl Default for LayoutAlignSelf {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl PrintAsCssValue for LayoutAlignSelf {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Auto => "auto",
+            Self::Stretch => "stretch",
+            Self::Center => "center",
+            Self::Start => "flex-start",
+            Self::End => "flex-end",
+            Self::Baseline => "baseline",
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum AlignSelfParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+impl_debug_as_display!(AlignSelfParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { AlignSelfParseError<'a>, {
+    InvalidValue(s) => format!("Invalid align-self value: \"{}\"", s),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlignSelfParseErrorOwned {
+    InvalidValue(String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> AlignSelfParseError<'a> {
+    pub fn to_contained(&self) -> AlignSelfParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => AlignSelfParseErrorOwned::InvalidValue(s.to_string()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl AlignSelfParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> AlignSelfParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => AlignSelfParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_align_self<'a>(
+    input: &'a str,
+) -> Result<LayoutAlignSelf, AlignSelfParseError<'a>> {
+    match input.trim() {
+        "auto" => Ok(LayoutAlignSelf::Auto),
+        "stretch" => Ok(LayoutAlignSelf::Stretch),
+        "center" => Ok(LayoutAlignSelf::Center),
+        "flex-start" => Ok(LayoutAlignSelf::Start),
+        "flex-end" => Ok(LayoutAlignSelf::End),
+        "baseline" => Ok(LayoutAlignSelf::Baseline),
+        _ => Err(AlignSelfParseError::InvalidValue(input)),
+    }
+}
+
 // --- flex-basis ---
 
 /// Represents a `flex-basis` attribute
