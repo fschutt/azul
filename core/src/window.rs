@@ -37,6 +37,7 @@ use crate::{
     dom::NodeHierarchy,
     gl::OptionGlContextPtr,
     id_tree::NodeId,
+    selection::SelectionState,
     styled_dom::{DomId, NodeHierarchyItemId},
     task::{ExternalSystemCallbacks, Instant, Thread, ThreadId, Timer, TimerId},
     ui_solver::{
@@ -915,6 +916,7 @@ impl WindowInternal {
             /* hovered_file: */ None,
             /* focused_node: */ None,
             /* last_hit_test: */ FullHitTest::empty(/* current_focus */ None),
+            /* selections: */ BTreeMap::new(),
         );
 
         let SolvedLayout { mut layout_results } = SolvedLayout::new(
@@ -2044,6 +2046,9 @@ pub struct FullWindowState {
     /// events are stored in a queue and only storing the hovered
     /// nodes is not sufficient to correctly determine events
     pub last_hit_test: FullHitTest,
+    /// Map of active selections, keyed by the root DOM ID of the
+    /// formatting context containing the text (usually the IFrame or main DOM).
+    pub selections: BTreeMap<DomId, SelectionState>,
 }
 
 impl Default for FullWindowState {
@@ -2070,6 +2075,7 @@ impl Default for FullWindowState {
             dropped_file: None,
             focused_node: None,
             last_hit_test: FullHitTest::empty(None),
+            selections: BTreeMap::new(),
         }
     }
 }
@@ -2113,6 +2119,7 @@ impl FullWindowState {
         hovered_file: Option<AzString>,
         focused_node: Option<DomNodeId>,
         last_hit_test: FullHitTest,
+        selections: BTreeMap<DomId, SelectionState>,
     ) -> Self {
         Self {
             monitor: window_state.monitor.clone(),
@@ -2135,6 +2142,7 @@ impl FullWindowState {
             hovered_file,
             focused_node,
             last_hit_test,
+            selections,
         }
     }
 

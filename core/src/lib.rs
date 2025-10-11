@@ -20,14 +20,14 @@ pub mod macros;
 pub mod callbacks;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod app_resources;
-/// Contains functions to format a CSS stylesheet to a Rust string
-pub mod css;
 /// Layout and display list creation algorithm, z-index reordering of a `CachedDisplayList`
 pub mod display_list;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
 /// Functions to paginate a DOM into multiple pages (sub-DOMs) for printing
 pub mod pagination;
+/// Primitives for cursor and text selection handling
+pub mod selection;
 // Algorithms to create git-like diffs between two doms in linear time
 // pub mod diff;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing

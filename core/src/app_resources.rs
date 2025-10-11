@@ -552,7 +552,7 @@ impl Drop for ImageRef {
 }
 
 pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
-    use crate::css::GetHash;
+    use azul_css::format_rust_code::GetHash;
     fr.get_hash()
 }
 
