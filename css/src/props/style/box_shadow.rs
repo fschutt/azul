@@ -97,6 +97,30 @@ impl PrintAsCssValue for StyleBoxShadow {
     }
 }
 
+// Formatting to Rust code for StyleBoxShadow
+impl crate::format_rust_code::FormatAsRustCode for StyleBoxShadow {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        format!(
+            "StyleBoxShadow {{\r\n{}    offset: [{}, {}],\r\n{}    color: {},\r\n{}    \
+             blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: \
+             BoxShadowClipMode::{:?},\r\n{}}}",
+            t,
+            crate::format_rust_code::format_pixel_value_no_percent(&self.offset[0]),
+            crate::format_rust_code::format_pixel_value_no_percent(&self.offset[1]),
+            t,
+            crate::format_rust_code::format_color_value(&self.color),
+            t,
+            crate::format_rust_code::format_pixel_value_no_percent(&self.blur_radius),
+            t,
+            crate::format_rust_code::format_pixel_value_no_percent(&self.spread_radius),
+            t,
+            self.clip_mode,
+            t
+        )
+    }
+}
+
 // --- PARSER ---
 
 #[derive(Clone, PartialEq)]

@@ -3,7 +3,7 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use crate::{
-    props::property::{CssProperty, CssPropertyType},
+    props::property::{format_static_css_prop, CssProperty, CssPropertyType},
     AzString,
 };
 
@@ -802,4 +802,227 @@ pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
         })
         .count();
     (id_count, class_count, div_count, path.selectors.len())
+}
+
+// --- Formatting ---
+
+// High-level CSS to Rust code generation
+
+pub fn css_to_rust_code(css: &Css) -> String {
+    let mut output = String::new();
+
+    output.push_str("const CSS: Css = Css {\r\n");
+    output.push_str("\tstylesheets: [\r\n");
+
+    for stylesheet in css.stylesheets.iter() {
+        output.push_str("\t\tStylesheet {\r\n");
+        output.push_str("\t\t\trules: [\r\n");
+
+        for block in stylesheet.rules.iter() {
+            output.push_str("\t\t\t\tCssRuleBlock: {\r\n");
+            output.push_str(&format!(
+                "\t\t\t\t\tpath: {},\r\n",
+                print_block_path(&block.path, 5)
+            ));
+
+            output.push_str("\t\t\t\t\tdeclarations: [\r\n");
+
+            for declaration in block.declarations.iter() {
+                output.push_str(&format!(
+                    "\t\t\t\t\t\t{},\r\n",
+                    print_declaration(declaration, 6)
+                ));
+            }
+
+            output.push_str("\t\t\t\t\t]\r\n");
+
+            output.push_str("\t\t\t\t},\r\n");
+        }
+
+        output.push_str("\t\t\t]\r\n");
+        output.push_str("\t\t},\r\n");
+    }
+
+    output.push_str("\t]\r\n");
+    output.push_str("};");
+
+    let output = output.replace("\t", "    ");
+
+    output
+}
+
+pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
+    match n {
+        // Block elements
+        NodeTypeTag::Body => "NodeTypeTag::Body",
+        NodeTypeTag::Div => "NodeTypeTag::Div",
+        NodeTypeTag::P => "NodeTypeTag::P",
+        NodeTypeTag::H1 => "NodeTypeTag::H1",
+        NodeTypeTag::H2 => "NodeTypeTag::H2",
+        NodeTypeTag::H3 => "NodeTypeTag::H3",
+        NodeTypeTag::H4 => "NodeTypeTag::H4",
+        NodeTypeTag::H5 => "NodeTypeTag::H5",
+        NodeTypeTag::H6 => "NodeTypeTag::H6",
+        NodeTypeTag::Br => "NodeTypeTag::Br",
+        NodeTypeTag::Hr => "NodeTypeTag::Hr",
+        NodeTypeTag::Pre => "NodeTypeTag::Pre",
+        NodeTypeTag::BlockQuote => "NodeTypeTag::BlockQuote",
+        NodeTypeTag::Address => "NodeTypeTag::Address",
+
+        // List elements
+        NodeTypeTag::Ul => "NodeTypeTag::Ul",
+        NodeTypeTag::Ol => "NodeTypeTag::Ol",
+        NodeTypeTag::Li => "NodeTypeTag::Li",
+        NodeTypeTag::Dl => "NodeTypeTag::Dl",
+        NodeTypeTag::Dt => "NodeTypeTag::Dt",
+        NodeTypeTag::Dd => "NodeTypeTag::Dd",
+
+        // Table elements
+        NodeTypeTag::Table => "NodeTypeTag::Table",
+        NodeTypeTag::Caption => "NodeTypeTag::Caption",
+        NodeTypeTag::THead => "NodeTypeTag::THead",
+        NodeTypeTag::TBody => "NodeTypeTag::TBody",
+        NodeTypeTag::TFoot => "NodeTypeTag::TFoot",
+        NodeTypeTag::Tr => "NodeTypeTag::Tr",
+        NodeTypeTag::Th => "NodeTypeTag::Th",
+        NodeTypeTag::Td => "NodeTypeTag::Td",
+        NodeTypeTag::ColGroup => "NodeTypeTag::ColGroup",
+        NodeTypeTag::Col => "NodeTypeTag::Col",
+
+        // Form elements
+        NodeTypeTag::Form => "NodeTypeTag::Form",
+        NodeTypeTag::FieldSet => "NodeTypeTag::FieldSet",
+        NodeTypeTag::Legend => "NodeTypeTag::Legend",
+        NodeTypeTag::Label => "NodeTypeTag::Label",
+        NodeTypeTag::Input => "NodeTypeTag::Input",
+        NodeTypeTag::Button => "NodeTypeTag::Button",
+        NodeTypeTag::Select => "NodeTypeTag::Select",
+        NodeTypeTag::OptGroup => "NodeTypeTag::OptGroup",
+        NodeTypeTag::SelectOption => "NodeTypeTag::SelectOption",
+        NodeTypeTag::TextArea => "NodeTypeTag::TextArea",
+
+        // Inline elements
+        NodeTypeTag::Span => "NodeTypeTag::Span",
+        NodeTypeTag::A => "NodeTypeTag::A",
+        NodeTypeTag::Em => "NodeTypeTag::Em",
+        NodeTypeTag::Strong => "NodeTypeTag::Strong",
+        NodeTypeTag::B => "NodeTypeTag::B",
+        NodeTypeTag::I => "NodeTypeTag::I",
+        NodeTypeTag::Code => "NodeTypeTag::Code",
+        NodeTypeTag::Samp => "NodeTypeTag::Samp",
+        NodeTypeTag::Kbd => "NodeTypeTag::Kbd",
+        NodeTypeTag::Var => "NodeTypeTag::Var",
+        NodeTypeTag::Cite => "NodeTypeTag::Cite",
+        NodeTypeTag::Abbr => "NodeTypeTag::Abbr",
+        NodeTypeTag::Acronym => "NodeTypeTag::Acronym",
+        NodeTypeTag::Q => "NodeTypeTag::Q",
+        NodeTypeTag::Sub => "NodeTypeTag::Sub",
+        NodeTypeTag::Sup => "NodeTypeTag::Sup",
+        NodeTypeTag::Small => "NodeTypeTag::Small",
+        NodeTypeTag::Big => "NodeTypeTag::Big",
+
+        // Content elements
+        NodeTypeTag::Text => "NodeTypeTag::Text",
+        NodeTypeTag::Img => "NodeTypeTag::Img",
+        NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
+
+        // Pseudo-elements
+        NodeTypeTag::Before => "NodeTypeTag::Before",
+        NodeTypeTag::After => "NodeTypeTag::After",
+        NodeTypeTag::Marker => "NodeTypeTag::Marker",
+        NodeTypeTag::Placeholder => "NodeTypeTag::Placeholder",
+    }
+}
+
+pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+
+    format!(
+        "CssPath {{\r\n{}selectors: {}\r\n{}}}",
+        t1,
+        format_selectors(path.selectors.as_ref(), tabs + 1),
+        t
+    )
+}
+
+pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+
+    let selectors_formatted = selectors
+        .iter()
+        .map(|s| format!("{}{},", t1, format_single_selector(s, tabs + 1)))
+        .collect::<Vec<String>>()
+        .join("\r\n");
+
+    format!("vec![\r\n{}\r\n{}].into()", selectors_formatted, t)
+}
+
+pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
+    match p {
+        CssPathSelector::Global => format!("CssPathSelector::Global"),
+        CssPathSelector::Type(ntp) => format!("CssPathSelector::Type({})", format_node_type(ntp)),
+        CssPathSelector::Class(class) => {
+            format!("CssPathSelector::Class(String::from({:?}))", class)
+        }
+        CssPathSelector::Id(id) => format!("CssPathSelector::Id(String::from({:?}))", id),
+        CssPathSelector::PseudoSelector(cps) => format!(
+            "CssPathSelector::PseudoSelector({})",
+            format_pseudo_selector_type(cps)
+        ),
+        CssPathSelector::DirectChildren => format!("CssPathSelector::DirectChildren"),
+        CssPathSelector::Children => format!("CssPathSelector::Children"),
+    }
+}
+
+pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
+    match p {
+        CssPathPseudoSelector::First => format!("CssPathPseudoSelector::First"),
+        CssPathPseudoSelector::Last => format!("CssPathPseudoSelector::Last"),
+        CssPathPseudoSelector::NthChild(n) => format!(
+            "CssPathPseudoSelector::NthChild({})",
+            format_nth_child_selector(n)
+        ),
+        CssPathPseudoSelector::Hover => format!("CssPathPseudoSelector::Hover"),
+        CssPathPseudoSelector::Active => format!("CssPathPseudoSelector::Active"),
+        CssPathPseudoSelector::Focus => format!("CssPathPseudoSelector::Focus"),
+    }
+}
+
+pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
+    match n {
+        CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
+        CssNthChildSelector::Even => format!("CssNthChildSelector::Even"),
+        CssNthChildSelector::Odd => format!("CssNthChildSelector::Odd"),
+        CssNthChildSelector::Pattern(CssNthChildPattern { repeat, offset }) => format!(
+            "CssNthChildSelector::Pattern(CssNthChildPattern {{ repeat: {}, offset: {} }})",
+            repeat, offset
+        ),
+    }
+}
+
+pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
+    match decl {
+        CssDeclaration::Static(s) => format!(
+            "CssDeclaration::Static({})",
+            format_static_css_prop(s, tabs)
+        ),
+        CssDeclaration::Dynamic(d) => format!(
+            "CssDeclaration::Dynamic({})",
+            format_dynamic_css_prop(d, tabs)
+        ),
+    }
+}
+
+pub fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    format!(
+        "DynamicCssProperty {{\r\n{}    dynamic_id: {:?},\r\n{}    default_value: {},\r\n{}}}",
+        t,
+        decl.dynamic_id,
+        t,
+        format_static_css_prop(&decl.default_value, tabs + 1),
+        t
+    )
 }

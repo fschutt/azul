@@ -52,6 +52,31 @@ impl PrintAsCssValue for FlowFrom {
     }
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for FlowInto {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            FlowInto::None => String::from("FlowInto::None"),
+            FlowInto::Named(s) => format!(
+                "FlowInto::Named(AzString::from_const_str({:?}))",
+                s.as_str()
+            ),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for FlowFrom {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            FlowFrom::None => String::from("FlowFrom::None"),
+            FlowFrom::Named(s) => format!(
+                "FlowFrom::Named(AzString::from_const_str({:?}))",
+                s.as_str()
+            ),
+        }
+    }
+}
+
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]

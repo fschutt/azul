@@ -174,6 +174,73 @@ impl PrintAsCssValue for ColumnRuleColor {
     }
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for ColumnCount {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ColumnCount::Auto => String::from("ColumnCount::Auto"),
+            ColumnCount::Integer(i) => format!("ColumnCount::Integer({})", i),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ColumnWidth {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        match self {
+            ColumnWidth::Auto => String::from("ColumnWidth::Auto"),
+            ColumnWidth::Length(px) => format!(
+                "ColumnWidth::Length({})",
+                crate::format_rust_code::format_pixel_value(px)
+            ),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ColumnSpan {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ColumnSpan::None => String::from("ColumnSpan::None"),
+            ColumnSpan::All => String::from("ColumnSpan::All"),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ColumnFill {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ColumnFill::Auto => String::from("ColumnFill::Auto"),
+            ColumnFill::Balance => String::from("ColumnFill::Balance"),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ColumnRuleWidth {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ColumnRuleWidth {{ inner: {} }}",
+            crate::format_rust_code::format_pixel_value(&self.inner)
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ColumnRuleStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "ColumnRuleStyle {{ inner: {} }}",
+            self.inner.format_as_rust_code(tabs)
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ColumnRuleColor {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ColumnRuleColor {{ inner: {} }}",
+            crate::format_rust_code::format_color_value(&self.inner)
+        )
+    }
+}
+
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]

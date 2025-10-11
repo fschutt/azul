@@ -9,34 +9,40 @@ use alloc::{
 };
 use core::fmt;
 
-// Import all property types from their new locations
-use crate::props::{
-    basic::{
-        color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-        font::{
-            parse_style_font_family, CssStyleFontFamilyParseError,
-            CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec, *,
-        },
-        length::{parse_float_value, parse_percentage_value, FloatValue, PercentageValue},
-        pixel::{
-            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
-        },
-        InterpolateResolver, InvalidValueErrOwned, PercentageParseError,
-    },
-    formatter::PrintAsCssValue,
-    layout::{
-        column::*, dimensions::*, display::*, flex::*, flow::*, fragmentation::*, grid::*,
-        overflow::*, position::*, shape::*, spacing::*, text::*, wrapping::*,
-    },
-    style::{
-        background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
-        filter::*, scrollbar::*, text::*, transform::*,
-    },
-};
 use crate::{
     corety::AzString,
     css::CssPropertyValue,
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
+};
+// Import all property types from their new locations
+use crate::{
+    format_rust_code::FormatAsRustCode,
+    props::{
+        basic::{
+            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            font::{
+                parse_style_font_family, CssStyleFontFamilyParseError,
+                CssStyleFontFamilyParseErrorOwned, StyleFontFamilyVec, *,
+            },
+            length::{parse_float_value, parse_percentage_value, FloatValue, PercentageValue},
+            pixel::{
+                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+                PixelValue,
+            },
+            DurationParseError, DurationParseErrorOwned, InterpolateResolver, InvalidValueErrOwned,
+            PercentageParseError,
+        },
+        formatter::PrintAsCssValue,
+        layout::{
+            column::*, dimensions::*, display::*, flex::*, flow::*, fragmentation::*, grid::*,
+            overflow::*, position::*, shape::*, spacing::*, text::*, wrapping::*,
+        },
+        style::{
+            background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
+            filter::*, scrollbar::*, text::*, transform::*, SelectionBackgroundColor,
+            SelectionColor,
+        },
+    },
 };
 
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 20] = [
@@ -62,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 122] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 126] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -159,6 +165,16 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 122] = [
     (CssPropertyType::BoxShadowLeft, "-azul-box-shadow-left"),
     (CssPropertyType::BoxShadowBottom, "-azul-box-shadow-bottom"),
     (CssPropertyType::ScrollbarStyle, "-azul-scrollbar-style"),
+    (CssPropertyType::CaretColor, "caret-color"),
+    (
+        CssPropertyType::CaretAnimationDuration,
+        "caret-animation-duration",
+    ),
+    (
+        CssPropertyType::SelectionBackgroundColor,
+        "-azul-selection-background-color",
+    ),
+    (CssPropertyType::SelectionColor, "-azul-selection-color"),
     (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
     (CssPropertyType::ScrollbarColor, "scrollbar-color"),
     (CssPropertyType::Opacity, "opacity"),
@@ -206,6 +222,10 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 122] = [
 ];
 
 // Type aliases for `CssPropertyValue<T>`
+pub type CaretColorValue = CssPropertyValue<CaretColor>;
+pub type CaretAnimationDurationValue = CssPropertyValue<CaretAnimationDuration>;
+pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
+pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
 pub type StyleBackgroundContentVecValue = CssPropertyValue<StyleBackgroundContentVec>;
 pub type StyleBackgroundPositionVecValue = CssPropertyValue<StyleBackgroundPositionVec>;
 pub type StyleBackgroundSizeVecValue = CssPropertyValue<StyleBackgroundSizeVec>;
@@ -414,6 +434,10 @@ impl CombinedCssPropertyType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssProperty {
+    CaretColor(CaretColorValue),
+    CaretAnimationDuration(CaretAnimationDurationValue),
+    SelectionBackgroundColor(SelectionBackgroundColorValue),
+    SelectionColor(SelectionColorValue),
     TextColor(StyleTextColorValue),
     FontSize(StyleFontSizeValue),
     FontFamily(StyleFontFamilyVecValue),
@@ -558,6 +582,10 @@ pub enum CssPropertyCategory {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum CssPropertyType {
+    CaretColor,
+    CaretAnimationDuration,
+    SelectionBackgroundColor,
+    SelectionColor,
     TextColor,
     FontSize,
     FontFamily,
@@ -720,6 +748,10 @@ impl CssPropertyType {
     /// Returns the original string that was used to construct this `CssPropertyType`.
     pub fn to_str(&self) -> &'static str {
         match self {
+            CssPropertyType::CaretColor => "caret-color",
+            CssPropertyType::CaretAnimationDuration => "caret-animation-duration",
+            CssPropertyType::SelectionBackgroundColor => "-azul-selection-background-color",
+            CssPropertyType::SelectionColor => "-azul-selection-color",
             CssPropertyType::TextColor => "color",
             CssPropertyType::FontSize => "font-size",
             CssPropertyType::FontFamily => "font-family",
@@ -977,6 +1009,10 @@ pub enum CssParsingError<'a> {
     Hyphens(StyleHyphensParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
     Cursor(CursorParseError<'a>),
+    CaretColor(CssColorParseError<'a>),
+    CaretAnimationDuration(DurationParseError<'a>),
+    SelectionBackgroundColor(CssColorParseError<'a>),
+    SelectionColor(CssColorParseError<'a>),
 
     // Layout basic properties
     LayoutDisplay(LayoutDisplayParseError<'a>),
@@ -1106,6 +1142,10 @@ pub enum CssParsingErrorOwned {
     Hyphens(StyleHyphensParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
     Cursor(CursorParseErrorOwned),
+    CaretColor(CssColorParseErrorOwned),
+    CaretAnimationDuration(DurationParseErrorOwned),
+    SelectionBackgroundColor(CssColorParseErrorOwned),
+    SelectionColor(CssColorParseErrorOwned),
 
     // Layout basic properties
     LayoutDisplay(LayoutDisplayParseErrorOwned),
@@ -1195,6 +1235,10 @@ pub enum CssParsingErrorOwned {
 
 impl_debug_as_display!(CssParsingError<'a>);
 impl_display! { CssParsingError<'a>, {
+    CaretColor(e) => format!("Invalid caret-color: {}", e),
+    CaretAnimationDuration(e) => format!("Invalid caret-animation-duration: {}", e),
+    SelectionBackgroundColor(e) => format!("Invalid -azul-selection-background-color: {}", e),
+    SelectionColor(e) => format!("Invalid -azul-selection-color: {}", e),
     Border(e) => format!("Invalid border property: {}", e),
     BorderRadius(e) => format!("Invalid border-radius: {}", e),
     Padding(e) => format!("Invalid padding property: {}", e),
@@ -1289,6 +1333,10 @@ impl_display! { CssParsingError<'a>, {
 }}
 
 // From impls for CssParsingError
+impl_from!(
+    DurationParseError<'a>,
+    CssParsingError::CaretAnimationDuration
+);
 impl_from!(CssBorderParseError<'a>, CssParsingError::Border);
 impl_from!(
     CssStyleBorderRadiusParseError<'a>,
@@ -1498,6 +1546,16 @@ impl<'a> From<StyleLineHeightParseError> for CssParsingError<'a> {
 impl<'a> CssParsingError<'a> {
     pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
+            CssParsingError::CaretColor(e) => CssParsingErrorOwned::CaretColor(e.to_contained()),
+            CssParsingError::CaretAnimationDuration(e) => {
+                CssParsingErrorOwned::CaretAnimationDuration(e.to_contained())
+            }
+            CssParsingError::SelectionBackgroundColor(e) => {
+                CssParsingErrorOwned::SelectionBackgroundColor(e.to_contained())
+            }
+            CssParsingError::SelectionColor(e) => {
+                CssParsingErrorOwned::SelectionColor(e.to_contained())
+            }
             CssParsingError::Border(e) => CssParsingErrorOwned::Border(e.to_contained()),
             CssParsingError::BorderRadius(e) => {
                 CssParsingErrorOwned::BorderRadius(e.to_contained())
@@ -1667,6 +1725,16 @@ impl<'a> CssParsingError<'a> {
 impl CssParsingErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssParsingError<'a> {
         match self {
+            CssParsingErrorOwned::CaretColor(e) => CssParsingError::CaretColor(e.to_shared()),
+            CssParsingErrorOwned::CaretAnimationDuration(e) => {
+                CssParsingError::CaretAnimationDuration(e.to_shared())
+            }
+            CssParsingErrorOwned::SelectionBackgroundColor(e) => {
+                CssParsingError::SelectionBackgroundColor(e.to_shared())
+            }
+            CssParsingErrorOwned::SelectionColor(e) => {
+                CssParsingError::SelectionColor(e.to_shared())
+            }
             CssParsingErrorOwned::Border(e) => CssParsingError::Border(e.to_shared()),
             CssParsingErrorOwned::BorderRadius(e) => CssParsingError::BorderRadius(e.to_shared()),
             CssParsingErrorOwned::Padding(e) => CssParsingError::Padding(e.to_shared()),
@@ -1814,6 +1882,8 @@ pub fn parse_css_property<'a>(
     key: CssPropertyType,
     value: &'a str,
 ) -> Result<CssProperty, CssParsingError<'a>> {
+    use crate::props::style::{parse_selection_background_color, parse_selection_color};
+
     let value = value.trim();
     Ok(match value {
         "auto" => CssProperty::auto(key),
@@ -1821,6 +1891,15 @@ pub fn parse_css_property<'a>(
         "initial" => CssProperty::initial(key),
         "inherit" => CssProperty::inherit(key),
         value => match key {
+            CssPropertyType::CaretColor => parse_caret_color(value)?.into(),
+            CssPropertyType::CaretAnimationDuration => {
+                parse_caret_animation_duration(value)?.into()
+            }
+            CssPropertyType::SelectionBackgroundColor => {
+                parse_selection_background_color(value)?.into()
+            }
+            CssPropertyType::SelectionColor => parse_selection_color(value)?.into(),
+
             CssPropertyType::TextColor => parse_style_text_color(value)?.into(),
             CssPropertyType::FontSize => parse_style_font_size(value)?.into(),
             CssPropertyType::FontFamily => parse_style_font_family(value)?.into(),
@@ -2665,6 +2744,13 @@ macro_rules! impl_from_css_prop {
     };
 }
 
+impl_from_css_prop!(CaretColor, CssProperty::CaretColor);
+impl_from_css_prop!(CaretAnimationDuration, CssProperty::CaretAnimationDuration);
+impl_from_css_prop!(
+    SelectionBackgroundColor,
+    CssProperty::SelectionBackgroundColor
+);
+impl_from_css_prop!(SelectionColor, CssProperty::SelectionColor);
 impl_from_css_prop!(StyleTextColor, CssProperty::TextColor);
 impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
 impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
@@ -2783,6 +2869,10 @@ impl CssProperty {
 
     pub fn value(&self) -> String {
         match self {
+            CssProperty::CaretColor(v) => v.get_css_value_fmt(),
+            CssProperty::CaretAnimationDuration(v) => v.get_css_value_fmt(),
+            CssProperty::SelectionBackgroundColor(v) => v.get_css_value_fmt(),
+            CssProperty::SelectionColor(v) => v.get_css_value_fmt(),
             CssProperty::TextJustify(v) => v.get_css_value_fmt(),
             CssProperty::LayoutTextJustify(v) => format!("{:?}", v),
             CssProperty::TextColor(v) => v.get_css_value_fmt(),
@@ -3185,6 +3275,11 @@ impl CssProperty {
     /// Return the type (key) of this property as a statically typed enum
     pub const fn get_type(&self) -> CssPropertyType {
         match &self {
+            CssProperty::CaretColor(_) => CssPropertyType::CaretColor,
+            CssProperty::CaretAnimationDuration(_) => CssPropertyType::CaretAnimationDuration,
+            CssProperty::SelectionBackgroundColor(_) => CssPropertyType::SelectionBackgroundColor,
+            CssProperty::SelectionColor(_) => CssPropertyType::SelectionColor,
+
             CssProperty::TextJustify(_) => CssPropertyType::TextJustify,
             CssProperty::LayoutTextJustify(_) => CssPropertyType::TextAlign, /* oder ggf. ein */
             // eigener Typ
@@ -3360,7 +3455,6 @@ impl CssProperty {
     pub const fn display(input: LayoutDisplay) -> Self {
         CssProperty::Display(CssPropertyValue::Exact(input))
     }
-
     pub const fn box_sizing(input: LayoutBoxSizing) -> Self {
         CssProperty::BoxSizing(CssPropertyValue::Exact(input))
     }
@@ -3372,6 +3466,18 @@ impl CssProperty {
     }
     pub const fn min_width(input: LayoutMinWidth) -> Self {
         CssProperty::MinWidth(CssPropertyValue::Exact(input))
+    }
+    pub const fn caret_color(input: CaretColor) -> Self {
+        CssProperty::CaretColor(CssPropertyValue::Exact(input))
+    }
+    pub const fn caret_animation_duration(input: CaretAnimationDuration) -> Self {
+        CssProperty::CaretAnimationDuration(CssPropertyValue::Exact(input))
+    }
+    pub const fn selection_background_color(input: SelectionBackgroundColor) -> Self {
+        CssProperty::SelectionBackgroundColor(CssPropertyValue::Exact(input))
+    }
+    pub const fn selection_color(input: SelectionColor) -> Self {
+        CssProperty::SelectionColor(CssPropertyValue::Exact(input))
     }
     pub const fn min_height(input: LayoutMinHeight) -> Self {
         CssProperty::MinHeight(CssPropertyValue::Exact(input))
@@ -3636,6 +3742,30 @@ impl CssProperty {
     pub const fn as_background_content(&self) -> Option<&StyleBackgroundContentVecValue> {
         match self {
             CssProperty::BackgroundContent(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_caret_color(&self) -> Option<&CaretColorValue> {
+        match self {
+            CssProperty::CaretColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_caret_animation_duration(&self) -> Option<&CaretAnimationDurationValue> {
+        match self {
+            CssProperty::CaretAnimationDuration(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_selection_background_color(&self) -> Option<&SelectionBackgroundColorValue> {
+        match self {
+            CssProperty::SelectionBackgroundColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_selection_color(&self) -> Option<&SelectionColorValue> {
+        match self {
+            CssProperty::SelectionColor(f) => Some(f),
             _ => None,
         }
     }
@@ -4286,6 +4416,10 @@ impl CssProperty {
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
         match self {
+            CaretColor(c) => c.is_initial(),
+            CaretAnimationDuration(c) => c.is_initial(),
+            SelectionBackgroundColor(c) => c.is_initial(),
+            SelectionColor(c) => c.is_initial(),
             TextJustify(c) => c.is_initial(),
             LayoutTextJustify(_) => false,
             TextColor(c) => c.is_initial(),
@@ -4697,5 +4831,536 @@ impl CssProperty {
     }
     pub const fn const_string_set(input: StringSet) -> Self {
         CssProperty::StringSet(StringSetValue::Exact(input))
+    }
+}
+
+pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
+    match prop {
+        CssProperty::CaretColor(p) => format!(
+            "CssProperty::CaretColor({})",
+            print_css_property_value(p, tabs, "CaretColor")
+        ),
+        CssProperty::CaretAnimationDuration(p) => format!(
+            "CssProperty::CaretAnimationDuration({})",
+            print_css_property_value(p, tabs, "CaretAnimationDuration")
+        ),
+        CssProperty::SelectionBackgroundColor(p) => format!(
+            "CssProperty::SelectionBackgroundColor({})",
+            print_css_property_value(p, tabs, "SelectionBackgroundColor")
+        ),
+        CssProperty::SelectionColor(p) => format!(
+            "CssProperty::SelectionColor({})",
+            print_css_property_value(p, tabs, "SelectionColor")
+        ),
+        CssProperty::TextJustify(p) => format!(
+            "CssProperty::TextJustify({})",
+            print_css_property_value(p, tabs, "LayoutTextJustify")
+        ),
+        CssProperty::LayoutTextJustify(j) => format!(
+            "CssProperty::LayoutTextJustify({})",
+            print_css_property_value(j, tabs, "LayoutText")
+        ),
+        CssProperty::TextColor(p) => format!(
+            "CssProperty::TextColor({})",
+            print_css_property_value(p, tabs, "StyleTextColor")
+        ),
+        CssProperty::FontSize(p) => format!(
+            "CssProperty::FontSize({})",
+            print_css_property_value(p, tabs, "StyleFontSize")
+        ),
+        CssProperty::FontFamily(p) => format!(
+            "CssProperty::FontFamily({})",
+            print_css_property_value(p, tabs, "StyleFontFamilyVec")
+        ),
+        CssProperty::TextAlign(p) => format!(
+            "CssProperty::TextAlign({})",
+            print_css_property_value(p, tabs, "StyleTextAlign")
+        ),
+        CssProperty::LetterSpacing(p) => format!(
+            "CssProperty::LetterSpacing({})",
+            print_css_property_value(p, tabs, "StyleLetterSpacing")
+        ),
+        CssProperty::LineHeight(p) => format!(
+            "CssProperty::LineHeight({})",
+            print_css_property_value(p, tabs, "StyleLineHeight")
+        ),
+        CssProperty::WordSpacing(p) => format!(
+            "CssProperty::WordSpacing({})",
+            print_css_property_value(p, tabs, "StyleWordSpacing")
+        ),
+        CssProperty::TabWidth(p) => format!(
+            "CssProperty::TabWidth({})",
+            print_css_property_value(p, tabs, "StyleTabWidth")
+        ),
+        CssProperty::Cursor(p) => format!(
+            "CssProperty::Cursor({})",
+            print_css_property_value(p, tabs, "StyleCursor")
+        ),
+        CssProperty::Display(p) => format!(
+            "CssProperty::Display({})",
+            print_css_property_value(p, tabs, "LayoutDisplay")
+        ),
+        CssProperty::Float(p) => format!(
+            "CssProperty::Float({})",
+            print_css_property_value(p, tabs, "LayoutFloat")
+        ),
+        CssProperty::BoxSizing(p) => format!(
+            "CssProperty::BoxSizing({})",
+            print_css_property_value(p, tabs, "LayoutBoxSizing")
+        ),
+        CssProperty::Width(p) => format!(
+            "CssProperty::Width({})",
+            print_css_property_value(p, tabs, "LayoutWidth")
+        ),
+        CssProperty::Height(p) => format!(
+            "CssProperty::Height({})",
+            print_css_property_value(p, tabs, "LayoutHeight")
+        ),
+        CssProperty::MinWidth(p) => format!(
+            "CssProperty::MinWidth({})",
+            print_css_property_value(p, tabs, "LayoutMinWidth")
+        ),
+        CssProperty::MinHeight(p) => format!(
+            "CssProperty::MinHeight({})",
+            print_css_property_value(p, tabs, "LayoutMinHeight")
+        ),
+        CssProperty::MaxWidth(p) => format!(
+            "CssProperty::MaxWidth({})",
+            print_css_property_value(p, tabs, "LayoutMaxWidth")
+        ),
+        CssProperty::MaxHeight(p) => format!(
+            "CssProperty::MaxHeight({})",
+            print_css_property_value(p, tabs, "LayoutMaxHeight")
+        ),
+        CssProperty::Position(p) => format!(
+            "CssProperty::Position({})",
+            print_css_property_value(p, tabs, "LayoutPosition")
+        ),
+        CssProperty::Top(p) => format!(
+            "CssProperty::Top({})",
+            print_css_property_value(p, tabs, "LayoutTop")
+        ),
+        CssProperty::Right(p) => format!(
+            "CssProperty::Right({})",
+            print_css_property_value(p, tabs, "LayoutRight")
+        ),
+        CssProperty::Left(p) => format!(
+            "CssProperty::Left({})",
+            print_css_property_value(p, tabs, "LayoutLeft")
+        ),
+        CssProperty::Bottom(p) => format!(
+            "CssProperty::Bottom({})",
+            print_css_property_value(p, tabs, "LayoutBottom")
+        ),
+        CssProperty::ZIndex(p) => format!(
+            "CssProperty::ZIndex({})",
+            print_css_property_value(p, tabs, "LayoutZIndex")
+        ),
+        CssProperty::FlexWrap(p) => format!(
+            "CssProperty::FlexWrap({})",
+            print_css_property_value(p, tabs, "LayoutFlexWrap")
+        ),
+        CssProperty::FlexDirection(p) => format!(
+            "CssProperty::FlexDirection({})",
+            print_css_property_value(p, tabs, "LayoutFlexDirection")
+        ),
+        CssProperty::FlexGrow(p) => format!(
+            "CssProperty::FlexGrow({})",
+            print_css_property_value(p, tabs, "LayoutFlexGrow")
+        ),
+        CssProperty::FlexShrink(p) => format!(
+            "CssProperty::FlexShrink({})",
+            print_css_property_value(p, tabs, "LayoutFlexShrink")
+        ),
+        CssProperty::JustifyContent(p) => format!(
+            "CssProperty::JustifyContent({})",
+            print_css_property_value(p, tabs, "LayoutJustifyContent")
+        ),
+        CssProperty::AlignItems(p) => format!(
+            "CssProperty::AlignItems({})",
+            print_css_property_value(p, tabs, "LayoutAlignItems")
+        ),
+        CssProperty::AlignContent(p) => format!(
+            "CssProperty::AlignContent({})",
+            print_css_property_value(p, tabs, "LayoutAlignContent")
+        ),
+        CssProperty::BackgroundContent(p) => format!(
+            "CssProperty::BackgroundContent({})",
+            print_css_property_value(p, tabs, "StyleBackgroundContentVec")
+        ),
+        CssProperty::BackgroundPosition(p) => format!(
+            "CssProperty::BackgroundPosition({})",
+            print_css_property_value(p, tabs, "StyleBackgroundPositionVec")
+        ),
+        CssProperty::BackgroundSize(p) => format!(
+            "CssProperty::BackgroundSize({})",
+            print_css_property_value(p, tabs, "StyleBackgroundSizeVec")
+        ),
+        CssProperty::BackgroundRepeat(p) => format!(
+            "CssProperty::BackgroundRepeat({})",
+            print_css_property_value(p, tabs, "StyleBackgroundRepeatVec")
+        ),
+        CssProperty::OverflowX(p) => format!(
+            "CssProperty::OverflowX({})",
+            print_css_property_value(p, tabs, "LayoutOverflow")
+        ),
+        CssProperty::OverflowY(p) => format!(
+            "CssProperty::OverflowY({})",
+            print_css_property_value(p, tabs, "LayoutOverflow")
+        ),
+        CssProperty::PaddingTop(p) => format!(
+            "CssProperty::PaddingTop({})",
+            print_css_property_value(p, tabs, "LayoutPaddingTop")
+        ),
+        CssProperty::PaddingLeft(p) => format!(
+            "CssProperty::PaddingLeft({})",
+            print_css_property_value(p, tabs, "LayoutPaddingLeft")
+        ),
+        CssProperty::PaddingRight(p) => format!(
+            "CssProperty::PaddingRight({})",
+            print_css_property_value(p, tabs, "LayoutPaddingRight")
+        ),
+        CssProperty::PaddingBottom(p) => format!(
+            "CssProperty::PaddingBottom({})",
+            print_css_property_value(p, tabs, "LayoutPaddingBottom")
+        ),
+        CssProperty::MarginTop(p) => format!(
+            "CssProperty::MarginTop({})",
+            print_css_property_value(p, tabs, "LayoutMarginTop")
+        ),
+        CssProperty::MarginLeft(p) => format!(
+            "CssProperty::MarginLeft({})",
+            print_css_property_value(p, tabs, "LayoutMarginLeft")
+        ),
+        CssProperty::MarginRight(p) => format!(
+            "CssProperty::MarginRight({})",
+            print_css_property_value(p, tabs, "LayoutMarginRight")
+        ),
+        CssProperty::MarginBottom(p) => format!(
+            "CssProperty::MarginBottom({})",
+            print_css_property_value(p, tabs, "LayoutMarginBottom")
+        ),
+        CssProperty::BorderTopLeftRadius(p) => format!(
+            "CssProperty::BorderTopLeftRadius({})",
+            print_css_property_value(p, tabs, "StyleBorderTopLeftRadius")
+        ),
+        CssProperty::BorderTopRightRadius(p) => format!(
+            "CssProperty::BorderTopRightRadius({})",
+            print_css_property_value(p, tabs, "StyleBorderTopRightRadius")
+        ),
+        CssProperty::BorderBottomLeftRadius(p) => format!(
+            "CssProperty::BorderBottomLeftRadius({})",
+            print_css_property_value(p, tabs, "StyleBorderBottomLeftRadius")
+        ),
+        CssProperty::BorderBottomRightRadius(p) => format!(
+            "CssProperty::BorderBottomRightRadius({})",
+            print_css_property_value(p, tabs, "StyleBorderBottomRightRadius")
+        ),
+        CssProperty::BorderTopColor(p) => format!(
+            "CssProperty::BorderTopColor({})",
+            print_css_property_value(p, tabs, "StyleBorderTopColor")
+        ),
+        CssProperty::BorderRightColor(p) => format!(
+            "CssProperty::BorderRightColor({})",
+            print_css_property_value(p, tabs, "StyleBorderRightColor")
+        ),
+        CssProperty::BorderLeftColor(p) => format!(
+            "CssProperty::BorderLeftColor({})",
+            print_css_property_value(p, tabs, "StyleBorderLeftColor")
+        ),
+        CssProperty::BorderBottomColor(p) => format!(
+            "CssProperty::BorderBottomColor({})",
+            print_css_property_value(p, tabs, "StyleBorderBottomColor")
+        ),
+        CssProperty::BorderTopStyle(p) => format!(
+            "CssProperty::BorderTopStyle({})",
+            print_css_property_value(p, tabs, "StyleBorderTopStyle")
+        ),
+        CssProperty::BorderRightStyle(p) => format!(
+            "CssProperty::BorderRightStyle({})",
+            print_css_property_value(p, tabs, "StyleBorderRightStyle")
+        ),
+        CssProperty::BorderLeftStyle(p) => format!(
+            "CssProperty::BorderLeftStyle({})",
+            print_css_property_value(p, tabs, "StyleBorderLeftStyle")
+        ),
+        CssProperty::BorderBottomStyle(p) => format!(
+            "CssProperty::BorderBottomStyle({})",
+            print_css_property_value(p, tabs, "StyleBorderBottomStyle")
+        ),
+        CssProperty::BorderTopWidth(p) => format!(
+            "CssProperty::BorderTopWidth({})",
+            print_css_property_value(p, tabs, "LayoutBorderTopWidth")
+        ),
+        CssProperty::BorderRightWidth(p) => format!(
+            "CssProperty::BorderRightWidth({})",
+            print_css_property_value(p, tabs, "LayoutBorderRightWidth")
+        ),
+        CssProperty::BorderLeftWidth(p) => format!(
+            "CssProperty::BorderLeftWidth({})",
+            print_css_property_value(p, tabs, "LayoutBorderLeftWidth")
+        ),
+        CssProperty::BorderBottomWidth(p) => format!(
+            "CssProperty::BorderBottomWidth({})",
+            print_css_property_value(p, tabs, "LayoutBorderBottomWidth")
+        ),
+        CssProperty::BoxShadowLeft(p) => format!(
+            "CssProperty::BoxShadowLeft({})",
+            print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::BoxShadowRight(p) => format!(
+            "CssProperty::BoxShadowRight({})",
+            print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::BoxShadowTop(p) => format!(
+            "CssProperty::BoxShadowTop({})",
+            print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::BoxShadowBottom(p) => format!(
+            "CssProperty::BoxShadowBottom({})",
+            print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::ScrollbarWidth(p) => format!(
+            "CssProperty::ScrollbarWidth({})",
+            print_css_property_value(p, tabs, "LayoutScrollbarWidth")
+        ),
+        CssProperty::ScrollbarColor(p) => format!(
+            "CssProperty::ScrollbarColor({})",
+            print_css_property_value(p, tabs, "StyleScrollbarColor")
+        ),
+        CssProperty::ScrollbarStyle(p) => format!(
+            "CssProperty::ScrollbarStyle({})",
+            print_css_property_value(p, tabs, "ScrollbarStyle")
+        ),
+        CssProperty::Opacity(p) => format!(
+            "CssProperty::Opacity({})",
+            print_css_property_value(p, tabs, "StyleOpacity")
+        ),
+        CssProperty::Visibility(p) => format!(
+            "CssProperty::Visibility({})",
+            print_css_property_value(p, tabs, "StyleVisibility")
+        ),
+        CssProperty::Transform(p) => format!(
+            "CssProperty::Transform({})",
+            print_css_property_value(p, tabs, "StyleTransformVec")
+        ),
+        CssProperty::TransformOrigin(p) => format!(
+            "CssProperty::TransformOrigin({})",
+            print_css_property_value(p, tabs, "StyleTransformOrigin")
+        ),
+        CssProperty::PerspectiveOrigin(p) => format!(
+            "CssProperty::PerspectiveOrigin({})",
+            print_css_property_value(p, tabs, "StylePerspectiveOrigin")
+        ),
+        CssProperty::BackfaceVisibility(p) => format!(
+            "CssProperty::BackfaceVisibility({})",
+            print_css_property_value(p, tabs, "StyleBackfaceVisibility")
+        ),
+        CssProperty::MixBlendMode(p) => format!(
+            "CssProperty::MixBlendMode({})",
+            print_css_property_value(p, tabs, "StyleMixBlendMode")
+        ),
+        CssProperty::Filter(p) => format!(
+            "CssProperty::Filter({})",
+            print_css_property_value(p, tabs, "StyleFilterVec")
+        ),
+        CssProperty::BackdropFilter(p) => format!(
+            "CssProperty::Filter({})",
+            print_css_property_value(p, tabs, "StyleFilterVec")
+        ),
+        CssProperty::TextShadow(p) => format!(
+            "CssProperty::TextShadow({})",
+            print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::Hyphens(p) => format!(
+            "CssProperty::Hyphens({})",
+            print_css_property_value(p, tabs, "StyleHyphens")
+        ),
+        CssProperty::Direction(p) => format!(
+            "CssProperty::Direction({})",
+            print_css_property_value(p, tabs, "Direction")
+        ),
+        CssProperty::WhiteSpace(p) => format!(
+            "CssProperty::WhiteSpace({})",
+            print_css_property_value(p, tabs, "WhiteSpace")
+        ),
+        CssProperty::FlexBasis(p) => format!(
+            "CssProperty::FlexBasis({})",
+            print_css_property_value(p, tabs, "LayoutFlexBasis")
+        ),
+        CssProperty::ColumnGap(p) => format!(
+            "CssProperty::ColumnGap({})",
+            print_css_property_value(p, tabs, "LayoutColumnGap")
+        ),
+        CssProperty::RowGap(p) => format!(
+            "CssProperty::RowGap({})",
+            print_css_property_value(p, tabs, "LayoutRowGap")
+        ),
+        CssProperty::GridTemplateColumns(p) => format!(
+            "CssProperty::GridTemplateColumns({})",
+            print_css_property_value(p, tabs, "LayoutGridTemplateColumns")
+        ),
+        CssProperty::GridTemplateRows(p) => format!(
+            "CssProperty::GridTemplateRows({})",
+            print_css_property_value(p, tabs, "LayoutGridTemplateRows")
+        ),
+        CssProperty::GridAutoFlow(p) => format!(
+            "CssProperty::GridAutoFlow({})",
+            print_css_property_value(p, tabs, "LayoutGridAutoFlow")
+        ),
+        CssProperty::JustifySelf(p) => format!(
+            "CssProperty::JustifySelf({})",
+            print_css_property_value(p, tabs, "LayoutJustifySelf")
+        ),
+        CssProperty::JustifyItems(p) => format!(
+            "CssProperty::JustifyItems({})",
+            print_css_property_value(p, tabs, "LayoutJustifyItems")
+        ),
+        CssProperty::Gap(p) => format!(
+            "CssProperty::Gap({})",
+            print_css_property_value(p, tabs, "LayoutGap")
+        ),
+        CssProperty::GridGap(p) => format!(
+            "CssProperty::GridGap({})",
+            print_css_property_value(p, tabs, "LayoutGap")
+        ),
+        CssProperty::AlignSelf(p) => format!(
+            "CssProperty::AlignSelf({})",
+            print_css_property_value(p, tabs, "LayoutAlignSelf")
+        ),
+        CssProperty::Font(p) => format!(
+            "CssProperty::Font({})",
+            print_css_property_value(p, tabs, "StyleFontFamilyVec")
+        ),
+        CssProperty::GridAutoRows(p) => format!(
+            "CssProperty::GridAutoRows({})",
+            print_css_property_value(p, tabs, "LayoutGridAutoRows")
+        ),
+        CssProperty::GridAutoColumns(p) => format!(
+            "CssProperty::GridAutoColumns({})",
+            print_css_property_value(p, tabs, "LayoutGridAutoColumns")
+        ),
+        CssProperty::GridRow(p) => format!(
+            "CssProperty::GridRow({})",
+            print_css_property_value(p, tabs, "LayoutGridRow")
+        ),
+        CssProperty::GridColumn(p) => format!(
+            "CssProperty::GridColumn({})",
+            print_css_property_value(p, tabs, "LayoutGridColumn")
+        ),
+        CssProperty::WritingMode(p) => format!(
+            "CssProperty::WritingMode({})",
+            print_css_property_value(p, tabs, "LayoutWritingMode")
+        ),
+        CssProperty::Clear(p) => format!(
+            "CssProperty::Clear({})",
+            print_css_property_value(p, tabs, "LayoutClear")
+        ),
+        CssProperty::BreakBefore(p) => format!(
+            "CssProperty::BreakBefore({})",
+            print_css_property_value(p, tabs, "PageBreak")
+        ),
+        CssProperty::BreakAfter(p) => format!(
+            "CssProperty::BreakAfter({})",
+            print_css_property_value(p, tabs, "PageBreak")
+        ),
+        CssProperty::BreakInside(p) => format!(
+            "CssProperty::BreakInside({})",
+            print_css_property_value(p, tabs, "BreakInside")
+        ),
+        CssProperty::Orphans(p) => format!(
+            "CssProperty::Orphans({})",
+            print_css_property_value(p, tabs, "Orphans")
+        ),
+        CssProperty::Widows(p) => format!(
+            "CssProperty::Widows({})",
+            print_css_property_value(p, tabs, "Widows")
+        ),
+        CssProperty::BoxDecorationBreak(p) => format!(
+            "CssProperty::BoxDecorationBreak({})",
+            print_css_property_value(p, tabs, "BoxDecorationBreak")
+        ),
+        CssProperty::ColumnCount(p) => format!(
+            "CssProperty::ColumnCount({})",
+            print_css_property_value(p, tabs, "ColumnCount")
+        ),
+        CssProperty::ColumnWidth(p) => format!(
+            "CssProperty::ColumnWidth({})",
+            print_css_property_value(p, tabs, "ColumnWidth")
+        ),
+        CssProperty::ColumnSpan(p) => format!(
+            "CssProperty::ColumnSpan({})",
+            print_css_property_value(p, tabs, "ColumnSpan")
+        ),
+        CssProperty::ColumnFill(p) => format!(
+            "CssProperty::ColumnFill({})",
+            print_css_property_value(p, tabs, "ColumnFill")
+        ),
+        CssProperty::ColumnRuleWidth(p) => format!(
+            "CssProperty::ColumnRuleWidth({})",
+            print_css_property_value(p, tabs, "ColumnRuleWidth")
+        ),
+        CssProperty::ColumnRuleStyle(p) => format!(
+            "CssProperty::ColumnRuleStyle({})",
+            print_css_property_value(p, tabs, "ColumnRuleStyle")
+        ),
+        CssProperty::ColumnRuleColor(p) => format!(
+            "CssProperty::ColumnRuleColor({})",
+            print_css_property_value(p, tabs, "ColumnRuleColor")
+        ),
+        CssProperty::FlowInto(p) => format!(
+            "CssProperty::FlowInto({})",
+            print_css_property_value(p, tabs, "FlowInto")
+        ),
+        CssProperty::FlowFrom(p) => format!(
+            "CssProperty::FlowFrom({})",
+            print_css_property_value(p, tabs, "FlowFrom")
+        ),
+        CssProperty::ShapeOutside(p) => format!(
+            "CssProperty::ShapeOutside({})",
+            print_css_property_value(p, tabs, "ShapeOutside")
+        ),
+        CssProperty::ShapeMargin(p) => format!(
+            "CssProperty::ShapeMargin({})",
+            print_css_property_value(p, tabs, "ShapeMargin")
+        ),
+        CssProperty::ShapeImageThreshold(p) => format!(
+            "CssProperty::ShapeImageThreshold({})",
+            print_css_property_value(p, tabs, "ShapeImageThreshold")
+        ),
+        CssProperty::Content(p) => format!(
+            "CssProperty::Content({})",
+            print_css_property_value(p, tabs, "Content")
+        ),
+        CssProperty::CounterReset(p) => format!(
+            "CssProperty::CounterReset({})",
+            print_css_property_value(p, tabs, "CounterReset")
+        ),
+        CssProperty::CounterIncrement(p) => format!(
+            "CssProperty::CounterIncrement({})",
+            print_css_property_value(p, tabs, "CounterIncrement")
+        ),
+        CssProperty::StringSet(p) => format!(
+            "CssProperty::StringSet({})",
+            print_css_property_value(p, tabs, "StringSet")
+        ),
+    }
+}
+
+fn print_css_property_value<T: FormatAsRustCode>(
+    prop_val: &CssPropertyValue<T>,
+    tabs: usize,
+    property_value_type: &'static str,
+) -> String {
+    match prop_val {
+        CssPropertyValue::Auto => format!("{}Value::Auto", property_value_type),
+        CssPropertyValue::None => format!("{}Value::None", property_value_type),
+        CssPropertyValue::Initial => format!("{}Value::Initial", property_value_type),
+        CssPropertyValue::Inherit => format!("{}Value::Inherit", property_value_type),
+        CssPropertyValue::Exact(t) => format!(
+            "{}Value::Exact({})",
+            property_value_type,
+            t.format_as_rust_code(tabs)
+        ),
     }
 }

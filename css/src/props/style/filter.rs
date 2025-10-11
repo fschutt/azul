@@ -12,20 +12,25 @@ use crate::props::basic::{
     length::parse_float_value,
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
-use crate::props::{
-    basic::{
-        color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-        length::{FloatValue, PercentageParseError, PercentageValue},
-        pixel::{
-            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+use crate::{
+    format_rust_code::GetHash,
+    props::{
+        basic::{
+            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            length::{FloatValue, PercentageParseError, PercentageValue},
+            pixel::{
+                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+                PixelValue,
+            },
         },
-    },
-    formatter::PrintAsCssValue,
-    style::{
-        box_shadow::{
-            parse_style_box_shadow, CssShadowParseError, CssShadowParseErrorOwned, StyleBoxShadow,
+        formatter::PrintAsCssValue,
+        style::{
+            box_shadow::{
+                parse_style_box_shadow, CssShadowParseError, CssShadowParseErrorOwned,
+                StyleBoxShadow,
+            },
+            effects::{parse_style_mix_blend_mode, MixBlendModeParseError, StyleMixBlendMode},
         },
-        effects::{parse_style_mix_blend_mode, MixBlendModeParseError, StyleMixBlendMode},
     },
 };
 
@@ -95,6 +100,16 @@ impl PrintAsCssValue for StyleFilterVec {
             .map(|f| f.print_as_css_value())
             .collect::<Vec<_>>()
             .join(" ")
+    }
+}
+
+// Formatting to Rust code for StyleFilterVec
+impl crate::format_rust_code::FormatAsRustCode for StyleFilterVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleFilterVec::from_const_slice(STYLE_FILTER_{}_ITEMS)",
+            self.get_hash()
+        )
     }
 }
 

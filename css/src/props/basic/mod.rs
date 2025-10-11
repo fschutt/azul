@@ -11,8 +11,9 @@ pub mod image;
 pub mod length;
 pub mod parse;
 pub mod pixel;
+pub mod time;
 
 pub use self::{
     angle::*, animation::*, color::*, direction::*, error::*, font::*, geometry::*, image::*,
-    length::*, pixel::*,
+    length::*, pixel::*, time::*,
 };

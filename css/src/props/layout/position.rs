@@ -312,6 +312,18 @@ pub enum LayoutZIndex {
     Integer(i32),
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for LayoutZIndex {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutZIndex::Auto => String::from("LayoutZIndex::Auto"),
+            LayoutZIndex::Integer(val) => {
+                format!("LayoutZIndex::Integer({})", val)
+            }
+        }
+    }
+}
+
 impl Default for LayoutZIndex {
     fn default() -> Self {
         LayoutZIndex::Auto

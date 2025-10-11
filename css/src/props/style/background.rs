@@ -17,6 +17,7 @@ use crate::props::basic::{
 };
 use crate::{
     corety::AzString,
+    format_rust_code::GetHash,
     props::{
         basic::{
             angle::{
@@ -120,6 +121,34 @@ impl PrintAsCssValue for StyleBackgroundContent {
             StyleBackgroundContent::Image(id) => format!("url(\"{}\")", id.as_str()),
             StyleBackgroundContent::Color(c) => c.to_hash(),
         }
+    }
+}
+
+// Formatting to Rust code for background-related vecs
+impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundSizeVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleBackgroundSizeVec::from_const_slice(STYLE_BACKGROUND_SIZE_{}_ITEMS)",
+            self.get_hash()
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundRepeatVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleBackgroundRepeatVec::from_const_slice(STYLE_BACKGROUND_REPEAT_{}_ITEMS)",
+            self.get_hash()
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundContentVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_{}_ITEMS)",
+            self.get_hash()
+        )
     }
 }
 
@@ -420,6 +449,16 @@ impl PrintAsCssValue for StyleBackgroundPositionVec {
             .map(|v| v.print_as_css_value())
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+// Formatting to Rust code for StyleBackgroundPositionVec
+impl crate::format_rust_code::FormatAsRustCode for StyleBackgroundPositionVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleBackgroundPositionVec::from_const_slice(STYLE_BACKGROUND_POSITION_{}_ITEMS)",
+            self.get_hash()
+        )
     }
 }
 

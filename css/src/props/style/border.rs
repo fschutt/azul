@@ -155,6 +155,43 @@ define_border_side_property!(StyleBorderRightStyle, BorderStyle, BorderStyle::No
 define_border_side_property!(StyleBorderBottomStyle, BorderStyle, BorderStyle::None);
 define_border_side_property!(StyleBorderLeftStyle, BorderStyle, BorderStyle::None);
 
+// Formatting implementations for border side style values
+impl crate::format_rust_code::FormatAsRustCode for StyleBorderTopStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "StyleBorderTopStyle {{ inner: {} }}",
+            &self.inner.format_as_rust_code(tabs)
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleBorderRightStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "StyleBorderRightStyle {{ inner: {} }}",
+            &self.inner.format_as_rust_code(tabs)
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleBorderLeftStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "StyleBorderLeftStyle {{ inner: {} }}",
+            &self.inner.format_as_rust_code(tabs)
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleBorderBottomStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "StyleBorderBottomStyle {{ inner: {} }}",
+            &self.inner.format_as_rust_code(tabs)
+        )
+    }
+}
+
 // Border Color (border-*-color)
 define_border_side_property!(StyleBorderTopColor, ColorU);
 define_border_side_property!(StyleBorderRightColor, ColorU);

@@ -18,6 +18,7 @@ use core::{
 use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
 use crate::{
     corety::{AzString, U8Vec},
+    format_rust_code::{FormatAsRustCode, GetHash},
     props::{
         basic::{
             error::{InvalidValueErr, InvalidValueErrOwned},
@@ -290,6 +291,16 @@ impl PrintAsCssValue for StyleFontFamilyVec {
     }
 }
 
+// Formatting to Rust code for StyleFontFamilyVec
+impl crate::format_rust_code::FormatAsRustCode for StyleFontFamilyVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_{}_ITEMS)",
+            self.get_hash()
+        )
+    }
+}
+
 // --- PARSERS ---
 
 // -- Font Weight Parser --
@@ -298,6 +309,23 @@ impl PrintAsCssValue for StyleFontFamilyVec {
 pub enum CssFontWeightParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
     InvalidNumber(ParseIntError),
+}
+
+// Formatting to Rust code for StyleFontFamily
+impl crate::format_rust_code::FormatAsRustCode for StyleFontFamily {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            StyleFontFamily::System(id) => {
+                format!("StyleFontFamily::System(STRING_{})", id.get_hash())
+            }
+            StyleFontFamily::File(path) => {
+                format!("StyleFontFamily::File(STRING_{})", path.get_hash())
+            }
+            StyleFontFamily::Ref(font_ref) => {
+                format!("StyleFontFamily::Ref({:0x})", font_ref.data as usize)
+            }
+        }
+    }
 }
 impl_debug_as_display!(CssFontWeightParseError<'a>);
 impl_display! { CssFontWeightParseError<'a>, {

@@ -136,6 +136,45 @@ impl PrintAsCssValue for ScrollbarStyle {
     }
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for ScrollbarStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        let t1 = String::from("    ").repeat(tabs + 1);
+        format!(
+            "ScrollbarStyle {{\r\n{}horizontal: {},\r\n{}vertical: {},\r\n{}}}",
+            t1,
+            crate::format_rust_code::format_scrollbar_info(&self.horizontal, tabs + 1),
+            t1,
+            crate::format_rust_code::format_scrollbar_info(&self.vertical, tabs + 1),
+            t,
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for LayoutScrollbarWidth {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutScrollbarWidth::Auto => String::from("LayoutScrollbarWidth::Auto"),
+            LayoutScrollbarWidth::Thin => String::from("LayoutScrollbarWidth::Thin"),
+            LayoutScrollbarWidth::None => String::from("LayoutScrollbarWidth::None"),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleScrollbarColor {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            StyleScrollbarColor::Auto => String::from("StyleScrollbarColor::Auto"),
+            StyleScrollbarColor::Custom { thumb, track } => format!(
+                "StyleScrollbarColor::Custom {{ thumb: {}, track: {} }}",
+                crate::format_rust_code::format_color_value(thumb),
+                crate::format_rust_code::format_color_value(track)
+            ),
+        }
+    }
+}
+
 // --- Final Computed Style ---
 
 /// The final, resolved style for a scrollbar, after considering both

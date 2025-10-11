@@ -79,6 +79,34 @@ impl PrintAsCssValue for StringSet {
     }
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for Content {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("Content {{ inner: String::from({:?}) }}", self.inner)
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for CounterReset {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("CounterReset {{ inner: String::from({:?}) }}", self.inner)
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for CounterIncrement {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "CounterIncrement {{ inner: String::from({:?}) }}",
+            self.inner
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StringSet {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StringSet {{ inner: String::from({:?}) }}", self.inner)
+    }
+}
+
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]

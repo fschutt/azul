@@ -76,6 +76,34 @@ impl PrintAsCssValue for ShapeImageThreshold {
     }
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for ShapeOutside {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ShapeOutside::None => String::from("ShapeOutside::None"),
+            ShapeOutside::Shape(s) => format!("ShapeOutside::Shape(String::from({:?}))", s),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ShapeMargin {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ShapeMargin {{ inner: {} }}",
+            crate::format_rust_code::format_pixel_value(&self.inner)
+        )
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ShapeImageThreshold {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ShapeImageThreshold {{ inner: {} }}",
+            crate::format_rust_code::format_float_value(&self.inner)
+        )
+    }
+}
+
 // --- PARSERS ---
 #[cfg(feature = "parser")]
 mod parser {

@@ -271,6 +271,17 @@ macro_rules! multi_type_parser {
 macro_rules! css_property_from_type {
     ($prop_type:expr, $content_type:ident) => {{
         match $prop_type {
+            CssPropertyType::CaretColor => CssProperty::CaretColor(CssPropertyValue::$content_type),
+            CssPropertyType::CaretAnimationDuration => {
+                CssProperty::CaretAnimationDuration(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::SelectionBackgroundColor => {
+                CssProperty::SelectionBackgroundColor(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::SelectionColor => {
+                CssProperty::SelectionColor(CssPropertyValue::$content_type)
+            }
+
             CssPropertyType::TextColor => CssProperty::TextColor(CssPropertyValue::$content_type),
             CssPropertyType::FontSize => CssProperty::FontSize(CssPropertyValue::$content_type),
             CssPropertyType::FontFamily => CssProperty::FontFamily(CssPropertyValue::$content_type),

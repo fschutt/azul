@@ -8,6 +8,7 @@ use crate::props::{
         error::{InvalidValueErr, InvalidValueErrOwned},
         length::{PercentageParseError, PercentageParseErrorOwned, PercentageValue},
         pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+        ColorU, Duration,
     },
     formatter::PrintAsCssValue,
     macros::PixelValueTaker,
@@ -318,7 +319,10 @@ impl PrintAsCssValue for StyleVerticalAlign {
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
-use crate::props::basic::color::{parse_css_color, CssColorParseError, CssColorParseErrorOwned};
+use crate::props::basic::{
+    color::{parse_css_color, CssColorParseError, CssColorParseErrorOwned},
+    DurationParseError,
+};
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
@@ -823,6 +827,82 @@ pub fn parse_style_vertical_align(
             other,
         ))),
     }
+}
+
+// --- CaretColor ---
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CaretColor {
+    pub inner: ColorU,
+}
+
+impl Default for CaretColor {
+    fn default() -> Self {
+        Self {
+            inner: ColorU::BLACK,
+        }
+    }
+}
+
+impl PrintAsCssValue for CaretColor {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_hash()
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for CaretColor {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "CaretColor {{ inner: {} }}",
+            crate::format_rust_code::format_color_value(&self.inner)
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_caret_color(input: &str) -> Result<CaretColor, CssColorParseError> {
+    parse_css_color(input).map(|inner| CaretColor { inner })
+}
+
+// --- CaretAnimationDuration ---
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CaretAnimationDuration {
+    pub inner: Duration,
+}
+
+impl Default for CaretAnimationDuration {
+    fn default() -> Self {
+        Self {
+            inner: Duration { inner: 500 },
+        } // Default 500ms blink time
+    }
+}
+
+impl PrintAsCssValue for CaretAnimationDuration {
+    fn print_as_css_value(&self) -> String {
+        self.inner.print_as_css_value()
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for CaretAnimationDuration {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "CaretAnimationDuration {{ inner: {} }}",
+            self.inner.format_as_rust_code(0)
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_caret_animation_duration(
+    input: &str,
+) -> Result<CaretAnimationDuration, DurationParseError> {
+    use crate::props::basic::parse_duration;
+
+    parse_duration(input).map(|inner| CaretAnimationDuration { inner })
 }
 
 #[cfg(all(test, feature = "parser"))]

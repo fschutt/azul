@@ -131,6 +131,58 @@ impl PrintAsCssValue for BoxDecorationBreak {
     }
 }
 
+// Formatting to Rust code
+impl crate::format_rust_code::FormatAsRustCode for PageBreak {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            PageBreak::Auto => String::from("PageBreak::Auto"),
+            PageBreak::Avoid => String::from("PageBreak::Avoid"),
+            PageBreak::Always => String::from("PageBreak::Always"),
+            PageBreak::All => String::from("PageBreak::All"),
+            PageBreak::Page => String::from("PageBreak::Page"),
+            PageBreak::AvoidPage => String::from("PageBreak::AvoidPage"),
+            PageBreak::Left => String::from("PageBreak::Left"),
+            PageBreak::Right => String::from("PageBreak::Right"),
+            PageBreak::Recto => String::from("PageBreak::Recto"),
+            PageBreak::Verso => String::from("PageBreak::Verso"),
+            PageBreak::Column => String::from("PageBreak::Column"),
+            PageBreak::AvoidColumn => String::from("PageBreak::AvoidColumn"),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for BreakInside {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            BreakInside::Auto => String::from("BreakInside::Auto"),
+            BreakInside::Avoid => String::from("BreakInside::Avoid"),
+            BreakInside::AvoidPage => String::from("BreakInside::AvoidPage"),
+            BreakInside::AvoidColumn => String::from("BreakInside::AvoidColumn"),
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for Widows {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("Widows {{ inner: {} }}", self.inner)
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for Orphans {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("Orphans {{ inner: {} }}", self.inner)
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for BoxDecorationBreak {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            BoxDecorationBreak::Slice => String::from("BoxDecorationBreak::Slice"),
+            BoxDecorationBreak::Clone => String::from("BoxDecorationBreak::Clone"),
+        }
+    }
+}
+
 // --- PARSERS ---
 
 #[cfg(feature = "parser")]
