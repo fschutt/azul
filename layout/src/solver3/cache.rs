@@ -45,6 +45,53 @@ use crate::{
     },
 };
 
+pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
+    let Some(id) = dom_id else {
+        return CssSize::Auto;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache.ptr
+        .get_width(node_data, &id, node_state)
+        .and_then(|w| w.0.to_px())
+        .map(CssSize::Px)
+        .unwrap_or(CssSize::Auto)
+}
+
+pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
+    let Some(id) = dom_id else {
+        return CssSize::Auto;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_height(node_data, &id, node_state)
+        .and_then(|h| h.0.to_px())
+        .map(CssSize::Px)
+        .unwrap_or(CssSize::Auto)
+}
+
+pub fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
+    let Some(id) = dom_id else {
+        return WritingMode::HorizontalTb;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_writing_mode(node_data, &id, node_state)
+        .map(|wm| match wm {
+            azul_css::props::layout::LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
+            azul_css::props::layout::LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
+            azul_css::props::layout::LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
+        })
+        .unwrap_or(WritingMode::HorizontalTb)
+}
+
 /// The persistent cache that holds the layout state between frames.
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache<T: ParsedFontTrait> {
@@ -568,33 +615,4 @@ pub fn get_overflow_from_css(
         get_overflow(CssPropertyType::OverflowX),
         get_overflow(CssPropertyType::OverflowY),
     )
-}
-
-// STUB: In a real implementation, this would read the 'width' property.
-pub fn get_css_width(dom_id: Option<NodeId>) -> CssSize {
-    CssSize::Auto
-}
-// STUB: In a real implementation, this would read the 'height' property.
-pub fn get_css_height(dom_id: Option<NodeId>) -> CssSize {
-    CssSize::Auto
-}
-// STUB: In a real implementation, this would read the 'writing-mode' property.
-pub fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
-    let Some(id) = dom_id else {
-        return WritingMode::HorizontalTb;
-    };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(CssProperty::WritingMode(CssPropertyValue::Exact(wm))) = styled_node
-            .state
-            .get_style()
-            .get(&CssPropertyType::WritingMode)
-        {
-            return match wm {
-                LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
-                LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
-                LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
-            };
-        }
-    }
-    WritingMode::HorizontalTb
 }

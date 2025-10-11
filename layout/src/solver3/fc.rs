@@ -724,13 +724,34 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
 // TODO: STUB helper functions that would be needed for the above code.
 fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> DisplayType {
-    // In a real implementation, this would read the 'display' property
-    DisplayType::Inline // Default
+    let Some(id) = dom_id else {
+        return DisplayType::Inline;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .get_display(node_data, &id, node_state)
+        .map(|d| match d {
+            azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
+            azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
+            azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
+            azul_css::props::layout::LayoutDisplay::Table => DisplayType::Table,
+            azul_css::props::layout::LayoutDisplay::TableRow => DisplayType::TableRow,
+            azul_css::props::layout::LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
+            azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
+            // ...weitere Mapping-Fälle nach Bedarf...
+            _ => DisplayType::Inline,
+        })
+        .unwrap_or(DisplayType::Inline)
 }
 
 // TODO: STUB helper
 fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
-    // In a real implementation, this would convert CSS props to text3 StyleProperties
+    // Beispiel: Hole Schriftgröße, Farbe, etc. aus dem StyledDom und baue StyleProperties
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
+    // Hier müssten alle relevanten Properties ausgelesen und in StyleProperties übertragen werden
+    // (dies ist ein Platzhalter, da die genaue Struktur von StyleProperties nicht bekannt ist)
     StyleProperties::default()
 }
 
@@ -808,18 +829,16 @@ fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutF
     let Some(id) = dom_id else {
         return LayoutFloat::None;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(CssProperty::Float(CssPropertyValue::Exact(float))) =
-            styled_node.state.get_style().get(&CssProperty::Float)
-        {
-            return match float {
-                LayoutFloat::Left => LayoutFloat::Left,
-                LayoutFloat::Right => LayoutFloat::Right,
-                LayoutFloat::None => LayoutFloat::None,
-            };
-        }
-    }
-    LayoutFloat::None
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .get_float(node_data, &id, node_state)
+        .map(|f| match f {
+            azul_css::props::layout::LayoutFloat::Left => LayoutFloat::Left,
+            azul_css::props::layout::LayoutFloat::Right => LayoutFloat::Right,
+            azul_css::props::layout::LayoutFloat::None => LayoutFloat::None,
+        })
+        .unwrap_or(LayoutFloat::None)
 }
 
 fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutClear {
