@@ -324,6 +324,13 @@ macro_rules! css_property_from_type {
             CssPropertyType::GridAutoColumns => {
                 CssProperty::GridAutoColumns(CssPropertyValue::$content_type)
             }
+            CssPropertyType::GridAutoFlow => CssProperty::GridAutoFlow(CssPropertyValue::$content_type),
+            CssPropertyType::JustifySelf => CssProperty::JustifySelf(CssPropertyValue::$content_type),
+            CssPropertyType::JustifyItems => CssProperty::JustifyItems(CssPropertyValue::$content_type),
+            CssPropertyType::Gap => CssProperty::Gap(CssPropertyValue::$content_type),
+            CssPropertyType::GridGap => CssProperty::GridGap(CssPropertyValue::$content_type),
+            CssPropertyType::AlignSelf => CssProperty::AlignSelf(CssPropertyValue::$content_type),
+            CssPropertyType::Font => CssProperty::Font(CssPropertyValue::$content_type),
             CssPropertyType::GridAutoRows => {
                 CssProperty::GridAutoRows(CssPropertyValue::$content_type)
             }

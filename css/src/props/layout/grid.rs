@@ -6,6 +6,7 @@ use alloc::{
 };
 
 use crate::props::{basic::pixel::PixelValue, formatter::PrintAsCssValue};
+use crate::format_rust_code::FormatAsRustCode;
 
 // --- grid-template-columns / grid-template-rows ---
 
@@ -334,6 +335,320 @@ pub fn parse_grid_placement<'a>(input: &'a str) -> Result<GridPlacement, GridPar
     };
 
     Ok(GridPlacement { start, end })
+}
+
+// --- grid-auto-flow ---
+
+/// Represents the `grid-auto-flow` property
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutGridAutoFlow {
+    Row,
+    Column,
+    RowDense,
+    ColumnDense,
+}
+
+impl Default for LayoutGridAutoFlow {
+    fn default() -> Self {
+        LayoutGridAutoFlow::Row
+    }
+}
+
+impl crate::props::formatter::PrintAsCssValue for LayoutGridAutoFlow {
+    fn print_as_css_value(&self) -> alloc::string::String {
+        match self {
+            LayoutGridAutoFlow::Row => "row".to_string(),
+            LayoutGridAutoFlow::Column => "column".to_string(),
+            LayoutGridAutoFlow::RowDense => "row dense".to_string(),
+            LayoutGridAutoFlow::ColumnDense => "column dense".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum GridAutoFlowParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+impl_debug_as_display!(GridAutoFlowParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { GridAutoFlowParseError<'a>, {
+    InvalidValue(e) => format!("Invalid grid-auto-flow value: \"{}\"", e),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridAutoFlowParseErrorOwned {
+    InvalidValue(alloc::string::String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> GridAutoFlowParseError<'a> {
+    pub fn to_contained(&self) -> GridAutoFlowParseErrorOwned {
+        match self {
+            GridAutoFlowParseError::InvalidValue(s) => {
+                GridAutoFlowParseErrorOwned::InvalidValue(s.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl GridAutoFlowParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> GridAutoFlowParseError<'a> {
+        match self {
+            GridAutoFlowParseErrorOwned::InvalidValue(s) => {
+                GridAutoFlowParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_grid_auto_flow<'a>(input: &'a str) -> Result<LayoutGridAutoFlow, GridAutoFlowParseError<'a>> {
+    match input.trim() {
+        "row" => Ok(LayoutGridAutoFlow::Row),
+        "column" => Ok(LayoutGridAutoFlow::Column),
+        "row dense" => Ok(LayoutGridAutoFlow::RowDense),
+        "column dense" => Ok(LayoutGridAutoFlow::ColumnDense),
+        "dense" => Ok(LayoutGridAutoFlow::RowDense),
+        _ => Err(GridAutoFlowParseError::InvalidValue(input)),
+    }
+}
+
+// --- justify-self / justify-items ---
+
+/// Represents `justify-self` for grid items
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutJustifySelf {
+    Auto,
+    Start,
+    End,
+    Center,
+    Stretch,
+}
+
+impl Default for LayoutJustifySelf {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl crate::props::formatter::PrintAsCssValue for LayoutJustifySelf {
+    fn print_as_css_value(&self) -> alloc::string::String {
+        match self {
+            LayoutJustifySelf::Auto => "auto".to_string(),
+            LayoutJustifySelf::Start => "start".to_string(),
+            LayoutJustifySelf::End => "end".to_string(),
+            LayoutJustifySelf::Center => "center".to_string(),
+            LayoutJustifySelf::Stretch => "stretch".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum JustifySelfParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum JustifySelfParseErrorOwned {
+    InvalidValue(alloc::string::String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> JustifySelfParseError<'a> {
+    pub fn to_contained(&self) -> JustifySelfParseErrorOwned {
+        match self {
+            JustifySelfParseError::InvalidValue(s) => {
+                JustifySelfParseErrorOwned::InvalidValue(s.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl JustifySelfParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> JustifySelfParseError<'a> {
+        match self {
+            JustifySelfParseErrorOwned::InvalidValue(s) => {
+                JustifySelfParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_debug_as_display!(JustifySelfParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { JustifySelfParseError<'a>, {
+    InvalidValue(e) => format!("Invalid justify-self value: \"{}\"", e),
+}}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_justify_self<'a>(input: &'a str) -> Result<LayoutJustifySelf, JustifySelfParseError<'a>> {
+    match input.trim() {
+        "auto" => Ok(LayoutJustifySelf::Auto),
+        "start" | "flex-start" => Ok(LayoutJustifySelf::Start),
+        "end" | "flex-end" => Ok(LayoutJustifySelf::End),
+        "center" => Ok(LayoutJustifySelf::Center),
+        "stretch" => Ok(LayoutJustifySelf::Stretch),
+        _ => Err(JustifySelfParseError::InvalidValue(input)),
+    }
+}
+
+/// Represents `justify-items` for grid containers
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutJustifyItems {
+    Start,
+    End,
+    Center,
+    Stretch,
+}
+
+impl Default for LayoutJustifyItems {
+    fn default() -> Self {
+        Self::Stretch
+    }
+}
+
+impl crate::props::formatter::PrintAsCssValue for LayoutJustifyItems {
+    fn print_as_css_value(&self) -> alloc::string::String {
+        match self {
+            LayoutJustifyItems::Start => "start".to_string(),
+            LayoutJustifyItems::End => "end".to_string(),
+            LayoutJustifyItems::Center => "center".to_string(),
+            LayoutJustifyItems::Stretch => "stretch".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum JustifyItemsParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum JustifyItemsParseErrorOwned {
+    InvalidValue(alloc::string::String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> JustifyItemsParseError<'a> {
+    pub fn to_contained(&self) -> JustifyItemsParseErrorOwned {
+        match self {
+            JustifyItemsParseError::InvalidValue(s) => {
+                JustifyItemsParseErrorOwned::InvalidValue(s.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl JustifyItemsParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> JustifyItemsParseError<'a> {
+        match self {
+            JustifyItemsParseErrorOwned::InvalidValue(s) => {
+                JustifyItemsParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_debug_as_display!(JustifyItemsParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { JustifyItemsParseError<'a>, {
+    InvalidValue(e) => format!("Invalid justify-items value: \"{}\"", e),
+}}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_justify_items<'a>(input: &'a str) -> Result<LayoutJustifyItems, JustifyItemsParseError<'a>> {
+    match input.trim() {
+        "start" => Ok(LayoutJustifyItems::Start),
+        "end" => Ok(LayoutJustifyItems::End),
+        "center" => Ok(LayoutJustifyItems::Center),
+        "stretch" => Ok(LayoutJustifyItems::Stretch),
+        _ => Err(JustifyItemsParseError::InvalidValue(input)),
+    }
+}
+
+// --- gap (single value type) ---
+
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutGap {
+    pub inner: crate::props::basic::pixel::PixelValue,
+}
+
+impl core::fmt::Debug for LayoutGap {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl crate::props::formatter::PrintAsCssValue for LayoutGap {
+    fn print_as_css_value(&self) -> alloc::string::String {
+        self.inner.print_as_css_value()
+    }
+}
+
+// Implement FormatAsRustCode for the new types so they can be emitted by the
+// code generator.
+impl FormatAsRustCode for LayoutGridAutoFlow {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("LayoutGridAutoFlow::{}", match self {
+            LayoutGridAutoFlow::Row => "Row",
+            LayoutGridAutoFlow::Column => "Column",
+            LayoutGridAutoFlow::RowDense => "RowDense",
+            LayoutGridAutoFlow::ColumnDense => "ColumnDense",
+        })
+    }
+}
+
+impl FormatAsRustCode for LayoutJustifySelf {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("LayoutJustifySelf::{}", match self {
+            LayoutJustifySelf::Auto => "Auto",
+            LayoutJustifySelf::Start => "Start",
+            LayoutJustifySelf::End => "End",
+            LayoutJustifySelf::Center => "Center",
+            LayoutJustifySelf::Stretch => "Stretch",
+        })
+    }
+}
+
+impl FormatAsRustCode for LayoutJustifyItems {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("LayoutJustifyItems::{}", match self {
+            LayoutJustifyItems::Start => "Start",
+            LayoutJustifyItems::End => "End",
+            LayoutJustifyItems::Center => "Center",
+            LayoutJustifyItems::Stretch => "Stretch",
+        })
+    }
+}
+
+impl FormatAsRustCode for LayoutGap {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        // LayoutGap wraps a PixelValue which implements FormatAsRustCode via helpers;
+        // print as LayoutGap::Exact(LAYERVALUE) is not required here — use the CSS string
+        format!("LayoutGap::Exact({})", self.inner)
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_layout_gap<'a>(input: &'a str) -> Result<LayoutGap, crate::props::basic::pixel::CssPixelValueParseError<'a>> {
+    crate::props::basic::pixel::parse_pixel_value(input).map(|p| LayoutGap { inner: p })
 }
 
 #[cfg(feature = "parser")]

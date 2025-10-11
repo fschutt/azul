@@ -39,7 +39,7 @@ use crate::{
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 12] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 18] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -52,9 +52,15 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::BoxShadow, "box-shadow"),
     (CombinedCssPropertyType::BackgroundColor, "background-color"),
     (CombinedCssPropertyType::BackgroundImage, "background-image"),
+    (CombinedCssPropertyType::Background, "background"),
+    (CombinedCssPropertyType::Flex, "flex"),
+    (CombinedCssPropertyType::Grid, "grid"),
+    (CombinedCssPropertyType::Gap, "gap"),
+    (CombinedCssPropertyType::GridGap, "grid-gap"),
+    (CombinedCssPropertyType::Font, "font"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 90] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 97] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -160,6 +166,13 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 90] = [
     (CssPropertyType::Filter, "filter"),
     (CssPropertyType::BackdropFilter, "backdrop-filter"),
     (CssPropertyType::TextShadow, "text-shadow"),
+    (CssPropertyType::GridAutoFlow, "grid-auto-flow"),
+    (CssPropertyType::JustifySelf, "justify-self"),
+    (CssPropertyType::JustifyItems, "justify-items"),
+    (CssPropertyType::Gap, "gap"),
+    (CssPropertyType::GridGap, "grid-gap"),
+    (CssPropertyType::AlignSelf, "align-self"),
+    (CssPropertyType::Font, "font"),
 ];
 
 // Type aliases for `CssPropertyValue<T>`
@@ -248,6 +261,12 @@ pub type LayoutGridColumnValue = CssPropertyValue<GridPlacement>;
 pub type LayoutGridRowValue = CssPropertyValue<GridPlacement>;
 pub type LayoutWritingModeValue = CssPropertyValue<LayoutWritingMode>;
 pub type LayoutClearValue = CssPropertyValue<LayoutClear>;
+pub type LayoutGridAutoFlowValue = CssPropertyValue<LayoutGridAutoFlow>;
+pub type LayoutJustifySelfValue = CssPropertyValue<LayoutJustifySelf>;
+pub type LayoutJustifyItemsValue = CssPropertyValue<LayoutJustifyItems>;
+pub type LayoutGapValue = CssPropertyValue<LayoutGap>;
+pub type LayoutAlignSelfValue = CssPropertyValue<LayoutAlignSelf>;
+pub type StyleFontValue = CssPropertyValue<StyleFontFamilyVec>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -288,6 +307,12 @@ pub enum CombinedCssPropertyType {
     BoxShadow,
     BackgroundColor, // BackgroundContent::Color
     BackgroundImage, // BackgroundContent::Image
+    Background,
+    Flex,
+    Grid,
+    Gap,
+    GridGap,
+    Font,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -385,6 +410,13 @@ pub enum CssProperty {
     BackgroundRepeat(StyleBackgroundRepeatVecValue),
     OverflowX(LayoutOverflowValue),
     OverflowY(LayoutOverflowValue),
+    GridAutoFlow(LayoutGridAutoFlowValue),
+    JustifySelf(LayoutJustifySelfValue),
+    JustifyItems(LayoutJustifyItemsValue),
+    Gap(LayoutGapValue),
+    GridGap(LayoutGapValue),
+    AlignSelf(LayoutAlignSelfValue),
+    Font(StyleFontValue),
     PaddingTop(LayoutPaddingTopValue),
     PaddingLeft(LayoutPaddingLeftValue),
     PaddingRight(LayoutPaddingRightValue),
@@ -489,6 +521,13 @@ pub enum CssPropertyType {
     GridAutoRows,
     GridColumn,
     GridRow,
+    GridAutoFlow,
+    JustifySelf,
+    JustifyItems,
+    Gap,
+    GridGap,
+    AlignSelf,
+    Font,
     WritingMode,
     Clear,
     BackgroundContent,
@@ -612,6 +651,13 @@ impl CssPropertyType {
             CssPropertyType::RowGap => "row-gap",
             CssPropertyType::GridTemplateColumns => "grid-template-columns",
             CssPropertyType::GridTemplateRows => "grid-template-rows",
+            CssPropertyType::GridAutoFlow => "grid-auto-flow",
+            CssPropertyType::JustifySelf => "justify-self",
+            CssPropertyType::JustifyItems => "justify-items",
+            CssPropertyType::Gap => "gap",
+            CssPropertyType::GridGap => "grid-gap",
+            CssPropertyType::AlignSelf => "align-self",
+            CssPropertyType::Font => "font",
             CssPropertyType::GridAutoColumns => "grid-auto-columns",
             CssPropertyType::GridAutoRows => "grid-auto-rows",
             CssPropertyType::GridColumn => "grid-column",
@@ -826,6 +872,10 @@ pub enum CssParsingError<'a> {
 
     // Layout grid
     Grid(GridParseError<'a>),
+    GridAutoFlow(GridAutoFlowParseError<'a>),
+    JustifySelf(JustifySelfParseError<'a>),
+    JustifyItems(JustifyItemsParseError<'a>),
+    AlignSelf(AlignSelfParseError<'a>),
 
     // Layout wrapping
     LayoutWrap(LayoutWrapParseError<'a>),
@@ -922,6 +972,10 @@ pub enum CssParsingErrorOwned {
 
     // Layout grid
     Grid(GridParseErrorOwned),
+    GridAutoFlow(GridAutoFlowParseErrorOwned),
+    JustifySelf(JustifySelfParseErrorOwned),
+    JustifyItems(JustifyItemsParseErrorOwned),
+    AlignSelf(AlignSelfParseErrorOwned),
 
     // Layout wrapping
     LayoutWrap(LayoutWrapParseErrorOwned),
@@ -990,6 +1044,10 @@ impl_display! { CssParsingError<'a>, {
     JustifyContent(e) => format!("Invalid justify-content value: {}", e),
     AlignItems(e) => format!("Invalid align-items value: {}", e),
     AlignContent(e) => format!("Invalid align-content value: {}", e),
+    GridAutoFlow(e) => format!("Invalid grid-auto-flow value: {}", e),
+    JustifySelf(e) => format!("Invalid justify-self value: {}", e),
+    JustifyItems(e) => format!("Invalid justify-items value: {}", e),
+    AlignSelf(e) => format!("Invalid align-self value: {}", e),
     Grid(e) => format!("Invalid grid value: {}", e),
     LayoutWrap(e) => format!("Invalid wrap value: {}", e),
     LayoutWritingMode(e) => format!("Invalid writing-mode value: {}", e),
@@ -1016,6 +1074,7 @@ impl_display! { CssParsingError<'a>, {
     LayoutDisplay(e) => format!("Invalid display: {}", e),
     LayoutFloat(e) => format!("Invalid float: {}", e),
     LayoutBoxSizing(e) => format!("Invalid box-sizing: {}", e),
+    _ => format!("Invalid parsing error"),
 }}
 
 // From impls for CssParsingError
@@ -1098,6 +1157,12 @@ impl_from!(AlignContentParseError<'a>, CssParsingError::AlignContent);
 
 // Layout grid
 impl_from!(GridParseError<'a>, CssParsingError::Grid);
+impl_from!(GridAutoFlowParseError<'a>, CssParsingError::GridAutoFlow);
+impl_from!(JustifySelfParseError<'a>, CssParsingError::JustifySelf);
+impl_from!(JustifyItemsParseError<'a>, CssParsingError::JustifyItems);
+// pixel value impl_from already exists earlier; avoid duplicate impl
+// impl_from!(CssPixelValueParseError<'a>, CssParsingError::PixelValue);
+impl_from!(AlignSelfParseError<'a>, CssParsingError::AlignSelf);
 
 // Layout wrapping
 impl_from!(LayoutWrapParseError<'a>, CssParsingError::LayoutWrap);
@@ -1206,6 +1271,10 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::BackgroundPosition(e) => {
                 CssParsingErrorOwned::BackgroundPosition(e.to_contained())
             }
+            CssParsingError::GridAutoFlow(e) => CssParsingErrorOwned::GridAutoFlow(e.to_contained()),
+            CssParsingError::JustifySelf(e) => CssParsingErrorOwned::JustifySelf(e.to_contained()),
+            CssParsingError::JustifyItems(e) => CssParsingErrorOwned::JustifyItems(e.to_contained()),
+            CssParsingError::AlignSelf(e) => CssParsingErrorOwned::AlignSelf(e.to_contained()),
             CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
             CssParsingError::Visibility(e) => CssParsingErrorOwned::Visibility(e.to_contained()),
             CssParsingError::Scrollbar(e) => CssParsingErrorOwned::Scrollbar(e.to_contained()),
@@ -1305,6 +1374,7 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::LayoutBoxSizing(e) => {
                 CssParsingErrorOwned::LayoutBoxSizing(e.to_contained())
             }
+            _ => panic!("Unhandled CssParsingError variant in to_contained()"),
         }
     }
 }
@@ -1412,6 +1482,7 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::LayoutBoxSizing(e) => {
                 CssParsingError::LayoutBoxSizing(e.to_shared())
             }
+            _ => panic!("Unhandled CssParsingErrorOwned variant in to_shared()"),
         }
     }
 }
@@ -1475,6 +1546,30 @@ pub fn parse_css_property<'a>(
             }
             CssPropertyType::GridAutoColumns => {
                 CssProperty::GridAutoColumns(parse_grid_template(value)?.into())
+            }
+            CssPropertyType::GridAutoFlow => {
+                CssProperty::GridAutoFlow(parse_layout_grid_auto_flow(value)?.into())
+            }
+            CssPropertyType::JustifySelf => {
+                CssProperty::JustifySelf(parse_layout_justify_self(value)?.into())
+            }
+            CssPropertyType::JustifyItems => {
+                CssProperty::JustifyItems(parse_layout_justify_items(value)?.into())
+            }
+            CssPropertyType::Gap => {
+                // gap shorthand: single value -> both row & column
+                CssProperty::Gap(parse_layout_gap(value)?.into())
+            }
+            CssPropertyType::GridGap => {
+                CssProperty::GridGap(parse_layout_gap(value)?.into())
+            }
+            CssPropertyType::AlignSelf => {
+                CssProperty::AlignSelf(parse_layout_align_self(value)?.into())
+            }
+            CssPropertyType::Font => {
+                // minimal font parser: map to font-family for now
+                let fam = parse_style_font_family(value)?;
+                CssProperty::Font(fam.into())
             }
             CssPropertyType::GridAutoRows => {
                 CssProperty::GridAutoRows(parse_grid_template(value)?.into())
@@ -1711,6 +1806,24 @@ pub fn parse_combined_css_property<'a>(
         }
         BackgroundImage => {
             vec![CssPropertyType::BackgroundContent]
+        }
+        Background => {
+            vec![CssPropertyType::BackgroundContent]
+        }
+        Flex => {
+            vec![CssPropertyType::FlexGrow, CssPropertyType::FlexShrink, CssPropertyType::FlexBasis]
+        }
+        Grid => {
+            vec![CssPropertyType::GridTemplateColumns, CssPropertyType::GridTemplateRows]
+        }
+        Gap => {
+            vec![CssPropertyType::RowGap, CssPropertyType::ColumnGap]
+        }
+        GridGap => {
+            vec![CssPropertyType::RowGap, CssPropertyType::ColumnGap]
+        }
+        Font => {
+            vec![CssPropertyType::Font]
         }
     };
 
@@ -1975,6 +2088,92 @@ pub fn parse_combined_css_property<'a>(
             let vec: StyleBackgroundContentVec = vec![background_content].into();
             Ok(vec![CssProperty::BackgroundContent(vec.into())])
         }
+        Background => {
+            let background_content = parse_style_background_content_multiple(value)?;
+            Ok(vec![CssProperty::BackgroundContent(background_content.into())])
+        }
+        Flex => {
+            // parse shorthand into grow/shrink/basis
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            if parts.len() == 1 && parts[0] == "none" {
+                return Ok(vec![
+                    CssProperty::FlexGrow(LayoutFlexGrow { inner: crate::props::basic::length::FloatValue::const_new(0) }.into()),
+                    CssProperty::FlexShrink(LayoutFlexShrink { inner: crate::props::basic::length::FloatValue::const_new(0) }.into()),
+                    CssProperty::FlexBasis(LayoutFlexBasis::Auto.into()),
+                ]);
+            }
+            if parts.len() == 1 {
+                // try grow or basis
+                if let Ok(g) = parse_layout_flex_grow(parts[0]) {
+                    return Ok(vec![CssProperty::FlexGrow(g.into())]);
+                }
+                if let Ok(b) = parse_layout_flex_basis(parts[0]) {
+                    return Ok(vec![CssProperty::FlexBasis(b.into())]);
+                }
+            }
+            if parts.len() == 2 {
+                if let (Ok(g), Ok(b)) = (parse_layout_flex_grow(parts[0]), parse_layout_flex_basis(parts[1])) {
+                    return Ok(vec![CssProperty::FlexGrow(g.into()), CssProperty::FlexBasis(b.into())]);
+                }
+                if let (Ok(g), Ok(s)) = (parse_layout_flex_grow(parts[0]), parse_layout_flex_shrink(parts[1])) {
+                    return Ok(vec![CssProperty::FlexGrow(g.into()), CssProperty::FlexShrink(s.into())]);
+                }
+            }
+            if parts.len() == 3 {
+                let g = parse_layout_flex_grow(parts[0])?;
+                let s = parse_layout_flex_shrink(parts[1])?;
+                let b = parse_layout_flex_basis(parts[2])?;
+                return Ok(vec![CssProperty::FlexGrow(g.into()), CssProperty::FlexShrink(s.into()), CssProperty::FlexBasis(b.into())]);
+            }
+            return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+        }
+        Grid => {
+            // minimal: try to parse as grid-template and set both columns and rows
+            let tpl = parse_grid_template(value)?;
+            Ok(vec![CssProperty::GridTemplateColumns(tpl.clone().into()), CssProperty::GridTemplateRows(tpl.into())])
+        }
+        Gap => {
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            if parts.len() == 1 {
+                let g = parse_layout_gap(parts[0])?;
+                return Ok(vec![
+                    CssProperty::RowGap(LayoutRowGap { inner: g.inner }.into()),
+                    CssProperty::ColumnGap(LayoutColumnGap { inner: g.inner }.into()),
+                ]);
+            } else if parts.len() == 2 {
+                let row = parse_layout_gap(parts[0])?;
+                let col = parse_layout_gap(parts[1])?;
+                return Ok(vec![
+                    CssProperty::RowGap(LayoutRowGap { inner: row.inner }.into()),
+                    CssProperty::ColumnGap(LayoutColumnGap { inner: col.inner }.into()),
+                ]);
+            } else {
+                return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+            }
+        }
+        GridGap => {
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            if parts.len() == 1 {
+                let g = parse_layout_gap(parts[0])?;
+                return Ok(vec![
+                    CssProperty::RowGap(LayoutRowGap { inner: g.inner }.into()),
+                    CssProperty::ColumnGap(LayoutColumnGap { inner: g.inner }.into()),
+                ]);
+            } else if parts.len() == 2 {
+                let row = parse_layout_gap(parts[0])?;
+                let col = parse_layout_gap(parts[1])?;
+                return Ok(vec![
+                    CssProperty::RowGap(LayoutRowGap { inner: row.inner }.into()),
+                    CssProperty::ColumnGap(LayoutColumnGap { inner: col.inner }.into()),
+                ]);
+            } else {
+                return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+            }
+        }
+        Font => {
+            let fam = parse_style_font_family(value)?;
+            Ok(vec![CssProperty::Font(fam.into())])
+        }
     }
 }
 
@@ -2022,6 +2221,11 @@ impl_from_css_prop!(LayoutAlignItems, CssProperty::AlignItems);
 impl_from_css_prop!(LayoutAlignContent, CssProperty::AlignContent);
 impl_from_css_prop!(LayoutColumnGap, CssProperty::ColumnGap);
 impl_from_css_prop!(LayoutRowGap, CssProperty::RowGap);
+impl_from_css_prop!(LayoutGridAutoFlow, CssProperty::GridAutoFlow);
+impl_from_css_prop!(LayoutJustifySelf, CssProperty::JustifySelf);
+impl_from_css_prop!(LayoutJustifyItems, CssProperty::JustifyItems);
+impl_from_css_prop!(LayoutGap, CssProperty::Gap);
+impl_from_css_prop!(LayoutAlignSelf, CssProperty::AlignSelf);
 impl_from_css_prop!(LayoutWritingMode, CssProperty::WritingMode);
 impl_from_css_prop!(LayoutClear, CssProperty::Clear);
 impl_from_css_prop!(StyleBackgroundContentVec, CssProperty::BackgroundContent);
@@ -2115,6 +2319,13 @@ impl CssProperty {
             CssProperty::RowGap(v) => v.get_css_value_fmt(),
             CssProperty::GridTemplateColumns(v) => v.get_css_value_fmt(),
             CssProperty::GridTemplateRows(v) => v.get_css_value_fmt(),
+            CssProperty::GridAutoFlow(v) => v.get_css_value_fmt(),
+            CssProperty::JustifySelf(v) => v.get_css_value_fmt(),
+            CssProperty::JustifyItems(v) => v.get_css_value_fmt(),
+            CssProperty::Gap(v) => v.get_css_value_fmt(),
+            CssProperty::GridGap(v) => v.get_css_value_fmt(),
+            CssProperty::AlignSelf(v) => v.get_css_value_fmt(),
+            CssProperty::Font(v) => v.get_css_value_fmt(),
             CssProperty::GridAutoColumns(v) => v.get_css_value_fmt(),
             CssProperty::GridAutoRows(v) => v.get_css_value_fmt(),
             CssProperty::GridColumn(v) => v.get_css_value_fmt(),
@@ -2488,6 +2699,13 @@ impl CssProperty {
             CssProperty::GridAutoColumns(_) => CssPropertyType::GridAutoColumns,
             CssProperty::GridAutoRows(_) => CssPropertyType::GridAutoRows,
             CssProperty::GridColumn(_) => CssPropertyType::GridColumn,
+            CssProperty::GridAutoFlow(_) => CssPropertyType::GridAutoFlow,
+            CssProperty::JustifySelf(_) => CssPropertyType::JustifySelf,
+            CssProperty::JustifyItems(_) => CssPropertyType::JustifyItems,
+            CssProperty::Gap(_) => CssPropertyType::Gap,
+            CssProperty::GridGap(_) => CssPropertyType::GridGap,
+            CssProperty::AlignSelf(_) => CssPropertyType::AlignSelf,
+            CssProperty::Font(_) => CssPropertyType::Font,
             CssProperty::GridRow(_) => CssPropertyType::GridRow,
             CssProperty::WritingMode(_) => CssPropertyType::WritingMode,
             CssProperty::Clear(_) => CssPropertyType::Clear,
@@ -2644,6 +2862,13 @@ impl CssProperty {
     pub const fn justify_content(input: LayoutJustifyContent) -> Self {
         CssProperty::JustifyContent(CssPropertyValue::Exact(input))
     }
+    pub const fn grid_auto_flow(input: LayoutGridAutoFlow) -> Self { CssProperty::GridAutoFlow(CssPropertyValue::Exact(input)) }
+    pub const fn justify_self(input: LayoutJustifySelf) -> Self { CssProperty::JustifySelf(CssPropertyValue::Exact(input)) }
+    pub const fn justify_items(input: LayoutJustifyItems) -> Self { CssProperty::JustifyItems(CssPropertyValue::Exact(input)) }
+    pub const fn gap(input: LayoutGap) -> Self { CssProperty::Gap(CssPropertyValue::Exact(input)) }
+    pub const fn grid_gap(input: LayoutGap) -> Self { CssProperty::GridGap(CssPropertyValue::Exact(input)) }
+    pub const fn align_self(input: LayoutAlignSelf) -> Self { CssProperty::AlignSelf(CssPropertyValue::Exact(input)) }
+    pub const fn font(input: StyleFontFamilyVec) -> Self { CssProperty::Font(StyleFontValue::Exact(input)) }
     pub const fn align_items(input: LayoutAlignItems) -> Self {
         CssProperty::AlignItems(CssPropertyValue::Exact(input))
     }
@@ -2794,6 +3019,49 @@ impl CssProperty {
     pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> {
         match self {
             CssProperty::BackgroundRepeat(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_auto_flow(&self) -> Option<&LayoutGridAutoFlowValue> {
+        match self {
+            CssProperty::GridAutoFlow(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_justify_self(&self) -> Option<&LayoutJustifySelfValue> {
+        match self {
+            CssProperty::JustifySelf(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_justify_items(&self) -> Option<&LayoutJustifyItemsValue> {
+        match self {
+            CssProperty::JustifyItems(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_gap(&self) -> Option<&LayoutGapValue> {
+        match self {
+            CssProperty::Gap(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_grid_gap(&self) -> Option<&LayoutGapValue> {
+        match self {
+            CssProperty::GridGap(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_align_self(&self) -> Option<&LayoutAlignSelfValue> {
+        match self {
+            CssProperty::AlignSelf(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_font(&self) -> Option<&StyleFontValue> {
+        match self {
+            CssProperty::Font(f) => Some(f),
             _ => None,
         }
     }
@@ -3275,6 +3543,13 @@ impl CssProperty {
             RowGap(c) => c.is_initial(),
             GridTemplateColumns(c) => c.is_initial(),
             GridTemplateRows(c) => c.is_initial(),
+            GridAutoFlow(c) => c.is_initial(),
+            JustifySelf(c) => c.is_initial(),
+            JustifyItems(c) => c.is_initial(),
+            Gap(c) => c.is_initial(),
+            GridGap(c) => c.is_initial(),
+            AlignSelf(c) => c.is_initial(),
+            Font(c) => c.is_initial(),
             GridAutoColumns(c) => c.is_initial(),
             GridAutoRows(c) => c.is_initial(),
             GridColumn(c) => c.is_initial(),

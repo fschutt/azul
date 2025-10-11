@@ -1753,6 +1753,34 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::GridTemplateRows({})",
             print_css_property_value(p, tabs, "LayoutGridTemplateRows")
         ),
+        CssProperty::GridAutoFlow(p) => format!(
+            "CssProperty::GridAutoFlow({})",
+            print_css_property_value(p, tabs, "LayoutGridAutoFlow")
+        ),
+        CssProperty::JustifySelf(p) => format!(
+            "CssProperty::JustifySelf({})",
+            print_css_property_value(p, tabs, "LayoutJustifySelf")
+        ),
+        CssProperty::JustifyItems(p) => format!(
+            "CssProperty::JustifyItems({})",
+            print_css_property_value(p, tabs, "LayoutJustifyItems")
+        ),
+        CssProperty::Gap(p) => format!(
+            "CssProperty::Gap({})",
+            print_css_property_value(p, tabs, "LayoutGap")
+        ),
+        CssProperty::GridGap(p) => format!(
+            "CssProperty::GridGap({})",
+            print_css_property_value(p, tabs, "LayoutGap")
+        ),
+        CssProperty::AlignSelf(p) => format!(
+            "CssProperty::AlignSelf({})",
+            print_css_property_value(p, tabs, "LayoutAlignSelf")
+        ),
+        CssProperty::Font(p) => format!(
+            "CssProperty::Font({})",
+            print_css_property_value(p, tabs, "StyleFontFamilyVec")
+        ),
         CssProperty::GridAutoRows(p) => format!(
             "CssProperty::GridAutoRows({})",
             print_css_property_value(p, tabs, "LayoutGridAutoRows")
