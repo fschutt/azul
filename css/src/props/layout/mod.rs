@@ -1,16 +1,20 @@
 //! CSS properties related to layout and positioning.
 
+pub mod column;
 pub mod dimensions;
 pub mod display;
 pub mod flex;
+pub mod flow;
+pub mod fragmentation;
 pub mod grid;
 pub mod overflow;
 pub mod position;
+pub mod shape;
 pub mod spacing;
-pub mod wrapping;
 pub mod text;
+pub mod wrapping;
 
 pub use self::{
-    dimensions::*, display::*, flex::*, grid::*, overflow::*, position::*, spacing::*, wrapping::*,
-    text::*,
+    column::*, dimensions::*, display::*, flex::*, flow::*, fragmentation::*, grid::*, overflow::*,
+    position::*, shape::*, spacing::*, text::*, wrapping::*,
 };

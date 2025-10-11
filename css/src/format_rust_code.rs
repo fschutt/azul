@@ -1192,6 +1192,201 @@ impl FormatAsRustCode for StyleTransformOrigin {
     }
 }
 
+// Implementations for newly added DTP property types
+impl FormatAsRustCode for fragmentation::PageBreak {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            fragmentation::PageBreak::Auto => String::from("PageBreak::Auto"),
+            fragmentation::PageBreak::Avoid => String::from("PageBreak::Avoid"),
+            fragmentation::PageBreak::Always => String::from("PageBreak::Always"),
+            fragmentation::PageBreak::All => String::from("PageBreak::All"),
+            fragmentation::PageBreak::Page => String::from("PageBreak::Page"),
+            fragmentation::PageBreak::AvoidPage => String::from("PageBreak::AvoidPage"),
+            fragmentation::PageBreak::Left => String::from("PageBreak::Left"),
+            fragmentation::PageBreak::Right => String::from("PageBreak::Right"),
+            fragmentation::PageBreak::Recto => String::from("PageBreak::Recto"),
+            fragmentation::PageBreak::Verso => String::from("PageBreak::Verso"),
+            fragmentation::PageBreak::Column => String::from("PageBreak::Column"),
+            fragmentation::PageBreak::AvoidColumn => String::from("PageBreak::AvoidColumn"),
+        }
+    }
+}
+
+impl FormatAsRustCode for fragmentation::BreakInside {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            fragmentation::BreakInside::Auto => String::from("BreakInside::Auto"),
+            fragmentation::BreakInside::Avoid => String::from("BreakInside::Avoid"),
+            fragmentation::BreakInside::AvoidPage => String::from("BreakInside::AvoidPage"),
+            fragmentation::BreakInside::AvoidColumn => String::from("BreakInside::AvoidColumn"),
+        }
+    }
+}
+
+impl FormatAsRustCode for fragmentation::Widows {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("Widows {{ inner: {} }}", self.inner)
+    }
+}
+
+impl FormatAsRustCode for fragmentation::Orphans {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("Orphans {{ inner: {} }}", self.inner)
+    }
+}
+
+impl FormatAsRustCode for fragmentation::BoxDecorationBreak {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            fragmentation::BoxDecorationBreak::Slice => String::from("BoxDecorationBreak::Slice"),
+            fragmentation::BoxDecorationBreak::Clone => String::from("BoxDecorationBreak::Clone"),
+        }
+    }
+}
+
+impl FormatAsRustCode for column::ColumnCount {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            column::ColumnCount::Auto => String::from("ColumnCount::Auto"),
+            column::ColumnCount::Integer(i) => format!("ColumnCount::Integer({})", i),
+        }
+    }
+}
+
+impl FormatAsRustCode for column::ColumnWidth {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        match self {
+            column::ColumnWidth::Auto => String::from("ColumnWidth::Auto"),
+            column::ColumnWidth::Length(px) => {
+                format!("ColumnWidth::Length({})", format_pixel_value(px))
+            }
+        }
+    }
+}
+
+impl FormatAsRustCode for column::ColumnSpan {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            column::ColumnSpan::None => String::from("ColumnSpan::None"),
+            column::ColumnSpan::All => String::from("ColumnSpan::All"),
+        }
+    }
+}
+
+impl FormatAsRustCode for column::ColumnFill {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            column::ColumnFill::Auto => String::from("ColumnFill::Auto"),
+            column::ColumnFill::Balance => String::from("ColumnFill::Balance"),
+        }
+    }
+}
+
+impl FormatAsRustCode for column::ColumnRuleWidth {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ColumnRuleWidth {{ inner: {} }}",
+            format_pixel_value(&self.inner)
+        )
+    }
+}
+
+impl FormatAsRustCode for column::ColumnRuleStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "ColumnRuleStyle {{ inner: {} }}",
+            self.inner.format_as_rust_code(tabs)
+        )
+    }
+}
+
+impl FormatAsRustCode for column::ColumnRuleColor {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ColumnRuleColor {{ inner: {} }}",
+            format_color_value(&self.inner)
+        )
+    }
+}
+
+impl FormatAsRustCode for flow::FlowInto {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            flow::FlowInto::None => String::from("FlowInto::None"),
+            flow::FlowInto::Named(s) => format!(
+                "FlowInto::Named(AzString::from_const_str({:?}))",
+                s.as_str()
+            ),
+        }
+    }
+}
+
+impl FormatAsRustCode for flow::FlowFrom {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            flow::FlowFrom::None => String::from("FlowFrom::None"),
+            flow::FlowFrom::Named(s) => format!(
+                "FlowFrom::Named(AzString::from_const_str({:?}))",
+                s.as_str()
+            ),
+        }
+    }
+}
+
+impl FormatAsRustCode for shape::ShapeOutside {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            shape::ShapeOutside::None => String::from("ShapeOutside::None"),
+            shape::ShapeOutside::Shape(s) => format!("ShapeOutside::Shape(String::from({:?}))", s),
+        }
+    }
+}
+
+impl FormatAsRustCode for shape::ShapeMargin {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ShapeMargin {{ inner: {} }}",
+            format_pixel_value(&self.inner)
+        )
+    }
+}
+
+impl FormatAsRustCode for shape::ShapeImageThreshold {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "ShapeImageThreshold {{ inner: {} }}",
+            format_float_value(&self.inner)
+        )
+    }
+}
+
+impl FormatAsRustCode for content::Content {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("Content {{ inner: String::from({:?}) }}", self.inner)
+    }
+}
+
+impl FormatAsRustCode for content::CounterReset {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("CounterReset {{ inner: String::from({:?}) }}", self.inner)
+    }
+}
+
+impl FormatAsRustCode for content::CounterIncrement {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "CounterIncrement {{ inner: String::from({:?}) }}",
+            self.inner
+        )
+    }
+}
+
+impl FormatAsRustCode for content::StringSet {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StringSet {{ inner: String::from({:?}) }}", self.inner)
+    }
+}
+
 impl FormatAsRustCode for StylePerspectiveOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -1413,6 +1608,10 @@ fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
 
 pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
+        CssProperty::TextJustify(p) => format!(
+            "CssProperty::TextJustify({})",
+            print_css_property_value(p, tabs, "LayoutTextJustify")
+        ),
         CssProperty::LayoutTextJustify(j) => format!(
             "CssProperty::LayoutTextJustify({})",
             print_css_property_value(j, tabs, "LayoutText")
@@ -1804,6 +2003,94 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::Clear(p) => format!(
             "CssProperty::Clear({})",
             print_css_property_value(p, tabs, "LayoutClear")
+        ),
+        CssProperty::BreakBefore(p) => format!(
+            "CssProperty::BreakBefore({})",
+            print_css_property_value(p, tabs, "PageBreak")
+        ),
+        CssProperty::BreakAfter(p) => format!(
+            "CssProperty::BreakAfter({})",
+            print_css_property_value(p, tabs, "PageBreak")
+        ),
+        CssProperty::BreakInside(p) => format!(
+            "CssProperty::BreakInside({})",
+            print_css_property_value(p, tabs, "BreakInside")
+        ),
+        CssProperty::Orphans(p) => format!(
+            "CssProperty::Orphans({})",
+            print_css_property_value(p, tabs, "Orphans")
+        ),
+        CssProperty::Widows(p) => format!(
+            "CssProperty::Widows({})",
+            print_css_property_value(p, tabs, "Widows")
+        ),
+        CssProperty::BoxDecorationBreak(p) => format!(
+            "CssProperty::BoxDecorationBreak({})",
+            print_css_property_value(p, tabs, "BoxDecorationBreak")
+        ),
+        CssProperty::ColumnCount(p) => format!(
+            "CssProperty::ColumnCount({})",
+            print_css_property_value(p, tabs, "ColumnCount")
+        ),
+        CssProperty::ColumnWidth(p) => format!(
+            "CssProperty::ColumnWidth({})",
+            print_css_property_value(p, tabs, "ColumnWidth")
+        ),
+        CssProperty::ColumnSpan(p) => format!(
+            "CssProperty::ColumnSpan({})",
+            print_css_property_value(p, tabs, "ColumnSpan")
+        ),
+        CssProperty::ColumnFill(p) => format!(
+            "CssProperty::ColumnFill({})",
+            print_css_property_value(p, tabs, "ColumnFill")
+        ),
+        CssProperty::ColumnRuleWidth(p) => format!(
+            "CssProperty::ColumnRuleWidth({})",
+            print_css_property_value(p, tabs, "ColumnRuleWidth")
+        ),
+        CssProperty::ColumnRuleStyle(p) => format!(
+            "CssProperty::ColumnRuleStyle({})",
+            print_css_property_value(p, tabs, "ColumnRuleStyle")
+        ),
+        CssProperty::ColumnRuleColor(p) => format!(
+            "CssProperty::ColumnRuleColor({})",
+            print_css_property_value(p, tabs, "ColumnRuleColor")
+        ),
+        CssProperty::FlowInto(p) => format!(
+            "CssProperty::FlowInto({})",
+            print_css_property_value(p, tabs, "FlowInto")
+        ),
+        CssProperty::FlowFrom(p) => format!(
+            "CssProperty::FlowFrom({})",
+            print_css_property_value(p, tabs, "FlowFrom")
+        ),
+        CssProperty::ShapeOutside(p) => format!(
+            "CssProperty::ShapeOutside({})",
+            print_css_property_value(p, tabs, "ShapeOutside")
+        ),
+        CssProperty::ShapeMargin(p) => format!(
+            "CssProperty::ShapeMargin({})",
+            print_css_property_value(p, tabs, "ShapeMargin")
+        ),
+        CssProperty::ShapeImageThreshold(p) => format!(
+            "CssProperty::ShapeImageThreshold({})",
+            print_css_property_value(p, tabs, "ShapeImageThreshold")
+        ),
+        CssProperty::Content(p) => format!(
+            "CssProperty::Content({})",
+            print_css_property_value(p, tabs, "Content")
+        ),
+        CssProperty::CounterReset(p) => format!(
+            "CssProperty::CounterReset({})",
+            print_css_property_value(p, tabs, "CounterReset")
+        ),
+        CssProperty::CounterIncrement(p) => format!(
+            "CssProperty::CounterIncrement({})",
+            print_css_property_value(p, tabs, "CounterIncrement")
+        ),
+        CssProperty::StringSet(p) => format!(
+            "CssProperty::StringSet({})",
+            print_css_property_value(p, tabs, "StringSet")
         ),
     }
 }

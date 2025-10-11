@@ -324,9 +324,15 @@ macro_rules! css_property_from_type {
             CssPropertyType::GridAutoColumns => {
                 CssProperty::GridAutoColumns(CssPropertyValue::$content_type)
             }
-            CssPropertyType::GridAutoFlow => CssProperty::GridAutoFlow(CssPropertyValue::$content_type),
-            CssPropertyType::JustifySelf => CssProperty::JustifySelf(CssPropertyValue::$content_type),
-            CssPropertyType::JustifyItems => CssProperty::JustifyItems(CssPropertyValue::$content_type),
+            CssPropertyType::GridAutoFlow => {
+                CssProperty::GridAutoFlow(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::JustifySelf => {
+                CssProperty::JustifySelf(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::JustifyItems => {
+                CssProperty::JustifyItems(CssPropertyValue::$content_type)
+            }
             CssPropertyType::Gap => CssProperty::Gap(CssPropertyValue::$content_type),
             CssPropertyType::GridGap => CssProperty::GridGap(CssPropertyValue::$content_type),
             CssPropertyType::AlignSelf => CssProperty::AlignSelf(CssPropertyValue::$content_type),
@@ -458,6 +464,58 @@ macro_rules! css_property_from_type {
             CssPropertyType::Direction => CssProperty::Direction(CssPropertyValue::$content_type),
             CssPropertyType::Hyphens => CssProperty::Hyphens(CssPropertyValue::$content_type),
             CssPropertyType::WhiteSpace => CssProperty::WhiteSpace(CssPropertyValue::$content_type),
+            // Fragmentation / Columns / Flow / Shape / Content
+            CssPropertyType::TextJustify => {
+                CssProperty::LayoutTextJustify(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::BreakBefore => {
+                CssProperty::BreakBefore(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::BreakAfter => CssProperty::BreakAfter(CssPropertyValue::$content_type),
+            CssPropertyType::BreakInside => {
+                CssProperty::BreakInside(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::Widows => CssProperty::Widows(CssPropertyValue::$content_type),
+            CssPropertyType::Orphans => CssProperty::Orphans(CssPropertyValue::$content_type),
+            CssPropertyType::BoxDecorationBreak => {
+                CssProperty::BoxDecorationBreak(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ColumnCount => {
+                CssProperty::ColumnCount(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ColumnWidth => {
+                CssProperty::ColumnWidth(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ColumnSpan => CssProperty::ColumnSpan(CssPropertyValue::$content_type),
+            CssPropertyType::ColumnFill => CssProperty::ColumnFill(CssPropertyValue::$content_type),
+            CssPropertyType::ColumnRuleWidth => {
+                CssProperty::ColumnRuleWidth(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ColumnRuleStyle => {
+                CssProperty::ColumnRuleStyle(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ColumnRuleColor => {
+                CssProperty::ColumnRuleColor(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FlowInto => CssProperty::FlowInto(CssPropertyValue::$content_type),
+            CssPropertyType::FlowFrom => CssProperty::FlowFrom(CssPropertyValue::$content_type),
+            CssPropertyType::ShapeOutside => {
+                CssProperty::ShapeOutside(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ShapeMargin => {
+                CssProperty::ShapeMargin(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ShapeImageThreshold => {
+                CssProperty::ShapeImageThreshold(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::Content => CssProperty::Content(CssPropertyValue::$content_type),
+            CssPropertyType::CounterReset => {
+                CssProperty::CounterReset(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::CounterIncrement => {
+                CssProperty::CounterIncrement(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::StringSet => CssProperty::StringSet(CssPropertyValue::$content_type),
         }
     }};
 }

@@ -3,10 +3,12 @@
 use alloc::string::{String, ToString};
 use core::num::ParseFloatError;
 
-use crate::format_rust_code::FormatAsRustCode;
-use crate::props::{
-    basic::length::{parse_float_value, FloatValue},
-    formatter::PrintAsCssValue,
+use crate::{
+    format_rust_code::FormatAsRustCode,
+    props::{
+        basic::length::{parse_float_value, FloatValue},
+        formatter::PrintAsCssValue,
+    },
 };
 
 // --- flex-grow ---
@@ -693,14 +695,17 @@ impl PrintAsCssValue for LayoutAlignSelf {
 
 impl FormatAsRustCode for LayoutAlignSelf {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("LayoutAlignSelf::{}", match self {
-            LayoutAlignSelf::Auto => "Auto",
-            LayoutAlignSelf::Stretch => "Stretch",
-            LayoutAlignSelf::Center => "Center",
-            LayoutAlignSelf::Start => "Start",
-            LayoutAlignSelf::End => "End",
-            LayoutAlignSelf::Baseline => "Baseline",
-        })
+        format!(
+            "LayoutAlignSelf::{}",
+            match self {
+                LayoutAlignSelf::Auto => "Auto",
+                LayoutAlignSelf::Stretch => "Stretch",
+                LayoutAlignSelf::Center => "Center",
+                LayoutAlignSelf::Start => "Start",
+                LayoutAlignSelf::End => "End",
+                LayoutAlignSelf::Baseline => "Baseline",
+            }
+        )
     }
 }
 

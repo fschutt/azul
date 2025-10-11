@@ -5,8 +5,10 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::props::{basic::pixel::PixelValue, formatter::PrintAsCssValue};
-use crate::format_rust_code::FormatAsRustCode;
+use crate::{
+    format_rust_code::FormatAsRustCode,
+    props::{basic::pixel::PixelValue, formatter::PrintAsCssValue},
+};
 
 // --- grid-template-columns / grid-template-rows ---
 
@@ -408,7 +410,9 @@ impl GridAutoFlowParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_grid_auto_flow<'a>(input: &'a str) -> Result<LayoutGridAutoFlow, GridAutoFlowParseError<'a>> {
+pub fn parse_layout_grid_auto_flow<'a>(
+    input: &'a str,
+) -> Result<LayoutGridAutoFlow, GridAutoFlowParseError<'a>> {
     match input.trim() {
         "row" => Ok(LayoutGridAutoFlow::Row),
         "column" => Ok(LayoutGridAutoFlow::Column),
@@ -492,7 +496,9 @@ impl_display! { JustifySelfParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_justify_self<'a>(input: &'a str) -> Result<LayoutJustifySelf, JustifySelfParseError<'a>> {
+pub fn parse_layout_justify_self<'a>(
+    input: &'a str,
+) -> Result<LayoutJustifySelf, JustifySelfParseError<'a>> {
     match input.trim() {
         "auto" => Ok(LayoutJustifySelf::Auto),
         "start" | "flex-start" => Ok(LayoutJustifySelf::Start),
@@ -572,7 +578,9 @@ impl_display! { JustifyItemsParseError<'a>, {
 }}
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_justify_items<'a>(input: &'a str) -> Result<LayoutJustifyItems, JustifyItemsParseError<'a>> {
+pub fn parse_layout_justify_items<'a>(
+    input: &'a str,
+) -> Result<LayoutJustifyItems, JustifyItemsParseError<'a>> {
     match input.trim() {
         "start" => Ok(LayoutJustifyItems::Start),
         "end" => Ok(LayoutJustifyItems::End),
@@ -606,35 +614,44 @@ impl crate::props::formatter::PrintAsCssValue for LayoutGap {
 // code generator.
 impl FormatAsRustCode for LayoutGridAutoFlow {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("LayoutGridAutoFlow::{}", match self {
-            LayoutGridAutoFlow::Row => "Row",
-            LayoutGridAutoFlow::Column => "Column",
-            LayoutGridAutoFlow::RowDense => "RowDense",
-            LayoutGridAutoFlow::ColumnDense => "ColumnDense",
-        })
+        format!(
+            "LayoutGridAutoFlow::{}",
+            match self {
+                LayoutGridAutoFlow::Row => "Row",
+                LayoutGridAutoFlow::Column => "Column",
+                LayoutGridAutoFlow::RowDense => "RowDense",
+                LayoutGridAutoFlow::ColumnDense => "ColumnDense",
+            }
+        )
     }
 }
 
 impl FormatAsRustCode for LayoutJustifySelf {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("LayoutJustifySelf::{}", match self {
-            LayoutJustifySelf::Auto => "Auto",
-            LayoutJustifySelf::Start => "Start",
-            LayoutJustifySelf::End => "End",
-            LayoutJustifySelf::Center => "Center",
-            LayoutJustifySelf::Stretch => "Stretch",
-        })
+        format!(
+            "LayoutJustifySelf::{}",
+            match self {
+                LayoutJustifySelf::Auto => "Auto",
+                LayoutJustifySelf::Start => "Start",
+                LayoutJustifySelf::End => "End",
+                LayoutJustifySelf::Center => "Center",
+                LayoutJustifySelf::Stretch => "Stretch",
+            }
+        )
     }
 }
 
 impl FormatAsRustCode for LayoutJustifyItems {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("LayoutJustifyItems::{}", match self {
-            LayoutJustifyItems::Start => "Start",
-            LayoutJustifyItems::End => "End",
-            LayoutJustifyItems::Center => "Center",
-            LayoutJustifyItems::Stretch => "Stretch",
-        })
+        format!(
+            "LayoutJustifyItems::{}",
+            match self {
+                LayoutJustifyItems::Start => "Start",
+                LayoutJustifyItems::End => "End",
+                LayoutJustifyItems::Center => "Center",
+                LayoutJustifyItems::Stretch => "Stretch",
+            }
+        )
     }
 }
 
@@ -647,7 +664,9 @@ impl FormatAsRustCode for LayoutGap {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_gap<'a>(input: &'a str) -> Result<LayoutGap, crate::props::basic::pixel::CssPixelValueParseError<'a>> {
+pub fn parse_layout_gap<'a>(
+    input: &'a str,
+) -> Result<LayoutGap, crate::props::basic::pixel::CssPixelValueParseError<'a>> {
     crate::props::basic::pixel::parse_pixel_value(input).map(|p| LayoutGap { inner: p })
 }
 

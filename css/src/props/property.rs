@@ -25,12 +25,12 @@ use crate::props::{
     },
     formatter::PrintAsCssValue,
     layout::{
-        dimensions::*, display::*, flex::*, grid::*, overflow::*, position::*, spacing::*,
-        wrapping::*, text::*,
+        column::*, dimensions::*, display::*, flex::*, flow::*, fragmentation::*, grid::*,
+        overflow::*, position::*, shape::*, spacing::*, text::*, wrapping::*,
     },
     style::{
-        background::*, border::*, border_radius::*, box_shadow::*, effects::*, filter::*,
-        scrollbar::*, text::*, transform::*,
+        background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
+        filter::*, scrollbar::*, text::*, transform::*,
     },
 };
 use crate::{
@@ -39,7 +39,7 @@ use crate::{
     props::basic::{error::InvalidValueErr, pixel::PixelValueWithAuto},
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 18] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 20] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -58,9 +58,11 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::Gap, "gap"),
     (CombinedCssPropertyType::GridGap, "grid-gap"),
     (CombinedCssPropertyType::Font, "font"),
+    (CombinedCssPropertyType::Columns, "columns"),
+    (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 97] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 120] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -68,6 +70,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 97] = [
     (CssPropertyType::FontSize, "font-size"),
     (CssPropertyType::FontFamily, "font-family"),
     (CssPropertyType::TextAlign, "text-align"),
+    (CssPropertyType::TextJustify, "text-justify"),
     (CssPropertyType::LetterSpacing, "letter-spacing"),
     (CssPropertyType::LineHeight, "line-height"),
     (CssPropertyType::WordSpacing, "word-spacing"),
@@ -173,6 +176,31 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 97] = [
     (CssPropertyType::GridGap, "grid-gap"),
     (CssPropertyType::AlignSelf, "align-self"),
     (CssPropertyType::Font, "font"),
+    (CssPropertyType::BreakBefore, "break-before"),
+    (CssPropertyType::BreakAfter, "break-after"),
+    (CssPropertyType::BreakInside, "break-inside"),
+    (CssPropertyType::Orphans, "orphans"),
+    (CssPropertyType::Widows, "widows"),
+    (CssPropertyType::BoxDecorationBreak, "box-decoration-break"),
+    (CssPropertyType::ColumnCount, "column-count"),
+    (CssPropertyType::ColumnWidth, "column-width"),
+    (CssPropertyType::ColumnSpan, "column-span"),
+    (CssPropertyType::ColumnFill, "column-fill"),
+    (CssPropertyType::ColumnRuleWidth, "column-rule-width"),
+    (CssPropertyType::ColumnRuleStyle, "column-rule-style"),
+    (CssPropertyType::ColumnRuleColor, "column-rule-color"),
+    (CssPropertyType::FlowInto, "flow-into"),
+    (CssPropertyType::FlowFrom, "flow-from"),
+    (CssPropertyType::ShapeOutside, "shape-outside"),
+    (CssPropertyType::ShapeMargin, "shape-margin"),
+    (
+        CssPropertyType::ShapeImageThreshold,
+        "shape-image-threshold",
+    ),
+    (CssPropertyType::Content, "content"),
+    (CssPropertyType::CounterReset, "counter-reset"),
+    (CssPropertyType::CounterIncrement, "counter-increment"),
+    (CssPropertyType::StringSet, "string-set"),
 ];
 
 // Type aliases for `CssPropertyValue<T>`
@@ -267,6 +295,27 @@ pub type LayoutJustifyItemsValue = CssPropertyValue<LayoutJustifyItems>;
 pub type LayoutGapValue = CssPropertyValue<LayoutGap>;
 pub type LayoutAlignSelfValue = CssPropertyValue<LayoutAlignSelf>;
 pub type StyleFontValue = CssPropertyValue<StyleFontFamilyVec>;
+pub type PageBreakValue = CssPropertyValue<PageBreak>;
+pub type BreakInsideValue = CssPropertyValue<BreakInside>;
+pub type WidowsValue = CssPropertyValue<Widows>;
+pub type OrphansValue = CssPropertyValue<Orphans>;
+pub type BoxDecorationBreakValue = CssPropertyValue<BoxDecorationBreak>;
+pub type ColumnCountValue = CssPropertyValue<ColumnCount>;
+pub type ColumnWidthValue = CssPropertyValue<ColumnWidth>;
+pub type ColumnSpanValue = CssPropertyValue<ColumnSpan>;
+pub type ColumnFillValue = CssPropertyValue<ColumnFill>;
+pub type ColumnRuleWidthValue = CssPropertyValue<ColumnRuleWidth>;
+pub type ColumnRuleStyleValue = CssPropertyValue<ColumnRuleStyle>;
+pub type ColumnRuleColorValue = CssPropertyValue<ColumnRuleColor>;
+pub type FlowIntoValue = CssPropertyValue<FlowInto>;
+pub type FlowFromValue = CssPropertyValue<FlowFrom>;
+pub type ShapeOutsideValue = CssPropertyValue<ShapeOutside>;
+pub type ShapeMarginValue = CssPropertyValue<ShapeMargin>;
+pub type ShapeImageThresholdValue = CssPropertyValue<ShapeImageThreshold>;
+pub type ContentValue = CssPropertyValue<Content>;
+pub type CounterResetValue = CssPropertyValue<CounterReset>;
+pub type CounterIncrementValue = CssPropertyValue<CounterIncrement>;
+pub type StringSetValue = CssPropertyValue<StringSet>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -313,6 +362,8 @@ pub enum CombinedCssPropertyType {
     Gap,
     GridGap,
     Font,
+    Columns,
+    ColumnRule,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -363,6 +414,7 @@ pub enum CssProperty {
     FontSize(StyleFontSizeValue),
     FontFamily(StyleFontFamilyVecValue),
     TextAlign(StyleTextAlignValue),
+    TextJustify(LayoutTextJustifyValue),
     LetterSpacing(StyleLetterSpacingValue),
     LineHeight(StyleLineHeightValue),
     WordSpacing(StyleWordSpacingValue),
@@ -457,6 +509,28 @@ pub enum CssProperty {
     Filter(StyleFilterVecValue),
     BackdropFilter(StyleFilterVecValue),
     TextShadow(StyleBoxShadowValue),
+    BreakBefore(PageBreakValue),
+    BreakAfter(PageBreakValue),
+    BreakInside(BreakInsideValue),
+    Orphans(OrphansValue),
+    Widows(WidowsValue),
+    BoxDecorationBreak(BoxDecorationBreakValue),
+    ColumnCount(ColumnCountValue),
+    ColumnWidth(ColumnWidthValue),
+    ColumnSpan(ColumnSpanValue),
+    ColumnFill(ColumnFillValue),
+    ColumnRuleWidth(ColumnRuleWidthValue),
+    ColumnRuleStyle(ColumnRuleStyleValue),
+    ColumnRuleColor(ColumnRuleColorValue),
+    FlowInto(FlowIntoValue),
+    FlowFrom(FlowFromValue),
+    ShapeOutside(ShapeOutsideValue),
+    ShapeMargin(ShapeMarginValue),
+    ShapeImageThreshold(ShapeImageThresholdValue),
+    Content(ContentValue),
+    CounterReset(CounterResetValue),
+    CounterIncrement(CounterIncrementValue),
+    StringSet(StringSetValue),
 }
 
 /// Categorizes a CSS property by its effect on the layout pipeline.
@@ -482,6 +556,7 @@ pub enum CssPropertyType {
     FontSize,
     FontFamily,
     TextAlign,
+    TextJustify,
     LetterSpacing,
     LineHeight,
     WordSpacing,
@@ -575,6 +650,28 @@ pub enum CssPropertyType {
     Filter,
     BackdropFilter,
     TextShadow,
+    BreakBefore,
+    BreakAfter,
+    BreakInside,
+    Orphans,
+    Widows,
+    BoxDecorationBreak,
+    ColumnCount,
+    ColumnWidth,
+    ColumnSpan,
+    ColumnFill,
+    ColumnRuleWidth,
+    ColumnRuleStyle,
+    ColumnRuleColor,
+    FlowInto,
+    FlowFrom,
+    ShapeOutside,
+    ShapeMargin,
+    ShapeImageThreshold,
+    Content,
+    CounterReset,
+    CounterIncrement,
+    StringSet,
 }
 
 impl fmt::Debug for CssPropertyType {
@@ -619,6 +716,7 @@ impl CssPropertyType {
             CssPropertyType::FontSize => "font-size",
             CssPropertyType::FontFamily => "font-family",
             CssPropertyType::TextAlign => "text-align",
+            CssPropertyType::TextJustify => "text-justify",
             CssPropertyType::LetterSpacing => "letter-spacing",
             CssPropertyType::LineHeight => "line-height",
             CssPropertyType::WordSpacing => "word-spacing",
@@ -712,6 +810,28 @@ impl CssPropertyType {
             CssPropertyType::WhiteSpace => "white-space",
             CssPropertyType::Hyphens => "hyphens",
             CssPropertyType::Direction => "direction",
+            CssPropertyType::BreakBefore => "break-before",
+            CssPropertyType::BreakAfter => "break-after",
+            CssPropertyType::BreakInside => "break-inside",
+            CssPropertyType::Orphans => "orphans",
+            CssPropertyType::Widows => "widows",
+            CssPropertyType::BoxDecorationBreak => "box-decoration-break",
+            CssPropertyType::ColumnCount => "column-count",
+            CssPropertyType::ColumnWidth => "column-width",
+            CssPropertyType::ColumnSpan => "column-span",
+            CssPropertyType::ColumnFill => "column-fill",
+            CssPropertyType::ColumnRuleWidth => "column-rule-width",
+            CssPropertyType::ColumnRuleStyle => "column-rule-style",
+            CssPropertyType::ColumnRuleColor => "column-rule-color",
+            CssPropertyType::FlowInto => "flow-into",
+            CssPropertyType::FlowFrom => "flow-from",
+            CssPropertyType::ShapeOutside => "shape-outside",
+            CssPropertyType::ShapeMargin => "shape-margin",
+            CssPropertyType::ShapeImageThreshold => "shape-image-threshold",
+            CssPropertyType::Content => "content",
+            CssPropertyType::CounterReset => "counter-reset",
+            CssPropertyType::CounterIncrement => "counter-increment",
+            CssPropertyType::StringSet => "string-set",
         }
     }
 
@@ -719,7 +839,8 @@ impl CssPropertyType {
     pub fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::*;
         match self {
-            TextColor | FontFamily | FontSize | LineHeight | TextAlign => true,
+            TextColor | FontFamily | FontSize | LineHeight | TextAlign | TextJustify | Widows
+            | Orphans => true,
             _ => false,
         }
     }
@@ -769,10 +890,13 @@ impl CssPropertyType {
             | BorderRightStyle
             | BorderLeftStyle
             | BorderBottomStyle
+            | ColumnRuleColor
+            | ColumnRuleStyle
             | BoxShadowLeft
             | BoxShadowRight
             | BoxShadowTop
             | BoxShadowBottom
+            | BoxDecorationBreak
             | ScrollbarStyle
             | Opacity
             | Transform
@@ -832,6 +956,7 @@ pub enum CssParsingError<'a> {
     TextColor(StyleTextColorParseError<'a>),
     FontSize(CssStyleFontSizeParseError<'a>),
     TextAlign(StyleTextAlignParseError<'a>),
+    TextJustify(TextJustifyParseError<'a>),
     LetterSpacing(StyleLetterSpacingParseError<'a>),
     LineHeight(StyleLineHeightParseError),
     WordSpacing(StyleWordSpacingParseError<'a>),
@@ -897,6 +1022,32 @@ pub enum CssParsingError<'a> {
     // Effects
     BackfaceVisibility(CssBackfaceVisibilityParseError<'a>),
     MixBlendMode(MixBlendModeParseError<'a>),
+
+    // Fragmentation
+    PageBreak(PageBreakParseError<'a>),
+    BreakInside(BreakInsideParseError<'a>),
+    Widows(WidowsParseError<'a>),
+    Orphans(OrphansParseError<'a>),
+    BoxDecorationBreak(BoxDecorationBreakParseError<'a>),
+
+    // Columns
+    ColumnCount(ColumnCountParseError<'a>),
+    ColumnWidth(ColumnWidthParseError<'a>),
+    ColumnSpan(ColumnSpanParseError<'a>),
+    ColumnFill(ColumnFillParseError<'a>),
+    ColumnRuleWidth(ColumnRuleWidthParseError<'a>),
+    ColumnRuleStyle(ColumnRuleStyleParseError<'a>),
+    ColumnRuleColor(ColumnRuleColorParseError<'a>),
+
+    // Flow & Shape
+    FlowInto(FlowIntoParseError<'a>),
+    FlowFrom(FlowFromParseError<'a>),
+    GenericParseError,
+
+    // Content
+    Content, // Simplified errors for now
+    Counter,
+    StringSet,
 }
 
 /// Owned version of `CssParsingError`.
@@ -932,6 +1083,7 @@ pub enum CssParsingErrorOwned {
     TextColor(StyleTextColorParseErrorOwned),
     FontSize(CssStyleFontSizeParseErrorOwned),
     TextAlign(StyleTextAlignParseErrorOwned),
+    TextJustify(TextJustifyParseErrorOwned),
     LetterSpacing(StyleLetterSpacingParseErrorOwned),
     LineHeight(StyleLineHeightParseError),
     WordSpacing(StyleWordSpacingParseErrorOwned),
@@ -997,6 +1149,32 @@ pub enum CssParsingErrorOwned {
     // Effects
     BackfaceVisibility(CssBackfaceVisibilityParseErrorOwned),
     MixBlendMode(MixBlendModeParseErrorOwned),
+
+    // Fragmentation
+    PageBreak(PageBreakParseErrorOwned),
+    BreakInside(BreakInsideParseErrorOwned),
+    Widows(WidowsParseErrorOwned),
+    Orphans(OrphansParseErrorOwned),
+    BoxDecorationBreak(BoxDecorationBreakParseErrorOwned),
+
+    // Columns
+    ColumnCount(ColumnCountParseErrorOwned),
+    ColumnWidth(ColumnWidthParseErrorOwned),
+    ColumnSpan(ColumnSpanParseErrorOwned),
+    ColumnFill(ColumnFillParseErrorOwned),
+    ColumnRuleWidth(ColumnRuleWidthParseErrorOwned),
+    ColumnRuleStyle(ColumnRuleStyleParseErrorOwned),
+    ColumnRuleColor(ColumnRuleColorParseErrorOwned),
+
+    // Flow & Shape
+    FlowInto(FlowIntoParseErrorOwned),
+    FlowFrom(FlowFromParseErrorOwned),
+    GenericParseError,
+
+    // Content
+    Content,
+    Counter,
+    StringSet,
 }
 
 // -- PARSING ERROR IMPLEMENTATIONS --
@@ -1019,7 +1197,6 @@ impl_display! { CssParsingError<'a>, {
     Background(e) => format!("Invalid background property: {}", e),
     BackgroundPosition(e) => format!("Invalid background-position: {}", e),
     Opacity(e) => format!("Invalid opacity value: {}", e),
-    Visibility(e) => format!("Invalid visibility value: {}", e),
     Visibility(e) => format!("Invalid visibility value: {}", e),
     Scrollbar(e) => format!("Invalid scrollbar style: {}", e),
     Transform(e) => format!("Invalid transform property: {}", e),
@@ -1063,6 +1240,7 @@ impl_display! { CssParsingError<'a>, {
     TextColor(e) => format!("Invalid text color: {}", e),
     FontSize(e) => format!("Invalid font-size: {}", e),
     TextAlign(e) => format!("Invalid text-align: {}", e),
+    TextJustify(e) => format!("Invalid text-justify: {}", e),
     LetterSpacing(e) => format!("Invalid letter-spacing: {}", e),
     LineHeight(e) => format!("Invalid line-height: {}", e),
     WordSpacing(e) => format!("Invalid word-spacing: {}", e),
@@ -1074,7 +1252,24 @@ impl_display! { CssParsingError<'a>, {
     LayoutDisplay(e) => format!("Invalid display: {}", e),
     LayoutFloat(e) => format!("Invalid float: {}", e),
     LayoutBoxSizing(e) => format!("Invalid box-sizing: {}", e),
-    _ => format!("Invalid parsing error"),
+    PageBreak(e) => format!("Invalid break property: {}", e),
+    BreakInside(e) => format!("Invalid break-inside property: {}", e),
+    Widows(e) => format!("Invalid widows property: {}", e),
+    Orphans(e) => format!("Invalid orphans property: {}", e),
+    BoxDecorationBreak(e) => format!("Invalid box-decoration-break property: {}", e),
+    ColumnCount(e) => format!("Invalid column-count: {}", e),
+    ColumnWidth(e) => format!("Invalid column-width: {}", e),
+    ColumnSpan(e) => format!("Invalid column-span: {}", e),
+    ColumnFill(e) => format!("Invalid column-fill: {}", e),
+    ColumnRuleWidth(e) => format!("Invalid column-rule-width: {}", e),
+    ColumnRuleStyle(e) => format!("Invalid column-rule-style: {}", e),
+    ColumnRuleColor(e) => format!("Invalid column-rule-color: {}", e),
+    FlowInto(e) => format!("Invalid flow-into: {}", e),
+    FlowFrom(e) => format!("Invalid flow-from: {}", e),
+    GenericParseError => "Failed to parse value",
+    Content => "Failed to parse content property",
+    Counter => "Failed to parse counter property",
+    StringSet => "Failed to parse string-set property",
 }}
 
 // From impls for CssParsingError
@@ -1210,6 +1405,7 @@ impl_from!(MixBlendModeParseError<'a>, CssParsingError::MixBlendMode);
 impl_from!(StyleTextColorParseError<'a>, CssParsingError::TextColor);
 impl_from!(CssStyleFontSizeParseError<'a>, CssParsingError::FontSize);
 impl_from!(StyleTextAlignParseError<'a>, CssParsingError::TextAlign);
+impl_from!(TextJustifyParseError<'a>, CssParsingError::TextJustify);
 impl_from!(
     StyleLetterSpacingParseError<'a>,
     CssParsingError::LetterSpacing
@@ -1228,6 +1424,34 @@ impl_from!(
     LayoutBoxSizingParseError<'a>,
     CssParsingError::LayoutBoxSizing
 );
+
+// DTP properties
+impl_from!(PageBreakParseError<'a>, CssParsingError::PageBreak);
+impl_from!(BreakInsideParseError<'a>, CssParsingError::BreakInside);
+impl_from!(WidowsParseError<'a>, CssParsingError::Widows);
+impl_from!(OrphansParseError<'a>, CssParsingError::Orphans);
+impl_from!(
+    BoxDecorationBreakParseError<'a>,
+    CssParsingError::BoxDecorationBreak
+);
+impl_from!(ColumnCountParseError<'a>, CssParsingError::ColumnCount);
+impl_from!(ColumnWidthParseError<'a>, CssParsingError::ColumnWidth);
+impl_from!(ColumnSpanParseError<'a>, CssParsingError::ColumnSpan);
+impl_from!(ColumnFillParseError<'a>, CssParsingError::ColumnFill);
+impl_from!(
+    ColumnRuleWidthParseError<'a>,
+    CssParsingError::ColumnRuleWidth
+);
+impl_from!(
+    ColumnRuleStyleParseError<'a>,
+    CssParsingError::ColumnRuleStyle
+);
+impl_from!(
+    ColumnRuleColorParseError<'a>,
+    CssParsingError::ColumnRuleColor
+);
+impl_from!(FlowIntoParseError<'a>, CssParsingError::FlowInto);
+impl_from!(FlowFromParseError<'a>, CssParsingError::FlowFrom);
 
 impl<'a> From<InvalidValueErr<'a>> for CssParsingError<'a> {
     fn from(e: InvalidValueErr<'a>) -> Self {
@@ -1271,9 +1495,13 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::BackgroundPosition(e) => {
                 CssParsingErrorOwned::BackgroundPosition(e.to_contained())
             }
-            CssParsingError::GridAutoFlow(e) => CssParsingErrorOwned::GridAutoFlow(e.to_contained()),
+            CssParsingError::GridAutoFlow(e) => {
+                CssParsingErrorOwned::GridAutoFlow(e.to_contained())
+            }
             CssParsingError::JustifySelf(e) => CssParsingErrorOwned::JustifySelf(e.to_contained()),
-            CssParsingError::JustifyItems(e) => CssParsingErrorOwned::JustifyItems(e.to_contained()),
+            CssParsingError::JustifyItems(e) => {
+                CssParsingErrorOwned::JustifyItems(e.to_contained())
+            }
             CssParsingError::AlignSelf(e) => CssParsingErrorOwned::AlignSelf(e.to_contained()),
             CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
             CssParsingError::Visibility(e) => CssParsingErrorOwned::Visibility(e.to_contained()),
@@ -1357,6 +1585,7 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::TextColor(e) => CssParsingErrorOwned::TextColor(e.to_contained()),
             CssParsingError::FontSize(e) => CssParsingErrorOwned::FontSize(e.to_contained()),
             CssParsingError::TextAlign(e) => CssParsingErrorOwned::TextAlign(e.to_contained()),
+            CssParsingError::TextJustify(e) => CssParsingErrorOwned::TextJustify(e.to_owned()),
             CssParsingError::LetterSpacing(e) => {
                 CssParsingErrorOwned::LetterSpacing(e.to_contained())
             }
@@ -1374,7 +1603,33 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::LayoutBoxSizing(e) => {
                 CssParsingErrorOwned::LayoutBoxSizing(e.to_contained())
             }
-            _ => panic!("Unhandled CssParsingError variant in to_contained()"),
+            // DTP properties...
+            CssParsingError::PageBreak(e) => CssParsingErrorOwned::PageBreak(e.to_contained()),
+            CssParsingError::BreakInside(e) => CssParsingErrorOwned::BreakInside(e.to_contained()),
+            CssParsingError::Widows(e) => CssParsingErrorOwned::Widows(e.to_contained()),
+            CssParsingError::Orphans(e) => CssParsingErrorOwned::Orphans(e.to_contained()),
+            CssParsingError::BoxDecorationBreak(e) => {
+                CssParsingErrorOwned::BoxDecorationBreak(e.to_contained())
+            }
+            CssParsingError::ColumnCount(e) => CssParsingErrorOwned::ColumnCount(e.to_contained()),
+            CssParsingError::ColumnWidth(e) => CssParsingErrorOwned::ColumnWidth(e.to_contained()),
+            CssParsingError::ColumnSpan(e) => CssParsingErrorOwned::ColumnSpan(e.to_contained()),
+            CssParsingError::ColumnFill(e) => CssParsingErrorOwned::ColumnFill(e.to_contained()),
+            CssParsingError::ColumnRuleWidth(e) => {
+                CssParsingErrorOwned::ColumnRuleWidth(e.to_contained())
+            }
+            CssParsingError::ColumnRuleStyle(e) => {
+                CssParsingErrorOwned::ColumnRuleStyle(e.to_contained())
+            }
+            CssParsingError::ColumnRuleColor(e) => {
+                CssParsingErrorOwned::ColumnRuleColor(e.to_contained())
+            }
+            CssParsingError::FlowInto(e) => CssParsingErrorOwned::FlowInto(e.to_contained()),
+            CssParsingError::FlowFrom(e) => CssParsingErrorOwned::FlowFrom(e.to_contained()),
+            CssParsingError::GenericParseError => CssParsingErrorOwned::GenericParseError,
+            CssParsingError::Content => CssParsingErrorOwned::Content,
+            CssParsingError::Counter => CssParsingErrorOwned::Counter,
+            CssParsingError::StringSet => CssParsingErrorOwned::StringSet,
         }
     }
 }
@@ -1441,6 +1696,10 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::AlignItems(e) => CssParsingError::AlignItems(e.to_shared()),
             CssParsingErrorOwned::AlignContent(e) => CssParsingError::AlignContent(e.to_shared()),
             CssParsingErrorOwned::Grid(e) => CssParsingError::Grid(e.to_shared()),
+            CssParsingErrorOwned::GridAutoFlow(e) => CssParsingError::GridAutoFlow(e.to_shared()),
+            CssParsingErrorOwned::JustifySelf(e) => CssParsingError::JustifySelf(e.to_shared()),
+            CssParsingErrorOwned::JustifyItems(e) => CssParsingError::JustifyItems(e.to_shared()),
+            CssParsingErrorOwned::AlignSelf(e) => CssParsingError::AlignSelf(e.to_shared()),
             CssParsingErrorOwned::LayoutWrap(e) => CssParsingError::LayoutWrap(e.to_shared()),
             CssParsingErrorOwned::LayoutWritingMode(e) => {
                 CssParsingError::LayoutWritingMode(e.to_shared())
@@ -1469,6 +1728,7 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::TextColor(e) => CssParsingError::TextColor(e.to_shared()),
             CssParsingErrorOwned::FontSize(e) => CssParsingError::FontSize(e.to_shared()),
             CssParsingErrorOwned::TextAlign(e) => CssParsingError::TextAlign(e.to_shared()),
+            CssParsingErrorOwned::TextJustify(e) => CssParsingError::TextJustify(e.to_borrowed()),
             CssParsingErrorOwned::LetterSpacing(e) => CssParsingError::LetterSpacing(e.to_shared()),
             CssParsingErrorOwned::LineHeight(e) => CssParsingError::LineHeight(e.clone()),
             CssParsingErrorOwned::WordSpacing(e) => CssParsingError::WordSpacing(e.to_shared()),
@@ -1482,7 +1742,33 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::LayoutBoxSizing(e) => {
                 CssParsingError::LayoutBoxSizing(e.to_shared())
             }
-            _ => panic!("Unhandled CssParsingErrorOwned variant in to_shared()"),
+            // DTP properties...
+            CssParsingErrorOwned::PageBreak(e) => CssParsingError::PageBreak(e.to_shared()),
+            CssParsingErrorOwned::BreakInside(e) => CssParsingError::BreakInside(e.to_shared()),
+            CssParsingErrorOwned::Widows(e) => CssParsingError::Widows(e.to_shared()),
+            CssParsingErrorOwned::Orphans(e) => CssParsingError::Orphans(e.to_shared()),
+            CssParsingErrorOwned::BoxDecorationBreak(e) => {
+                CssParsingError::BoxDecorationBreak(e.to_shared())
+            }
+            CssParsingErrorOwned::ColumnCount(e) => CssParsingError::ColumnCount(e.to_shared()),
+            CssParsingErrorOwned::ColumnWidth(e) => CssParsingError::ColumnWidth(e.to_shared()),
+            CssParsingErrorOwned::ColumnSpan(e) => CssParsingError::ColumnSpan(e.to_shared()),
+            CssParsingErrorOwned::ColumnFill(e) => CssParsingError::ColumnFill(e.to_shared()),
+            CssParsingErrorOwned::ColumnRuleWidth(e) => {
+                CssParsingError::ColumnRuleWidth(e.to_shared())
+            }
+            CssParsingErrorOwned::ColumnRuleStyle(e) => {
+                CssParsingError::ColumnRuleStyle(e.to_shared())
+            }
+            CssParsingErrorOwned::ColumnRuleColor(e) => {
+                CssParsingError::ColumnRuleColor(e.to_shared())
+            }
+            CssParsingErrorOwned::FlowInto(e) => CssParsingError::FlowInto(e.to_shared()),
+            CssParsingErrorOwned::FlowFrom(e) => CssParsingError::FlowFrom(e.to_shared()),
+            CssParsingErrorOwned::GenericParseError => CssParsingError::GenericParseError,
+            CssParsingErrorOwned::Content => CssParsingError::Content,
+            CssParsingErrorOwned::Counter => CssParsingError::Counter,
+            CssParsingErrorOwned::StringSet => CssParsingError::StringSet,
         }
     }
 }
@@ -1503,6 +1789,7 @@ pub fn parse_css_property<'a>(
             CssPropertyType::FontSize => parse_style_font_size(value)?.into(),
             CssPropertyType::FontFamily => parse_style_font_family(value)?.into(),
             CssPropertyType::TextAlign => parse_style_text_align(value)?.into(),
+            CssPropertyType::TextJustify => parse_layout_text_justify(value)?.into(),
             CssPropertyType::LetterSpacing => parse_style_letter_spacing(value)?.into(),
             CssPropertyType::LineHeight => parse_style_line_height(value)?.into(),
             CssPropertyType::WordSpacing => parse_style_word_spacing(value)?.into(),
@@ -1560,9 +1847,7 @@ pub fn parse_css_property<'a>(
                 // gap shorthand: single value -> both row & column
                 CssProperty::Gap(parse_layout_gap(value)?.into())
             }
-            CssPropertyType::GridGap => {
-                CssProperty::GridGap(parse_layout_gap(value)?.into())
-            }
+            CssPropertyType::GridGap => CssProperty::GridGap(parse_layout_gap(value)?.into()),
             CssPropertyType::AlignSelf => {
                 CssProperty::AlignSelf(parse_layout_align_self(value)?.into())
             }
@@ -1666,6 +1951,76 @@ pub fn parse_css_property<'a>(
             CssPropertyType::TextShadow => {
                 CssProperty::TextShadow(parse_style_box_shadow(value)?.into())
             }
+
+            // DTP properties
+            CssPropertyType::BreakBefore => {
+                CssProperty::BreakBefore(parse_page_break(value)?.into())
+            }
+            CssPropertyType::BreakAfter => CssProperty::BreakAfter(parse_page_break(value)?.into()),
+            CssPropertyType::BreakInside => {
+                CssProperty::BreakInside(parse_break_inside(value)?.into())
+            }
+            CssPropertyType::Orphans => CssProperty::Orphans(parse_orphans(value)?.into()),
+            CssPropertyType::Widows => CssProperty::Widows(parse_widows(value)?.into()),
+            CssPropertyType::BoxDecorationBreak => {
+                CssProperty::BoxDecorationBreak(parse_box_decoration_break(value)?.into())
+            }
+            CssPropertyType::ColumnCount => {
+                CssProperty::ColumnCount(parse_column_count(value)?.into())
+            }
+            CssPropertyType::ColumnWidth => {
+                CssProperty::ColumnWidth(parse_column_width(value)?.into())
+            }
+            CssPropertyType::ColumnSpan => {
+                CssProperty::ColumnSpan(parse_column_span(value)?.into())
+            }
+            CssPropertyType::ColumnFill => {
+                CssProperty::ColumnFill(parse_column_fill(value)?.into())
+            }
+            CssPropertyType::ColumnRuleWidth => {
+                CssProperty::ColumnRuleWidth(parse_column_rule_width(value)?.into())
+            }
+            CssPropertyType::ColumnRuleStyle => {
+                CssProperty::ColumnRuleStyle(parse_column_rule_style(value)?.into())
+            }
+            CssPropertyType::ColumnRuleColor => {
+                CssProperty::ColumnRuleColor(parse_column_rule_color(value)?.into())
+            }
+            CssPropertyType::FlowInto => CssProperty::FlowInto(parse_flow_into(value)?.into()),
+            CssPropertyType::FlowFrom => CssProperty::FlowFrom(parse_flow_from(value)?.into()),
+            CssPropertyType::ShapeOutside => CssProperty::ShapeOutside(
+                parse_shape_outside(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::ShapeMargin => {
+                CssProperty::ShapeMargin(parse_shape_margin(value)?.into())
+            }
+            CssPropertyType::ShapeImageThreshold => CssProperty::ShapeImageThreshold(
+                parse_shape_image_threshold(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::Content => CssProperty::Content(
+                parse_content(value)
+                    .map_err(|_| CssParsingError::Content)?
+                    .into(),
+            ),
+            CssPropertyType::CounterReset => CssProperty::CounterReset(
+                parse_counter_reset(value)
+                    .map_err(|_| CssParsingError::Counter)?
+                    .into(),
+            ),
+            CssPropertyType::CounterIncrement => CssProperty::CounterIncrement(
+                parse_counter_increment(value)
+                    .map_err(|_| CssParsingError::Counter)?
+                    .into(),
+            ),
+            CssPropertyType::StringSet => CssProperty::StringSet(
+                parse_string_set(value)
+                    .map_err(|_| CssParsingError::StringSet)?
+                    .into(),
+            ),
         },
     })
 }
@@ -1811,10 +2166,17 @@ pub fn parse_combined_css_property<'a>(
             vec![CssPropertyType::BackgroundContent]
         }
         Flex => {
-            vec![CssPropertyType::FlexGrow, CssPropertyType::FlexShrink, CssPropertyType::FlexBasis]
+            vec![
+                CssPropertyType::FlexGrow,
+                CssPropertyType::FlexShrink,
+                CssPropertyType::FlexBasis,
+            ]
         }
         Grid => {
-            vec![CssPropertyType::GridTemplateColumns, CssPropertyType::GridTemplateRows]
+            vec![
+                CssPropertyType::GridTemplateColumns,
+                CssPropertyType::GridTemplateRows,
+            ]
         }
         Gap => {
             vec![CssPropertyType::RowGap, CssPropertyType::ColumnGap]
@@ -1824,6 +2186,16 @@ pub fn parse_combined_css_property<'a>(
         }
         Font => {
             vec![CssPropertyType::Font]
+        }
+        Columns => {
+            vec![CssPropertyType::ColumnWidth, CssPropertyType::ColumnCount]
+        }
+        ColumnRule => {
+            vec![
+                CssPropertyType::ColumnRuleWidth,
+                CssPropertyType::ColumnRuleStyle,
+                CssPropertyType::ColumnRuleColor,
+            ]
         }
     };
 
@@ -2090,15 +2462,27 @@ pub fn parse_combined_css_property<'a>(
         }
         Background => {
             let background_content = parse_style_background_content_multiple(value)?;
-            Ok(vec![CssProperty::BackgroundContent(background_content.into())])
+            Ok(vec![CssProperty::BackgroundContent(
+                background_content.into(),
+            )])
         }
         Flex => {
             // parse shorthand into grow/shrink/basis
             let parts: Vec<&str> = value.split_whitespace().collect();
             if parts.len() == 1 && parts[0] == "none" {
                 return Ok(vec![
-                    CssProperty::FlexGrow(LayoutFlexGrow { inner: crate::props::basic::length::FloatValue::const_new(0) }.into()),
-                    CssProperty::FlexShrink(LayoutFlexShrink { inner: crate::props::basic::length::FloatValue::const_new(0) }.into()),
+                    CssProperty::FlexGrow(
+                        LayoutFlexGrow {
+                            inner: crate::props::basic::length::FloatValue::const_new(0),
+                        }
+                        .into(),
+                    ),
+                    CssProperty::FlexShrink(
+                        LayoutFlexShrink {
+                            inner: crate::props::basic::length::FloatValue::const_new(0),
+                        }
+                        .into(),
+                    ),
                     CssProperty::FlexBasis(LayoutFlexBasis::Auto.into()),
                 ]);
             }
@@ -2112,25 +2496,44 @@ pub fn parse_combined_css_property<'a>(
                 }
             }
             if parts.len() == 2 {
-                if let (Ok(g), Ok(b)) = (parse_layout_flex_grow(parts[0]), parse_layout_flex_basis(parts[1])) {
-                    return Ok(vec![CssProperty::FlexGrow(g.into()), CssProperty::FlexBasis(b.into())]);
+                if let (Ok(g), Ok(b)) = (
+                    parse_layout_flex_grow(parts[0]),
+                    parse_layout_flex_basis(parts[1]),
+                ) {
+                    return Ok(vec![
+                        CssProperty::FlexGrow(g.into()),
+                        CssProperty::FlexBasis(b.into()),
+                    ]);
                 }
-                if let (Ok(g), Ok(s)) = (parse_layout_flex_grow(parts[0]), parse_layout_flex_shrink(parts[1])) {
-                    return Ok(vec![CssProperty::FlexGrow(g.into()), CssProperty::FlexShrink(s.into())]);
+                if let (Ok(g), Ok(s)) = (
+                    parse_layout_flex_grow(parts[0]),
+                    parse_layout_flex_shrink(parts[1]),
+                ) {
+                    return Ok(vec![
+                        CssProperty::FlexGrow(g.into()),
+                        CssProperty::FlexShrink(s.into()),
+                    ]);
                 }
             }
             if parts.len() == 3 {
                 let g = parse_layout_flex_grow(parts[0])?;
                 let s = parse_layout_flex_shrink(parts[1])?;
                 let b = parse_layout_flex_basis(parts[2])?;
-                return Ok(vec![CssProperty::FlexGrow(g.into()), CssProperty::FlexShrink(s.into()), CssProperty::FlexBasis(b.into())]);
+                return Ok(vec![
+                    CssProperty::FlexGrow(g.into()),
+                    CssProperty::FlexShrink(s.into()),
+                    CssProperty::FlexBasis(b.into()),
+                ]);
             }
             return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
         }
         Grid => {
             // minimal: try to parse as grid-template and set both columns and rows
             let tpl = parse_grid_template(value)?;
-            Ok(vec![CssProperty::GridTemplateColumns(tpl.clone().into()), CssProperty::GridTemplateRows(tpl.into())])
+            Ok(vec![
+                CssProperty::GridTemplateColumns(tpl.clone().into()),
+                CssProperty::GridTemplateRows(tpl.into()),
+            ])
         }
         Gap => {
             let parts: Vec<&str> = value.split_whitespace().collect();
@@ -2174,6 +2577,42 @@ pub fn parse_combined_css_property<'a>(
             let fam = parse_style_font_family(value)?;
             Ok(vec![CssProperty::Font(fam.into())])
         }
+        Columns => {
+            let mut props = Vec::new();
+            for part in value.split_whitespace() {
+                if let Ok(width) = parse_column_width(part) {
+                    props.push(CssProperty::ColumnWidth(width.into()));
+                } else if let Ok(count) = parse_column_count(part) {
+                    props.push(CssProperty::ColumnCount(count.into()));
+                } else {
+                    return Err(CssParsingError::InvalidValue(InvalidValueErr(value)));
+                }
+            }
+            Ok(props)
+        }
+        ColumnRule => {
+            let border = parse_style_border(value)?;
+            Ok(vec![
+                CssProperty::ColumnRuleWidth(
+                    ColumnRuleWidth {
+                        inner: border.border_width,
+                    }
+                    .into(),
+                ),
+                CssProperty::ColumnRuleStyle(
+                    ColumnRuleStyle {
+                        inner: border.border_style,
+                    }
+                    .into(),
+                ),
+                CssProperty::ColumnRuleColor(
+                    ColumnRuleColor {
+                        inner: border.border_color,
+                    }
+                    .into(),
+                ),
+            ])
+        }
     }
 }
 
@@ -2192,6 +2631,7 @@ impl_from_css_prop!(StyleTextColor, CssProperty::TextColor);
 impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
 impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
 impl_from_css_prop!(StyleTextAlign, CssProperty::TextAlign);
+impl_from_css_prop!(LayoutTextJustify, CssProperty::TextJustify);
 impl_from_css_prop!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
 impl_from_css_prop!(StyleWordSpacing, CssProperty::WordSpacing);
@@ -2274,6 +2714,27 @@ impl_from_css_prop!(StyleMixBlendMode, CssProperty::MixBlendMode);
 impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
 impl_from_css_prop!(StyleDirection, CssProperty::Direction);
 impl_from_css_prop!(StyleWhiteSpace, CssProperty::WhiteSpace);
+impl_from_css_prop!(PageBreak, CssProperty::BreakBefore);
+impl_from_css_prop!(BreakInside, CssProperty::BreakInside);
+impl_from_css_prop!(Widows, CssProperty::Widows);
+impl_from_css_prop!(Orphans, CssProperty::Orphans);
+impl_from_css_prop!(BoxDecorationBreak, CssProperty::BoxDecorationBreak);
+impl_from_css_prop!(ColumnCount, CssProperty::ColumnCount);
+impl_from_css_prop!(ColumnWidth, CssProperty::ColumnWidth);
+impl_from_css_prop!(ColumnSpan, CssProperty::ColumnSpan);
+impl_from_css_prop!(ColumnFill, CssProperty::ColumnFill);
+impl_from_css_prop!(ColumnRuleWidth, CssProperty::ColumnRuleWidth);
+impl_from_css_prop!(ColumnRuleStyle, CssProperty::ColumnRuleStyle);
+impl_from_css_prop!(ColumnRuleColor, CssProperty::ColumnRuleColor);
+impl_from_css_prop!(FlowInto, CssProperty::FlowInto);
+impl_from_css_prop!(FlowFrom, CssProperty::FlowFrom);
+impl_from_css_prop!(ShapeOutside, CssProperty::ShapeOutside);
+impl_from_css_prop!(ShapeMargin, CssProperty::ShapeMargin);
+impl_from_css_prop!(ShapeImageThreshold, CssProperty::ShapeImageThreshold);
+impl_from_css_prop!(Content, CssProperty::Content);
+impl_from_css_prop!(CounterReset, CssProperty::CounterReset);
+impl_from_css_prop!(CounterIncrement, CssProperty::CounterIncrement);
+impl_from_css_prop!(StringSet, CssProperty::StringSet);
 
 impl CssProperty {
     pub fn key(&self) -> &'static str {
@@ -2281,7 +2742,8 @@ impl CssProperty {
     }
 
     pub fn value(&self) -> String {
-    match self {
+        match self {
+            CssProperty::TextJustify(v) => v.get_css_value_fmt(),
             CssProperty::LayoutTextJustify(v) => format!("{:?}", v),
             CssProperty::TextColor(v) => v.get_css_value_fmt(),
             CssProperty::FontSize(v) => v.get_css_value_fmt(),
@@ -2380,6 +2842,28 @@ impl CssProperty {
             CssProperty::Hyphens(v) => v.get_css_value_fmt(),
             CssProperty::Direction(v) => v.get_css_value_fmt(),
             CssProperty::WhiteSpace(v) => v.get_css_value_fmt(),
+            CssProperty::BreakBefore(v) => v.get_css_value_fmt(),
+            CssProperty::BreakAfter(v) => v.get_css_value_fmt(),
+            CssProperty::BreakInside(v) => v.get_css_value_fmt(),
+            CssProperty::Orphans(v) => v.get_css_value_fmt(),
+            CssProperty::Widows(v) => v.get_css_value_fmt(),
+            CssProperty::BoxDecorationBreak(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnCount(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnWidth(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnSpan(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnFill(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnRuleWidth(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnRuleStyle(v) => v.get_css_value_fmt(),
+            CssProperty::ColumnRuleColor(v) => v.get_css_value_fmt(),
+            CssProperty::FlowInto(v) => v.get_css_value_fmt(),
+            CssProperty::FlowFrom(v) => v.get_css_value_fmt(),
+            CssProperty::ShapeOutside(v) => v.get_css_value_fmt(),
+            CssProperty::ShapeMargin(v) => v.get_css_value_fmt(),
+            CssProperty::ShapeImageThreshold(v) => v.get_css_value_fmt(),
+            CssProperty::Content(v) => v.get_css_value_fmt(),
+            CssProperty::CounterReset(v) => v.get_css_value_fmt(),
+            CssProperty::CounterIncrement(v) => v.get_css_value_fmt(),
+            CssProperty::StringSet(v) => v.get_css_value_fmt(),
         }
     }
 
@@ -2659,7 +3143,9 @@ impl CssProperty {
     /// Return the type (key) of this property as a statically typed enum
     pub const fn get_type(&self) -> CssPropertyType {
         match &self {
-            CssProperty::LayoutTextJustify(_) => CssPropertyType::TextAlign, // oder ggf. ein eigener Typ
+            CssProperty::TextJustify(_) => CssPropertyType::TextJustify,
+            CssProperty::LayoutTextJustify(_) => CssPropertyType::TextAlign, /* oder ggf. ein */
+            // eigener Typ
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
@@ -2757,6 +3243,28 @@ impl CssProperty {
             CssProperty::WhiteSpace(_) => CssPropertyType::WhiteSpace,
             CssProperty::Hyphens(_) => CssPropertyType::Hyphens,
             CssProperty::Direction(_) => CssPropertyType::Direction,
+            CssProperty::BreakBefore(_) => CssPropertyType::BreakBefore,
+            CssProperty::BreakAfter(_) => CssPropertyType::BreakAfter,
+            CssProperty::BreakInside(_) => CssPropertyType::BreakInside,
+            CssProperty::Orphans(_) => CssPropertyType::Orphans,
+            CssProperty::Widows(_) => CssPropertyType::Widows,
+            CssProperty::BoxDecorationBreak(_) => CssPropertyType::BoxDecorationBreak,
+            CssProperty::ColumnCount(_) => CssPropertyType::ColumnCount,
+            CssProperty::ColumnWidth(_) => CssPropertyType::ColumnWidth,
+            CssProperty::ColumnSpan(_) => CssPropertyType::ColumnSpan,
+            CssProperty::ColumnFill(_) => CssPropertyType::ColumnFill,
+            CssProperty::ColumnRuleWidth(_) => CssPropertyType::ColumnRuleWidth,
+            CssProperty::ColumnRuleStyle(_) => CssPropertyType::ColumnRuleStyle,
+            CssProperty::ColumnRuleColor(_) => CssPropertyType::ColumnRuleColor,
+            CssProperty::FlowInto(_) => CssPropertyType::FlowInto,
+            CssProperty::FlowFrom(_) => CssPropertyType::FlowFrom,
+            CssProperty::ShapeOutside(_) => CssPropertyType::ShapeOutside,
+            CssProperty::ShapeMargin(_) => CssPropertyType::ShapeMargin,
+            CssProperty::ShapeImageThreshold(_) => CssPropertyType::ShapeImageThreshold,
+            CssProperty::Content(_) => CssPropertyType::Content,
+            CssProperty::CounterReset(_) => CssPropertyType::CounterReset,
+            CssProperty::CounterIncrement(_) => CssPropertyType::CounterIncrement,
+            CssProperty::StringSet(_) => CssPropertyType::StringSet,
         }
     }
 
@@ -2787,6 +3295,9 @@ impl CssProperty {
     pub const fn text_align(input: StyleTextAlign) -> Self {
         CssProperty::TextAlign(CssPropertyValue::Exact(input))
     }
+    pub const fn text_justify(input: LayoutTextJustify) -> Self {
+        CssProperty::TextJustify(CssPropertyValue::Exact(input))
+    }
     pub const fn letter_spacing(input: StyleLetterSpacing) -> Self {
         CssProperty::LetterSpacing(CssPropertyValue::Exact(input))
     }
@@ -2805,9 +3316,7 @@ impl CssProperty {
     pub const fn display(input: LayoutDisplay) -> Self {
         CssProperty::Display(CssPropertyValue::Exact(input))
     }
-    pub const fn float(input: LayoutFloat) -> Self {
-        CssProperty::Float(CssPropertyValue::Exact(input))
-    }
+
     pub const fn box_sizing(input: LayoutBoxSizing) -> Self {
         CssProperty::BoxSizing(CssPropertyValue::Exact(input))
     }
@@ -2862,13 +3371,27 @@ impl CssProperty {
     pub const fn justify_content(input: LayoutJustifyContent) -> Self {
         CssProperty::JustifyContent(CssPropertyValue::Exact(input))
     }
-    pub const fn grid_auto_flow(input: LayoutGridAutoFlow) -> Self { CssProperty::GridAutoFlow(CssPropertyValue::Exact(input)) }
-    pub const fn justify_self(input: LayoutJustifySelf) -> Self { CssProperty::JustifySelf(CssPropertyValue::Exact(input)) }
-    pub const fn justify_items(input: LayoutJustifyItems) -> Self { CssProperty::JustifyItems(CssPropertyValue::Exact(input)) }
-    pub const fn gap(input: LayoutGap) -> Self { CssProperty::Gap(CssPropertyValue::Exact(input)) }
-    pub const fn grid_gap(input: LayoutGap) -> Self { CssProperty::GridGap(CssPropertyValue::Exact(input)) }
-    pub const fn align_self(input: LayoutAlignSelf) -> Self { CssProperty::AlignSelf(CssPropertyValue::Exact(input)) }
-    pub const fn font(input: StyleFontFamilyVec) -> Self { CssProperty::Font(StyleFontValue::Exact(input)) }
+    pub const fn grid_auto_flow(input: LayoutGridAutoFlow) -> Self {
+        CssProperty::GridAutoFlow(CssPropertyValue::Exact(input))
+    }
+    pub const fn justify_self(input: LayoutJustifySelf) -> Self {
+        CssProperty::JustifySelf(CssPropertyValue::Exact(input))
+    }
+    pub const fn justify_items(input: LayoutJustifyItems) -> Self {
+        CssProperty::JustifyItems(CssPropertyValue::Exact(input))
+    }
+    pub const fn gap(input: LayoutGap) -> Self {
+        CssProperty::Gap(CssPropertyValue::Exact(input))
+    }
+    pub const fn grid_gap(input: LayoutGap) -> Self {
+        CssProperty::GridGap(CssPropertyValue::Exact(input))
+    }
+    pub const fn align_self(input: LayoutAlignSelf) -> Self {
+        CssProperty::AlignSelf(CssPropertyValue::Exact(input))
+    }
+    pub const fn font(input: StyleFontFamilyVec) -> Self {
+        CssProperty::Font(StyleFontValue::Exact(input))
+    }
     pub const fn align_items(input: LayoutAlignItems) -> Self {
         CssProperty::AlignItems(CssPropertyValue::Exact(input))
     }
@@ -2994,6 +3517,74 @@ impl CssProperty {
     }
     pub const fn backface_visiblity(input: StyleBackfaceVisibility) -> Self {
         CssProperty::BackfaceVisibility(CssPropertyValue::Exact(input))
+    }
+
+    // New DTP const fn constructors
+    pub const fn break_before(input: PageBreak) -> Self {
+        CssProperty::BreakBefore(CssPropertyValue::Exact(input))
+    }
+    pub const fn break_after(input: PageBreak) -> Self {
+        CssProperty::BreakAfter(CssPropertyValue::Exact(input))
+    }
+    pub const fn break_inside(input: BreakInside) -> Self {
+        CssProperty::BreakInside(CssPropertyValue::Exact(input))
+    }
+    pub const fn orphans(input: Orphans) -> Self {
+        CssProperty::Orphans(CssPropertyValue::Exact(input))
+    }
+    pub const fn widows(input: Widows) -> Self {
+        CssProperty::Widows(CssPropertyValue::Exact(input))
+    }
+    pub const fn box_decoration_break(input: BoxDecorationBreak) -> Self {
+        CssProperty::BoxDecorationBreak(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_count(input: ColumnCount) -> Self {
+        CssProperty::ColumnCount(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_width(input: ColumnWidth) -> Self {
+        CssProperty::ColumnWidth(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_span(input: ColumnSpan) -> Self {
+        CssProperty::ColumnSpan(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_fill(input: ColumnFill) -> Self {
+        CssProperty::ColumnFill(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_rule_width(input: ColumnRuleWidth) -> Self {
+        CssProperty::ColumnRuleWidth(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_rule_style(input: ColumnRuleStyle) -> Self {
+        CssProperty::ColumnRuleStyle(CssPropertyValue::Exact(input))
+    }
+    pub const fn column_rule_color(input: ColumnRuleColor) -> Self {
+        CssProperty::ColumnRuleColor(CssPropertyValue::Exact(input))
+    }
+    pub const fn flow_into(input: FlowInto) -> Self {
+        CssProperty::FlowInto(CssPropertyValue::Exact(input))
+    }
+    pub const fn flow_from(input: FlowFrom) -> Self {
+        CssProperty::FlowFrom(CssPropertyValue::Exact(input))
+    }
+    pub const fn shape_outside(input: ShapeOutside) -> Self {
+        CssProperty::ShapeOutside(CssPropertyValue::Exact(input))
+    }
+    pub const fn shape_margin(input: ShapeMargin) -> Self {
+        CssProperty::ShapeMargin(CssPropertyValue::Exact(input))
+    }
+    pub const fn shape_image_threshold(input: ShapeImageThreshold) -> Self {
+        CssProperty::ShapeImageThreshold(CssPropertyValue::Exact(input))
+    }
+    pub const fn content(input: Content) -> Self {
+        CssProperty::Content(CssPropertyValue::Exact(input))
+    }
+    pub const fn counter_reset(input: CounterReset) -> Self {
+        CssProperty::CounterReset(CssPropertyValue::Exact(input))
+    }
+    pub const fn counter_increment(input: CounterIncrement) -> Self {
+        CssProperty::CounterIncrement(CssPropertyValue::Exact(input))
+    }
+    pub const fn string_set(input: StringSet) -> Self {
+        CssProperty::StringSet(CssPropertyValue::Exact(input))
     }
 
     // functions that downcast to the concrete CSS type (style)
@@ -3502,10 +4093,143 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_break_before(&self) -> Option<&PageBreakValue> {
+        match self {
+            CssProperty::BreakBefore(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_break_after(&self) -> Option<&PageBreakValue> {
+        match self {
+            CssProperty::BreakAfter(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_break_inside(&self) -> Option<&BreakInsideValue> {
+        match self {
+            CssProperty::BreakInside(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_orphans(&self) -> Option<&OrphansValue> {
+        match self {
+            CssProperty::Orphans(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_widows(&self) -> Option<&WidowsValue> {
+        match self {
+            CssProperty::Widows(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_box_decoration_break(&self) -> Option<&BoxDecorationBreakValue> {
+        match self {
+            CssProperty::BoxDecorationBreak(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_count(&self) -> Option<&ColumnCountValue> {
+        match self {
+            CssProperty::ColumnCount(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_width(&self) -> Option<&ColumnWidthValue> {
+        match self {
+            CssProperty::ColumnWidth(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_span(&self) -> Option<&ColumnSpanValue> {
+        match self {
+            CssProperty::ColumnSpan(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_fill(&self) -> Option<&ColumnFillValue> {
+        match self {
+            CssProperty::ColumnFill(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_rule_width(&self) -> Option<&ColumnRuleWidthValue> {
+        match self {
+            CssProperty::ColumnRuleWidth(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_rule_style(&self) -> Option<&ColumnRuleStyleValue> {
+        match self {
+            CssProperty::ColumnRuleStyle(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_column_rule_color(&self) -> Option<&ColumnRuleColorValue> {
+        match self {
+            CssProperty::ColumnRuleColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_flow_into(&self) -> Option<&FlowIntoValue> {
+        match self {
+            CssProperty::FlowInto(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_flow_from(&self) -> Option<&FlowFromValue> {
+        match self {
+            CssProperty::FlowFrom(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_shape_outside(&self) -> Option<&ShapeOutsideValue> {
+        match self {
+            CssProperty::ShapeOutside(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_shape_margin(&self) -> Option<&ShapeMarginValue> {
+        match self {
+            CssProperty::ShapeMargin(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_shape_image_threshold(&self) -> Option<&ShapeImageThresholdValue> {
+        match self {
+            CssProperty::ShapeImageThreshold(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_content(&self) -> Option<&ContentValue> {
+        match self {
+            CssProperty::Content(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_counter_reset(&self) -> Option<&CounterResetValue> {
+        match self {
+            CssProperty::CounterReset(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_counter_increment(&self) -> Option<&CounterIncrementValue> {
+        match self {
+            CssProperty::CounterIncrement(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_string_set(&self) -> Option<&StringSetValue> {
+        match self {
+            CssProperty::StringSet(f) => Some(f),
+            _ => None,
+        }
+    }
 
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
         match self {
+            TextJustify(c) => c.is_initial(),
             LayoutTextJustify(_) => false,
             TextColor(c) => c.is_initial(),
             FontSize(c) => c.is_initial(),
@@ -3604,6 +4328,28 @@ impl CssProperty {
             WhiteSpace(c) => c.is_initial(),
             Direction(c) => c.is_initial(),
             Hyphens(c) => c.is_initial(),
+            BreakBefore(c) => c.is_initial(),
+            BreakAfter(c) => c.is_initial(),
+            BreakInside(c) => c.is_initial(),
+            Orphans(c) => c.is_initial(),
+            Widows(c) => c.is_initial(),
+            BoxDecorationBreak(c) => c.is_initial(),
+            ColumnCount(c) => c.is_initial(),
+            ColumnWidth(c) => c.is_initial(),
+            ColumnSpan(c) => c.is_initial(),
+            ColumnFill(c) => c.is_initial(),
+            ColumnRuleWidth(c) => c.is_initial(),
+            ColumnRuleStyle(c) => c.is_initial(),
+            ColumnRuleColor(c) => c.is_initial(),
+            FlowInto(c) => c.is_initial(),
+            FlowFrom(c) => c.is_initial(),
+            ShapeOutside(c) => c.is_initial(),
+            ShapeMargin(c) => c.is_initial(),
+            ShapeImageThreshold(c) => c.is_initial(),
+            Content(c) => c.is_initial(),
+            CounterReset(c) => c.is_initial(),
+            CounterIncrement(c) => c.is_initial(),
+            StringSet(c) => c.is_initial(),
         }
     }
 
@@ -3826,5 +4572,71 @@ impl CssProperty {
     }
     pub const fn const_backface_visiblity(input: StyleBackfaceVisibility) -> Self {
         CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input))
+    }
+    pub const fn const_break_before(input: PageBreak) -> Self {
+        CssProperty::BreakBefore(PageBreakValue::Exact(input))
+    }
+    pub const fn const_break_after(input: PageBreak) -> Self {
+        CssProperty::BreakAfter(PageBreakValue::Exact(input))
+    }
+    pub const fn const_break_inside(input: BreakInside) -> Self {
+        CssProperty::BreakInside(BreakInsideValue::Exact(input))
+    }
+    pub const fn const_orphans(input: Orphans) -> Self {
+        CssProperty::Orphans(OrphansValue::Exact(input))
+    }
+    pub const fn const_widows(input: Widows) -> Self {
+        CssProperty::Widows(WidowsValue::Exact(input))
+    }
+    pub const fn const_box_decoration_break(input: BoxDecorationBreak) -> Self {
+        CssProperty::BoxDecorationBreak(BoxDecorationBreakValue::Exact(input))
+    }
+    pub const fn const_column_count(input: ColumnCount) -> Self {
+        CssProperty::ColumnCount(ColumnCountValue::Exact(input))
+    }
+    pub const fn const_column_width(input: ColumnWidth) -> Self {
+        CssProperty::ColumnWidth(ColumnWidthValue::Exact(input))
+    }
+    pub const fn const_column_span(input: ColumnSpan) -> Self {
+        CssProperty::ColumnSpan(ColumnSpanValue::Exact(input))
+    }
+    pub const fn const_column_fill(input: ColumnFill) -> Self {
+        CssProperty::ColumnFill(ColumnFillValue::Exact(input))
+    }
+    pub const fn const_column_rule_width(input: ColumnRuleWidth) -> Self {
+        CssProperty::ColumnRuleWidth(ColumnRuleWidthValue::Exact(input))
+    }
+    pub const fn const_column_rule_style(input: ColumnRuleStyle) -> Self {
+        CssProperty::ColumnRuleStyle(ColumnRuleStyleValue::Exact(input))
+    }
+    pub const fn const_column_rule_color(input: ColumnRuleColor) -> Self {
+        CssProperty::ColumnRuleColor(ColumnRuleColorValue::Exact(input))
+    }
+    pub const fn const_flow_into(input: FlowInto) -> Self {
+        CssProperty::FlowInto(FlowIntoValue::Exact(input))
+    }
+    pub const fn const_flow_from(input: FlowFrom) -> Self {
+        CssProperty::FlowFrom(FlowFromValue::Exact(input))
+    }
+    pub const fn const_shape_outside(input: ShapeOutside) -> Self {
+        CssProperty::ShapeOutside(ShapeOutsideValue::Exact(input))
+    }
+    pub const fn const_shape_margin(input: ShapeMargin) -> Self {
+        CssProperty::ShapeMargin(ShapeMarginValue::Exact(input))
+    }
+    pub const fn const_shape_image_threshold(input: ShapeImageThreshold) -> Self {
+        CssProperty::ShapeImageThreshold(ShapeImageThresholdValue::Exact(input))
+    }
+    pub const fn const_content(input: Content) -> Self {
+        CssProperty::Content(ContentValue::Exact(input))
+    }
+    pub const fn const_counter_reset(input: CounterReset) -> Self {
+        CssProperty::CounterReset(CounterResetValue::Exact(input))
+    }
+    pub const fn const_counter_increment(input: CounterIncrement) -> Self {
+        CssProperty::CounterIncrement(CounterIncrementValue::Exact(input))
+    }
+    pub const fn const_string_set(input: StringSet) -> Self {
+        CssProperty::StringSet(StringSetValue::Exact(input))
     }
 }
