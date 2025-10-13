@@ -181,14 +181,14 @@ impl App {
 }
 
 #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
-const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel) -> log::LevelFilter {
+const fn translate_log_level(log_level: azul_core::resources::AppLogLevel) -> log::LevelFilter {
     match log_level {
-        azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
-        azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
-        azul_core::app_resources::AppLogLevel::Warn => log::LevelFilter::Warn,
-        azul_core::app_resources::AppLogLevel::Info => log::LevelFilter::Info,
-        azul_core::app_resources::AppLogLevel::Debug => log::LevelFilter::Debug,
-        azul_core::app_resources::AppLogLevel::Trace => log::LevelFilter::Trace,
+        azul_core::resources::AppLogLevel::Off => log::LevelFilter::Off,
+        azul_core::resources::AppLogLevel::Error => log::LevelFilter::Error,
+        azul_core::resources::AppLogLevel::Warn => log::LevelFilter::Warn,
+        azul_core::resources::AppLogLevel::Info => log::LevelFilter::Info,
+        azul_core::resources::AppLogLevel::Debug => log::LevelFilter::Debug,
+        azul_core::resources::AppLogLevel::Trace => log::LevelFilter::Trace,
     }
 }
 

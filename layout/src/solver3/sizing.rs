@@ -18,7 +18,7 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::PixelValue,
-        layout::LayoutWritingMode,
+        layout::{LayoutDisplay, LayoutHeight, LayoutPosition, LayoutWidth, LayoutWritingMode},
         property::{CssProperty, CssPropertyType},
     },
     LayoutDebugMessage,
@@ -28,11 +28,13 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     font::parsed::ParsedFont,
     solver3::{
-        fc::{get_display_property, get_style_properties},
-        geometry::{BoxProps, BoxSizing, CssSize, DisplayType, IntrinsicSizes},
-        getters::{get_css_height, get_css_width, get_writing_mode},
+        geometry::{BoxProps, BoxSizing, IntrinsicSizes},
+        getters::{
+            get_css_height, get_css_width, get_display_property, get_style_properties,
+            get_writing_mode,
+        },
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
-        positioning::{get_position_type, PositionType},
+        positioning::get_position_type,
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
@@ -84,7 +86,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 
         // Out-of-flow elements do not contribute to their parent's intrinsic size.
         let position = get_position_type(self.ctx.styled_dom, node.dom_node_id);
-        if position == PositionType::Absolute || position == PositionType::Fixed {
+        if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
             if let Some(n) = tree.get_mut(node_index) {
                 n.intrinsic_sizes = Some(IntrinsicSizes::default());
             }
@@ -135,7 +137,12 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let writing_mode = get_writing_mode_opt(self.ctx.styled_dom, node.dom_node_id);
+        let writing_mode = if let Some(dom_id) = node.dom_node_id {
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+            get_writing_mode(self.ctx.styled_dom, dom_id, node_state)
+        } else {
+            LayoutWritingMode::default()
+        };
 
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
@@ -288,7 +295,7 @@ pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             continue;
         };
 
-        if get_display_property(ctx.styled_dom, Some(dom_id)) != DisplayType::Inline {
+        if get_display_property(ctx.styled_dom, Some(dom_id)) != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
             // Use its pre-calculated intrinsic sizes.
             let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
@@ -350,7 +357,7 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     // Out-of-flow elements do not contribute to their parent's intrinsic size.
     let position = get_position_type(ctx.styled_dom, node.dom_node_id);
-    if position == PositionType::Absolute || position == PositionType::Fixed {
+    if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
         if let Some(n) = tree.get_mut(node_index) {
             n.intrinsic_sizes = Some(IntrinsicSizes::default());
         }
@@ -422,30 +429,50 @@ pub fn calculate_used_size_for_node(
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
-    let css_width = get_css_width(styled_dom, dom_id);
-    let css_height = get_css_height(styled_dom, dom_id);
-    let writing_mode = get_writing_mode(styled_dom, dom_id);
+    let Some(id) = dom_id else {
+        return Ok(LogicalSize::new(
+            intrinsic.max_content_width,
+            intrinsic.max_content_height,
+        ));
+    };
+
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let css_width = get_css_width(styled_dom, id, node_state);
+    let css_height = get_css_height(styled_dom, id, node_state);
+    let writing_mode = get_writing_mode(styled_dom, id, node_state);
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width {
-        CssSize::Px(px) => px,
-        CssSize::Percent(p) => (p / 100.0) * containing_block_size.width,
-        CssSize::Auto => intrinsic.max_content_width,
-        CssSize::MinContent => intrinsic.min_content_width,
-        CssSize::MaxContent => intrinsic.max_content_width,
+        LayoutWidth::Px(px) => {
+            // Resolve percentage or absolute pixel value
+            match px.to_pixels_no_percent() {
+                Some(pixels) => pixels,
+                None => match px.to_percent() {
+                    Some(p) => (p / 100.0) * containing_block_size.width,
+                    None => intrinsic.max_content_width,
+                },
+            }
+        }
+        LayoutWidth::MinContent => intrinsic.min_content_width,
+        LayoutWidth::MaxContent => intrinsic.max_content_width,
     };
 
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
     // Percentage values for `height` are resolved against the containing block's height.
     let resolved_height = match css_height {
-        CssSize::Px(px) => px,
-        CssSize::Percent(p) => (p / 100.0) * containing_block_size.height,
-        CssSize::Auto => intrinsic.max_content_height,
-        // NOTE: min/max-content are not valid values for the height property,
-        // but we handle them gracefully by falling back to max-content.
-        CssSize::MinContent => intrinsic.min_content_height,
-        CssSize::MaxContent => intrinsic.max_content_height,
+        LayoutHeight::Px(px) => {
+            // Resolve percentage or absolute pixel value
+            match px.to_pixels_no_percent() {
+                Some(pixels) => pixels,
+                None => match px.to_percent() {
+                    Some(p) => (p / 100.0) * containing_block_size.height,
+                    None => intrinsic.max_content_height,
+                },
+            }
+        }
+        LayoutHeight::MinContent => intrinsic.min_content_height,
+        LayoutHeight::MaxContent => intrinsic.max_content_height,
     };
 
     // Step 3: Map the resolved physical dimensions to logical dimensions.

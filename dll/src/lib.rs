@@ -76,7 +76,7 @@ pub extern "C" fn AzApp_deepCopy(object: &AzApp) -> AzApp {
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
-pub use azul_core::app_resources::AppConfig as AzAppConfigTT;
+pub use azul_core::resources::AppConfig as AzAppConfigTT;
 pub use AzAppConfigTT as AzAppConfig;
 /// Constructs a default `AppConfig`
 #[no_mangle]
@@ -85,7 +85,7 @@ pub extern "C" fn AzAppConfig_new() -> AzAppConfig {
 }
 
 /// Represents the log level of the application (Off, Info, Warn, Error, Trace or Debug).
-pub use azul_core::app_resources::AppLogLevel as AzAppLogLevelTT;
+pub use azul_core::resources::AppLogLevel as AzAppLogLevelTT;
 /// External system callbacks to get the system time or create / manage threads
 pub use azul_core::task::ExternalSystemCallbacks as AzSystemCallbacksTT;
 pub use AzAppLogLevelTT as AzAppLogLevel;
@@ -97,7 +97,7 @@ pub extern "C" fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks {
 }
 
 /// Options on how to initially create the window
-pub use azul_core::window::WindowCreateOptions as AzWindowCreateOptionsTT;
+pub use azul_layout::window::WindowCreateOptions as AzWindowCreateOptionsTT;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new window configuration with a custom layout callback
 #[no_mangle]
@@ -114,6 +114,18 @@ pub extern "C" fn AzWindowCreateOptions_delete(object: &mut AzWindowCreateOption
     }
 }
 
+/// Offset in physical pixels (integer units)
+pub use azul_core::geom::LayoutPoint as AzLayoutPointTT;
+/// Represents a rectangle in physical pixels (integer units)
+pub use azul_core::geom::LayoutRect as AzLayoutRectTT;
+/// Size in physical pixels (integer units)
+pub use azul_core::geom::LayoutSize as AzLayoutSizeTT;
+/// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for
+/// hit-testing and positioning elements.
+pub use azul_core::geom::LogicalPosition as AzLogicalPositionTT;
+/// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd
+/// want for hit-testing and positioning elements.
+pub use azul_core::geom::LogicalRect as AzLogicalRectTT;
 /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
 pub use azul_core::window::AndroidHandle as AzAndroidHandleTT;
 /// Does the renderer render using hardware acceleration? By default, azul tries to set it to
@@ -121,12 +133,6 @@ pub use azul_core::window::AndroidHandle as AzAndroidHandleTT;
 pub use azul_core::window::HwAcceleration as AzHwAccelerationTT;
 /// Re-export of rust-allocated (stack based) `IOSHandle` struct
 pub use azul_core::window::IOSHandle as AzIOSHandleTT;
-/// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for
-/// hit-testing and positioning elements.
-pub use azul_core::window::LogicalPosition as AzLogicalPositionTT;
-/// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd
-/// want for hit-testing and positioning elements.
-pub use azul_core::window::LogicalRect as AzLogicalRectTT;
 /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
 pub use azul_core::window::MacOSHandle as AzMacOSHandleTT;
 /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
@@ -156,12 +162,6 @@ pub use azul_core::window::XWindowType as AzXWindowTypeTT;
 pub use azul_core::window::XcbHandle as AzXcbHandleTT;
 /// Re-export of rust-allocated (stack based) `XlibHandle` struct
 pub use azul_core::window::XlibHandle as AzXlibHandleTT;
-/// Offset in physical pixels (integer units)
-pub use azul_css::LayoutPoint as AzLayoutPointTT;
-/// Represents a rectangle in physical pixels (integer units)
-pub use azul_css::LayoutRect as AzLayoutRectTT;
-/// Size in physical pixels (integer units)
-pub use azul_css::LayoutSize as AzLayoutSizeTT;
 pub use AzAndroidHandleTT as AzAndroidHandle;
 pub use AzHwAccelerationTT as AzHwAcceleration;
 pub use AzIOSHandleTT as AzIOSHandle;
@@ -197,7 +197,7 @@ pub extern "C" fn AzLogicalPosition_zero() -> AzLogicalPosition {
 }
 
 /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
-pub use azul_core::window::LogicalSize as AzLogicalSizeTT;
+pub use azul_core::geom::LogicalSize as AzLogicalSizeTT;
 pub use AzLogicalSizeTT as AzLogicalSize;
 /// Equivalent to the Rust `LogicalSize::to_physical()` function.
 #[no_mangle]
@@ -493,7 +493,7 @@ pub use AzCallbackTT as AzCallback;
 
 pub type AzCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
-pub use azul_core::callbacks::CallbackInfo as AzCallbackInfoTT;
+pub use azul_layout::callbacks::CallbackInfo as AzCallbackInfoTT;
 pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the `DomNodeId` of the element that the callback was attached to.
 #[no_mangle]
@@ -2412,10 +2412,10 @@ pub extern "C" fn AzDynamicCssProperty_delete(object: &mut AzDynamicCssProperty)
     }
 }
 
+/// Re-export of rust-allocated (stack based) `ColorU` struct
+pub use azul_css::props::basic::color::ColorU as AzColorUTT;
 /// Re-export of rust-allocated (stack based) `AnimationInterpolationFunction` struct
 pub use azul_css::AnimationInterpolationFunction as AzAnimationInterpolationFunctionTT;
-/// Re-export of rust-allocated (stack based) `ColorU` struct
-pub use azul_css::ColorU as AzColorUTT;
 /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
 pub use azul_css::CssPropertyType as AzCssPropertyTypeTT;
 /// Re-export of rust-allocated (stack based) `InterpolateContext` struct
@@ -2428,7 +2428,7 @@ pub use AzInterpolateContextTT as AzInterpolateContext;
 /// Equivalent to the Rust `ColorU::from_str()` constructor.
 #[no_mangle]
 pub extern "C" fn AzColorU_fromStr(string: AzString) -> AzColorU {
-    azul_css::parser::parse_css_color(string.as_str())
+    azul_css::parser2::parse_css_color(string.as_str())
         .ok()
         .unwrap_or(AzColorU::BLACK)
 }
@@ -6871,7 +6871,7 @@ pub extern "C" fn AzTextureFlags_default() -> AzTextureFlags {
 }
 
 /// Re-export of rust-allocated (stack based) `ImageRef` struct
-pub use azul_core::app_resources::ImageRef as AzImageRefTT;
+pub use azul_core::resources::ImageRef as AzImageRefTT;
 pub use AzImageRefTT as AzImageRef;
 /// Creates an "invalid" image with a width and height that reserves an image key, but does not
 /// render anything
@@ -6955,7 +6955,7 @@ pub extern "C" fn AzImageRef_deepCopy(object: &AzImageRef) -> AzImageRef {
 }
 
 /// Re-export of rust-allocated (stack based) `RawImage` struct
-pub use azul_core::app_resources::RawImage as AzRawImageTT;
+pub use azul_core::resources::RawImage as AzRawImageTT;
 pub use AzRawImageTT as AzRawImage;
 /// Returns a zero-sized image
 #[no_mangle]
@@ -7031,7 +7031,7 @@ pub extern "C" fn AzRawImage_delete(object: &mut AzRawImage) {
 }
 
 /// Re-export of rust-allocated (stack based) `ImageMask` struct
-pub use azul_core::app_resources::ImageMask as AzImageMaskTT;
+pub use azul_core::resources::ImageMask as AzImageMaskTT;
 pub use AzImageMaskTT as AzImageMask;
 /// Destructor: Takes ownership of the `ImageMask` pointer and deletes it.
 #[no_mangle]
@@ -7042,9 +7042,9 @@ pub extern "C" fn AzImageMask_delete(object: &mut AzImageMask) {
 }
 
 /// Re-export of rust-allocated (stack based) `RawImageData` struct
-pub use azul_core::app_resources::RawImageData as AzRawImageDataTT;
+pub use azul_core::resources::RawImageData as AzRawImageDataTT;
 /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
-pub use azul_core::app_resources::RawImageFormat as AzRawImageFormatTT;
+pub use azul_core::resources::RawImageFormat as AzRawImageFormatTT;
 /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
 pub use azul_layout::image::decode::DecodeImageError as AzDecodeImageErrorTT;
 /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
@@ -7242,7 +7242,7 @@ pub extern "C" fn AzFontMetrics_getYStrikeoutPosition(
 }
 
 /// Source data of a font file (bytes)
-pub use azul_core::app_resources::LoadedFontSource as AzFontSourceTT;
+pub use azul_core::resources::LoadedFontSource as AzFontSourceTT;
 pub use AzFontSourceTT as AzFontSource;
 /// Destructor: Takes ownership of the `FontSource` pointer and deletes it.
 #[no_mangle]
@@ -7282,7 +7282,7 @@ pub extern "C" fn AzFontRef_shapeText(
 /// Returns the hash of the FontRef (fast)
 #[no_mangle]
 pub extern "C" fn AzFontRef_getHash(fontref: &AzFontRef) -> u64 {
-    azul_core::app_resources::font_ref_get_hash(fontref)
+    azul_core::resources::font_ref_get_hash(fontref)
 }
 /// Destructor: Takes ownership of the `FontRef` pointer and deletes it.
 #[no_mangle]
@@ -8841,7 +8841,7 @@ pub extern "C" fn AzStyleFilterVec_delete(object: &mut AzStyleFilterVec) {
 }
 
 /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
-pub use azul_core::window::LogicalRectVec as AzLogicalRectVecTT;
+pub use azul_core::geom::LogicalRectVec as AzLogicalRectVecTT;
 pub use AzLogicalRectVecTT as AzLogicalRectVec;
 /// Destructor: Takes ownership of the `LogicalRectVec` pointer and deletes it.
 #[no_mangle]
@@ -9622,7 +9622,7 @@ pub use AzStyleFilterVecDestructorTT as AzStyleFilterVecDestructor;
 
 pub type AzStyleFilterVecDestructorType = extern "C" fn(&mut AzStyleFilterVec);
 /// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
-pub use azul_core::window::LogicalRectVecDestructor as AzLogicalRectVecDestructorTT;
+pub use azul_core::geom::LogicalRectVecDestructor as AzLogicalRectVecDestructorTT;
 pub use AzLogicalRectVecDestructorTT as AzLogicalRectVecDestructor;
 
 pub type AzLogicalRectVecDestructorType = extern "C" fn(&mut AzLogicalRectVec);
@@ -10331,7 +10331,7 @@ pub extern "C" fn AzOptionCssProperty_delete(object: &mut AzOptionCssProperty) {
 }
 
 /// Re-export of rust-allocated (stack based) `OptionImageRef` struct
-pub use azul_core::app_resources::OptionImageRef as AzOptionImageRefTT;
+pub use azul_core::resources::OptionImageRef as AzOptionImageRefTT;
 /// Re-export of rust-allocated (stack based) `OptionThreadId` struct
 pub use azul_core::task::OptionThreadId as AzOptionThreadIdTT;
 /// Re-export of rust-allocated (stack based) `OptionTimerId` struct
@@ -10512,10 +10512,10 @@ pub extern "C" fn AzOptionInlineText_delete(object: &mut AzOptionInlineText) {
     }
 }
 
-/// Re-export of rust-allocated (stack based) `OptionRawImage` struct
-pub use azul_core::app_resources::OptionRawImage as AzOptionRawImageTT;
 /// Re-export of rust-allocated (stack based) `OptionDomNodeId` struct
 pub use azul_core::callbacks::OptionDomNodeId as AzOptionDomNodeIdTT;
+/// Re-export of rust-allocated (stack based) `OptionRawImage` struct
+pub use azul_core::resources::OptionRawImage as AzOptionRawImageTT;
 /// Re-export of rust-allocated (stack based) `OptionNodeId` struct
 pub use azul_core::styled_dom::OptionNodeId as AzOptionNodeIdTT;
 /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
@@ -10641,7 +10641,7 @@ pub extern "C" fn AzOptionTexture_delete(object: &mut AzOptionTexture) {
 }
 
 /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
-pub use azul_core::app_resources::OptionImageMask as AzOptionImageMaskTT;
+pub use azul_core::resources::OptionImageMask as AzOptionImageMaskTT;
 pub use AzOptionImageMaskTT as AzOptionImageMask;
 /// Destructor: Takes ownership of the `OptionImageMask` pointer and deletes it.
 #[no_mangle]
@@ -19099,7 +19099,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::AppLogLevel>(),
+                Layout::new::<azul_core::resources::AppLogLevel>(),
                 "AzAppLogLevel"
             ),
             (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel")
@@ -19120,11 +19120,14 @@ mod test_sizes {
             (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration")
         );
         assert_eq!(
-            (Layout::new::<azul_css::LayoutPoint>(), "AzLayoutPoint"),
+            (
+                Layout::new::<azul_core::geom::LayoutPoint>(),
+                "AzLayoutPoint"
+            ),
             (Layout::new::<AzLayoutPoint>(), "AzLayoutPoint")
         );
         assert_eq!(
-            (Layout::new::<azul_css::LayoutSize>(), "AzLayoutSize"),
+            (Layout::new::<azul_core::geom::LayoutSize>(), "AzLayoutSize"),
             (Layout::new::<AzLayoutSize>(), "AzLayoutSize")
         );
         assert_eq!(
@@ -19200,14 +19203,14 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::window::LogicalPosition>(),
+                Layout::new::<azul_core::geom::LogicalPosition>(),
                 "AzLogicalPosition"
             ),
             (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition")
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::window::LogicalSize>(),
+                Layout::new::<azul_core::geom::LogicalSize>(),
                 "AzLogicalSize"
             ),
             (Layout::new::<AzLogicalSize>(), "AzLogicalSize")
@@ -20158,14 +20161,14 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::ImageRef>(),
+                Layout::new::<azul_core::resources::ImageRef>(),
                 "AzImageRef"
             ),
             (Layout::new::<AzImageRef>(), "AzImageRef")
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::RawImageFormat>(),
+                Layout::new::<azul_core::resources::RawImageFormat>(),
                 "AzRawImageFormat"
             ),
             (Layout::new::<AzRawImageFormat>(), "AzRawImageFormat")
@@ -20559,7 +20562,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::window::LogicalRectVecDestructor>(),
+                Layout::new::<azul_core::geom::LogicalRectVecDestructor>(),
                 "AzLogicalRectVecDestructor"
             ),
             (
@@ -21252,7 +21255,7 @@ mod test_sizes {
             (Layout::new::<AzRendererOptions>(), "AzRendererOptions")
         );
         assert_eq!(
-            (Layout::new::<azul_css::LayoutRect>(), "AzLayoutRect"),
+            (Layout::new::<azul_core::geom::LayoutRect>(), "AzLayoutRect"),
             (Layout::new::<AzLayoutRect>(), "AzLayoutRect")
         );
         assert_eq!(
@@ -21264,7 +21267,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::window::LogicalRect>(),
+                Layout::new::<azul_core::geom::LogicalRect>(),
                 "AzLogicalRect"
             ),
             (Layout::new::<AzLogicalRect>(), "AzLogicalRect")
@@ -22818,7 +22821,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::ImageMask>(),
+                Layout::new::<azul_core::resources::ImageMask>(),
                 "AzImageMask"
             ),
             (Layout::new::<AzImageMask>(), "AzImageMask")
@@ -22892,7 +22895,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::window::LogicalRectVec>(),
+                Layout::new::<azul_core::geom::LogicalRectVec>(),
                 "AzLogicalRectVec"
             ),
             (Layout::new::<AzLogicalRectVec>(), "AzLogicalRectVec")
@@ -23419,7 +23422,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::OptionImageRef>(),
+                Layout::new::<azul_core::resources::OptionImageRef>(),
                 "AzOptionImageRef"
             ),
             (Layout::new::<AzOptionImageRef>(), "AzOptionImageRef")
@@ -23601,7 +23604,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::OptionImageMask>(),
+                Layout::new::<azul_core::resources::OptionImageMask>(),
                 "AzOptionImageMask"
             ),
             (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask")
@@ -23688,7 +23691,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::AppConfig>(),
+                Layout::new::<azul_core::resources::AppConfig>(),
                 "AzAppConfig"
             ),
             (Layout::new::<AzAppConfig>(), "AzAppConfig")
@@ -23999,14 +24002,14 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::RawImageData>(),
+                Layout::new::<azul_core::resources::RawImageData>(),
                 "AzRawImageData"
             ),
             (Layout::new::<AzRawImageData>(), "AzRawImageData")
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::LoadedFontSource>(),
+                Layout::new::<azul_core::resources::LoadedFontSource>(),
                 "AzFontSource"
             ),
             (Layout::new::<AzFontSource>(), "AzFontSource")
@@ -24588,7 +24591,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::RawImage>(),
+                Layout::new::<azul_core::resources::RawImage>(),
                 "AzRawImage"
             ),
             (Layout::new::<AzRawImage>(), "AzRawImage")
@@ -24746,7 +24749,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::app_resources::OptionRawImage>(),
+                Layout::new::<azul_core::resources::OptionRawImage>(),
                 "AzOptionRawImage"
             ),
             (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage")
@@ -25035,7 +25038,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::callbacks::CallbackInfo>(),
+                Layout::new::<azul_layout::callbacks::CallbackInfo>(),
                 "AzCallbackInfo"
             ),
             (Layout::new::<AzCallbackInfo>(), "AzCallbackInfo")
@@ -25136,7 +25139,7 @@ mod test_sizes {
         );
         assert_eq!(
             (
-                Layout::new::<azul_core::window::WindowCreateOptions>(),
+                Layout::new::<azul_layout::window::WindowCreateOptions>(),
                 "AzWindowCreateOptions"
             ),
             (

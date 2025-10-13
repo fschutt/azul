@@ -10,15 +10,15 @@ use azul_core::{
 use azul_css::props::{
     basic::ColorU,
     layout::{
-        LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
-        LayoutPosition, LayoutWidth, LayoutWritingMode,
+        LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent,
+        LayoutOverflow, LayoutPosition, LayoutWidth, LayoutWritingMode,
     },
     style::StyleTextAlign,
 };
 
 use crate::{
     solver3::{display_list::BorderRadius, layout_tree::LayoutNode},
-    text3::cache::ParsedFontTrait,
+    text3::cache::{ParsedFontTrait, StyleProperties},
 };
 
 /// Helper macro to reduce boilerplate for simple CSS property getters
@@ -333,9 +333,12 @@ pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) 
 }
 
 // TODO: STUB helper functions that would be needed for the above code.
-pub(crate) fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> DisplayType {
+pub(crate) fn get_display_property(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+) -> LayoutDisplay {
     let Some(id) = dom_id else {
-        return DisplayType::Inline;
+        return LayoutDisplay::Inline;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
@@ -343,20 +346,8 @@ pub(crate) fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId
         .css_property_cache
         .ptr
         .get_display(node_data, &id, node_state)
-        .and_then(|d| {
-            d.get_property().map(|inner| match inner {
-                azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
-                azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
-                azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
-                azul_css::props::layout::LayoutDisplay::Table => DisplayType::Table,
-                azul_css::props::layout::LayoutDisplay::TableRow => DisplayType::TableRow,
-                azul_css::props::layout::LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
-                azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
-                // ...weitere Mapping-Fälle nach Bedarf...
-                _ => DisplayType::Inline,
-            })
-        })
-        .unwrap_or(DisplayType::Inline)
+        .and_then(|d| d.get_property().copied())
+        .unwrap_or(LayoutDisplay::Inline)
 }
 
 // TODO: STUB helper

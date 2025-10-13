@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use core::mem;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-use azul_core::app_resources::{FontHinting, FontLCDFilter};
+use azul_core::resources::{FontHinting, FontLCDFilter};
 use azul_core::{
     app_resources::{
         AddFont, AddFontInstance, AddImage, Au, DpiScaleFactor, Epoch, ExternalImageData,
@@ -1580,7 +1580,7 @@ fn push_scroll_frame(
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
     current_hidpi_factor: f32,
 ) {
-    use azul_css::ColorU;
+    use azul_css::props::basic::color::ColorU;
     use webrender::api::{
         ClipMode as WrClipMode, ComplexClipRegion as WrComplexClipRegion,
         ScrollSensitivity as WrScrollSensitivity,
@@ -1719,7 +1719,7 @@ fn push_display_list_content(
     // if frame.clip_children is set, this should be Some(clip_id)
     parent_clip: Option<WrClipId>,
 ) -> WrClipId {
-    use azul_core::display_list::LayoutRectContent::*;
+    use azul_layout::display_list::LayoutRectContent::*;
 
     let clip_rect = LogicalRect::new(LogicalPosition::zero(), rect_size);
     let parent_clip_id = parent_clip.unwrap_or_else(|| WrClipId::root(builder.pipeline_id));
@@ -1952,7 +1952,7 @@ mod text {
         display_list::GlyphInstance,
         window::LogicalSize,
     };
-    use azul_css::ColorU;
+    use azul_css::props::basic::color::ColorU;
     use webrender::api::{
         CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
     };
@@ -2016,7 +2016,7 @@ mod background {
         background_position: Option<StyleBackgroundPosition>,
         background_repeat: Option<StyleBackgroundRepeat>,
     ) {
-        use azul_core::display_list::RectBackground::*;
+        use azul_layout::display_list::RectBackground::*;
 
         let content_size = background.get_content_size();
 
@@ -2258,7 +2258,7 @@ mod background {
         background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
     ) {
-        use azul_core::display_list::{AlphaType, ImageRendering};
+        use azul_layout::display_list::{AlphaType, ImageRendering};
 
         let background_position = background_position.unwrap_or_default();
         let background_repeat = background_repeat.unwrap_or_default();

@@ -38,10 +38,10 @@ use azul_css::{
 use crate::{
     solver3::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
-        geometry::{CssSize, PositionedRectangle},
+        geometry::PositionedRectangle,
         getters::{
-            get_justify_content, get_overflow_x, get_overflow_y, get_text_align, get_wrap,
-            get_writing_mode,
+            get_css_height, get_justify_content, get_overflow_x, get_overflow_y, get_text_align,
+            get_wrap, get_writing_mode,
         },
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
         LayoutContext, LayoutError, LayoutTree, Result,
@@ -508,7 +508,19 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
 
     // If the node's main-axis size depends on its content, we update its used size now.
-    if get_css_height(ctx.styled_dom, Some(dom_id)) == CssSize::Auto {
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.state.clone())
+        .unwrap_or_default();
+
+    let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+    // Check if height is auto (default PixelValue is considered auto for layout purposes)
+    let is_auto_height = matches!(css_height, azul_css::props::layout::LayoutHeight::Px(px) if px == azul_css::props::basic::pixel::PixelValue::zero());
+
+    if is_auto_height {
         let node_props = &tree.get(node_index).unwrap().box_props;
         let main_axis_padding_border =
             node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
@@ -518,13 +530,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     // --- Phase 3: Check for scrollbars and potential reflow ---
-    let styled_node_state = ctx
-        .styled_dom
-        .styled_nodes
-        .as_container()
-        .get(dom_id)
-        .map(|n| n.state.clone())
-        .unwrap_or_default();
 
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state);
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);

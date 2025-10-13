@@ -23,22 +23,12 @@ use azul_css::{
 use crate::{
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
-        geometry::CssSize,
         getters::get_writing_mode,
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{FontLoaderTrait, ParsedFontTrait},
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PositionType {
-    Static,
-    Relative,
-    Absolute,
-    Fixed,
-    Sticky,
-}
 
 #[derive(Debug, Default)]
 struct PositionOffsets {
@@ -52,26 +42,18 @@ struct PositionOffsets {
 // In a real implementation, they would access the `StyledDom`'s property cache.
 
 // STUB: This function simulates reading computed CSS values.
-pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PositionType {
+pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
-        return PositionType::Static;
+        return LayoutPosition::Static;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    let position = styled_dom
+    styled_dom
         .css_property_cache
         .ptr
         .get_position(node_data, &id, node_state)
         .and_then(|w| w.get_property().cloned())
-        .unwrap_or_default();
-
-    match position {
-        LayoutPosition::Static => PositionType::Static,
-        LayoutPosition::Relative => PositionType::Relative,
-        LayoutPosition::Absolute => PositionType::Absolute,
-        LayoutPosition::Fixed => PositionType::Fixed,
-        LayoutPosition::Sticky => PositionType::Sticky,
-    }
+        .unwrap_or_default()
 }
 
 /// Correctly reads the `top`, `right`, `bottom`, `left` properties from the `StyledDom`.
@@ -185,10 +167,10 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         let position_type = get_position_type(ctx.styled_dom, Some(dom_id));
 
-        if position_type == PositionType::Absolute || position_type == PositionType::Fixed {
+        if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             let element_size = node.used_size.unwrap_or_default();
 
-            let containing_block_rect = if position_type == PositionType::Fixed {
+            let containing_block_rect = if position_type == LayoutPosition::Fixed {
                 viewport
             } else {
                 find_absolute_containing_block_rect(
@@ -253,13 +235,17 @@ pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
 
-        if get_position_type(ctx.styled_dom, node.dom_node_id) == PositionType::Relative {
+        if get_position_type(ctx.styled_dom, node.dom_node_id) == LayoutPosition::Relative {
             // Determine the containing block size for resolving percentages.
             // For `position: relative`, this is the parent's content box size.
             let containing_block_size = if let Some(parent_idx) = node.parent {
                 if let Some(parent_node) = tree.get(parent_idx) {
                     // Get parent's writing mode to correctly calculate its inner (content) size.
-                    let parent_wm = get_writing_mode(ctx.styled_dom, parent_node.dom_node_id);
+                    let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
+                    let parent_node_state =
+                        &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].state;
+                    let parent_wm =
+                        get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state);
                     let parent_used_size = parent_node.used_size.unwrap_or_default();
                     parent_node
                         .box_props
@@ -331,7 +317,7 @@ fn find_absolute_containing_block_rect<T: ParsedFontTrait>(
     while let Some(parent_index) = current_parent_idx {
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
 
-        if get_position_type(styled_dom, parent_node.dom_node_id) != PositionType::Static {
+        if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
             let pos = absolute_positions
                 .get(&parent_index)
                 .copied()

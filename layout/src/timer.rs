@@ -8,11 +8,11 @@ use core::ffi::c_void;
 use azul_core::{
     callbacks::Update,
     dom::OptionDomNodeId,
+    geom::LogicalSize,
     refany::RefAny,
     task::{
         Duration, GetSystemTimeCallback, Instant, OptionDuration, OptionInstant, TerminateTimer,
     },
-    window::LogicalSize,
 };
 
 use crate::callbacks::CallbackInfo;
@@ -153,6 +153,38 @@ impl Timer {
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = OptionDuration::Some(timeout);
         self
+    }
+
+    /// Invoke the timer callback and update internal state
+    pub fn invoke(
+        &mut self,
+        callback_info: &CallbackInfo,
+        get_system_time_fn: &GetSystemTimeCallback,
+    ) -> TimerCallbackReturn {
+        let now = (get_system_time_fn.cb)();
+        let is_about_to_finish = self.is_about_to_finish(&now);
+
+        // Create a new TimerCallbackInfo wrapping the callback_info
+        // We need to use unsafe to create a copy of the pointer-based CallbackInfo
+        let timer_callback_info_inner =
+            unsafe { core::ptr::read(callback_info as *const CallbackInfo) };
+
+        let mut timer_callback_info = TimerCallbackInfo {
+            callback_info: timer_callback_info_inner,
+            node_id: self.node_id,
+            frame_start: now.clone(),
+            call_count: self.run_count,
+            is_about_to_finish,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
+        };
+
+        let result = (self.callback.cb)(&mut self.data, &mut timer_callback_info);
+
+        self.run_count += 1;
+        self.last_run = OptionInstant::Some(now);
+
+        result
     }
 }
 

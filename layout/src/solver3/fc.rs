@@ -18,8 +18,8 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         layout::{
-            LayoutClear, LayoutFloat, LayoutJustifyContent, LayoutOverflow, LayoutTextJustify,
-            LayoutWritingMode,
+            LayoutClear, LayoutDisplay, LayoutFloat, LayoutJustifyContent, LayoutOverflow,
+            LayoutPosition, LayoutTextJustify, LayoutWritingMode,
         },
         property::CssProperty,
         style::{StyleHyphens, StyleTextAlign, StyleVerticalAlign},
@@ -29,10 +29,10 @@ use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
 use crate::{
     solver3::{
-        geometry::{BoxProps, DisplayType, EdgeSizes, IntrinsicSizes},
-        getters::get_writing_mode,
+        geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
+        getters::{get_display_property, get_style_properties, get_writing_mode},
         layout_tree::{LayoutNode, LayoutTree},
-        positioning::{get_position_type, PositionType},
+        positioning::get_position_type,
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutError, Result,
     },
@@ -345,7 +345,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_dom_id = child_node.dom_node_id;
 
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
-        if position_type == PositionType::Absolute || position_type == PositionType::Fixed {
+        if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             continue; // Out-of-flow elements are handled in a separate pass.
         }
 
@@ -754,7 +754,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             item_index: item_idx as u32,
         };
 
-        if get_display_property(ctx.styled_dom, Some(dom_id)) != DisplayType::Inline {
+        if get_display_property(ctx.styled_dom, Some(dom_id)) != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
             // We must determine its size and baseline before passing it to text3.
 

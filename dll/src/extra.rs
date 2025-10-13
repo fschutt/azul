@@ -1,8 +1,8 @@
 use azul_core::styled_dom::StyledDom;
-use azul_css::ColorU;
+use azul_css::props::basic::color::ColorU;
 
 pub fn coloru_from_str(s: &str) -> ColorU {
-    azul_css::parser::parse_css_color(s)
+    azul_css::parser2::parse_css_color(s)
         .ok()
         .unwrap_or(ColorU::BLACK)
 }
@@ -11,7 +11,7 @@ pub fn coloru_from_str(s: &str) -> ColorU {
 #[cfg(not(feature = "xml"))]
 pub fn styled_dom_from_file(_: &str) -> StyledDom {
     use azul_core::dom::Dom;
-    use azul_css::parser::CssApiWrapper;
+    use azul_css::parser2::CssApiWrapper;
 
     Dom::body()
         .with_children(
@@ -32,7 +32,7 @@ pub fn styled_dom_from_file(path: &str) -> StyledDom {
 #[cfg(not(feature = "xml"))]
 pub fn styled_dom_from_str(_: &str) -> StyledDom {
     use azul_core::dom::Dom;
-    use azul_css::parser::CssApiWrapper;
+    use azul_css::parser2::CssApiWrapper;
 
     Dom::body()
         .with_children(

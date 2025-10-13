@@ -23,7 +23,7 @@ pub mod file;
 pub use azul_core::{dom, gl, style, styled_dom};
 /// Font & image resource handling, lookup and caching
 pub mod resources {
-    pub use azul_core::app_resources::*;
+    pub use azul_core::resources::*;
     pub use azul_layout::{font::*, image::*};
 }
 

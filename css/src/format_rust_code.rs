@@ -394,8 +394,26 @@ impl_pixel_value_fmt!(LayoutPaddingBottom);
 impl_pixel_value_fmt!(LayoutPaddingRight);
 impl_pixel_value_fmt!(LayoutPaddingLeft);
 
-impl_pixel_value_fmt!(LayoutWidth);
-impl_pixel_value_fmt!(LayoutHeight);
+impl FormatAsRustCode for LayoutWidth {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutWidth::Px(px) => format!("LayoutWidth::Px({})", format_pixel_value(px)),
+            LayoutWidth::MinContent => "LayoutWidth::MinContent".to_string(),
+            LayoutWidth::MaxContent => "LayoutWidth::MaxContent".to_string(),
+        }
+    }
+}
+
+impl FormatAsRustCode for LayoutHeight {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            LayoutHeight::Px(px) => format!("LayoutHeight::Px({})", format_pixel_value(px)),
+            LayoutHeight::MinContent => "LayoutHeight::MinContent".to_string(),
+            LayoutHeight::MaxContent => "LayoutHeight::MaxContent".to_string(),
+        }
+    }
+}
+
 impl_pixel_value_fmt!(LayoutMinHeight);
 impl_pixel_value_fmt!(LayoutMinWidth);
 impl_pixel_value_fmt!(LayoutMaxWidth);

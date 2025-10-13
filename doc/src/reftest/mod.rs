@@ -9,9 +9,10 @@ use std::{
 };
 
 use azul_core::{
+    geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
-    window::{FullWindowState, LogicalSize, StringPairVec},
+    window::StringPairVec,
     xml::{get_html_node, DomXml, XmlComponentMap, XmlNode},
 };
 use azul_css::{
@@ -19,7 +20,10 @@ use azul_css::{
     parser2::{CssApiWrapper, CssParseWarnMsgOwned},
     props::property::CssProperty,
 };
-use azul_layout::xml::{domxml_from_str, parse_xml_string};
+use azul_layout::{
+    window_state::FullWindowState,
+    xml::{domxml_from_str, parse_xml_string},
+};
 use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};

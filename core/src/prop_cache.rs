@@ -33,7 +33,7 @@ use azul_css::{
     css::{Css, CssPath},
     props::{
         basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
-        layout::LayoutDisplay,
+        layout::{LayoutDisplay, LayoutHeight, LayoutWidth},
         property::{
             BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
             CaretColorValue, ColumnCountValue, ColumnFillValue, ColumnRuleColorValue,
@@ -2710,7 +2710,10 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_width(node_data, node_id, styled_node_state)
-            .and_then(|w| Some(w.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|w| match w.get_property()? {
+                LayoutWidth::Px(px) => Some(px.to_pixels(reference_width)),
+                _ => Some(0.0), // min-content/max-content not resolved here
+            })
             .unwrap_or(0.0)
     }
 
@@ -2746,7 +2749,10 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_height(node_data, node_id, styled_node_state)
-            .and_then(|h| Some(h.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|h| match h.get_property()? {
+                LayoutHeight::Px(px) => Some(px.to_pixels(reference_height)),
+                _ => Some(0.0), // min-content/max-content not resolved here
+            })
             .unwrap_or(0.0)
     }
 

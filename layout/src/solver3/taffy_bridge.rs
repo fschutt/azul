@@ -196,7 +196,7 @@ use azul_css::props::{
     basic::pixel::PixelValue,
     layout::{
         LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexWrap,
-        LayoutGridAutoFlow, LayoutJustifyContent, LayoutPosition,
+        LayoutGridAutoFlow, LayoutHeight, LayoutJustifyContent, LayoutPosition, LayoutWidth,
     },
     property::{CssProperty, CssPropertyType},
 };
@@ -209,7 +209,7 @@ use taffy::{
 use crate::{
     solver3::{
         fc::{translate_taffy_point_back, translate_taffy_size_back},
-        geometry::CssSize,
+        getters::{get_css_height, get_css_width},
         layout_tree::{LayoutNode, LayoutTree},
         sizing, LayoutContext,
     },
@@ -465,11 +465,11 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         };
 
         // Size
-        let width = get_css_width(self.ctx.styled_dom, dom_id);
-        let height = get_css_height(self.ctx.styled_dom, dom_id);
+        let width = get_css_width(self.ctx.styled_dom, id, node_state);
+        let height = get_css_height(self.ctx.styled_dom, id, node_state);
         taffy_style.size = taffy::Size {
-            width: from_css_size(width),
-            height: from_css_size(height),
+            width: from_layout_width(width),
+            height: from_layout_height(height),
         };
 
         // Min/Max Size
@@ -1092,11 +1092,35 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutGridContainer
 
 // --- Conversion Functions ---
 
-fn from_css_size(val: CssSize) -> Dimension {
+fn from_layout_width(val: LayoutWidth) -> Dimension {
     match val {
-        CssSize::Px(px) => Dimension::length(px),
-        CssSize::Percent(p) => Dimension::percent(p / 100.0),
-        CssSize::MinContent | CssSize::MaxContent | CssSize::Auto => Dimension::auto(),
+        LayoutWidth::Px(px) => {
+            // Try to extract pixel or percent value
+            match px.to_pixels_no_percent() {
+                Some(pixels) => Dimension::length(pixels),
+                None => match px.to_percent() {
+                    Some(p) => Dimension::percent(p / 100.0),
+                    None => Dimension::auto(),
+                },
+            }
+        }
+        LayoutWidth::MinContent | LayoutWidth::MaxContent => Dimension::auto(),
+    }
+}
+
+fn from_layout_height(val: LayoutHeight) -> Dimension {
+    match val {
+        LayoutHeight::Px(px) => {
+            // Try to extract pixel or percent value
+            match px.to_pixels_no_percent() {
+                Some(pixels) => Dimension::length(pixels),
+                None => match px.to_percent() {
+                    Some(p) => Dimension::percent(p / 100.0),
+                    None => Dimension::auto(),
+                },
+            }
+        }
+        LayoutHeight::MinContent | LayoutHeight::MaxContent => Dimension::auto(),
     }
 }
 

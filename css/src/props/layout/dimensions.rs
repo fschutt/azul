@@ -40,12 +40,104 @@ macro_rules! define_dimension_property {
     };
 }
 
-define_dimension_property!(LayoutWidth, || Self {
-    inner: PixelValue::zero()
-});
-define_dimension_property!(LayoutHeight, || Self {
-    inner: PixelValue::zero()
-});
+// Custom implementation for LayoutWidth to support min-content and max-content
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum LayoutWidth {
+    Px(PixelValue),
+    MinContent,
+    MaxContent,
+}
+
+impl Default for LayoutWidth {
+    fn default() -> Self {
+        LayoutWidth::Px(PixelValue::zero())
+    }
+}
+
+impl PixelValueTaker for LayoutWidth {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        LayoutWidth::Px(inner)
+    }
+}
+
+impl PrintAsCssValue for LayoutWidth {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            LayoutWidth::Px(v) => v.to_string(),
+            LayoutWidth::MinContent => "min-content".to_string(),
+            LayoutWidth::MaxContent => "max-content".to_string(),
+        }
+    }
+}
+
+impl LayoutWidth {
+    pub fn px(value: f32) -> Self {
+        LayoutWidth::Px(PixelValue::px(value))
+    }
+
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        match (self, other) {
+            (LayoutWidth::Px(a), LayoutWidth::Px(b)) => LayoutWidth::Px(a.interpolate(b, t)),
+            // Can't interpolate between keywords, so just return start value at t < 0.5, end value
+            // otherwise
+            (_, LayoutWidth::Px(b)) if t >= 0.5 => LayoutWidth::Px(*b),
+            (LayoutWidth::Px(a), _) if t < 0.5 => LayoutWidth::Px(*a),
+            (a, _) if t < 0.5 => *a,
+            (_, b) => *b,
+        }
+    }
+}
+
+// Custom implementation for LayoutHeight to support min-content and max-content
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum LayoutHeight {
+    Px(PixelValue),
+    MinContent,
+    MaxContent,
+}
+
+impl Default for LayoutHeight {
+    fn default() -> Self {
+        LayoutHeight::Px(PixelValue::zero())
+    }
+}
+
+impl PixelValueTaker for LayoutHeight {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        LayoutHeight::Px(inner)
+    }
+}
+
+impl PrintAsCssValue for LayoutHeight {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            LayoutHeight::Px(v) => v.to_string(),
+            LayoutHeight::MinContent => "min-content".to_string(),
+            LayoutHeight::MaxContent => "max-content".to_string(),
+        }
+    }
+}
+
+impl LayoutHeight {
+    pub fn px(value: f32) -> Self {
+        LayoutHeight::Px(PixelValue::px(value))
+    }
+
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        match (self, other) {
+            (LayoutHeight::Px(a), LayoutHeight::Px(b)) => LayoutHeight::Px(a.interpolate(b, t)),
+            // Can't interpolate between keywords, so just return start value at t < 0.5, end value
+            // otherwise
+            (_, LayoutHeight::Px(b)) if t >= 0.5 => LayoutHeight::Px(*b),
+            (LayoutHeight::Px(a), _) if t < 0.5 => LayoutHeight::Px(*a),
+            (a, _) if t < 0.5 => *a,
+            (_, b) => *b,
+        }
+    }
+}
+
 define_dimension_property!(LayoutMinWidth, || Self {
     inner: PixelValue::zero()
 });
@@ -137,18 +229,125 @@ mod parser {
         };
     }
 
-    define_pixel_dimension_parser!(
-        parse_layout_width,
-        LayoutWidth,
-        LayoutWidthParseError,
-        LayoutWidthParseErrorOwned
-    );
-    define_pixel_dimension_parser!(
-        parse_layout_height,
-        LayoutHeight,
-        LayoutHeightParseError,
-        LayoutHeightParseErrorOwned
-    );
+    // Custom parsers for LayoutWidth and LayoutHeight with min-content/max-content support
+
+    #[derive(Clone, PartialEq)]
+    pub enum LayoutWidthParseError<'a> {
+        PixelValue(CssPixelValueParseError<'a>),
+        InvalidKeyword(&'a str),
+    }
+
+    impl_debug_as_display!(LayoutWidthParseError<'a>);
+    impl_display! { LayoutWidthParseError<'a>, {
+        PixelValue(e) => format!("{}", e),
+        InvalidKeyword(k) => format!("Invalid width keyword: \"{}\"", k),
+    }}
+
+    impl_from! { CssPixelValueParseError<'a>, LayoutWidthParseError::PixelValue }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum LayoutWidthParseErrorOwned {
+        PixelValue(CssPixelValueParseErrorOwned),
+        InvalidKeyword(String),
+    }
+
+    impl<'a> LayoutWidthParseError<'a> {
+        pub fn to_contained(&self) -> LayoutWidthParseErrorOwned {
+            match self {
+                LayoutWidthParseError::PixelValue(e) => {
+                    LayoutWidthParseErrorOwned::PixelValue(e.to_contained())
+                }
+                LayoutWidthParseError::InvalidKeyword(k) => {
+                    LayoutWidthParseErrorOwned::InvalidKeyword(k.to_string())
+                }
+            }
+        }
+    }
+
+    impl LayoutWidthParseErrorOwned {
+        pub fn to_shared<'a>(&'a self) -> LayoutWidthParseError<'a> {
+            match self {
+                LayoutWidthParseErrorOwned::PixelValue(e) => {
+                    LayoutWidthParseError::PixelValue(e.to_shared())
+                }
+                LayoutWidthParseErrorOwned::InvalidKeyword(k) => {
+                    LayoutWidthParseError::InvalidKeyword(k)
+                }
+            }
+        }
+    }
+
+    pub fn parse_layout_width<'a>(
+        input: &'a str,
+    ) -> Result<LayoutWidth, LayoutWidthParseError<'a>> {
+        let trimmed = input.trim();
+        match trimmed {
+            "min-content" => Ok(LayoutWidth::MinContent),
+            "max-content" => Ok(LayoutWidth::MaxContent),
+            _ => parse_pixel_value(trimmed)
+                .map(LayoutWidth::Px)
+                .map_err(LayoutWidthParseError::PixelValue),
+        }
+    }
+
+    #[derive(Clone, PartialEq)]
+    pub enum LayoutHeightParseError<'a> {
+        PixelValue(CssPixelValueParseError<'a>),
+        InvalidKeyword(&'a str),
+    }
+
+    impl_debug_as_display!(LayoutHeightParseError<'a>);
+    impl_display! { LayoutHeightParseError<'a>, {
+        PixelValue(e) => format!("{}", e),
+        InvalidKeyword(k) => format!("Invalid height keyword: \"{}\"", k),
+    }}
+
+    impl_from! { CssPixelValueParseError<'a>, LayoutHeightParseError::PixelValue }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum LayoutHeightParseErrorOwned {
+        PixelValue(CssPixelValueParseErrorOwned),
+        InvalidKeyword(String),
+    }
+
+    impl<'a> LayoutHeightParseError<'a> {
+        pub fn to_contained(&self) -> LayoutHeightParseErrorOwned {
+            match self {
+                LayoutHeightParseError::PixelValue(e) => {
+                    LayoutHeightParseErrorOwned::PixelValue(e.to_contained())
+                }
+                LayoutHeightParseError::InvalidKeyword(k) => {
+                    LayoutHeightParseErrorOwned::InvalidKeyword(k.to_string())
+                }
+            }
+        }
+    }
+
+    impl LayoutHeightParseErrorOwned {
+        pub fn to_shared<'a>(&'a self) -> LayoutHeightParseError<'a> {
+            match self {
+                LayoutHeightParseErrorOwned::PixelValue(e) => {
+                    LayoutHeightParseError::PixelValue(e.to_shared())
+                }
+                LayoutHeightParseErrorOwned::InvalidKeyword(k) => {
+                    LayoutHeightParseError::InvalidKeyword(k)
+                }
+            }
+        }
+    }
+
+    pub fn parse_layout_height<'a>(
+        input: &'a str,
+    ) -> Result<LayoutHeight, LayoutHeightParseError<'a>> {
+        let trimmed = input.trim();
+        match trimmed {
+            "min-content" => Ok(LayoutHeight::MinContent),
+            "max-content" => Ok(LayoutHeight::MaxContent),
+            _ => parse_pixel_value(trimmed)
+                .map(LayoutHeight::Px)
+                .map_err(LayoutHeightParseError::PixelValue),
+        }
+    }
     define_pixel_dimension_parser!(
         parse_layout_min_width,
         LayoutMinWidth,
@@ -234,33 +433,31 @@ mod tests {
     fn test_parse_layout_width() {
         assert_eq!(
             parse_layout_width("150px").unwrap(),
-            LayoutWidth {
-                inner: PixelValue::px(150.0)
-            }
+            LayoutWidth::Px(PixelValue::px(150.0))
         );
         assert_eq!(
             parse_layout_width("2.5em").unwrap(),
-            LayoutWidth {
-                inner: PixelValue::em(2.5)
-            }
+            LayoutWidth::Px(PixelValue::em(2.5))
         );
         assert_eq!(
             parse_layout_width("75%").unwrap(),
-            LayoutWidth {
-                inner: PixelValue::percent(75.0)
-            }
+            LayoutWidth::Px(PixelValue::percent(75.0))
         );
         assert_eq!(
             parse_layout_width("0").unwrap(),
-            LayoutWidth {
-                inner: PixelValue::px(0.0)
-            }
+            LayoutWidth::Px(PixelValue::px(0.0))
         );
         assert_eq!(
             parse_layout_width("  100pt  ").unwrap(),
-            LayoutWidth {
-                inner: PixelValue::pt(100.0)
-            }
+            LayoutWidth::Px(PixelValue::pt(100.0))
+        );
+        assert_eq!(
+            parse_layout_width("min-content").unwrap(),
+            LayoutWidth::MinContent
+        );
+        assert_eq!(
+            parse_layout_width("max-content").unwrap(),
+            LayoutWidth::MaxContent
         );
     }
 

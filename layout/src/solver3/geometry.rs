@@ -6,35 +6,12 @@ use azul_core::{
 };
 use azul_css::props::layout::LayoutWritingMode;
 
-#[derive(Debug, PartialEq, Eq, Default)]
-pub enum DisplayType {
-    #[default]
-    Block,
-    InlineBlock,
-    Inline,
-    Table,
-    TableRow,
-    TableRowGroup,
-    TableCell,
-    // Add Flex, Grid, etc.
-}
-
 /// Represents the CSS `box-sizing` property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BoxSizing {
     #[default]
     ContentBox,
     BorderBox,
-}
-
-/// Represents a size that may be defined in various units.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CssSize {
-    Auto,
-    Px(f32),
-    Percent(f32),
-    MinContent,
-    MaxContent,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

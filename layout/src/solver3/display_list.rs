@@ -51,7 +51,7 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::ColorU,
-        layout::LayoutOverflow,
+        layout::{LayoutOverflow, LayoutPosition},
         property::{CssProperty, CssPropertyType},
     },
     LayoutDebugMessage,
@@ -65,7 +65,7 @@ use crate::{
             get_z_index, BorderInfo, CaretStyle, ScrollbarInfo, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
-        positioning::{get_position_type, PositionType},
+        positioning::get_position_type,
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
@@ -851,12 +851,12 @@ where
         };
 
         let position = get_position_type(self.ctx.styled_dom, Some(dom_id));
-        if position == PositionType::Absolute || position == PositionType::Fixed {
+        if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
             return true;
         }
 
         let z_index = get_z_index(self.ctx.styled_dom, Some(dom_id));
-        if position == PositionType::Relative && z_index != 0 {
+        if position == LayoutPosition::Relative && z_index != 0 {
             return true;
         }
 

@@ -386,10 +386,10 @@ extern "C" fn invoke_python_iframe(
 ) -> azul_impl::callbacks::IFrameCallbackReturn {
     let default = azul_impl::callbacks::IFrameCallbackReturn {
         dom: azul_impl::styled_dom::StyledDom::default(),
-        scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
-        scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
-        virtual_scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
-        virtual_scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
+        scroll_size: azul_core::geom::LogicalSize::new(0.0, 0.0),
+        scroll_offset: azul_core::geom::LogicalPosition::new(0.0, 0.0),
+        virtual_scroll_size: azul_core::geom::LogicalSize::new(0.0, 0.0),
+        virtual_scroll_offset: azul_core::geom::LogicalPosition::new(0.0, 0.0),
     };
 
     let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
@@ -10578,13 +10578,13 @@ impl Clone for AzApp {
 }
 impl Clone for AzAppLogLevelEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::AppLogLevel = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::AppLogLevel = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
 impl Clone for AzLayoutSolverEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::LayoutSolverVersion = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::LayoutSolverVersion = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -10608,13 +10608,13 @@ impl Clone for AzHwAccelerationEnumWrapper {
 }
 impl Clone for AzLayoutPoint {
     fn clone(&self) -> Self {
-        let r: &azul_css::LayoutPoint = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LayoutPoint = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
 impl Clone for AzLayoutSize {
     fn clone(&self) -> Self {
-        let r: &azul_css::LayoutSize = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LayoutSize = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -10686,13 +10686,13 @@ impl Clone for AzPhysicalSizeU32 {
 }
 impl Clone for AzLogicalPosition {
     fn clone(&self) -> Self {
-        let r: &azul_core::window::LogicalPosition = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LogicalPosition = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
 impl Clone for AzLogicalSize {
     fn clone(&self) -> Self {
-        let r: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LogicalSize = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -11486,13 +11486,13 @@ impl Clone for AzTextureFlags {
 }
 impl Clone for AzImageRef {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::ImageRef = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::ImageRef = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
 impl Clone for AzRawImageFormatEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::RawImageFormat = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::RawImageFormat = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -11823,7 +11823,7 @@ impl Clone for AzStyleFilterVecDestructorEnumWrapper {
 }
 impl Clone for AzLogicalRectVecDestructorEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::window::LogicalRectVecDestructor = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LogicalRectVecDestructor = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -12296,7 +12296,7 @@ impl Clone for AzRendererOptions {
 }
 impl Clone for AzLayoutRect {
     fn clone(&self) -> Self {
-        let r: &azul_css::LayoutRect = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LayoutRect = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -12308,7 +12308,7 @@ impl Clone for AzRawWindowHandleEnumWrapper {
 }
 impl Clone for AzLogicalRect {
     fn clone(&self) -> Self {
-        let r: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LogicalRect = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -13395,7 +13395,7 @@ impl Clone for AzRefstrVecRef {
 }
 impl Clone for AzImageMask {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::ImageMask = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::ImageMask = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -13461,7 +13461,7 @@ impl Clone for AzThreadWriteBackMsg {
 }
 impl Clone for AzLogicalRectVec {
     fn clone(&self) -> Self {
-        let r: &azul_core::window::LogicalRectVec = unsafe { mem::transmute(self) };
+        let r: &azul_core::geom::LogicalRectVec = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -13849,7 +13849,7 @@ impl Clone for AzOptionThreadIdEnumWrapper {
 }
 impl Clone for AzOptionImageRefEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::OptionImageRef = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::OptionImageRef = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -13987,7 +13987,7 @@ impl Clone for AzOptionVirtualKeyCodeEnumWrapper {
 }
 impl Clone for AzOptionImageMaskEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::OptionImageMask = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::OptionImageMask = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -14060,7 +14060,7 @@ impl Clone for AzInvalidSpaceError {
 }
 impl Clone for AzAppConfig {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::AppConfig = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::AppConfig = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -14289,13 +14289,13 @@ impl Clone for AzGetProgramBinaryReturn {
 }
 impl Clone for AzRawImageDataEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::RawImageData = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::RawImageData = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
 impl Clone for AzFontSource {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::LoadedFontSource = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::LoadedFontSource = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -14747,7 +14747,7 @@ impl Clone for AzGetActiveUniformReturn {
 }
 impl Clone for AzRawImage {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::RawImage = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::RawImage = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -14885,7 +14885,7 @@ impl Clone for AzOptionFileEnumWrapper {
 }
 impl Clone for AzOptionRawImageEnumWrapper {
     fn clone(&self) -> Self {
-        let r: &azul_core::app_resources::OptionRawImage = unsafe { mem::transmute(self) };
+        let r: &azul_core::resources::OptionRawImage = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -15110,7 +15110,7 @@ impl Clone for AzWindowState {
 }
 impl Clone for AzCallbackInfo {
     fn clone(&self) -> Self {
-        let r: &azul_core::callbacks::CallbackInfo = unsafe { mem::transmute(self) };
+        let r: &azul_layout::callbacks::CallbackInfo = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -15194,7 +15194,7 @@ impl Clone for AzXmlParseErrorEnumWrapper {
 }
 impl Clone for AzWindowCreateOptions {
     fn clone(&self) -> Self {
-        let r: &azul_core::window::WindowCreateOptions = unsafe { mem::transmute(self) };
+        let r: &azul_layout::window::WindowCreateOptions = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(r.clone()) }
     }
 }
@@ -15895,11 +15895,11 @@ impl AzAppConfig {
 #[pyproto]
 impl PyObjectProtocol for AzAppConfig {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::AppConfig = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::AppConfig = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::AppConfig = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::AppConfig = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -15947,11 +15947,11 @@ impl AzAppLogLevelEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzAppLogLevelEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::AppLogLevel = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::AppLogLevel = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::AppLogLevel = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::AppLogLevel = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __richcmp__(
@@ -15995,13 +15995,11 @@ impl AzLayoutSolverEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzLayoutSolverEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::LayoutSolverVersion =
-            unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::LayoutSolverVersion = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::LayoutSolverVersion =
-            unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::LayoutSolverVersion = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __richcmp__(
@@ -16058,7 +16056,7 @@ impl AzWindowCreateOptions {
 
     #[new]
     pub fn __new__(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        let window = azul_core::window::WindowCreateOptions {
+        let window = azul_layout::window::WindowCreateOptions {
             state: unsafe { mem::transmute(AzWindowState::__new__(py, cb)?) },
             ..Default::default()
         };
@@ -16069,11 +16067,11 @@ impl AzWindowCreateOptions {
 #[pyproto]
 impl PyObjectProtocol for AzWindowCreateOptions {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::WindowCreateOptions = unsafe { mem::transmute(self) };
+        let m: &azul_layout::window::WindowCreateOptions = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::WindowCreateOptions = unsafe { mem::transmute(self) };
+        let m: &azul_layout::window::WindowCreateOptions = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -16297,11 +16295,11 @@ impl AzLayoutPoint {
 #[pyproto]
 impl PyObjectProtocol for AzLayoutPoint {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_css::LayoutPoint = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LayoutPoint = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_css::LayoutPoint = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LayoutPoint = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -16317,11 +16315,11 @@ impl AzLayoutSize {
 #[pyproto]
 impl PyObjectProtocol for AzLayoutSize {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_css::LayoutSize = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LayoutSize = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_css::LayoutSize = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LayoutSize = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -16337,11 +16335,11 @@ impl AzLayoutRect {
 #[pyproto]
 impl PyObjectProtocol for AzLayoutRect {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_css::LayoutRect = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LayoutRect = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_css::LayoutRect = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LayoutRect = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -16737,11 +16735,11 @@ impl AzLogicalRect {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalRect {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalRect = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalRect = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -16766,11 +16764,11 @@ impl AzLogicalPosition {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalPosition {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalPosition = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalPosition = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalPosition = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalPosition = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -16795,11 +16793,11 @@ impl AzLogicalSize {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalSize {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalSize = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalSize = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -19788,11 +19786,11 @@ impl AzCallbackInfo {
 #[pyproto]
 impl PyObjectProtocol for AzCallbackInfo {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::callbacks::CallbackInfo = unsafe { mem::transmute(self) };
+        let m: &azul_layout::callbacks::CallbackInfo = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::callbacks::CallbackInfo = unsafe { mem::transmute(self) };
+        let m: &azul_layout::callbacks::CallbackInfo = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -44097,11 +44095,11 @@ impl AzImageRef {
 #[pyproto]
 impl PyObjectProtocol for AzImageRef {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::ImageRef = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::ImageRef = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::ImageRef = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::ImageRef = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -44200,11 +44198,11 @@ impl AzRawImage {
 #[pyproto]
 impl PyObjectProtocol for AzRawImage {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::RawImage = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::RawImage = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::RawImage = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::RawImage = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -44224,11 +44222,11 @@ impl AzImageMask {
 #[pyproto]
 impl PyObjectProtocol for AzImageMask {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::ImageMask = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::ImageMask = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::ImageMask = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::ImageMask = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -44300,11 +44298,11 @@ impl AzRawImageFormatEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzRawImageFormatEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::RawImageFormat = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::RawImageFormat = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::RawImageFormat = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::RawImageFormat = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __richcmp__(
@@ -44515,11 +44513,11 @@ impl AzRawImageDataEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzRawImageDataEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::RawImageData = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::RawImageData = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::RawImageData = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::RawImageData = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -44738,11 +44736,11 @@ impl AzFontSource {
 #[pyproto]
 impl PyObjectProtocol for AzFontSource {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::LoadedFontSource = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::LoadedFontSource = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::LoadedFontSource = unsafe { mem::transmute(self) };
+        let m: &azul_core::resources::LoadedFontSource = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -48096,14 +48094,14 @@ impl AzLogicalRectVec {
     /// Creates a new `LogicalRectVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzLogicalRect>) -> Self {
-        let m: azul_core::window::LogicalRectVec =
-            azul_core::window::LogicalRectVec::from_vec(unsafe { mem::transmute(input) });
+        let m: azul_core::geom::LogicalRectVec =
+            azul_core::geom::LogicalRectVec::from_vec(unsafe { mem::transmute(input) });
         unsafe { mem::transmute(m) }
     }
 
     /// Returns the LogicalRect as a Python array
     fn array(&self) -> Vec<AzLogicalRect> {
-        let m: &azul_core::window::LogicalRectVec = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalRectVec = unsafe { mem::transmute(self) };
         unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 }
@@ -48111,11 +48109,11 @@ impl AzLogicalRectVec {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalRectVec {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalRectVec = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalRectVec = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalRectVec = unsafe { mem::transmute(self) };
+        let m: &azul_core::geom::LogicalRectVec = unsafe { mem::transmute(self) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -50185,13 +50183,11 @@ impl AzLogicalRectVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalRectVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalRectVecDestructor =
-            unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::geom::LogicalRectVecDestructor = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::window::LogicalRectVecDestructor =
-            unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::geom::LogicalRectVecDestructor = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -54881,11 +54877,11 @@ impl AzOptionImageRefEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionImageRefEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::OptionImageRef = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::OptionImageRef = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::OptionImageRef = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::OptionImageRef = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -55904,11 +55900,11 @@ impl AzOptionRawImageEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionRawImageEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::OptionRawImage = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::OptionRawImage = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::OptionRawImage = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::OptionRawImage = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
 }
@@ -56637,11 +56633,11 @@ impl AzOptionImageMaskEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionImageMaskEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::OptionImageMask = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::OptionImageMask = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> {
-        let m: &azul_core::app_resources::OptionImageMask = unsafe { mem::transmute(&self.inner) };
+        let m: &azul_core::resources::OptionImageMask = unsafe { mem::transmute(&self.inner) };
         Ok(format!("{:#?}", m))
     }
 }

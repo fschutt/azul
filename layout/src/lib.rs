@@ -14,11 +14,15 @@ extern crate core;
 pub mod callbacks;
 #[cfg(feature = "cpurender")]
 pub mod cpurender;
+#[cfg(feature = "text_layout")]
+pub mod focus;
 #[cfg(feature = "font_loading")]
 pub mod font;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
 pub mod image;
+#[cfg(feature = "text_layout")]
+pub mod scroll;
 pub mod solver3;
 #[cfg(feature = "text_layout")]
 pub mod text3;

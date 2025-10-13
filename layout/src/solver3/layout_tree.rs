@@ -19,7 +19,7 @@ use azul_css::{
     css::CssPropertyValue,
     format_rust_code::GetHash,
     props::{
-        layout::{LayoutFloat, LayoutOverflow, LayoutPosition},
+        layout::{LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
         property::CssProperty,
     },
 };
@@ -235,19 +235,6 @@ pub struct LayoutTreeBuilder<T: ParsedFontTrait> {
     dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
 }
 
-// Represents the CSS `display` property for layout purposes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DisplayType {
-    Inline,
-    Block,
-    InlineBlock,
-    Table,
-    TableRowGroup,
-    TableRow,
-    TableCell,
-    FlowRoot, // Added for `display: flow-root`
-}
-
 impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
     pub fn new() -> Self {
         Self {
@@ -277,14 +264,14 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         let display_type = get_display_type(styled_dom, dom_id);
 
         match display_type {
-            DisplayType::Block | DisplayType::InlineBlock | DisplayType::FlowRoot => {
+            LayoutDisplay::Block | LayoutDisplay::InlineBlock | LayoutDisplay::FlowRoot => {
                 self.process_block_children(styled_dom, dom_id, node_idx)?
             }
-            DisplayType::Table => self.process_table_children(styled_dom, dom_id, node_idx)?,
-            DisplayType::TableRowGroup => {
+            LayoutDisplay::Table => self.process_table_children(styled_dom, dom_id, node_idx)?,
+            LayoutDisplay::TableRowGroup => {
                 self.process_table_row_group_children(styled_dom, dom_id, node_idx)?
             }
-            DisplayType::TableRow => {
+            LayoutDisplay::TableRow => {
                 self.process_table_row_children(styled_dom, dom_id, node_idx)?
             }
             // Inline, TableCell, etc., have their children processed as part of their
@@ -376,7 +363,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         let mut row_children = Vec::new();
         for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
             let child_display = get_display_type(styled_dom, child_id);
-            if child_display == DisplayType::TableCell {
+            if child_display == LayoutDisplay::TableCell {
                 row_children.push(child_id);
             } else {
                 if !row_children.is_empty() {
@@ -425,7 +412,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
     ) -> Result<()> {
         for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
             let child_display = get_display_type(styled_dom, child_id);
-            if child_display == DisplayType::TableCell {
+            if child_display == LayoutDisplay::TableCell {
                 self.process_node(styled_dom, child_id, Some(parent_idx))?;
             } else {
                 // Any other child must be wrapped in an anonymous cell
@@ -536,11 +523,11 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
 fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
         get_display_type(styled_dom, node_id),
-        DisplayType::Block
-            | DisplayType::FlowRoot
-            | DisplayType::Table
-            | DisplayType::TableRow
-            | DisplayType::TableRowGroup
+        LayoutDisplay::Block
+            | LayoutDisplay::FlowRoot
+            | LayoutDisplay::Table
+            | LayoutDisplay::TableRow
+            | LayoutDisplay::TableRowGroup
     )
 }
 
@@ -562,7 +549,7 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
 }
 
 // Determines the display type of a node based on its tag and CSS properties.
-fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
+fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     if let Some(_styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
         let node_data = &styled_dom.node_data.as_container()[node_id];
         let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
@@ -570,29 +557,19 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
             .css_property_cache
             .ptr
             .get_display(node_data, &node_id, node_state)
-            .and_then(|v| v.get_property())
+            .and_then(|v| v.get_property().copied())
         {
-            return match d {
-                azul_css::props::layout::LayoutDisplay::Table => DisplayType::Table,
-                azul_css::props::layout::LayoutDisplay::TableRow => DisplayType::TableRow,
-                azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
-                azul_css::props::layout::LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
-                azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
-                azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
-                azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
-                azul_css::props::layout::LayoutDisplay::FlowRoot => DisplayType::FlowRoot,
-                _ => DisplayType::Block,
-            };
+            return d;
         }
     }
 
     // Fallback to default HTML display types
     match styled_dom.node_data.as_container()[node_id].get_node_type() {
-        NodeType::Text(_) => DisplayType::Inline,
-        NodeType::Table => DisplayType::Table,
-        NodeType::Tr => DisplayType::TableRow,
-        NodeType::Td | NodeType::Th => DisplayType::TableCell,
-        NodeType::TBody | NodeType::THead | NodeType::TFoot => DisplayType::TableRowGroup,
+        NodeType::Text(_) => LayoutDisplay::Inline,
+        NodeType::Table => LayoutDisplay::Table,
+        NodeType::Tr => LayoutDisplay::TableRow,
+        NodeType::Td | NodeType::Th => LayoutDisplay::TableCell,
+        NodeType::TBody | NodeType::THead | NodeType::TFoot => LayoutDisplay::TableRowGroup,
         NodeType::Div
         | NodeType::P
         | NodeType::H1
@@ -600,8 +577,8 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
         | NodeType::H3
         | NodeType::H4
         | NodeType::H5
-        | NodeType::H6 => DisplayType::Block,
-        _ => DisplayType::Inline,
+        | NodeType::H6 => LayoutDisplay::Block,
+        _ => LayoutDisplay::Inline,
     }
 }
 
@@ -611,7 +588,7 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     let display = get_display_type(styled_dom, node_id);
     if matches!(
         display,
-        DisplayType::InlineBlock | DisplayType::TableCell | DisplayType::FlowRoot
+        LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::FlowRoot
     ) {
         return true;
     }
@@ -654,15 +631,31 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
 /// The logic now correctly identifies all BFC roots.
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
     match get_display_type(styled_dom, node_id) {
-        DisplayType::Inline => FormattingContext::Inline,
-        DisplayType::Block
-        | DisplayType::FlowRoot
-        | DisplayType::TableCell
-        | DisplayType::InlineBlock => FormattingContext::Block {
+        LayoutDisplay::Inline => FormattingContext::Inline,
+        LayoutDisplay::Block | LayoutDisplay::FlowRoot => FormattingContext::Block {
             establishes_new_context: establishes_new_block_formatting_context(styled_dom, node_id),
         },
-        DisplayType::Table => FormattingContext::Table,
-        DisplayType::TableRowGroup => FormattingContext::TableRowGroup,
-        DisplayType::TableRow => FormattingContext::TableRow,
+        LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
+        LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
+        LayoutDisplay::TableRowGroup
+        | LayoutDisplay::TableHeaderGroup
+        | LayoutDisplay::TableFooterGroup => FormattingContext::TableRowGroup,
+        LayoutDisplay::TableRow => FormattingContext::TableRow,
+        LayoutDisplay::TableCell => FormattingContext::TableCell,
+        LayoutDisplay::None => FormattingContext::None,
+        LayoutDisplay::Flex | LayoutDisplay::InlineFlex => FormattingContext::Flex,
+        LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
+        LayoutDisplay::TableCaption => FormattingContext::TableCaption,
+        LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
+        LayoutDisplay::Initial | LayoutDisplay::Inherit => FormattingContext::Block {
+            establishes_new_context: true,
+        },
+        // These less common display types default to block behavior
+        LayoutDisplay::ListItem
+        | LayoutDisplay::TableColumn
+        | LayoutDisplay::RunIn
+        | LayoutDisplay::Marker => FormattingContext::Block {
+            establishes_new_context: true,
+        },
     }
 }

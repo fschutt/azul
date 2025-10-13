@@ -1680,7 +1680,7 @@ unsafe extern "system" fn WindowProc(
 
         let r = match msg {
             AZ_REGENERATE_DOM => {
-                use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
+                use azul_layout::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
                 let mut ret = ProcessEventResult::DoNothing;
 
@@ -2083,7 +2083,7 @@ unsafe extern "system" fn WindowProc(
                 }
             }
             WM_MOUSEMOVE => {
-                use azul_core::window::LogicalPosition;
+                use azul_core::geom::LogicalPosition;
                 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
 
                 let x = GET_X_LPARAM(lparam);

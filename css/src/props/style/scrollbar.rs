@@ -3,7 +3,10 @@
 use alloc::string::{String, ToString};
 
 use crate::props::{
-    basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+    basic::{
+        color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        pixel::PixelValue,
+    },
     formatter::PrintAsCssValue,
     layout::{
         dimensions::LayoutWidth,
@@ -210,9 +213,7 @@ impl Default for ComputedScrollbarStyle {
 
 /// A classic light-themed scrollbar, similar to older Windows versions.
 pub const SCROLLBAR_CLASSIC_LIGHT: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(17),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(17)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(2),
     },
@@ -253,9 +254,7 @@ pub const SCROLLBAR_CLASSIC_LIGHT: ScrollbarInfo = ScrollbarInfo {
 
 /// A classic dark-themed scrollbar.
 pub const SCROLLBAR_CLASSIC_DARK: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(17),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(17)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(2),
     },
@@ -296,9 +295,7 @@ pub const SCROLLBAR_CLASSIC_DARK: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Light Theme).
 pub const SCROLLBAR_MACOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(8),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(8)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -319,9 +316,7 @@ pub const SCROLLBAR_MACOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Dark Theme).
 pub const SCROLLBAR_MACOS_DARK: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(8),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(8)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -342,9 +337,7 @@ pub const SCROLLBAR_MACOS_DARK: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern scrollbar inspired by Windows 11 (Light Theme).
 pub const SCROLLBAR_WINDOWS_LIGHT: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(12),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(12)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -370,9 +363,7 @@ pub const SCROLLBAR_WINDOWS_LIGHT: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern scrollbar inspired by Windows 11 (Dark Theme).
 pub const SCROLLBAR_WINDOWS_DARK: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(12),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(12)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -398,9 +389,7 @@ pub const SCROLLBAR_WINDOWS_DARK: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Light Theme).
 pub const SCROLLBAR_IOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(7),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(7)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -421,9 +410,7 @@ pub const SCROLLBAR_IOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Dark Theme).
 pub const SCROLLBAR_IOS_DARK: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(7),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(7)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -444,9 +431,7 @@ pub const SCROLLBAR_IOS_DARK: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern, thin, overlay scrollbar inspired by Android (Light Theme).
 pub const SCROLLBAR_ANDROID_LIGHT: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(6),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(6)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -467,9 +452,7 @@ pub const SCROLLBAR_ANDROID_LIGHT: ScrollbarInfo = ScrollbarInfo {
 
 /// A modern, thin, overlay scrollbar inspired by Android (Dark Theme).
 pub const SCROLLBAR_ANDROID_DARK: ScrollbarInfo = ScrollbarInfo {
-    width: LayoutWidth {
-        inner: crate::props::basic::pixel::PixelValue::const_px(6),
-    },
+    width: LayoutWidth::Px(crate::props::basic::pixel::PixelValue::const_px(6)),
     padding_left: LayoutPaddingLeft {
         inner: crate::props::basic::pixel::PixelValue::const_px(0),
     },
@@ -664,7 +647,7 @@ pub fn resolve_scrollbar_style(
         let width = match final_width {
             LayoutScrollbarWidth::None => None,
             // Use a reasonable default for "thin"
-            LayoutScrollbarWidth::Thin => Some(LayoutWidth::px(8.0)),
+            LayoutScrollbarWidth::Thin => Some(LayoutWidth::Px(PixelValue::px(8.0))),
             // If auto, fall back to -webkit- width or the UA default
             LayoutScrollbarWidth::Auto => Some(
                 webkit_scrollbar_style
@@ -690,7 +673,11 @@ pub fn resolve_scrollbar_style(
         let info = &webkit_style.vertical;
 
         // The -webkit-scrollbar `display: none;` is often implemented by setting width to 0.
-        if info.width.inner.to_pixels(0.0) <= 0.0 {
+        let width_pixels = match info.width {
+            LayoutWidth::Px(px) => px.to_pixels(0.0),
+            _ => 8.0, // Default for min-content/max-content
+        };
+        if width_pixels <= 0.0 {
             return ComputedScrollbarStyle {
                 width: None,
                 thumb_color: None,

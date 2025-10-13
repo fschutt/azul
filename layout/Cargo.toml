@@ -48,7 +48,7 @@ taffy = { version = "0.9.1", default-features = false, features = ["std", "flexb
 
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender"]
-std = []
+std = ["azul-core/std"]
 cpurender = ["tiny-skia", "allsorts"]
 text_layout = ["unicode-normalization", "allsorts", "tinyvec", "unicode-segmentation", "unicode-bidi", "hyphenation"]
 gif = ["image/gif"]

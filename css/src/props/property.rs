@@ -3052,18 +3052,24 @@ impl CssProperty {
                 CssProperty::tab_width(tw_start.interpolate(&tw_end, t))
             }
             (CssProperty::Width(start), CssProperty::Width(end)) => {
-                let start = start
-                    .get_property()
-                    .copied()
-                    .unwrap_or(LayoutWidth::px(interpolate_resolver.current_rect_width));
+                let start =
+                    start
+                        .get_property()
+                        .copied()
+                        .unwrap_or(LayoutWidth::Px(PixelValue::px(
+                            interpolate_resolver.current_rect_width,
+                        )));
                 let end = end.get_property().copied().unwrap_or_default();
                 CssProperty::Width(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
             (CssProperty::Height(start), CssProperty::Height(end)) => {
-                let start = start
-                    .get_property()
-                    .copied()
-                    .unwrap_or(LayoutHeight::px(interpolate_resolver.current_rect_height));
+                let start =
+                    start
+                        .get_property()
+                        .copied()
+                        .unwrap_or(LayoutHeight::Px(PixelValue::px(
+                            interpolate_resolver.current_rect_height,
+                        )));
                 let end = end.get_property().copied().unwrap_or_default();
                 CssProperty::Height(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
