@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use azul_core::{
-    display_list::GlyphInstance,
+    ui_solver::GlyphInstance,
     window::{LogicalPosition, LogicalSize},
 };
 use azul_css::props::basic::ColorU;

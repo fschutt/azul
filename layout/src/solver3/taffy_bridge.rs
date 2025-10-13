@@ -3,16 +3,14 @@ use azul_css::{
     props::{
         layout::grid::{GridAutoTracks, GridTemplate, GridTrackSizing},
         property::{
-            LayoutAlignItemsValue, LayoutDisplayValue, LayoutFlexDirectionValue, LayoutFlexWrapValue,
-            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
-            LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue, LayoutJustifyContentValue,
-            LayoutPositionValue,
+            LayoutAlignItemsValue, LayoutDisplayValue, LayoutFlexDirectionValue,
+            LayoutFlexWrapValue, LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue,
+            LayoutGridAutoRowsValue, LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
+            LayoutJustifyContentValue, LayoutPositionValue,
         },
     },
 };
-use taffy::{
-    style::{TrackSizingFunction, MinTrackSizingFunction, MaxTrackSizingFunction},
-};
+use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFunction};
 
 pub fn grid_template_rows_to_taffy(
     val: LayoutGridTemplateRowsValue,
@@ -67,8 +65,9 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             taffy::MaxTrackSizingFunction::length(px.to_pixels(0.0)),
         ),
         GridTrackSizing::Fr(_fr) => {
-            // TODO: taffy 0.9.1 doesn't seem to have a direct fr() method for Min/MaxTrackSizingFunction
-            // For now, using auto() as a workaround. This needs proper investigation.
+            // TODO: taffy 0.9.1 doesn't seem to have a direct fr() method for
+            // Min/MaxTrackSizingFunction For now, using auto() as a workaround. This
+            // needs proper investigation.
             minmax(
                 taffy::MinTrackSizingFunction::auto(),
                 taffy::MaxTrackSizingFunction::auto(),
@@ -196,8 +195,8 @@ use azul_core::{dom::NodeId, styled_dom::StyledDom};
 use azul_css::props::{
     basic::pixel::PixelValue,
     layout::{
-        LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexWrap, LayoutGridAutoFlow, LayoutJustifyContent,
-        LayoutPosition,
+        LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexWrap,
+        LayoutGridAutoFlow, LayoutJustifyContent, LayoutPosition,
     },
     property::{CssProperty, CssPropertyType},
 };
@@ -209,10 +208,10 @@ use taffy::{
 
 use crate::{
     solver3::{
+        fc::{translate_taffy_point_back, translate_taffy_size_back},
         geometry::CssSize,
         layout_tree::{LayoutNode, LayoutTree},
         sizing, LayoutContext,
-        fc::{translate_taffy_size_back, translate_taffy_point_back},
     },
     text3::cache::{FontLoaderTrait, ParsedFontTrait},
 };
@@ -699,9 +698,9 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
             })
             .unwrap_or_else(Size::zero);
 
-        // TODO: grid_template_rows expects GridTrackVec<GridTemplateComponent>, not Vec<TrackSizingFunction>
-        // Need to properly convert GridTemplate to GridTemplateComponent
-        // taffy_style.grid_template_rows = cache
+        // TODO: grid_template_rows expects GridTrackVec<GridTemplateComponent>, not
+        // Vec<TrackSizingFunction> Need to properly convert GridTemplate to
+        // GridTemplateComponent taffy_style.grid_template_rows = cache
         //     .get_property(
         //         node_data,
         //         &id,
@@ -718,9 +717,9 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         //     .map(|v| grid_template_rows_to_taffy(v))
         //     .unwrap_or_default();
 
-        // TODO: grid_template_columns expects GridTrackVec<GridTemplateComponent>, not Vec<TrackSizingFunction>
-        // Need to properly convert GridTemplate to GridTemplateComponent
-        // taffy_style.grid_template_columns = cache
+        // TODO: grid_template_columns expects GridTrackVec<GridTemplateComponent>, not
+        // Vec<TrackSizingFunction> Need to properly convert GridTemplate to
+        // GridTemplateComponent taffy_style.grid_template_columns = cache
         //     .get_property(
         //         node_data,
         //         &id,
@@ -870,15 +869,18 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
 
                 // Check if child has display: none
                 let node_data = &self.ctx.styled_dom.node_data.as_container()[child_dom_id];
-                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[child_dom_id].state;
-                
+                let node_state =
+                    &self.ctx.styled_dom.styled_nodes.as_container()[child_dom_id].state;
+
                 if let Some(display_prop) = self.ctx.styled_dom.css_property_cache.ptr.get_property(
                     node_data,
                     &child_dom_id,
                     node_state,
                     &CssPropertyType::Display,
                 ) {
-                    if let CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None)) = display_prop {
+                    if let CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None)) =
+                        display_prop
+                    {
                         return false;
                     }
                 }

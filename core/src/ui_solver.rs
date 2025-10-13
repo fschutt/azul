@@ -34,10 +34,6 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    resources::{
-        Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
-        RendererResources, TransformKey, UpdateImageResult, RenderCallbacks
-    },
     callbacks::{
         DocumentId, HidpiAdjustedBounds, HitTestItem, IFrameCallbackInfo, IFrameCallbackReturn,
         PipelineId, ScrollHitTestItem,
@@ -45,6 +41,10 @@ use crate::{
     dom::{DomNodeHash, ScrollTagId, TagId},
     gl::OptionGlContextPtr,
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeId},
+    resources::{
+        Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
+        RenderCallbacks, RendererResources, TransformKey, UpdateImageResult,
+    },
     styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
     window::{
         FullWindowState, LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, OptionChar,
@@ -1066,249 +1066,13 @@ impl LayoutResult {
         LayoutRect::new(self.root_position, self.root_size)
     }
 
-    pub fn get_cached_display_list(
-        document_id: &DocumentId,
-        dom_id: DomId,
-        epoch: Epoch,
-        layout_results: &[LayoutResult],
-        full_window_state: &FullWindowState,
-        gl_texture_cache: &GlTextureCache,
-        renderer_resources: &RendererResources,
-        image_cache: &ImageCache,
-    ) -> CachedDisplayList {
-        use crate::display_list::{
-            displaylist_handle_rect, push_rectangles_into_displaylist, DisplayListFrame,
-            DisplayListMsg, DisplayListParametersRef, LayoutRectContent, RectBackground,
-        };
+    // NOTE: get_cached_display_list has been removed.
+    // Display list generation is now handled by azul_layout::LayoutWindow.
+    // Use azul_layout::LayoutWindow::layout_and_generate_display_list() instead.
 
-        let layout_result = match layout_results.get(dom_id.inner) {
-            Some(s) => s,
-            None => return CachedDisplayList::empty(),
-        };
-
-        let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
-        let referenced_content = DisplayListParametersRef {
-            dom_id,
-            document_id,
-            epoch,
-            full_window_state,
-            layout_results,
-            gl_texture_cache,
-            renderer_resources,
-            image_cache,
-        };
-
-        let root_size = layout_result.rects.as_ref()[NodeId::ZERO].size;
-
-        let mut root_content = displaylist_handle_rect(
-            rects_in_rendering_order.root.into_crate_internal().unwrap(),
-            &referenced_content,
-        )
-        .unwrap_or(DisplayListMsg::Frame(DisplayListFrame::root(
-            LayoutSize::zero(),
-            LayoutPoint::zero(),
-        )));
-
-        let children = rects_in_rendering_order
-            .children
-            .as_ref()
-            .iter()
-            .filter_map(|child_content_group| {
-                push_rectangles_into_displaylist(child_content_group, &referenced_content)
-            })
-            .collect();
-
-        root_content.append_children(children);
-
-        let mut dl = CachedDisplayList {
-            root: root_content,
-            root_size,
-        };
-
-        // push the window background color, if the
-        // root node doesn't have any content
-        if dl.root.is_content_empty() {
-            dl.root.push_content(LayoutRectContent::Background {
-                content: RectBackground::Color(full_window_state.background_color),
-                size: None,
-                offset: None,
-                repeat: None,
-            });
-        }
-
-        dl
-    }
-
-    // Does a "quick" re-layout of the given DomId, calls iframe callbacks that have been resized
-    // and updates their DOM IDs.
-    //
-    // Assumes that an OpenGL context is active
-    #[must_use]
-    pub fn do_quick_resize(
-        id_namespace: IdNamespace,
-        document_id: DocumentId,
-        epoch: Epoch,
-        dom_id: DomId,
-        image_cache: &ImageCache,
-        gl_context: &OptionGlContextPtr,
-        layout_results: &mut [LayoutResult],
-        gl_texture_cache: &mut GlTextureCache,
-        renderer_resources: &mut RendererResources,
-        callbacks: &RenderCallbacks,
-        relayout_fn: RelayoutFn,
-        fc_cache: &FcFontCache,
-        window_size: &WindowSize,
-        window_theme: WindowTheme,
-    ) -> QuickResizeResult {
-        let dom_bounds = LogicalRect::new(LogicalPosition::zero(), window_size.dimensions);
-        let mut dom_ids_to_resize = vec![(dom_id, dom_bounds)];
-        let mut gpu_event_changes = GpuEventChanges::default();
-        let mut rsn = BTreeMap::new(); // resized nodes [DomID => Vec<NodeId>]
-
-        loop {
-            let mut new_dom_ids_to_resize = Vec::new();
-
-            for (dom_id, new_size) in dom_ids_to_resize.iter() {
-                let layout_size = new_size.to_layout_rect();
-
-                // Call the relayout function on the DOM to get the resized DOM
-                let mut resized_nodes = (relayout_fn)(
-                    *dom_id,
-                    layout_size,
-                    &mut layout_results[dom_id.inner],
-                    image_cache,
-                    renderer_resources,
-                    &document_id,
-                    None,      // no new nodes to relayout
-                    None,      // no text changes
-                    &mut None, // no debug messages
-                );
-
-                rsn.insert(*dom_id, resized_nodes.resized_nodes.clone());
-
-                gpu_event_changes.merge(&mut resized_nodes.gpu_key_changes);
-
-                for node_id in resized_nodes.resized_nodes.into_iter() {
-                    let iframe_dom_id =
-                        match layout_results[dom_id.inner].iframe_mapping.get(&node_id) {
-                            Some(dom_id) => *dom_id,
-                            None => continue,
-                        };
-
-                    let iframe_rect_relative_to_parent = LayoutRect {
-                        origin: layout_results[iframe_dom_id.inner].root_position,
-                        size: layout_results[iframe_dom_id.inner].root_size,
-                    };
-
-                    let iframe_needs_to_be_invoked =
-                        !layout_size.contains_rect(&iframe_rect_relative_to_parent);
-
-                    if !iframe_needs_to_be_invoked {
-                        continue; // old iframe size still covers the new extent
-                    }
-
-                    let iframe_return: IFrameCallbackReturn = {
-                        let layout_result = &mut layout_results[dom_id.inner];
-                        let mut node_data_mut =
-                            layout_result.styled_dom.node_data.as_container_mut();
-                        let mut node = &mut node_data_mut[node_id];
-                        let iframe_node = match node.get_iframe_node() {
-                            Some(iframe_node) => iframe_node,
-                            None => continue, // not an iframe
-                        };
-
-                        // invoke the iframe with the new size and replace the dom with the DOM ID
-                        let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
-                            layout_size.size,
-                            window_size.get_hidpi_factor(),
-                        );
-                        let scroll_node = layout_result
-                            .scrollable_nodes
-                            .overflowing_nodes
-                            .get(&NodeHierarchyItemId::from_crate_internal(Some(node_id)))
-                            .cloned()
-                            .unwrap_or_default();
-
-                        let mut iframe_callback_info = IFrameCallbackInfo::new(
-                            fc_cache,
-                            image_cache,
-                            window_theme,
-                            hidpi_bounds,
-                            // see /examples/assets/images/scrollbounds.png for documentation!
-                            /* scroll_size */
-                            scroll_node.child_rect.size,
-                            /* scroll_offset */
-                            scroll_node.child_rect.origin - scroll_node.parent_rect.origin,
-                            /* virtual_scroll_size */ scroll_node.virtual_child_rect.size,
-                            /* virtual_scroll_offset */
-                            scroll_node.virtual_child_rect.origin - scroll_node.parent_rect.origin,
-                        );
-                        (iframe_node.callback.cb)(&mut iframe_node.data, &mut iframe_callback_info)
-                    };
-
-                    // TODO: what to do if the new iframe has less or more sub-iframes
-                    // than the current one? edge-case, solve later.
-
-                    layout_results[iframe_dom_id.inner].styled_dom = iframe_return.dom;
-
-                    let new_iframe_rect = LogicalRect {
-                        // TODO: correct? or layout_results[dom_id.0].positioned_rects[node_id]?
-                        origin: LogicalPosition::zero(),
-                        size: layout_results[dom_id.inner].rects.as_ref()[node_id].size,
-                    };
-
-                    // Store the new scroll position
-                    // (trust the iframe to return these values correctly)
-                    let osn = layout_results[dom_id.inner]
-                        .scrollable_nodes
-                        .overflowing_nodes
-                        .entry(NodeHierarchyItemId::from_crate_internal(Some(node_id)))
-                        .or_insert_with(|| OverflowingScrollNode::default());
-
-                    osn.child_rect = LogicalRect {
-                        origin: iframe_return.scroll_offset,
-                        size: iframe_return.scroll_size,
-                    };
-                    osn.virtual_child_rect = LogicalRect {
-                        origin: iframe_return.virtual_scroll_offset,
-                        size: iframe_return.virtual_scroll_size,
-                    };
-
-                    new_dom_ids_to_resize.push((iframe_dom_id, new_iframe_rect));
-                }
-            }
-
-            if new_dom_ids_to_resize.is_empty() {
-                break;
-            } else {
-                dom_ids_to_resize = new_dom_ids_to_resize; // recurse
-            }
-        }
-
-        let updated_images = Self::resize_images(
-            id_namespace,
-            document_id,
-            epoch,
-            dom_id,
-            image_cache,
-            gl_context,
-            layout_results,
-            gl_texture_cache,
-            renderer_resources,
-            callbacks,
-            relayout_fn,
-            fc_cache,
-            window_size,
-            window_theme,
-            &rsn,
-        );
-
-        QuickResizeResult {
-            gpu_event_changes,
-            updated_images,
-            resized_nodes: rsn,
-        }
-    }
+    // NOTE: do_quick_resize has been removed.
+    // Window resizing with layout is now handled by azul_layout::LayoutWindow.
+    // Use azul_layout::LayoutWindow::resize_window() instead.
 
     pub fn resize_images(
         id_namespace: IdNamespace,

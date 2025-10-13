@@ -40,21 +40,60 @@ macro_rules! get_css_property {
             styled_dom
                 .css_property_cache
                 .ptr
-                .$cache_method(&styled_dom.node_data.as_container()[node_id], &node_id, node_state)
+                .$cache_method(
+                    &styled_dom.node_data.as_container()[node_id],
+                    &node_id,
+                    node_state,
+                )
                 .and_then(|v| v.get_property().copied())
                 .unwrap_or($default)
         }
     };
 }
 
-get_css_property!(get_writing_mode, get_writing_mode, LayoutWritingMode, LayoutWritingMode::default());
-get_css_property!(get_wrap, get_flex_wrap, LayoutFlexWrap, LayoutFlexWrap::default());
-get_css_property!(get_justify_content, get_justify_content, LayoutJustifyContent, LayoutJustifyContent::default());
-get_css_property!(get_text_align, get_text_align, StyleTextAlign, StyleTextAlign::default());
+get_css_property!(
+    get_writing_mode,
+    get_writing_mode,
+    LayoutWritingMode,
+    LayoutWritingMode::default()
+);
+get_css_property!(
+    get_wrap,
+    get_flex_wrap,
+    LayoutFlexWrap,
+    LayoutFlexWrap::default()
+);
+get_css_property!(
+    get_justify_content,
+    get_justify_content,
+    LayoutJustifyContent,
+    LayoutJustifyContent::default()
+);
+get_css_property!(
+    get_text_align,
+    get_text_align,
+    StyleTextAlign,
+    StyleTextAlign::default()
+);
 get_css_property!(get_float, get_float, LayoutFloat, LayoutFloat::None);
-get_css_property!(get_overflow_x, get_overflow_x, LayoutOverflow, LayoutOverflow::Visible);
-get_css_property!(get_overflow_y, get_overflow_y, LayoutOverflow, LayoutOverflow::Visible);
-get_css_property!(get_position, get_position, LayoutPosition, LayoutPosition::Static);
+get_css_property!(
+    get_overflow_x,
+    get_overflow_x,
+    LayoutOverflow,
+    LayoutOverflow::Visible
+);
+get_css_property!(
+    get_overflow_y,
+    get_overflow_y,
+    LayoutOverflow,
+    LayoutOverflow::Visible
+);
+get_css_property!(
+    get_position,
+    get_position,
+    LayoutPosition,
+    LayoutPosition::Static
+);
 
 // ============================================================================
 // Complex Property Getters
@@ -124,7 +163,12 @@ pub fn get_background_color<T: ParsedFontTrait>(
     _node_state: &StyledNodeState,
 ) -> ColorU {
     // TODO: Implement actual background color retrieval
-    ColorU { r: 255, g: 255, b: 255, a: 0 }
+    ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 0,
+    }
 }
 
 /// Information about border rendering
@@ -141,7 +185,12 @@ pub fn get_border_info<T: ParsedFontTrait>(
     // TODO: Implement actual border info retrieval
     BorderInfo {
         width: 0.0,
-        color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+        color: ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
     }
 }
 
@@ -190,9 +239,7 @@ pub struct ScrollbarInfo {
 }
 
 /// Get scrollbar information from a layout node
-pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(
-    _node: &LayoutNode<T>,
-) -> ScrollbarInfo {
+pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(_node: &LayoutNode<T>) -> ScrollbarInfo {
     // TODO: Calculate actual scrollbar requirements based on overflow
     ScrollbarInfo {
         needs_vertical: false,
@@ -201,4 +248,3 @@ pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(
         scrollbar_height: 16.0,
     }
 }
-

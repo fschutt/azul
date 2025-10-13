@@ -54,13 +54,13 @@ use azul_css::{
 };
 
 use crate::{
-    resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
         CompactDom, Dom, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
         TabIndex, TagId,
     },
     id_tree::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
+    resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     style::{
         construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
         CascadeInfoVec,
@@ -3986,7 +3986,7 @@ impl StyledDom {
         &self,
         resources: &RendererResources,
     ) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
-        use crate::{resources::font_size_to_au, dom::NodeType::*};
+        use crate::{dom::NodeType::*, resources::font_size_to_au};
 
         let keys = self
             .node_data
@@ -4047,7 +4047,7 @@ impl StyledDom {
     pub fn scan_for_image_keys(&self, css_image_cache: &ImageCache) -> FastBTreeSet<ImageRef> {
         use azul_css::props::style::StyleBackgroundContentVec;
 
-        use crate::{resources::OptionImageMask, dom::NodeType::*};
+        use crate::{dom::NodeType::*, resources::OptionImageMask};
 
         #[derive(Default)]
         struct ScanImageVec {

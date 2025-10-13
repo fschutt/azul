@@ -13,8 +13,8 @@ use std::{
 
 pub use azul_core::selection::{ContentIndex, GraphemeClusterId};
 use azul_core::{
-    display_list::GlyphInstance,
     selection::{CursorAffinity, SelectionRange, TextCursor},
+    ui_solver::GlyphInstance,
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::props::basic::ColorU;
@@ -43,7 +43,7 @@ pub trait ParsedFontTrait: Send + Clone {
     fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
     fn has_glyph(&self, codepoint: u32) -> bool;
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics>;
-    fn get_font_metrics(&self) -> FontMetrics;
+    fn get_font_metrics(&self) -> LayoutFontMetrics;
     fn num_glyphs(&self) -> u16;
 }
 
@@ -400,18 +400,30 @@ pub struct VerticalMetrics {
     pub origin_y: f32,
 }
 
+/// Layout-specific font metrics extracted from FontMetrics
+/// Contains only the metrics needed for text layout and rendering
 #[derive(Debug, Clone)]
-pub struct FontMetrics {
+pub struct LayoutFontMetrics {
     pub ascent: f32,
     pub descent: f32,
     pub line_gap: f32,
     pub units_per_em: u16,
 }
 
-impl FontMetrics {
+impl LayoutFontMetrics {
     pub fn baseline_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / self.units_per_em as f32;
         self.ascent * scale
+    }
+
+    /// Convert from full FontMetrics to layout-specific metrics
+    pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
+        Self {
+            ascent: metrics.ascender as f32,
+            descent: metrics.descender as f32,
+            line_gap: metrics.line_gap as f32,
+            units_per_em: metrics.units_per_em,
+        }
     }
 }
 
@@ -1962,7 +1974,7 @@ impl<T: ParsedFontTrait> ShapedItem<T> {
             _ => None,
         }
     }
-        /// Returns the bounding box of the item, relative to its own origin.
+    /// Returns the bounding box of the item, relative to its own origin.
     ///
     /// The origin of the returned `Rect` is `(0,0)`, representing the top-left corner
     /// of the item's layout space before final positioning. The size represents the
@@ -1972,9 +1984,10 @@ impl<T: ParsedFontTrait> ShapedItem<T> {
             ShapedItem::Cluster(cluster) => {
                 // The width of a text cluster is its total advance.
                 let width = cluster.advance;
-                
+
                 // The height is the sum of its ascent and descent, which defines its line box.
-                // We use the existing helper function which correctly calculates this from font metrics.
+                // We use the existing helper function which correctly calculates this from font
+                // metrics.
                 let (ascent, descent) = get_item_vertical_metrics(self);
                 let height = ascent + descent;
 
@@ -1990,7 +2003,7 @@ impl<T: ParsedFontTrait> ShapedItem<T> {
             ShapedItem::CombinedBlock { bounds, .. } => *bounds,
             ShapedItem::Object { bounds, .. } => *bounds,
             ShapedItem::Tab { bounds, .. } => *bounds,
-            
+
             // Breaks are control characters and have no visual geometry.
             ShapedItem::Break { .. } => Rect::default(), // A zero-sized rectangle.
         }

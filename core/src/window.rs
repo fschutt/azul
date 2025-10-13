@@ -24,19 +24,18 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    resources::{
-        DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef,
-        RendererResources, ResourceUpdate,
-    },
     callbacks::{
         Callback, CallbackType, DocumentId, DomNodeId, HitTestItem, LayoutCallback,
         LayoutCallbackType, OptionCallback, PipelineId, RefAny, ScrollPosition, Update,
         UpdateImageType,
     },
-    display_list::RenderCallbacks,
     dom::NodeHierarchy,
     gl::OptionGlContextPtr,
-    id_tree::NodeId,
+    id_tree::{NodeDataContainer, NodeId},
+    resources::{
+        DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef,
+        RenderCallbacks, RendererResources, ResourceUpdate,
+    },
     selection::SelectionState,
     styled_dom::{DomId, NodeHierarchyItemId},
     task::{ExternalSystemCallbacks, Instant, Thread, ThreadId, Timer, TimerId},
@@ -883,9 +882,11 @@ impl WindowInternal {
     {
         use crate::{
             callbacks::LayoutCallbackInfo,
-            display_list::SolvedLayout,
             window_state::{NodesToCheck, StyleAndLayoutChanges},
         };
+
+        // TODO: This function needs to be completely rewritten to use azul_layout::LayoutWindow
+        // For now, we create a minimal LayoutResult to allow compilation
 
         let mut inital_renderer_resources = RendererResources::default();
 
@@ -919,22 +920,21 @@ impl WindowInternal {
             /* selections: */ BTreeMap::new(),
         );
 
-        let SolvedLayout { mut layout_results } = SolvedLayout::new(
-            styled_dom,
-            epoch,
-            &init.document_id,
-            &current_window_state,
-            all_resource_updates,
-            init.id_namespace,
-            image_cache,
-            &fc_cache_real,
-            &callbacks,
-            &mut inital_renderer_resources,
-            DpiScaleFactor {
-                inner: FloatValue::new(init.window_create_options.state.size.get_hidpi_factor()),
-            },
-            debug_messages,
-        );
+        // TODO: Replace with azul_layout::LayoutWindow::new() + layout_and_generate_display_list()
+        // For now, create a minimal empty LayoutResult
+        let mut layout_results = vec![LayoutResult {
+            dom_id: DomId { inner: 0 },
+            parent_dom_id: None,
+            styled_dom: styled_dom.clone(),
+            root_size: LayoutSize::zero(),
+            root_position: LayoutPoint::zero(),
+            rects: NodeDataContainer::default(),
+            scrollable_nodes: Default::default(),
+            iframe_mapping: BTreeMap::new(),
+            gpu_value_cache: Default::default(),
+            formatting_contexts: NodeDataContainer::default(),
+            intrinsic_sizes: NodeDataContainer::default(),
+        }];
 
         let scroll_states = ScrollStates::default();
 
@@ -1010,11 +1010,12 @@ impl WindowInternal {
     {
         use crate::{
             callbacks::LayoutCallbackInfo,
-            display_list::SolvedLayout,
             gl::gl_textures_remove_epochs_from_pipeline,
             styled_dom::DefaultCallbacksCfg,
             window_state::{NodesToCheck, StyleAndLayoutChanges},
         };
+
+        // TODO: This function needs to be completely rewritten to use azul_layout::LayoutWindow
 
         let id_namespace = self.id_namespace;
 
@@ -1042,20 +1043,20 @@ impl WindowInternal {
             enable_autotab: self.current_window_state.flags.autotab_enabled,
         });
 
-        let SolvedLayout { mut layout_results } = SolvedLayout::new(
-            styled_dom,
-            self.epoch,
-            &self.document_id,
-            &self.current_window_state,
-            all_resource_updates,
-            id_namespace,
-            image_cache,
-            &fc_cache_real,
-            callbacks,
-            &mut self.renderer_resources,
-            current_window_dpi,
-            debug_messages,
-        );
+        // TODO: Replace with azul_layout::LayoutWindow API
+        let mut layout_results = vec![LayoutResult {
+            dom_id: DomId { inner: 0 },
+            parent_dom_id: None,
+            styled_dom: styled_dom.clone(),
+            root_size: LayoutSize::zero(),
+            root_position: LayoutPoint::zero(),
+            rects: NodeDataContainer::default(),
+            scrollable_nodes: Default::default(),
+            iframe_mapping: BTreeMap::new(),
+            gpu_value_cache: Default::default(),
+            formatting_contexts: NodeDataContainer::default(),
+            intrinsic_sizes: NodeDataContainer::default(),
+        }];
 
         // apply the changes for the first frame
         let ht = hit_test_func(
@@ -1171,22 +1172,13 @@ impl WindowInternal {
         window_size: &WindowSize,
         window_theme: WindowTheme,
     ) -> QuickResizeResult {
-        LayoutResult::do_quick_resize(
-            self.id_namespace,
-            self.document_id,
-            self.epoch,
-            DomId::ROOT_ID,
-            image_cache,
-            gl_context,
-            &mut self.layout_results,
-            &mut self.gl_texture_cache,
-            &mut self.renderer_resources,
-            callbacks,
-            relayout_fn,
-            fc_cache,
-            window_size,
-            window_theme,
-        )
+        // TODO: This needs to be rewritten to use azul_layout::LayoutWindow::resize_window()
+        // For now, return an empty result
+        QuickResizeResult {
+            gpu_event_changes: Default::default(),
+            updated_images: Vec::new(),
+            resized_nodes: BTreeMap::new(),
+        }
     }
 
     /// Returns whether the size or position of the window changed (if true,

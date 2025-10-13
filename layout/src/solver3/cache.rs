@@ -26,7 +26,9 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        layout::{LayoutFlexWrap, LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode},
+        layout::{
+            LayoutFlexWrap, LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode,
+        },
         property::{CssProperty, CssPropertyType},
         style::StyleTextAlign,
     },
@@ -35,7 +37,14 @@ use azul_css::{
 
 use crate::{
     solver3::{
-        fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior}, geometry::{CssSize, PositionedRectangle}, getters::{get_justify_content, get_overflow_x, get_overflow_y, get_text_align, get_wrap, get_writing_mode}, layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash}, LayoutContext, LayoutError, LayoutTree, Result
+        fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
+        geometry::{CssSize, PositionedRectangle},
+        getters::{
+            get_justify_content, get_overflow_x, get_overflow_y, get_text_align, get_wrap,
+            get_writing_mode,
+        },
+        layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
+        LayoutContext, LayoutError, LayoutTree, Result,
     },
     text3::{
         self,
@@ -490,7 +499,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 StyleTextAlign::Start | StyleTextAlign::Left => fc::TextAlign::Start,
                 StyleTextAlign::End | StyleTextAlign::Right => fc::TextAlign::End,
                 StyleTextAlign::Center => fc::TextAlign::Center,
-                StyleTextAlign::Justify => fc::TextAlign::Justify,}
+                StyleTextAlign::Justify => fc::TextAlign::Justify,
+            },
         };
 
         (
@@ -525,7 +535,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .get(dom_id)
         .map(|n| n.state.clone())
         .unwrap_or_default();
-    
+
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state);
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
 

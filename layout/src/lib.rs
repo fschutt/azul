@@ -15,32 +15,33 @@ pub mod cpurender;
 #[cfg(feature = "font_loading")]
 pub mod font;
 pub mod image;
-pub mod solver2;
 pub mod solver3;
 #[cfg(feature = "text_layout")]
-pub mod text2;
-#[cfg(feature = "text_layout")]
 pub mod text3;
+#[cfg(feature = "text_layout")]
+pub mod window;
 #[cfg(feature = "xml")]
 pub mod xml;
 
-// Export the main layout function
-#[cfg(feature = "text_layout")]
-pub use solver3::layout_document;
+// Export the main layout function and window management
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]
-pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
-#[cfg(feature = "text_layout")]
 pub use solver3::display_list::DisplayList as DisplayList3;
 #[cfg(feature = "text_layout")]
-pub use text3::cache::{LayoutCache as TextLayoutCache, FontManager};
+pub use solver3::layout_document;
+#[cfg(feature = "text_layout")]
+pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
+#[cfg(feature = "text_layout")]
+pub use text3::cache::{FontManager, LayoutCache as TextLayoutCache};
+#[cfg(feature = "text_layout")]
+pub use window::LayoutWindow;
 
 // #[cfg(feature = "text_layout")]
 // pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
 #[cfg(feature = "text_layout")]
 pub fn parse_font_fn(
-    source: azul_core::app_resources::LoadedFontSource,
+    source: azul_core::resources::LoadedFontSource,
 ) -> Option<azul_css::props::basic::FontRef> {
     use core::ffi::c_void;
 
@@ -67,17 +68,4 @@ pub fn parse_font_fn(
     })
 }
 
-#[cfg(feature = "text_layout")]
-pub fn callback_info_shape_text(
-    callbackinfo: &azul_core::callbacks::CallbackInfo,
-    node_id: azul_core::callbacks::DomNodeId,
-    text: azul_css::AzString,
-) -> Option<azul_core::callbacks::InlineText> {
-    let font_ref = callbackinfo.get_font_ref(node_id)?;
-    let text_layout_options = callbackinfo.get_text_layout_options(node_id)?;
-    Some(crate::text2::layout::shape_text(
-        &font_ref,
-        text.as_str(),
-        &text_layout_options,
-    ))
-}
+// Removed old text2 callback - text3 handles shaping differently

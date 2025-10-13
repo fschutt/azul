@@ -4,17 +4,17 @@ use allsorts::{
     gpos,
     gsub::{self, FeatureInfo, FeatureMask, Features},
 };
-use azul_core::{app_resources::Placement, window::LogicalSize};
+use azul_core::{glyph::Placement, window::LogicalSize};
 use rust_fontconfig::FcFontCache;
 
 // Imports from the layout engine's module
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontLoaderTrait, FontManager, FontMetrics, FontRef, Glyph,
-        GlyphOrientation, GlyphSource, LayoutError, ParsedFontTrait, Point, StyleProperties,
+        BidiLevel, Direction, FontLoaderTrait, FontManager, FontRef, Glyph, GlyphOrientation,
+        GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, StyleProperties,
         TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
     },
-    script::{estimate_script_and_language, Script},
+    script::Script, // estimate_script_and_language removed with text2
 };
 // Imports for the provided ParsedFont implementation
 use crate::{
@@ -318,19 +318,20 @@ impl ParsedFontTrait for ParsedFont {
         None
     }
 
-    /// Translates the font-specific metrics into the layout engine's generic `FontMetrics`.
-    fn get_font_metrics(&self) -> FontMetrics {
-        // The `descender` value in OpenType is typically negative.
-        let descender = if self.font_metrics.descender > 0 {
-            -self.font_metrics.descender
+    /// Translates the font-specific metrics into the layout engine's generic `LayoutFontMetrics`.
+    fn get_font_metrics(&self) -> LayoutFontMetrics {
+        // The `descent` value in LayoutFontMetrics is typically positive for below-baseline
+        // but in OpenType it may be negative, so we ensure it's positive here
+        let descent = if self.font_metrics.descent > 0.0 {
+            self.font_metrics.descent
         } else {
-            self.font_metrics.descender
+            -self.font_metrics.descent
         };
 
-        FontMetrics {
-            ascent: self.font_metrics.ascender as f32,
-            descent: descender as f32,
-            line_gap: self.font_metrics.line_gap as f32,
+        LayoutFontMetrics {
+            ascent: self.font_metrics.ascent,
+            descent,
+            line_gap: self.font_metrics.line_gap,
             units_per_em: self.font_metrics.units_per_em,
         }
     }

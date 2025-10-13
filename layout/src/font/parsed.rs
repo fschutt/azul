@@ -13,15 +13,21 @@ use allsorts::{
         HheaTable, MaxpTable,
     },
 };
-use azul_core::app_resources::{
+use azul_core::resources::{
     GlyphOutline, GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
-    OutlineQuadTo, OwnedGlyphBoundingBox, ShapedTextBufferUnsized,
+    OutlineQuadTo, OwnedGlyphBoundingBox,
 };
+// NOTE: ShapedTextBufferUnsized removed - was part of text2's unscaled shaping model
+// text3 uses scaled font sizes directly for layout
 use azul_css::props::basic::FontMetrics;
 use mock::MockFont;
 
-#[cfg(feature = "text_layout")]
-use crate::text2::FontImpl;
+use crate::text3::cache::LayoutFontMetrics;
+
+// NOTE: FontImpl trait was removed with text2
+// text3 uses ParsedFontTrait instead
+// #[cfg(feature = "text_layout")]
+// use crate::text2::FontImpl;
 
 pub type GsubCache = Arc<LayoutCacheData<GSUB>>;
 pub type GposCache = Arc<LayoutCacheData<GPOS>>;
@@ -30,7 +36,8 @@ pub type GposCache = Arc<LayoutCacheData<GPOS>>;
 pub struct ParsedFont {
     /// A hash of the font, useful for caching purposes
     pub hash: u64,
-    pub font_metrics: FontMetrics,
+    /// Layout-specific font metrics (simplified from full FontMetrics)
+    pub font_metrics: LayoutFontMetrics,
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
     pub hmtx_data: Vec<u8>,
@@ -67,30 +74,248 @@ impl fmt::Debug for ParsedFont {
     }
 }
 
-#[cfg(feature = "text_layout")]
-impl FontImpl for ParsedFont {
-    fn get_space_width(&self) -> Option<usize> {
-        self.get_space_width()
+// NOTE: FontImpl trait removed with text2 - text3 uses ParsedFontTrait
+// #[cfg(feature = "text_layout")]
+// impl FontImpl for ParsedFont { ... }
+
+impl ParsedFont {
+    /// Parse a font from bytes using allsorts
+    ///
+    /// # Arguments
+    /// * `font_bytes` - The font file data
+    /// * `font_index` - Index of the font in a font collection (0 for single fonts)
+    /// * `parse_outlines` - Whether to parse and cache glyph outlines (expensive, skip for
+    ///   layout-only)
+    ///
+    /// # Returns
+    /// `Some(ParsedFont)` if parsing succeeds, `None` otherwise
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_outlines: bool) -> Option<Self> {
+        use std::{
+            collections::hash_map::DefaultHasher,
+            hash::{Hash, Hasher},
+        };
+
+        use allsorts::{
+            binary::read::ReadScope,
+            font_data::FontData,
+            tables::{
+                cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
+                glyf::{GlyfRecord, GlyfTable},
+                loca::{LocaOffsets, LocaTable},
+                FontTableProvider, HeadTable, HheaTable, MaxpTable,
+            },
+            tag,
+        };
+
+        let scope = ReadScope::new(font_bytes);
+        let font_file = scope.read::<FontData<'_>>().ok()?;
+        let provider = font_file.table_provider(font_index).ok()?;
+
+        let head_table = provider
+            .table_data(tag::HEAD)
+            .ok()
+            .and_then(|head_data| ReadScope::new(&head_data?).read::<HeadTable>().ok())?;
+
+        let maxp_table = provider
+            .table_data(tag::MAXP)
+            .ok()
+            .and_then(|maxp_data| ReadScope::new(&maxp_data?).read::<MaxpTable>().ok())
+            .unwrap_or(MaxpTable {
+                num_glyphs: 0,
+                version1_sub_table: None,
+            });
+
+        let index_to_loc = head_table.index_to_loc_format;
+        let num_glyphs = maxp_table.num_glyphs as usize;
+
+        let loca_table = provider.table_data(tag::LOCA).ok();
+        let loca_table = loca_table
+            .as_ref()
+            .and_then(|loca_data| {
+                ReadScope::new(&loca_data.as_ref()?)
+                    .read_dep::<LocaTable<'_>>((
+                        num_glyphs.min(u16::MAX as usize) as u16,
+                        index_to_loc,
+                    ))
+                    .ok()
+            })
+            .unwrap_or(LocaTable {
+                offsets: LocaOffsets::Long(allsorts::binary::read::ReadArray::empty()),
+            });
+
+        let glyf_table = provider.table_data(tag::GLYF).ok();
+        let mut glyf_table = glyf_table
+            .as_ref()
+            .and_then(|glyf_data| {
+                ReadScope::new(&glyf_data.as_ref()?)
+                    .read_dep::<GlyfTable<'_>>(&loca_table)
+                    .ok()
+            })
+            .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
+
+        let hmtx_data = provider
+            .table_data(tag::HMTX)
+            .ok()
+            .and_then(|s| Some(s?.to_vec()))
+            .unwrap_or_default();
+
+        let hhea_table = provider
+            .table_data(tag::HHEA)
+            .ok()
+            .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())
+            .unwrap_or(unsafe { std::mem::zeroed() });
+
+        // Build layout-specific font metrics
+        let font_metrics = LayoutFontMetrics {
+            units_per_em: if head_table.units_per_em == 0 {
+                1000
+            } else {
+                head_table.units_per_em
+            },
+            ascent: hhea_table.ascender as f32,
+            descent: hhea_table.descender as f32,
+            line_gap: hhea_table.line_gap as f32,
+        };
+
+        // Parse glyph outlines if requested
+        let glyph_records_decoded = if parse_outlines {
+            glyf_table
+                .records_mut()
+                .into_iter()
+                .enumerate()
+                .filter_map(|(glyph_index, glyph_record)| {
+                    if glyph_index > (u16::MAX as usize) {
+                        return None;
+                    }
+                    glyph_record.parse().ok()?;
+                    let glyph_index = glyph_index as u16;
+                    let horz_advance = allsorts::glyph_info::advance(
+                        &maxp_table,
+                        &hhea_table,
+                        &hmtx_data,
+                        glyph_index,
+                    )
+                    .unwrap_or_default();
+                    match glyph_record {
+                        GlyfRecord::Present { .. } => None,
+                        GlyfRecord::Parsed(g) => {
+                            OwnedGlyph::from_glyph_data(g, horz_advance).map(|g| (glyph_index, g))
+                        }
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .collect::<BTreeMap<_, _>>()
+        } else {
+            BTreeMap::new()
+        };
+
+        // Resolve composite glyphs in multiple passes
+        let mut glyph_records_decoded = glyph_records_decoded;
+        for _ in 0..6 {
+            let composite_glyphs_to_resolve = glyph_records_decoded
+                .iter()
+                .filter(|s| !s.1.unresolved_composite.is_empty())
+                .map(|(k, v)| (*k, v.clone()))
+                .collect::<Vec<_>>();
+
+            if composite_glyphs_to_resolve.is_empty() {
+                break;
+            }
+
+            for (k, mut v) in composite_glyphs_to_resolve {
+                resolved_glyph_components(&mut v, &glyph_records_decoded);
+                glyph_records_decoded.insert(k, v);
+            }
+        }
+
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
+
+        // Required for font layout: gsub_cache, gpos_cache and gdef_table
+        let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
+        let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
+        let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
+        let num_glyphs = font_data_impl.num_glyphs();
+
+        let opt_kern_table = font_data_impl
+            .kern_table()
+            .ok()
+            .and_then(|s| Some(s?.to_owned()));
+
+        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
+        let cmap_subtable = cmap_subtable
+            .read::<CmapSubtable<'_>>()
+            .ok()
+            .and_then(|s| s.to_owned());
+
+        // Calculate hash of font data
+        let mut hasher = DefaultHasher::new();
+        font_bytes.hash(&mut hasher);
+        font_index.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        let mut font = ParsedFont {
+            hash,
+            font_metrics,
+            num_glyphs,
+            hhea_table,
+            hmtx_data,
+            maxp_table,
+            gsub_cache,
+            gpos_cache,
+            opt_gdef_table,
+            opt_kern_table,
+            cmap_subtable,
+            glyph_records_decoded,
+            space_width: None,
+            mock: None,
+        };
+
+        // Calculate space width
+        let space_width = font.get_space_width_internal();
+        font.space_width = space_width;
+
+        Some(font)
     }
 
-    fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
-        self.get_horizontal_advance(glyph_index)
+    fn get_space_width_internal(&self) -> Option<usize> {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.space_width;
+        }
+        let glyph_index = self.lookup_glyph_index(' ' as u32)?;
+        allsorts::glyph_info::advance(
+            &self.maxp_table,
+            &self.hhea_table,
+            &self.hmtx_data,
+            glyph_index,
+        )
+        .ok()
+        .map(|s| s as usize)
     }
 
-    fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
-        self.get_glyph_size(glyph_index)
+    /// Look up the glyph index for a Unicode codepoint
+    pub fn lookup_glyph_index(&self, codepoint: u32) -> Option<u16> {
+        self.cmap_subtable
+            .as_ref()?
+            .map_glyph(codepoint)
+            .ok()
+            .flatten()
     }
 
-    fn shape(&self, text: &[u32], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized {
-        self.shape(text, script, lang)
+    /// Get the horizontal advance width for a glyph in font units
+    pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
+        if let Some(mock) = self.mock.as_ref() {
+            return mock.glyph_advances.get(&glyph_index).copied().unwrap_or(0);
+        }
+        self.glyph_records_decoded
+            .get(&glyph_index)
+            .map(|gi| gi.horz_advance)
+            .unwrap_or_default()
     }
 
-    fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
-        self.lookup_glyph_index(c)
-    }
-
-    fn get_font_metrics(&self) -> &azul_css::props::basic::FontMetrics {
-        &self.font_metrics
+    /// Get the number of glyphs in this font
+    pub fn num_glyphs(&self) -> u16 {
+        self.num_glyphs
     }
 }
 
@@ -590,19 +815,19 @@ fn transform_cubic_point(
 pub mod mock {
     use alloc::collections::btree_map::BTreeMap;
 
-    use azul_core::app_resources::{
-        Advance, GlyphInfo, GlyphOrigin, Placement, RawGlyph, ShapedTextBufferUnsized,
-    };
-    use azul_css::props::basic::FontMetrics;
+    use azul_core::glyph::{Advance, GlyphInfo, GlyphOrigin, Placement, RawGlyph};
 
-    #[cfg(feature = "text_layout")]
-    use super::FontImpl;
+    use crate::text3::cache::LayoutFontMetrics;
+
+    // NOTE: FontImpl removed with text2
+    // #[cfg(feature = "text_layout")]
+    // use super::FontImpl;
 
     /// A mock font implementation for testing text layout functionality without requiring real
     /// fonts
     #[derive(Debug, Clone)]
     pub struct MockFont {
-        pub font_metrics: FontMetrics,
+        pub font_metrics: LayoutFontMetrics,
         pub space_width: Option<usize>,
         pub glyph_advances: BTreeMap<u16, u16>,
         pub glyph_sizes: BTreeMap<u16, (i32, i32)>,
@@ -611,7 +836,7 @@ pub mod mock {
 
     impl MockFont {
         /// Create a new MockFont with the given font metrics
-        pub fn new(font_metrics: FontMetrics) -> Self {
+        pub fn new(font_metrics: LayoutFontMetrics) -> Self {
             MockFont {
                 font_metrics,
                 space_width: Some(10), // Default space width
@@ -646,6 +871,9 @@ pub mod mock {
         }
     }
 
+    // NOTE: FontImpl was removed with text2, MockFont may no longer be needed
+    // or needs to implement ParsedFontTrait instead
+    /*
     #[cfg(feature = "text_layout")]
     impl FontImpl for MockFont {
         fn get_space_width(&self) -> Option<usize> {
@@ -711,4 +939,5 @@ pub mod mock {
             &self.font_metrics
         }
     }
+    */
 }

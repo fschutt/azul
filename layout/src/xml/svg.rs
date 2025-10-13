@@ -64,8 +64,8 @@ pub use azul_core::svg::{
     TextRendering,
 };
 use azul_core::{
-    app_resources::{RawImage, RawImageFormat},
     gl::{GlContextPtr, Texture},
+    resources::{RawImage, RawImageFormat},
     window::PhysicalSizeU32,
 };
 #[cfg(feature = "svg")]
@@ -1886,7 +1886,7 @@ pub fn render_node_clipmask_cpu(
     node: &SvgNode,
     style: SvgStyle,
 ) -> Option<()> {
-    use azul_core::app_resources::RawImageData;
+    use azul_core::resources::RawImageData;
     use tiny_skia::{
         FillRule as SkFillRule, LineCap as SkLineCap, LineJoin as SkLineJoin, Paint as SkPaint,
         Path as SkPath, PathBuilder as SkPathBuilder, Pixmap as SkPixmap, Rect as SkRect,
@@ -2209,7 +2209,7 @@ pub fn svg_root(s: &Svg) -> SvgXmlNode {
 
 #[cfg(feature = "svg")]
 pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
-    use azul_core::app_resources::RawImageData;
+    use azul_core::resources::RawImageData;
     use tiny_skia::Pixmap;
 
     let root = s.tree.root();

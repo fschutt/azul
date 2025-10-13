@@ -18,11 +18,11 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    resources::{ImageCache, RendererResources},
     callbacks::{DocumentId, DomNodeId, HitTestItem, ScrollPosition, Update},
     dom::{EventFilter, FocusEventFilter, HoverEventFilter, NotEventFilter, WindowEventFilter},
     gl::OptionGlContextPtr,
     id_tree::NodeId,
+    resources::{ImageCache, RendererResources},
     styled_dom::{ChangedCssProperty, DomId, NodeHierarchyItemId},
     task::ExternalSystemCallbacks,
     ui_solver::{GpuEventChanges, LayoutResult, RelayoutChanges},

@@ -811,6 +811,9 @@ pub fn is_khmer(ch: char) -> bool {
     matches!(ch, '\u{1780}'..='\u{17FF}' | '\u{19E0}'..='\u{19FF}')
 }
 
+// NOTE: This function depends on text2::script::Script which was removed
+// If needed, this should be reimplemented using text3 APIs
+/*
 /// Estimate the language and the script from the text (uses trigrams)
 #[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
@@ -1029,3 +1032,4 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 
     (script, lang)
 }
+*/

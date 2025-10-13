@@ -4,7 +4,7 @@
 
 use std::io::Error as IoError;
 
-use azul_core::app_resources::LoadedFontSource;
+use azul_core::resources::LoadedFontSource;
 use azul_css::{
     props::basic::{FontRef, StyleFontFamily},
     AzString, StringVec, U8Vec,

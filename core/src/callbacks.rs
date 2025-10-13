@@ -24,12 +24,9 @@ use azul_css::{
 use rust_fontconfig::{FcFontCache, FontSource};
 
 use crate::{
-    resources::{
-        FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef,
-        RendererResources,
-    },
     gl::OptionGlContextPtr,
     id_tree::{NodeDataContainer, NodeId},
+    resources::{FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef, RendererResources},
     styled_dom::{
         CssPropertyCache, DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledDom, StyledNode,
         StyledNodeVec,
@@ -829,7 +826,6 @@ impl_option!(
     OptionCallback,
     [Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash]
 );
-
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

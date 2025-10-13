@@ -18,14 +18,14 @@ pub mod macros;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
 #[macro_use]
 pub mod callbacks;
-/// Functions to manage adding fonts + images, garbage collection
-pub mod resources;
-/// Type definitions for Glyphs
-pub mod glyph; 
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
+/// Type definitions for Glyphs
+pub mod glyph;
 /// Functions to paginate a DOM into multiple pages (sub-DOMs) for printing
 pub mod pagination;
+/// Functions to manage adding fonts + images, garbage collection
+pub mod resources;
 /// Primitives for cursor and text selection handling
 pub mod selection;
 // Algorithms to create git-like diffs between two doms in linear time

@@ -6,16 +6,21 @@ pub mod cache;
 pub mod display_list;
 pub mod fc;
 pub mod geometry;
+pub mod getters;
 pub mod layout_tree;
 pub mod positioning;
 pub mod sizing;
 pub mod taffy_bridge;
-pub mod getters;
 
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
-    app_resources::RendererResources, callbacks::{DocumentId, ScrollPosition}, dom::NodeId, selection::SelectionState, styled_dom::{DomId, StyledDom}, window::{LogicalPosition, LogicalRect, LogicalSize}
+    callbacks::{DocumentId, ScrollPosition},
+    dom::NodeId,
+    resources::RendererResources,
+    selection::SelectionState,
+    styled_dom::{DomId, StyledDom},
+    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
     props::property::{CssProperty, CssPropertyCategory},
@@ -23,9 +28,9 @@ use azul_css::{
 };
 
 use self::{
-    getters::get_writing_mode,
     display_list::generate_display_list,
     geometry::IntrinsicSizes,
+    getters::get_writing_mode,
     layout_tree::{generate_layout_tree, LayoutTree},
     sizing::calculate_intrinsic_sizes,
 };
@@ -191,7 +196,7 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 pos.x + parent_node.box_props.padding.left,
                 pos.y + parent_node.box_props.padding.top,
             );
-            
+
             if let Some(dom_id) = parent_node.dom_node_id {
                 let styled_node_state = &styled_dom
                     .styled_nodes
@@ -206,7 +211,7 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 let content_size = parent_node.box_props.inner_size(size, writing_mode);
                 return (content_pos, content_size);
             }
-            
+
             return (content_pos, size);
         }
     }

@@ -11,7 +11,8 @@ use azul_css::{
     props::basic::{
         ColorU, FloatValue, FontRef, LayoutRect, LayoutSize, StyleFontFamily, StyleFontFamilyVec,
         StyleFontSize,
-    }, AzString, F32Vec, LayoutDebugMessage, OptionI32, U16Vec, U32Vec, U8Vec
+    },
+    AzString, F32Vec, LayoutDebugMessage, OptionI32, U16Vec, U32Vec, U8Vec,
 };
 // pub use azul_css::props::basic::FontMetrics; // TODO: FontMetrics needs to be moved to new
 // structure
@@ -21,10 +22,18 @@ use crate::{
     callbacks::{
         DocumentId, DomNodeId, RefAny, RenderImageCallback, RenderImageCallbackType,
         UpdateImageType,
-    }, dom::{NodeData, NodeType}, gl::{OptionGlContextPtr, Texture}, id_tree::NodeId, styled_dom::{
+    },
+    dom::{NodeData, NodeType},
+    gl::{OptionGlContextPtr, Texture},
+    id_tree::NodeId,
+    styled_dom::{
         CssPropertyCache, DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash,
         StyledDom, StyledNodeState,
-    }, task::ExternalSystemCallbacks, ui_solver::{GlyphInstance, LayoutResult, ResolvedTextLayoutOptions, ScriptType}, window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize, OptionChar}, FastBTreeSet, FastHashMap
+    },
+    task::ExternalSystemCallbacks,
+    ui_solver::{GlyphInstance, LayoutResult, ResolvedTextLayoutOptions, ScriptType},
+    window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize, OptionChar},
+    FastBTreeSet, FastHashMap,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1328,12 +1337,12 @@ impl GlTextureCache {
         use gl_context_loader::gl;
 
         use crate::{
+            callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
+            dom::NodeType,
             resources::{
                 add_resources, AddImage, DecodedImage, ExternalImageData, ExternalImageType,
                 ImageBufferKind, ImageData, ImageRef,
             },
-            callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
-            dom::NodeType,
         };
 
         let mut solved_image_callbacks = BTreeMap::new();
@@ -2620,7 +2629,6 @@ pub type LoadFontFn = fn(&StyleFontFamily, &FcFontCache) -> Option<LoadedFontSou
 
 // function to parse the font given the loaded font source
 pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<azul_text_layout::Font>>
-
 
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
 

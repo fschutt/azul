@@ -10,9 +10,7 @@ use std::{
 
 use azul_core::{
     app_resources::{ImageCache, RendererResources},
-    display_list::{
-        CachedDisplayList, DisplayListFrame, DisplayListMsg,
-    },
+    display_list::{CachedDisplayList, DisplayListFrame, DisplayListMsg},
     styled_dom::StyledDom,
     window::{FullWindowState, LogicalSize, StringPairVec},
     xml::{get_html_node, DomXml, XmlComponentMap, XmlNode},
@@ -20,13 +18,9 @@ use azul_core::{
 use azul_css::{
     css::{Css, CssDeclaration},
     parser2::{CssApiWrapper, CssParseWarnMsgOwned},
-    props::{
-        property::CssProperty,
-    },
+    props::property::CssProperty,
 };
-use azul_layout::{
-    xml::{domxml_from_str, parse_xml_string},
-};
+use azul_layout::xml::{domxml_from_str, parse_xml_string};
 use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
@@ -1235,10 +1229,10 @@ pub fn solve_layout_with_debug(
     _renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
 ) -> anyhow::Result<(azul_layout::solver3::display_list::DisplayList, Vec<String>)> {
-    use std::fmt::Write;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, fmt::Write};
+
     use azul_core::window::LogicalRect;
-    
+
     // Create caches for layout and text
     let mut layout_cache = azul_layout::Solver3LayoutCache {
         tree: None,
@@ -1246,27 +1240,27 @@ pub fn solve_layout_with_debug(
         viewport: None,
     };
     let mut text_cache = azul_layout::TextLayoutCache::new();
-    
+
     // Create font manager
     let fc_cache = azul_layout::font::loading::build_font_cache();
     let font_manager = azul_layout::FontManager::new(fc_cache)?;
-    
+
     // Prepare viewport
     let viewport = LogicalRect {
         origin: azul_core::window::LogicalPosition::new(0.0, 0.0),
         size: fake_window_state.size.dimensions,
     };
-    
+
     // Prepare scroll offsets and selections (empty for reftests)
     let scroll_offsets = BTreeMap::new();
     let selections = BTreeMap::new();
-    
+
     // Prepare debug messages
     let mut debug_messages = Some(Vec::new());
-    
+
     // Start timer
     let start = std::time::Instant::now();
-    
+
     // Call solver3 layout engine
     let display_list = azul_layout::layout_document(
         &mut layout_cache,
@@ -1278,29 +1272,34 @@ pub fn solve_layout_with_debug(
         &selections,
         &mut debug_messages,
     )?;
-    
+
     // End timer
     let elapsed = start.elapsed();
-    
+
     // Collect layout warnings
     let warnings = debug_messages
         .unwrap_or_default()
         .into_iter()
         .map(|s| format!("{}: {}", s.location, s.message))
         .collect();
-    
+
     // Capture layout statistics
     let mut layout_stats = String::new();
     writeln!(layout_stats, "Layout Statistics").unwrap();
     writeln!(layout_stats, "=================").unwrap();
     writeln!(layout_stats, "Layout time: {:?}", elapsed).unwrap();
-    writeln!(layout_stats, "Display list items: {}", display_list.items.len()).unwrap();
-    
+    writeln!(
+        layout_stats,
+        "Display list items: {}",
+        display_list.items.len()
+    )
+    .unwrap();
+
     debug_collector.set_layout_debug_info(
         format!("Display list with {} items", display_list.items.len()),
-        layout_stats
+        layout_stats,
     );
-    
+
     Ok((display_list, warnings))
 }
 
@@ -1315,7 +1314,7 @@ pub fn format_display_list_for_debug_solver3(display_list: &azul_layout::Display
     writeln!(output, "Display List (solver3)").unwrap();
     writeln!(output, "=============").unwrap();
     writeln!(output, "Items: {}", display_list.items.len()).unwrap();
-    
+
     for (idx, item) in display_list.items.iter().enumerate() {
         writeln!(output, "  [{}] {:?}", idx, item).unwrap();
     }

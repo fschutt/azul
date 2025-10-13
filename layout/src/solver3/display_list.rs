@@ -39,7 +39,13 @@ use std::collections::BTreeMap;
 
 use allsorts::glyph_position;
 use azul_core::{
-    app_resources::{ImageKey, ImageRefHash}, callbacks::ScrollPosition, display_list::GlyphInstance, dom::{NodeId, NodeType}, selection::SelectionState, styled_dom::StyledDom, window::{LogicalPosition, LogicalRect, LogicalSize}
+    callbacks::ScrollPosition,
+    dom::{NodeId, NodeType},
+    resources::{ImageKey, ImageRefHash},
+    selection::SelectionState,
+    styled_dom::StyledDom,
+    ui_solver::GlyphInstance,
+    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -370,7 +376,8 @@ where
 
     /// Helper to get styled node state for a node
     fn get_styled_node_state(&self, dom_id: NodeId) -> azul_core::styled_dom::StyledNodeState {
-        self.ctx.styled_dom
+        self.ctx
+            .styled_dom
             .styled_nodes
             .as_container()
             .get(dom_id)
@@ -590,16 +597,16 @@ where
         let Some(dom_id) = node.dom_node_id else {
             return Ok(false);
         };
-        
+
         let styled_node_state = self.get_styled_node_state(dom_id);
-            
+
         let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
         let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
         // TODO: LayoutOverflow doesn't have is_clipped() method
-        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
-            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
+        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip)
+            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip)
             || !border_radius.is_zero();
         if needs_clip {
             let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
@@ -635,18 +642,20 @@ where
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
-        
+
         let styled_node_state = self.get_styled_node_state(dom_id);
         let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
         let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
-        
-        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
-            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
+
+        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip)
+            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip)
             || !border_radius.is_zero();
 
         if needs_clip {
-            if matches!(overflow_x, LayoutOverflow::Auto | LayoutOverflow::Scroll) || matches!(overflow_y, LayoutOverflow::Auto | LayoutOverflow::Scroll) {
+            if matches!(overflow_x, LayoutOverflow::Auto | LayoutOverflow::Scroll)
+                || matches!(overflow_y, LayoutOverflow::Auto | LayoutOverflow::Scroll)
+            {
                 builder.pop_scroll_frame();
             } else {
                 builder.pop_clip();
@@ -699,10 +708,11 @@ where
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let bg_color = get_background_color::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let bg_color =
+                get_background_color::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
-            
+
             builder.push_rect(paint_rect, bg_color, border_radius);
             builder.push_border(
                 paint_rect,
@@ -714,7 +724,7 @@ where
         } else {
             BorderRadius::default()
         };
-        
+
         Ok(())
     }
 
@@ -793,8 +803,6 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout<T>,
     ) -> Result<()> {
-
-
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)
@@ -804,14 +812,9 @@ where
 
         for glyph_run in glyph_runs {
             let clip_rect = container_rect; // Clip to the container rect
-            // TODO: Convert Arc<T> to FontRef properly
+                                            // TODO: Convert Arc<T> to FontRef properly
             let font_ref = FontRef::invalid();
-            builder.push_text_run(
-                glyph_run.glyphs,
-                font_ref,
-                glyph_run.color,
-                clip_rect,
-            );
+            builder.push_text_run(glyph_run.glyphs, font_ref, glyph_run.color, clip_rect);
         }
 
         for item in &layout.items {

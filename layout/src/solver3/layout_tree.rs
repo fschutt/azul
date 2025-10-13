@@ -15,7 +15,13 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
-    corety::LayoutDebugMessage, css::CssPropertyValue, format_rust_code::GetHash, props::{layout::{LayoutFloat, LayoutOverflow, LayoutPosition}, property::CssProperty}
+    corety::LayoutDebugMessage,
+    css::CssPropertyValue,
+    format_rust_code::GetHash,
+    props::{
+        layout::{LayoutFloat, LayoutOverflow, LayoutPosition},
+        property::CssProperty,
+    },
 };
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
 
@@ -23,7 +29,7 @@ use crate::{
     font::parsed::ParsedFont,
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
-        getters::{get_overflow_x, get_overflow_y, get_position, get_float},
+        getters::{get_float, get_overflow_x, get_overflow_y, get_position},
         LayoutContext, Result,
     },
     text3::cache::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
@@ -287,7 +293,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                 let children: Vec<NodeId> = dom_id
                     .az_children(&styled_dom.node_hierarchy.as_container())
                     .collect();
-                    
+
                 for child_dom_id in children {
                     self.process_node(styled_dom, child_dom_id, Some(node_idx))?;
                 }
@@ -611,7 +617,6 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     }
 
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-
         // `overflow` other than `visible`
 
         let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.state);
@@ -619,7 +624,7 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
             return true;
         }
 
-        let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.state);   
+        let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.state);
         if !matches!(overflow_y, LayoutOverflow::Visible | LayoutOverflow::Clip) {
             return true;
         }

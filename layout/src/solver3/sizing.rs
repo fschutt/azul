@@ -8,8 +8,8 @@ use std::{
 };
 
 use azul_core::{
-    app_resources::RendererResources,
     dom::{NodeId, NodeType},
+    resources::RendererResources,
     styled_dom::StyledDom,
     ui_solver::FormattingContext,
     window::{LogicalSize, WritingMode},
@@ -28,10 +28,11 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     font::parsed::ParsedFont,
     solver3::{
+        fc::{get_display_property, get_style_properties},
         geometry::{BoxProps, BoxSizing, CssSize, DisplayType, IntrinsicSizes},
+        getters::get_writing_mode,
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
         positioning::{get_position_type, PositionType},
-        getters::get_writing_mode,
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
@@ -40,7 +41,6 @@ use crate::{
         StyleProperties, StyledRun, UnifiedConstraints,
     },
 };
-use crate::solver3::fc::{get_display_property, get_style_properties};
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
@@ -135,7 +135,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-    let writing_mode = get_writing_mode_opt(self.ctx.styled_dom, node.dom_node_id);
+        let writing_mode = get_writing_mode_opt(self.ctx.styled_dom, node.dom_node_id);
 
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
@@ -386,14 +386,14 @@ fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait, Q: FontLoaderTrait<T>
     let mut max_height: f32 = 0.0;
     let mut total_width: f32 = 0.0;
     let mut total_height: f32 = 0.0;
-    
+
     for intrinsic in child_intrinsics.values() {
         max_width = max_width.max(intrinsic.max_content_width);
         max_height = max_height.max(intrinsic.max_content_height);
         total_width += intrinsic.max_content_width;
         total_height += intrinsic.max_content_height;
     }
-    
+
     IntrinsicSizes {
         min_content_width: total_width.min(max_width),
         min_content_height: total_height.min(max_height),
@@ -517,14 +517,16 @@ pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize 
         .css_property_cache
         .ptr
         .get_width(node_data, &id, node_state)
-        .and_then(|w| w.get_property().map(|inner| {
-            // inner.inner is a PixelValue; check for percent first
-            if let Some(frac) = inner.inner.to_percent() {
-                CssSize::Percent(frac * 100.0)
-            } else {
-                CssSize::Px(inner.inner.to_pixels(0.0))
-            }
-        }))
+        .and_then(|w| {
+            w.get_property().map(|inner| {
+                // inner.inner is a PixelValue; check for percent first
+                if let Some(frac) = inner.inner.to_percent() {
+                    CssSize::Percent(frac * 100.0)
+                } else {
+                    CssSize::Px(inner.inner.to_pixels(0.0))
+                }
+            })
+        })
         .unwrap_or(CssSize::Auto)
 }
 
@@ -538,13 +540,15 @@ pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize
         .css_property_cache
         .ptr
         .get_height(node_data, &id, node_state)
-        .and_then(|h| h.get_property().map(|inner| {
-            if let Some(frac) = inner.inner.to_percent() {
-                CssSize::Percent(frac * 100.0)
-            } else {
-                CssSize::Px(inner.inner.to_pixels(0.0))
-            }
-        }))
+        .and_then(|h| {
+            h.get_property().map(|inner| {
+                if let Some(frac) = inner.inner.to_percent() {
+                    CssSize::Percent(frac * 100.0)
+                } else {
+                    CssSize::Px(inner.inner.to_pixels(0.0))
+                }
+            })
+        })
         .unwrap_or(CssSize::Auto)
 }
 

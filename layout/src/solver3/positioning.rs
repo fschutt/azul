@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
-    app_resources::RendererResources,
     callbacks::ScrollPosition,
     dom::NodeId,
+    resources::RendererResources,
     styled_dom::StyledDom,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
@@ -143,22 +143,26 @@ fn resolve_css_offsets(
     let mut offsets = PositionOffsets::default();
 
     // Use calc_* helpers to resolve percentages relative to the containing block size.
-    offsets.top = styled_dom
-        .css_property_cache
-        .ptr
-        .calc_top(node_data, &id, node_state, cb_size.height);
-    offsets.bottom = styled_dom
-        .css_property_cache
-        .ptr
-        .calc_bottom(node_data, &id, node_state, cb_size.height);
-    offsets.left = styled_dom
-        .css_property_cache
-        .ptr
-        .calc_left(node_data, &id, node_state, cb_size.width);
-    offsets.right = styled_dom
-        .css_property_cache
-        .ptr
-        .calc_right(node_data, &id, node_state, cb_size.width);
+    offsets.top =
+        styled_dom
+            .css_property_cache
+            .ptr
+            .calc_top(node_data, &id, node_state, cb_size.height);
+    offsets.bottom =
+        styled_dom
+            .css_property_cache
+            .ptr
+            .calc_bottom(node_data, &id, node_state, cb_size.height);
+    offsets.left =
+        styled_dom
+            .css_property_cache
+            .ptr
+            .calc_left(node_data, &id, node_state, cb_size.width);
+    offsets.right =
+        styled_dom
+            .css_property_cache
+            .ptr
+            .calc_right(node_data, &id, node_state, cb_size.width);
 
     offsets
 }
@@ -348,7 +352,7 @@ fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMo
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    
+
     use crate::solver3::cache::to_writing_mode;
     styled_dom
         .css_property_cache

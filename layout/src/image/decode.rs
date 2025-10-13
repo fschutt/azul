@@ -1,6 +1,6 @@
 use core::fmt;
 
-use azul_core::app_resources::{RawImage, RawImageFormat};
+use azul_core::resources::{RawImage, RawImageFormat};
 use azul_css::{impl_result, impl_result_inner, U8Vec};
 use image::{
     error::{ImageError, LimitError, LimitErrorKind},
@@ -54,7 +54,7 @@ impl_result!(
 );
 
 pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
-    use azul_core::app_resources::RawImageData;
+    use azul_core::resources::RawImageData;
 
     let image_format = match image::guess_format(image_bytes) {
         Ok(o) => o,

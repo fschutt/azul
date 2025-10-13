@@ -22,10 +22,8 @@ pub use gl_context_loader::{
 use gl_context_loader::{gl, GenericGlContext, GlType};
 
 use crate::{
-    resources::{
-        Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat,
-    },
     callbacks::DocumentId,
+    resources::{Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat},
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::{PhysicalSizeU32, RendererType},
     FastHashMap,

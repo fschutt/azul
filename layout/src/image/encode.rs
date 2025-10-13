@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use std::io::Cursor;
 
-use azul_core::app_resources::{RawImage, RawImageFormat};
+use azul_core::resources::{RawImage, RawImageFormat};
 use azul_css::{impl_result, impl_result_inner, U8Vec};
 #[cfg(feature = "bmp")]
 use image::codecs::bmp::BmpEncoder;
