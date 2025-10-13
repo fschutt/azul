@@ -969,3 +969,39 @@ macro_rules! impl_result {
         impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
 }
+
+macro_rules! impl_grid_value_fmt {
+    ($struct_name:ident) => {
+        impl FormatAsRustCode for $struct_name {
+            fn format_as_rust_code(&self, _tabs: usize) -> String {
+                format!("{} {{ /* TODO */ }}", stringify!($struct_name))
+            }
+        }
+    };
+}
+
+macro_rules! impl_color_value_fmt {
+    ($struct_name:ty) => {
+        impl FormatAsRustCode for $struct_name {
+            fn format_as_rust_code(&self, _tabs: usize) -> String {
+                format!(
+                    "{} {{ inner: {} }}",
+                    stringify!($struct_name),
+                    format_color_value(&self.inner)
+                )
+            }
+        }
+    };
+}
+
+macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
+    impl crate::format_rust_code::FormatAsRustCode for $enum_name {
+        fn format_as_rust_code(&self, _tabs: usize) -> String {
+            match self {
+                $(
+                    $enum_name::$enum_type => String::from(concat!(stringify!($enum_name), "::", stringify!($enum_type))),
+                )+
+            }
+        }
+    }
+)}

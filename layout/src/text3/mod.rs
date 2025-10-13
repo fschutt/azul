@@ -19,11 +19,10 @@ use crate::text3::script::Script;
 
 pub mod cache;
 pub mod default;
+pub mod edit;
 pub mod glyphs;
 pub mod knuth_plass;
 pub mod script;
 
+#[cfg(test)]
 pub mod tests;
-pub mod tests2;
-pub mod tests3;
-pub mod tests4;

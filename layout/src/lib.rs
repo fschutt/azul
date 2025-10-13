@@ -25,6 +25,18 @@ pub mod text3;
 #[cfg(feature = "xml")]
 pub mod xml;
 
+// Export the main layout function
+#[cfg(feature = "text_layout")]
+pub use solver3::layout_document;
+#[cfg(feature = "text_layout")]
+pub use solver3::cache::LayoutCache as Solver3LayoutCache;
+#[cfg(feature = "text_layout")]
+pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
+#[cfg(feature = "text_layout")]
+pub use solver3::display_list::DisplayList as DisplayList3;
+#[cfg(feature = "text_layout")]
+pub use text3::cache::{LayoutCache as TextLayoutCache, FontManager};
+
 // #[cfg(feature = "text_layout")]
 // pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
 #[cfg(feature = "text_layout")]

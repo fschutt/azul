@@ -2,7 +2,8 @@
 //!
 //! Formatting context managers for different CSS display types
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use azul_core::{
     app_resources::RendererResources,
@@ -11,17 +12,19 @@ use azul_core::{
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
+use azul_css::props::layout::{LayoutTextJustify, LayoutWritingMode, LayoutOverflow};
+use azul_css::props::style::{StyleHyphens, StyleTextAlign, StyleVerticalAlign};
 use azul_css::{
     css::CssPropertyValue,
     props::{
         layout::{LayoutClear, LayoutFloat, LayoutJustifyContent},
         property::CssProperty,
-        style::StyleTextAlign,
     },
 };
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
-use usvg::Text;
 
+use crate::solver3::getters::get_writing_mode;
+use crate::text3::cache::SegmentAlignment;
 use crate::{
     solver3::{
         geometry::{BoxProps, DisplayType, EdgeSizes, IntrinsicSizes},
@@ -227,6 +230,13 @@ pub struct LayoutResult {
     pub baseline_offset: f32,
 }
 
+fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
+    TaffySize {
+        width: Some(size.width),
+        height: Some(size.height),
+    }
+}
+
 /// Main dispatcher for formatting context layout.
 pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
@@ -249,7 +259,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
             let taffy_inputs = LayoutInput {
                 known_dimensions: TaffySize::NONE,
-                parent_size: constraints.available_size.into(),
+                parent_size: translate_taffy_size(constraints.available_size),
                 available_space,
                 run_mode: taffy::RunMode::PerformLayout,
                 // Sizing mode is ContentSize because solver3's `constraints.available_size`
@@ -269,7 +279,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // The bridge has already updated the positions and sizes of the children in the tree.
             // We just need to construct the LayoutOutput for the parent.
             let mut output = LayoutOutput::default();
-            output.overflow_size = taffy_output.size.into();
+            output.overflow_size = translate_taffy_size_back(taffy_output.size);
 
             // Taffy's results are stored directly on the nodes, so we read them back here.
             for &child_idx in &tree.get(node_index).unwrap().children {
@@ -283,6 +293,20 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             Ok(output)
         }
         _ => layout_bfc(ctx, tree, node_index, constraints),
+    }
+}
+
+pub fn translate_taffy_size_back(size: TaffySize<f32>) -> LogicalSize {
+    LogicalSize {
+        width: size.width,
+        height: size.height,
+    }
+}
+
+pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
+    LogicalPosition {
+        x: point.x,
+        y: point.y,
     }
 }
 
@@ -493,8 +517,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .ok_or(LayoutError::InvalidTree)?;
 
     // Phase 1: Collect and measure all inline-level children.
-    let (inline_content, child_map) =
-        collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
+    let (inline_content, child_map) = collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
 
     if inline_content.is_empty() {
         return Ok(LayoutOutput::default());
@@ -549,16 +572,12 @@ fn translate_to_text3_constraints<'a>(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
-    let mut text3_constraints = UnifiedConstraints {
-        available_width: constraints.available_size.width,
-        available_height: Some(constraints.available_size.height),
-        writing_mode: Some(crate::text3::cache::WritingMode::HorizontalTb), // TODO: Map this
-        ..Default::default()
-    };
+
+    use crate::text3::cache::TextAlign as Text3TextAlign;
 
     // Convert floats into exclusion zones for text3 to flow around.
-    if let Some(bfc_state) = constraints.bfc_state {
-        text3_constraints.shape_exclusions = bfc_state
+    let shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
+        bfc_state
             .floats
             .floats
             .iter()
@@ -570,37 +589,118 @@ fn translate_to_text3_constraints<'a>(
                     height: float_box.rect.size.height,
                 })
             })
-            .collect();
-    }
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // Map text-align and justify-content from CSS to text3 enums.
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(dom_id) {
-        let style = styled_node.state.get_style();
-        if let Some(CssProperty::TextAlign(CssPropertyValue::Exact(align))) =
-            style.get(&CssProperty::TextAlign)
-        {
-            text3_constraints.text_align = match align {
-                StyleTextAlign::Left => crate::text3::cache::TextAlign::Left,
-                StyleTextAlign::Right => crate::text3::cache::TextAlign::Right,
-                StyleTextAlign::Center => crate::text3::cache::TextAlign::Center,
-                StyleTextAlign::Justify => crate::text3::cache::TextAlign::Justify,
-                StyleTextAlign::Start => crate::text3::cache::TextAlign::Start,
-                StyleTextAlign::End => crate::text3::cache::TextAlign::End,
-            };
-        }
-        if let Some(CssProperty::JustifyContent(CssPropertyValue::Exact(justify))) =
-            style.get(&CssProperty::JustifyContent)
-        {
-            text3_constraints.justify_content = match justify {
-                StyleTextJustify::InterWord => Text3Justify::InterWord,
-                StyleTextJustify::InterCharacter => Text3Justify::InterCharacter,
-                _ => Text3Justify::None,
-            };
-        }
-    }
+    let id = dom_id;
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
 
-    // TODO: Map other properties like line-height, etc.
-    text3_constraints
+    // TODO: support shape-outside, shape boundaries, flow-from, flow-into
+
+    let writing_mode = styled_dom
+        .css_property_cache
+        .ptr
+        .get_writing_mode(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let text_align = styled_dom
+        .css_property_cache
+        .ptr
+        .get_text_align(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let text_justify = styled_dom
+        .css_property_cache
+        .ptr
+        .get_text_justify(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let line_height = styled_dom
+        .css_property_cache
+        .ptr
+        .get_line_height(node_data, &id, node_state)
+        .and_then(|s| s.get_property().cloned())
+        .unwrap_or_default();
+
+    let hyphenation = styled_dom
+        .css_property_cache
+        .ptr
+        .get_hyphens(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let overflow_behaviour = styled_dom
+        .css_property_cache
+        .ptr
+        .get_overflow_x(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+    
+    // Note: vertical_align and text_orientation property getters not yet available, using defaults
+    let vertical_align = StyleVerticalAlign::default();
+    let text_orientation = text3::cache::TextOrientation::default();
+
+    UnifiedConstraints {
+        exclusion_margin: 0.0, // TODO: support -azul-exclusion-margin
+        hyphenation_language: None, // TODO: support -azul-hyphenation-language
+        text_indent: 0.0, // TODO: support text-indent
+        initial_letter: None, // TODO: support initial-letter
+        line_clamp: None, // TODO: support line-clamp proprty
+        columns: 1, // TODO: support multi-column layout
+        column_gap: 0.0, // TODO: support column-gap
+        hanging_punctuation: false, // TODO: support hanging-punctuation
+        text_wrap: text3::cache::TextWrap::Wrap, // TODO: map from CSS property
+        text_combine_upright: None, // TODO: text-combine-upright
+        segment_alignment: SegmentAlignment::Total,
+        overflow: match overflow_behaviour {
+            LayoutOverflow::Visible => text3::cache::OverflowBehavior::Visible,
+            LayoutOverflow::Hidden | LayoutOverflow::Clip => text3::cache::OverflowBehavior::Hidden,
+            LayoutOverflow::Scroll => text3::cache::OverflowBehavior::Scroll,
+            LayoutOverflow::Auto => text3::cache::OverflowBehavior::Auto,
+        },
+        available_width: constraints.available_size.width,
+        available_height: Some(constraints.available_size.height),
+        shape_boundaries: Vec::new(), // TODO: support shape-outside
+        shape_exclusions,
+        writing_mode: Some(match writing_mode {
+            LayoutWritingMode::HorizontalTb => text3::cache::WritingMode::HorizontalTb,
+            LayoutWritingMode::VerticalRl => text3::cache::WritingMode::VerticalRl,
+            LayoutWritingMode::VerticalLr => text3::cache::WritingMode::VerticalLr,
+        }),
+        hyphenation: match hyphenation {
+            StyleHyphens::None => false,
+            StyleHyphens::Auto => true,
+        },
+        text_orientation,
+        text_align: match text_align {
+            StyleTextAlign::Start => text3::cache::TextAlign::Start,
+            StyleTextAlign::End => text3::cache::TextAlign::End,
+            StyleTextAlign::Left => text3::cache::TextAlign::Left,
+            StyleTextAlign::Right => text3::cache::TextAlign::Right,
+            StyleTextAlign::Center => text3::cache::TextAlign::Center,
+            StyleTextAlign::Justify => text3::cache::TextAlign::Justify,
+        },
+        text_justify: match text_justify {
+            LayoutTextJustify::None => text3::cache::JustifyContent::None,
+            LayoutTextJustify::Auto => text3::cache::JustifyContent::None,
+            LayoutTextJustify::InterWord => text3::cache::JustifyContent::InterWord,
+            LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
+            LayoutTextJustify::Distribute => text3::cache::JustifyContent::Distribute,
+        },
+        line_height: 16.0, // TODO: properly handle line_height CssPropertyValue
+        vertical_align: match vertical_align {
+            StyleVerticalAlign::Top => text3::cache::VerticalAlign::Top,
+            StyleVerticalAlign::Center => text3::cache::VerticalAlign::Middle,
+            StyleVerticalAlign::Bottom => text3::cache::VerticalAlign::Bottom,
+        },
+    }
 }
 
 /// Lays out a Table Formatting Context.
@@ -634,8 +734,13 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
     // Maps the `ContentIndex` used by text3 back to the `LayoutNode` index.
     let mut child_map = HashMap::new();
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    
+    // Collect children to avoid holding an immutable borrow during iteration
+    let children: Vec<_> = ifc_root_node.children.clone();
+    drop(ifc_root_node);
 
-    for (item_idx, &child_index) in ifc_root_node.children.iter().enumerate() {
+    for (item_idx, child_index) in children.iter().enumerate() {
+        let child_index = *child_index;
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let Some(dom_id) = child_node.dom_node_id else {
             continue;
@@ -651,17 +756,26 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             // We must determine its size and baseline before passing it to text3.
 
             // The intrinsic sizing pass has already calculated its preferred size.
-            let intrinsic_size = child_node.intrinsic_sizes.unwrap_or_default();
+            let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
             // For an inline-block, its width is its max-content width.
             let width = intrinsic_size.max_content_width;
 
             // To find its height and baseline, we must lay out its contents.
+            let styled_node_state = ctx.styled_dom.styled_nodes.as_container()
+                .get(dom_id)
+                .map(|n| n.state.clone())
+                .unwrap_or_default();
+            let layout_writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state);
+            let writing_mode = crate::solver3::cache::to_writing_mode(layout_writing_mode);
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(width, f32::INFINITY),
-                writing_mode: get_writing_mode(ctx.styled_dom, Some(dom_id)),
+                writing_mode,
                 bfc_state: None, // Inline-blocks establish a new BFC, so no state is passed in.
                 text_align: TextAlign::Start, // Does not affect size/baseline of the container.
             };
+
+            // Drop the immutable borrow before calling layout_formatting_context
+            drop(child_node);
 
             // Recursively lay out the inline-block to get its final height and baseline.
             // Note: This does not affect its final position, only its dimensions.
@@ -723,15 +837,17 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 }
 
 // TODO: STUB helper functions that would be needed for the above code.
-fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> DisplayType {
+pub(crate) fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> DisplayType {
     let Some(id) = dom_id else {
         return DisplayType::Inline;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
     styled_dom
+        .css_property_cache
+        .ptr
         .get_display(node_data, &id, node_state)
-        .map(|d| match d {
+        .and_then(|d| d.get_property().map(|inner| match inner {
             azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
             azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
             azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
@@ -741,12 +857,12 @@ fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Displ
             azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
             // ...weitere Mapping-Fälle nach Bedarf...
             _ => DisplayType::Inline,
-        })
+        }))
         .unwrap_or(DisplayType::Inline)
 }
 
 // TODO: STUB helper
-fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
+pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
     // Beispiel: Hole Schriftgröße, Farbe, etc. aus dem StyledDom und baue StyleProperties
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
@@ -832,12 +948,14 @@ fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutF
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
     styled_dom
+        .css_property_cache
+        .ptr
         .get_float(node_data, &id, node_state)
-        .map(|f| match f {
+        .and_then(|f| f.get_property().map(|inner| match inner {
             azul_css::props::layout::LayoutFloat::Left => LayoutFloat::Left,
             azul_css::props::layout::LayoutFloat::Right => LayoutFloat::Right,
             azul_css::props::layout::LayoutFloat::None => LayoutFloat::None,
-        })
+        }))
         .unwrap_or(LayoutFloat::None)
 }
 
@@ -845,19 +963,23 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
     let Some(id) = dom_id else {
         return LayoutClear::None;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(CssProperty::Clear(CssPropertyValue::Exact(clear))) =
-            styled_node.state.get_style().get(&CssProperty::Clear)
-        {
-            return match clear {
-                LayoutClear::Left => LayoutClear::Left,
-                LayoutClear::Right => LayoutClear::Right,
-                LayoutClear::Both => LayoutClear::Both,
-                LayoutClear::None => LayoutClear::None,
-            };
-        }
-    }
-    LayoutClear::None
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    // There is no dedicated `get_clear` helper on the cache, so use the generic
+    // get_property -> as_clear path and then extract the inner value.
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_property(node_data, &id, node_state, &azul_css::props::property::CssPropertyType::Clear)
+        .and_then(|p| p.as_clear())
+        .and_then(|v| v.get_property())
+        .map(|clear| match clear {
+            azul_css::props::layout::LayoutClear::Left => LayoutClear::Left,
+            azul_css::props::layout::LayoutClear::Right => LayoutClear::Right,
+            azul_css::props::layout::LayoutClear::Both => LayoutClear::Both,
+            azul_css::props::layout::LayoutClear::None => LayoutClear::None,
+        })
+        .unwrap_or(LayoutClear::None)
 }
 
 /// Helper to determine if scrollbars are needed

@@ -39,12 +39,7 @@ use std::collections::BTreeMap;
 
 use allsorts::glyph_position;
 use azul_core::{
-    app_resources::{ImageKey, ImageRefHash},
-    callbacks::ScrollPosition,
-    display_list::GlyphInstance, // Use the core GlyphInstance definition
-    dom::{NodeId, NodeType},
-    styled_dom::StyledDom,
-    window::{LogicalPosition, LogicalRect, LogicalSize},
+    app_resources::{ImageKey, ImageRefHash}, callbacks::ScrollPosition, display_list::GlyphInstance, dom::{NodeId, NodeType}, selection::SelectionState, styled_dom::StyledDom, window::{LogicalPosition, LogicalRect, LogicalSize}
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -58,6 +53,11 @@ use azul_css::{
 
 use crate::{
     solver3::{
+        getters::{
+            get_background_color, get_border_info, get_border_radius, get_caret_style,
+            get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout, get_selection_style,
+            get_z_index, BorderInfo, CaretStyle, ScrollbarInfo, SelectionStyle,
+        },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::{get_position_type, PositionType},
         LayoutContext, LayoutError, Result,
@@ -86,6 +86,15 @@ pub enum DisplayListItem {
         bounds: LogicalRect,
         color: ColorU,
         border_radius: BorderRadius,
+    },
+    SelectionRect {
+        bounds: LogicalRect,
+        border_radius: BorderRadius,
+        color: ColorU,
+    },
+    CursorRect {
+        bounds: LogicalRect,
+        color: ColorU,
     },
     Border {
         bounds: LogicalRect,
@@ -211,7 +220,27 @@ impl DisplayListBuilder {
             });
         }
     }
+    pub fn push_selection_rect(
+        &mut self,
+        bounds: LogicalRect,
+        color: ColorU,
+        border_radius: BorderRadius,
+    ) {
+        if color.a > 0 {
+            self.items.push(DisplayListItem::SelectionRect {
+                bounds,
+                color,
+                border_radius,
+            });
+        }
+    }
 
+    pub fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
+        if color.a > 0 {
+            self.items
+                .push(DisplayListItem::CursorRect { bounds, color });
+        }
+    }
     pub fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
         self.items.push(DisplayListItem::PushClip {
             bounds,
@@ -339,6 +368,91 @@ where
         }
     }
 
+    /// Helper to get styled node state for a node
+    fn get_styled_node_state(&self, dom_id: NodeId) -> azul_core::styled_dom::StyledNodeState {
+        self.ctx.styled_dom
+            .styled_nodes
+            .as_container()
+            .get(dom_id)
+            .map(|n| n.state.clone())
+            .unwrap_or_default()
+    }
+
+    /// Emits drawing commands for selection and cursor, if any.
+    fn paint_selection_and_cursor(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
+        let node = self
+            .positioned_tree
+            .tree
+            .get(node_index)
+            .ok_or(LayoutError::InvalidTree)?;
+        let Some(dom_id) = node.dom_node_id else {
+            return Ok(());
+        };
+        let Some(layout) = &node.inline_layout_result else {
+            return Ok(());
+        };
+
+        // TODO: Selection rendering needs to be fixed - StyledDom doesn't have a dom_id field
+        // and SelectionState structure has changed
+        /*
+        // Check for selection state in the context
+        let Some(selection_state) = self.ctx.selections.get(&self.ctx.styled_dom.dom_id) else {
+            return Ok(());
+        };
+
+        match selection_state {
+            SelectionState::Range(range)
+                if range.node_id.node.into_crate_internal() == Some(dom_id) =>
+            {
+                let rects = layout.get_selection_rects(range);
+                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
+                let node_pos = self
+                    .positioned_tree
+                    .absolute_positions
+                    .get(&node_index)
+                    .copied()
+                    .unwrap_or_default();
+
+                for mut rect in rects {
+                    // Adjust rect to absolute position
+                    rect.origin.x += node_pos.x;
+                    rect.origin.y += node_pos.y;
+                    builder.push_selection_rect(rect, style.bg_color, style.radius);
+                }
+            }
+            SelectionState::Cursor(cursor, cursor_node_id)
+                if cursor_node_id.node.into_crate_internal() == Some(dom_id) =>
+            {
+                if let Some(mut rect) = layout.get_cursor_rect(cursor) {
+                    let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+                    let node_pos = self
+                        .positioned_tree
+                        .absolute_positions
+                        .get(&node_index)
+                        .copied()
+                        .unwrap_or_default();
+
+                    // Adjust rect to absolute position
+                    rect.origin.x += node_pos.x;
+                    rect.origin.y += node_pos.y;
+
+                    // TODO: The blinking logic would need to be handled by the renderer
+                    // using an opacity key or similar, or by the main loop toggling this.
+                    // For now, we just draw it.
+                    builder.push_cursor_rect(rect, style.color);
+                }
+            }
+            _ => {}
+        }
+        */
+
+        Ok(())
+    }
+
     /// Recursively builds the tree of stacking contexts starting from a given layout node.
     fn collect_stacking_contexts(&self, node_index: usize) -> Result<StackingContext> {
         let node = self
@@ -432,10 +546,16 @@ where
         node_index: usize,
         children_indices: &[usize],
     ) -> Result<()> {
-        // 1. Paint the node's own content (text, images, hit-test areas).
+        // 1. Paint the node's background and border.
+        self.paint_node_background_and_border(builder, node_index)?;
+
+        // 2. Paint selection highlights and the text cursor if applicable.
+        self.paint_selection_and_cursor(builder, node_index)?;
+
+        // 3. Paint the node's own content (text, images, hit-test areas).
         self.paint_node_content(builder, node_index)?;
 
-        // 2. Recursively paint the in-flow children.
+        // 4. Recursively paint the in-flow children.
         for &child_index in children_indices {
             let child_node = self
                 .positioned_tree
@@ -448,6 +568,7 @@ where
 
             // Paint the child's background, border, content, and then its own children.
             self.paint_node_background_and_border(builder, child_index)?;
+
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
             // Pop the child's clips.
@@ -466,12 +587,20 @@ where
         node_index: usize,
         node: &LayoutNode<T>,
     ) -> Result<bool> {
-        let (overflow_x, overflow_y) = get_overflow_behavior(self.ctx.styled_dom, node.dom_node_id);
-        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
+        let Some(dom_id) = node.dom_node_id else {
+            return Ok(false);
+        };
+        
+        let styled_node_state = self.get_styled_node_state(dom_id);
+            
+        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-        let needs_clip =
-            overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
-
+        // TODO: LayoutOverflow doesn't have is_clipped() method
+        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
+            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
+            || !border_radius.is_zero();
         if needs_clip {
             let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
@@ -503,13 +632,21 @@ where
 
     /// Pops any clip/scroll commands associated with a node.
     fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNode<T>) -> Result<()> {
-        let (overflow_x, overflow_y) = get_overflow_behavior(self.ctx.styled_dom, node.dom_node_id);
-        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
-        let needs_clip =
-            overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
+        let Some(dom_id) = node.dom_node_id else {
+            return Ok(());
+        };
+        
+        let styled_node_state = self.get_styled_node_state(dom_id);
+        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+        
+        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
+            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip) 
+            || !border_radius.is_zero();
 
         if needs_clip {
-            if overflow_x.is_scroll() || overflow_y.is_scroll() {
+            if matches!(overflow_x, LayoutOverflow::Auto | LayoutOverflow::Scroll) || matches!(overflow_y, LayoutOverflow::Auto | LayoutOverflow::Scroll) {
                 builder.pop_scroll_frame();
             } else {
                 builder.pop_clip();
@@ -560,18 +697,24 @@ where
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
 
-        // STUB: These should read from the styled DOM's computed values.
-        let bg_color = get_background_color(node);
-        let border_info = get_border_info(node);
-        let border_radius = get_border_radius(self.ctx.styled_dom, node.dom_node_id);
-
-        builder.push_rect(paint_rect, bg_color, border_radius);
-        builder.push_border(
-            paint_rect,
-            border_info.color,
-            border_info.width,
-            border_radius,
-        );
+        let border_radius = if let Some(dom_id) = node.dom_node_id {
+            let styled_node_state = self.get_styled_node_state(dom_id);
+            let bg_color = get_background_color::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+            
+            builder.push_rect(paint_rect, bg_color, border_radius);
+            builder.push_border(
+                paint_rect,
+                border_info.color,
+                border_info.width,
+                border_radius,
+            );
+            border_radius
+        } else {
+            BorderRadius::default()
+        };
+        
         Ok(())
     }
 
@@ -650,19 +793,22 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout<T>,
     ) -> Result<()> {
+
+
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)
-        // TODO: Handle selection highlighting
         // TODO: Handle text shadows
         // TODO: Handle text overflowing (based on container_rect and overflow behavior)
         let glyph_runs = crate::text3::glyphs::get_glyph_runs(layout);
 
         for glyph_run in glyph_runs {
             let clip_rect = container_rect; // Clip to the container rect
+            // TODO: Convert Arc<T> to FontRef properly
+            let font_ref = FontRef::invalid();
             builder.push_text_run(
                 glyph_run.glyphs,
-                glyph_run.font.clone(),
+                font_ref,
                 glyph_run.color,
                 clip_rect,
             );
@@ -710,22 +856,33 @@ where
         }
 
         if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
-            let style = styled_node.state.get_style();
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
 
             // Opacity < 1
-            if let Some(CssProperty::Opacity(CssPropertyValue::Exact(opacity))) =
-                style.get(&CssProperty::Opacity)
+            if let Some(opacity_val) = self
+                .ctx
+                .styled_dom
+                .css_property_cache
+                .ptr
+                .get_opacity(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property())
             {
-                if opacity.inner.normalized() < 1.0 {
+                if opacity_val.inner.normalized() < 1.0 {
                     return true;
                 }
             }
 
             // Transform != none
-            if let Some(CssProperty::Transform(CssPropertyValue::Exact(transform))) =
-                style.get(&CssProperty::Transform)
+            if let Some(transform_val) = self
+                .ctx
+                .styled_dom
+                .css_property_cache
+                .ptr
+                .get_transform(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property())
             {
-                if !transform.is_empty() {
+                if !transform_val.is_empty() {
                     return true;
                 }
             }
@@ -760,40 +917,6 @@ impl OverflowBehavior {
     }
 }
 
-fn get_overflow_behavior(
-    dom: &StyledDom,
-    id: Option<NodeId>,
-) -> (OverflowBehavior, OverflowBehavior) {
-    let Some(node_id) = id else {
-        return (OverflowBehavior::Visible, OverflowBehavior::Visible);
-    };
-
-    let get_overflow = |prop_type: &CssPropertyType| -> OverflowBehavior {
-        if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-            if let Some(prop) = styled_node.state.get_style().get(prop_type) {
-                if let Some(val) = prop.get_exact() {
-                    return match val {
-                        LayoutOverflow::Visible => OverflowBehavior::Visible,
-                        LayoutOverflow::Hidden => OverflowBehavior::Hidden,
-                        LayoutOverflow::Clip => OverflowBehavior::Clip,
-                        LayoutOverflow::Scroll => OverflowBehavior::Scroll,
-                        LayoutOverflow::Auto => OverflowBehavior::Auto,
-                    };
-                }
-            }
-        }
-        OverflowBehavior::Visible
-    };
-
-    let overflow_x = get_overflow(&CssPropertyType::OverflowX);
-    let overflow_y = get_overflow(&CssPropertyType::OverflowY);
-    (overflow_x, overflow_y)
-}
-
-fn get_border_radius(dom: &StyledDom, id: Option<NodeId>) -> BorderRadius {
-    BorderRadius::default()
-}
-
 fn get_scroll_id(id: Option<NodeId>) -> ExternalScrollId {
     id.map(|i| i.index() as u64).unwrap_or(0)
 }
@@ -806,46 +929,9 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<TagId> {
     id.map(|i| i.index() as u64)
 }
 
-struct ScrollbarInfo {
-    needs_vertical: bool,
-    needs_horizontal: bool,
-    scrollbar_width: f32,
-    scrollbar_height: f32,
-}
-
-fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> ScrollbarInfo {
-    ScrollbarInfo {
-        needs_vertical: false,
-        needs_horizontal: false,
-        scrollbar_width: 16.0,
-        scrollbar_height: 16.0,
-    }
-}
-
-fn get_z_index(_styled_dom: &StyledDom, _dom_id: Option<NodeId>) -> i32 {
-    0
-}
-
-fn get_background_color<T: ParsedFontTrait>(_node: &LayoutNode<T>) -> ColorU {
-    ColorU::new(255, 255, 255, 0)
-} // Default transparent
-
-fn get_border_info<T: ParsedFontTrait>(_node: &LayoutNode<T>) -> BorderInfo {
-    BorderInfo {
-        width: 0.0,
-        color: ColorU::new(0, 0, 0, 255),
-    }
-}
-
 fn get_image_key_for_src(_src: &ImageRefHash) -> Option<ImageKey> {
     None
 }
 fn get_image_key_for_image_source(_source: &ImageSource) -> Option<ImageKey> {
     None
-}
-
-#[derive(Debug)]
-pub struct BorderInfo {
-    pub width: f32,
-    pub color: ColorU,
 }

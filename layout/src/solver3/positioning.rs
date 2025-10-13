@@ -55,21 +55,22 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Posi
     let Some(id) = dom_id else {
         return PositionType::Static;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(CssProperty::Position(CssPropertyValue::Exact(position))) = styled_node
-            .state
-            .get_style()
-            .get(&CssPropertyType::Position)
-        {
-            return match position {
-                LayoutPosition::Static => PositionType::Static,
-                LayoutPosition::Relative => PositionType::Relative,
-                LayoutPosition::Absolute => PositionType::Absolute,
-                LayoutPosition::Fixed => PositionType::Fixed,
-            };
-        }
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let position = styled_dom
+        .css_property_cache
+        .ptr
+        .get_position(node_data, &id, node_state)
+        .and_then(|w| w.get_property().cloned())
+        .unwrap_or_default();
+
+    match position {
+        LayoutPosition::Static => PositionType::Static,
+        LayoutPosition::Relative => PositionType::Relative,
+        LayoutPosition::Absolute => PositionType::Absolute,
+        LayoutPosition::Fixed => PositionType::Fixed,
+        LayoutPosition::Sticky => PositionType::Sticky,
     }
-    PositionType::Static
 }
 
 /// Correctly reads the `top`, `right`, `bottom`, `left` properties from the `StyledDom`.
@@ -77,33 +78,39 @@ fn get_css_offsets(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PositionOf
     let Some(id) = dom_id else {
         return PositionOffsets::default();
     };
-    let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
-        return PositionOffsets::default();
-    };
-    let style = styled_node.state.get_style();
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
     let mut offsets = PositionOffsets::default();
 
-    // Helper to resolve CSS property to pixels. This is a simplification.
-    let resolve_to_px = |prop: &CssPropertyValue<PixelValue>| -> Option<f32> {
-        let hundred_percent = 0.0; // for resolving percentages
-        match prop {
-            CssPropertyValue::Exact(px) => Some(px.to_pixels(hundred_percent)),
-            // TODO: Handle other units like %, em, etc., relative to containing block.
-            _ => None,
-        }
-    };
-
-    if let Some(CssProperty::Top(val)) = style.get(&CssProperty::Top) {
-        offsets.top = resolve_to_px(val);
+    // We can't resolve percentages here without a reference; return raw optional values
+    // as pixels when possible (absolute lengths). For percentages, leave as None.
+    if let Some(top) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_top(node_data, &id, node_state)
+    {
+        offsets.top = top.get_property().map(|v| v.inner.to_pixels(0.0));
     }
-    if let Some(CssProperty::Right(val)) = style.get(&CssProperty::Right) {
-        offsets.right = resolve_to_px(val);
+    if let Some(right) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_right(node_data, &id, node_state)
+    {
+        offsets.right = right.get_property().map(|v| v.inner.to_pixels(0.0));
     }
-    if let Some(CssProperty::Bottom(val)) = style.get(&CssProperty::Bottom) {
-        offsets.bottom = resolve_to_px(val);
+    if let Some(bottom) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_bottom(node_data, &id, node_state)
+    {
+        offsets.bottom = bottom.get_property().map(|v| v.inner.to_pixels(0.0));
     }
-    if let Some(CssProperty::Left(val)) = style.get(&CssProperty::Left) {
-        offsets.left = resolve_to_px(val);
+    if let Some(left) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_left(node_data, &id, node_state)
+    {
+        offsets.left = left.get_property().map(|v| v.inner.to_pixels(0.0));
     }
 
     offsets
@@ -111,13 +118,14 @@ fn get_css_offsets(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PositionOf
 
 /// Correctly looks up the `position` property from the styled DOM.
 fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
-    if let Some(CssProperty::Position(position)) = styled_dom.node_data.as_container()[node_id]
-        .get_style()
-        .get(&CssProperty::Position)
-    {
-        return *position;
-    }
-    LayoutPosition::Static // Default value
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_position(node_data, &node_id, node_state)
+        .and_then(|p| p.get_property().copied())
+        .unwrap_or(LayoutPosition::Static)
 }
 
 /// **FIXED:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
@@ -130,43 +138,27 @@ fn resolve_css_offsets(
     let Some(id) = dom_id else {
         return PositionOffsets::default();
     };
-    let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
-        return PositionOffsets::default();
-    };
-    let style = styled_node.state.get_style();
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
     let mut offsets = PositionOffsets::default();
 
-    // Helper to resolve a CSS PixelValue to a final f32 value.
-    // Percentages for top/bottom are relative to the CB's height.
-    // Percentages for left/right are relative to the CB's width.
-    let resolve_vertical = |prop: &CssPropertyValue<PixelValue>| -> Option<f32> {
-        match prop.get_exact() {
-            Some(PixelValue::Px(px)) => Some(*px),
-            Some(PixelValue::Percent(p)) => Some((p / 100.0) * cb_size.height),
-            _ => None,
-        }
-    };
-
-    let resolve_horizontal = |prop: &CssPropertyValue<PixelValue>| -> Option<f32> {
-        match prop.get_exact() {
-            Some(PixelValue::Px(px)) => Some(*px),
-            Some(PixelValue::Percent(p)) => Some((p / 100.0) * cb_size.width),
-            _ => None,
-        }
-    };
-
-    if let Some(val) = style.get(&CssPropertyType::Top) {
-        offsets.top = resolve_vertical(val);
-    }
-    if let Some(val) = style.get(&CssPropertyType::Right) {
-        offsets.right = resolve_horizontal(val);
-    }
-    if let Some(val) = style.get(&CssPropertyType::Bottom) {
-        offsets.bottom = resolve_vertical(val);
-    }
-    if let Some(val) = style.get(&CssPropertyType::Left) {
-        offsets.left = resolve_horizontal(val);
-    }
+    // Use calc_* helpers to resolve percentages relative to the containing block size.
+    offsets.top = styled_dom
+        .css_property_cache
+        .ptr
+        .calc_top(node_data, &id, node_state, cb_size.height);
+    offsets.bottom = styled_dom
+        .css_property_cache
+        .ptr
+        .calc_bottom(node_data, &id, node_state, cb_size.height);
+    offsets.left = styled_dom
+        .css_property_cache
+        .ptr
+        .calc_left(node_data, &id, node_state, cb_size.width);
+    offsets.right = styled_dom
+        .css_property_cache
+        .ptr
+        .calc_right(node_data, &id, node_state, cb_size.width);
 
     offsets
 }
@@ -354,20 +346,15 @@ fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMo
     let Some(id) = dom_id else {
         return WritingMode::HorizontalTb;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(prop) = styled_node
-            .state
-            .get_style()
-            .get(&CssPropertyType::WritingMode)
-        {
-            if let Some(val) = prop.get_exact() {
-                return match val {
-                    LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
-                    LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
-                    LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
-                };
-            }
-        }
-    }
-    WritingMode::HorizontalTb
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    
+    use crate::solver3::cache::to_writing_mode;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_writing_mode(node_data, &id, node_state)
+        .and_then(|wm| wm.get_property().copied())
+        .map(to_writing_mode)
+        .unwrap_or(WritingMode::HorizontalTb)
 }

@@ -48,21 +48,16 @@ impl PrintAsCssValue for StyleTextColor {
 // -- StyleTextAlign --
 
 /// Horizontal text alignment enum (left, center, right) - default: `Left`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleTextAlign {
     Left,
     Center,
     Right,
     Justify,
+    #[default]
     Start,
     End,
-}
-
-impl Default for StyleTextAlign {
-    fn default() -> Self {
-        StyleTextAlign::Left
-    }
 }
 
 impl_option!(

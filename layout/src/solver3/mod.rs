@@ -10,15 +10,12 @@ pub mod layout_tree;
 pub mod positioning;
 pub mod sizing;
 pub mod taffy_bridge;
+pub mod getters;
 
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
-    app_resources::RendererResources,
-    callbacks::{DocumentId, ScrollPosition},
-    dom::NodeId,
-    styled_dom::{DomId, StyledDom},
-    window::{LogicalPosition, LogicalRect, LogicalSize},
+    app_resources::RendererResources, callbacks::{DocumentId, ScrollPosition}, dom::NodeId, selection::SelectionState, styled_dom::{DomId, StyledDom}, window::{LogicalPosition, LogicalRect, LogicalSize}
 };
 use azul_css::{
     props::property::{CssProperty, CssPropertyCategory},
@@ -26,7 +23,7 @@ use azul_css::{
 };
 
 use self::{
-    cache::get_writing_mode,
+    getters::get_writing_mode,
     display_list::generate_display_list,
     geometry::IntrinsicSizes,
     layout_tree::{generate_layout_tree, LayoutTree},
@@ -53,6 +50,7 @@ pub type NodeHashMap = BTreeMap<usize, u64>;
 pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub styled_dom: &'a StyledDom,
     pub font_manager: &'a FontManager<T, Q>,
+    pub selections: &'a BTreeMap<DomId, SelectionState>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
 }
 
@@ -75,11 +73,13 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     viewport: LogicalRect,
     font_manager: &FontManager<T, Q>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<DisplayList> {
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
+        selections,
         debug_messages,
     };
 
@@ -191,9 +191,23 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 pos.x + parent_node.box_props.padding.left,
                 pos.y + parent_node.box_props.padding.top,
             );
-            let writing_mode = get_writing_mode(styled_dom, parent_node.dom_node_id);
-            let content_size = parent_node.box_props.inner_size(size, writing_mode);
-            return (content_pos, content_size);
+            
+            if let Some(dom_id) = parent_node.dom_node_id {
+                let styled_node_state = &styled_dom
+                    .styled_nodes
+                    .as_container()
+                    .get(dom_id)
+                    .map(|n| &n.state)
+                    .cloned()
+                    .unwrap_or_default();
+                let writing_mode_layout = get_writing_mode(styled_dom, dom_id, styled_node_state);
+                use crate::solver3::cache::to_writing_mode;
+                let writing_mode = to_writing_mode(writing_mode_layout);
+                let content_size = parent_node.box_props.inner_size(size, writing_mode);
+                return (content_pos, content_size);
+            }
+            
+            return (content_pos, size);
         }
     }
     (viewport.origin, viewport.size)

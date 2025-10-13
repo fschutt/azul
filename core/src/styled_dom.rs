@@ -10,29 +10,43 @@ use azul_css::{
     props::{
         basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         property::{
-            CssProperty, CssPropertyType, LayoutAlignContentValue, LayoutAlignItemsValue,
-            LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue,
-            LayoutBorderTopWidthValue, LayoutBottomValue, LayoutBoxSizingValue, LayoutDisplayValue,
-            LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue,
-            LayoutFlexWrapValue, LayoutFloatValue, LayoutHeightValue, LayoutJustifyContentValue,
-            LayoutLeftValue, LayoutMarginBottomValue, LayoutMarginLeftValue,
-            LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue,
-            LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue,
-            LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue,
-            LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutTopValue,
-            LayoutWidthValue, StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue,
-            StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue,
-            StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
-            StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
-            StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
-            StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
-            StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue,
-            StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCursorValue, StyleDirectionValue,
-            StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleHyphensValue,
-            StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue,
-            StyleOpacityValue, StylePerspectiveOriginValue, StyleTabWidthValue,
+            BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
+            CaretColorValue, ColumnCountValue, ColumnFillValue, ColumnRuleColorValue,
+            ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue, ColumnWidthValue,
+            ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType,
+            FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue,
+            LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
+            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue,
+            LayoutBoxSizingValue, LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue,
+            LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexGrowValue,
+            LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue,
+            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
+            LayoutGridColumnValue, LayoutGridRowValue, LayoutGridTemplateColumnsValue,
+            LayoutGridTemplateRowsValue, LayoutHeightValue, LayoutJustifyContentValue,
+            LayoutJustifyItemsValue, LayoutJustifySelfValue, LayoutLeftValue,
+            LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue,
+            LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue,
+            LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
+            LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
+            LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
+            LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
+            LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
+            SelectionBackgroundColorValue, SelectionColorValue, ShapeImageThresholdValue,
+            ShapeMarginValue, ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
+            StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
+            StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
+            StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
+            StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue,
+            StyleBorderLeftColorValue, StyleBorderLeftStyleValue, StyleBorderRightColorValue,
+            StyleBorderRightStyleValue, StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue,
+            StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue,
+            StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue,
+            StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
+            StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
+            StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
             StyleTextAlignValue, StyleTextColorValue, StyleTransformOriginValue,
-            StyleTransformVecValue, StyleWhiteSpaceValue, StyleWordSpacingValue,
+            StyleTransformVecValue, StyleVisibilityValue, StyleWhiteSpaceValue,
+            StyleWordSpacingValue, WidowsValue,
         },
         style::StyleTextColor,
     },
@@ -1404,6 +1418,695 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleTextColorValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextColor)
             .and_then(|p| p.as_text_color())
+    }
+    // Method for getting caret-color property
+    pub fn get_caret_color<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a CaretColorValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::CaretColor)
+            .and_then(|p| p.as_caret_color())
+    }
+
+    // Method for getting caret-animation-duration property
+    pub fn get_caret_animation_duration<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a CaretAnimationDurationValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::CaretAnimationDuration,
+        )
+        .and_then(|p| p.as_caret_animation_duration())
+    }
+
+    // Method for getting selection-background-color property
+    pub fn get_selection_background_color<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a SelectionBackgroundColorValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::SelectionBackgroundColor,
+        )
+        .and_then(|p| p.as_selection_background_color())
+    }
+
+    // Method for getting selection-color property
+    pub fn get_selection_color<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a SelectionColorValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::SelectionColor,
+        )
+        .and_then(|p| p.as_selection_color())
+    }
+
+    // Method for getting text-justify property
+    pub fn get_text_justify<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutTextJustifyValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::TextJustify,
+        )
+        .and_then(|p| p.as_text_justify())
+    }
+
+    // Method for getting z-index property
+    pub fn get_z_index<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutZIndexValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ZIndex)
+            .and_then(|p| p.as_z_index())
+    }
+
+    // Method for getting flex-basis property
+    pub fn get_flex_basis<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutFlexBasisValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexBasis)
+            .and_then(|p| p.as_flex_basis())
+    }
+
+    // Method for getting column-gap property
+    pub fn get_column_gap<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutColumnGapValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ColumnGap)
+            .and_then(|p| p.as_column_gap())
+    }
+
+    // Method for getting row-gap property
+    pub fn get_row_gap<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutRowGapValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::RowGap)
+            .and_then(|p| p.as_row_gap())
+    }
+
+    // Method for getting grid-template-columns property
+    pub fn get_grid_template_columns<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridTemplateColumnsValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::GridTemplateColumns,
+        )
+        .and_then(|p| p.as_grid_template_columns())
+    }
+
+    // Method for getting grid-template-rows property
+    pub fn get_grid_template_rows<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridTemplateRowsValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::GridTemplateRows,
+        )
+        .and_then(|p| p.as_grid_template_rows())
+    }
+
+    // Method for getting grid-auto-columns property
+    pub fn get_grid_auto_columns<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridAutoColumnsValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::GridAutoColumns,
+        )
+        .and_then(|p| p.as_grid_auto_columns())
+    }
+
+    // Method for getting grid-auto-rows property
+    pub fn get_grid_auto_rows<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridAutoRowsValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::GridAutoRows,
+        )
+        .and_then(|p| p.as_grid_auto_rows())
+    }
+
+    // Method for getting grid-column property
+    pub fn get_grid_column<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridColumnValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::GridColumn)
+            .and_then(|p| p.as_grid_column())
+    }
+
+    // Method for getting grid-row property
+    pub fn get_grid_row<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridRowValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::GridRow)
+            .and_then(|p| p.as_grid_row())
+    }
+
+    // Method for getting grid-auto-flow property
+    pub fn get_grid_auto_flow<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGridAutoFlowValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::GridAutoFlow,
+        )
+        .and_then(|p| p.as_grid_auto_flow())
+    }
+
+    // Method for getting justify-self property
+    pub fn get_justify_self<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutJustifySelfValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::JustifySelf,
+        )
+        .and_then(|p| p.as_justify_self())
+    }
+
+    // Method for getting justify-items property
+    pub fn get_justify_items<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutJustifyItemsValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::JustifyItems,
+        )
+        .and_then(|p| p.as_justify_items())
+    }
+
+    // Method for getting gap property
+    pub fn get_gap<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGapValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Gap)
+            .and_then(|p| p.as_gap())
+    }
+
+    // Method for getting grid-gap property
+    pub fn get_grid_gap<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutGapValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::GridGap)
+            .and_then(|p| p.as_grid_gap())
+    }
+
+    // Method for getting align-self property
+    pub fn get_align_self<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutAlignSelfValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignSelf)
+            .and_then(|p| p.as_align_self())
+    }
+
+    // Method for getting font property
+    pub fn get_font<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleFontValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Font)
+            .and_then(|p| p.as_font())
+    }
+
+    // Method for getting writing-mode property
+    pub fn get_writing_mode<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutWritingModeValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::WritingMode,
+        )
+        .and_then(|p| p.as_writing_mode())
+    }
+
+    // Method for getting clear property
+    pub fn get_clear<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutClearValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Clear)
+            .and_then(|p| p.as_clear())
+    }
+
+    // Method for getting scrollbar-style property
+    pub fn get_scrollbar_style<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ScrollbarStyleValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarStyle,
+        )
+        .and_then(|p| p.as_scrollbar_style())
+    }
+
+    // Method for getting scrollbar-width property
+    pub fn get_scrollbar_width<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutScrollbarWidthValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarWidth,
+        )
+        .and_then(|p| p.as_scrollbar_width())
+    }
+
+    // Method for getting scrollbar-color property
+    pub fn get_scrollbar_color<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleScrollbarColorValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarColor,
+        )
+        .and_then(|p| p.as_scrollbar_color())
+    }
+
+    // Method for getting visibility property
+    pub fn get_visibility<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleVisibilityValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Visibility)
+            .and_then(|p| p.as_visibility())
+    }
+
+    // Method for getting break-before property
+    pub fn get_break_before<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a PageBreakValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::BreakBefore,
+        )
+        .and_then(|p| p.as_break_before())
+    }
+
+    // Method for getting break-after property
+    pub fn get_break_after<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a PageBreakValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BreakAfter)
+            .and_then(|p| p.as_break_after())
+    }
+
+    // Method for getting break-inside property
+    pub fn get_break_inside<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a BreakInsideValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::BreakInside,
+        )
+        .and_then(|p| p.as_break_inside())
+    }
+
+    // Method for getting orphans property
+    pub fn get_orphans<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a OrphansValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Orphans)
+            .and_then(|p| p.as_orphans())
+    }
+
+    // Method for getting widows property
+    pub fn get_widows<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a WidowsValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Widows)
+            .and_then(|p| p.as_widows())
+    }
+
+    // Method for getting box-decoration-break property
+    pub fn get_box_decoration_break<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a BoxDecorationBreakValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::BoxDecorationBreak,
+        )
+        .and_then(|p| p.as_box_decoration_break())
+    }
+
+    // Method for getting column-count property
+    pub fn get_column_count<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnCountValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ColumnCount,
+        )
+        .and_then(|p| p.as_column_count())
+    }
+
+    // Method for getting column-width property
+    pub fn get_column_width<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnWidthValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ColumnWidth,
+        )
+        .and_then(|p| p.as_column_width())
+    }
+
+    // Method for getting column-span property
+    pub fn get_column_span<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnSpanValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ColumnSpan)
+            .and_then(|p| p.as_column_span())
+    }
+
+    // Method for getting column-fill property
+    pub fn get_column_fill<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnFillValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ColumnFill)
+            .and_then(|p| p.as_column_fill())
+    }
+
+    // Method for getting column-rule-width property
+    pub fn get_column_rule_width<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnRuleWidthValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ColumnRuleWidth,
+        )
+        .and_then(|p| p.as_column_rule_width())
+    }
+
+    // Method for getting column-rule-style property
+    pub fn get_column_rule_style<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnRuleStyleValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ColumnRuleStyle,
+        )
+        .and_then(|p| p.as_column_rule_style())
+    }
+
+    // Method for getting column-rule-color property
+    pub fn get_column_rule_color<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ColumnRuleColorValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ColumnRuleColor,
+        )
+        .and_then(|p| p.as_column_rule_color())
+    }
+
+    // Method for getting flow-into property
+    pub fn get_flow_into<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a FlowIntoValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlowInto)
+            .and_then(|p| p.as_flow_into())
+    }
+
+    // Method for getting flow-from property
+    pub fn get_flow_from<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a FlowFromValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlowFrom)
+            .and_then(|p| p.as_flow_from())
+    }
+
+    // Method for getting shape-outside property
+    pub fn get_shape_outside<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ShapeOutsideValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ShapeOutside,
+        )
+        .and_then(|p| p.as_shape_outside())
+    }
+
+    // Method for getting shape-margin property
+    pub fn get_shape_margin<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ShapeMarginValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ShapeMargin,
+        )
+        .and_then(|p| p.as_shape_margin())
+    }
+
+    // Method for getting shape-image-threshold property
+    pub fn get_shape_image_threshold<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ShapeImageThresholdValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ShapeImageThreshold,
+        )
+        .and_then(|p| p.as_shape_image_threshold())
+    }
+
+    // Method for getting content property
+    pub fn get_content<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ContentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Content)
+            .and_then(|p| p.as_content())
+    }
+
+    // Method for getting counter-reset property
+    pub fn get_counter_reset<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a CounterResetValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::CounterReset,
+        )
+        .and_then(|p| p.as_counter_reset())
+    }
+
+    // Method for getting counter-increment property
+    pub fn get_counter_increment<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a CounterIncrementValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::CounterIncrement,
+        )
+        .and_then(|p| p.as_counter_increment())
+    }
+
+    // Method for getting string-set property
+    pub fn get_string_set<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StringSetValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::StringSet)
+            .and_then(|p| p.as_string_set())
     }
     pub fn get_text_align<'a>(
         &'a self,

@@ -19,25 +19,23 @@ use std::{
 
 use azul_core::{
     dom::NodeId,
-    styled_dom::StyledDom,
+    styled_dom::{StyledDom, StyledNode},
     ui_solver::FormattingContext,
     window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        layout::{LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode},
+        layout::{LayoutFlexWrap, LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode},
         property::{CssProperty, CssPropertyType},
+        style::StyleTextAlign,
     },
     LayoutDebugMessage,
 };
 
 use crate::{
     solver3::{
-        fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
-        geometry::{CssSize, PositionedRectangle},
-        layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
-        LayoutContext, LayoutError, LayoutTree, Result,
+        fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior}, geometry::{CssSize, PositionedRectangle}, getters::{get_justify_content, get_overflow_x, get_overflow_y, get_text_align, get_wrap, get_writing_mode}, layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash}, LayoutContext, LayoutError, LayoutTree, Result
     },
     text3::{
         self,
@@ -45,51 +43,23 @@ use crate::{
     },
 };
 
-pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
-    let Some(id) = dom_id else {
-        return CssSize::Auto;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache.ptr
-        .get_width(node_data, &id, node_state)
-        .and_then(|w| w.0.to_px())
-        .map(CssSize::Px)
-        .unwrap_or(CssSize::Auto)
+/// Convert LayoutWritingMode to WritingMode
+pub fn to_writing_mode(wm: LayoutWritingMode) -> WritingMode {
+    match wm {
+        LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
+        LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
+        LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
+    }
 }
 
-pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
-    let Some(id) = dom_id else {
-        return CssSize::Auto;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_height(node_data, &id, node_state)
-        .and_then(|h| h.0.to_px())
-        .map(CssSize::Px)
-        .unwrap_or(CssSize::Auto)
-}
-
-pub fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
-    let Some(id) = dom_id else {
-        return WritingMode::HorizontalTb;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_writing_mode(node_data, &id, node_state)
-        .map(|wm| match wm {
-            azul_css::props::layout::LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
-            azul_css::props::layout::LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
-            azul_css::props::layout::LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
-        })
-        .unwrap_or(WritingMode::HorizontalTb)
+/// Convert LayoutOverflow to OverflowBehavior
+fn to_overflow_behavior(overflow: LayoutOverflow) -> fc::OverflowBehavior {
+    match overflow {
+        LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
+        LayoutOverflow::Hidden | LayoutOverflow::Clip => fc::OverflowBehavior::Hidden,
+        LayoutOverflow::Scroll => fc::OverflowBehavior::Scroll,
+        LayoutOverflow::Auto => fc::OverflowBehavior::Auto,
+    }
 }
 
 /// The persistent cache that holds the layout state between frames.
@@ -184,26 +154,22 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
 /// Checks if a flex container is simple enough to be treated like a block-stack for repositioning.
 fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool {
     let Some(id) = dom_id else { return false };
-    let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
-        return false;
+    let binding = styled_dom.styled_nodes.as_container();
+    let styled_node = match binding.get(id) {
+        Some(styled_node) => styled_node,
+        None => return false,
     };
 
-    let style = styled_node.state.get_style();
-
     // Must be a single-line flex container
-    let wrap = style
-        .get(&CssPropertyType::FlexWrap)
-        .and_then(|p| p.get_exact())
-        .map_or(LayoutWrap::NoWrap, |v| *v);
-    if wrap != LayoutWrap::NoWrap {
+    let wrap = get_wrap(styled_dom, id, &styled_node.state);
+
+    if wrap != LayoutFlexWrap::NoWrap {
         return false;
     }
 
     // Must be start-aligned, so there's no space distribution to recalculate.
-    let justify = style
-        .get(&CssPropertyType::JustifyContent)
-        .and_then(|p| p.get_exact())
-        .map_or(LayoutJustifyContent::FlexStart, |v| *v);
+    let justify = get_justify_content(styled_dom, id, &styled_node.state);
+
     if !matches!(
         justify,
         LayoutJustifyContent::FlexStart | LayoutJustifyContent::Start
@@ -233,7 +199,14 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
     layout_roots: &BTreeSet<usize>,
     absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
-    let writing_mode = get_writing_mode(styled_dom, parent_node.dom_node_id);
+    let dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
+    let styled_node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.state.clone())
+        .unwrap_or_default();
+    let writing_mode = to_writing_mode(get_writing_mode(styled_dom, dom_id, &styled_node_state));
     let parent_pos = absolute_positions
         .get(&parent_idx)
         .copied()
@@ -402,9 +375,24 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     };
 
     // Reconcile children to check for structural changes and build the new tree structure.
-    let new_children_dom_ids: Vec<_> = new_dom_id
-        .children(&ctx.styled_dom.node_hierarchy.as_ref())
-        .collect();
+    let hierarchy_container = ctx.styled_dom.node_hierarchy.as_container();
+    let new_children_dom_ids: Vec<_> = {
+        let mut children = Vec::new();
+        if let Some(hierarchy_item) = hierarchy_container.get(new_dom_id) {
+            if let Some(mut child_id) = hierarchy_item.first_child_id(new_dom_id) {
+                children.push(child_id);
+                while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
+                    if let Some(next) = hierarchy_item.next_sibling_id() {
+                        children.push(next);
+                        child_id = next;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        children
+    };
     let old_children_indices: Vec<_> = old_node.map(|n| n.children.clone()).unwrap_or_default();
 
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
@@ -466,7 +454,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ) -> Result<()> {
     let (constraints, dom_id, writing_mode, mut final_used_size, box_props) = {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let dom_id = node.dom_node_id;
+        let dom_id = node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
 
         // --- Phase 1: Calculate this node's PROVISIONAL used size ---
         // This size is based on the node's CSS properties (width, height, etc.) and
@@ -474,7 +462,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let intrinsic = node.intrinsic_sizes.clone().unwrap_or_default();
         let mut final_used_size = crate::solver3::sizing::calculate_used_size_for_node(
             ctx.styled_dom,
-            dom_id,
+            Some(dom_id),
             containing_block_size,
             intrinsic,
             &node.box_props,
@@ -483,13 +471,26 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // --- Phase 2: Layout children using a formatting context ---
 
         // Fetch the writing mode for the current context.
-        let writing_mode = get_writing_mode(ctx.styled_dom, dom_id); // This should come from the node's style.
+        let styled_node_state = ctx
+            .styled_dom
+            .styled_nodes
+            .as_container()
+            .get(dom_id)
+            .map(|n| n.state.clone())
+            .unwrap_or_default();
+        let layout_writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state); // This should come from the node's style.
+        let writing_mode = to_writing_mode(layout_writing_mode);
+        let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state);
 
         let constraints = LayoutConstraints {
             available_size: node.box_props.inner_size(final_used_size, writing_mode),
             bfc_state: None,
             writing_mode,
-            text_align: crate::solver3::fc::TextAlign::Start, // TODO
+            text_align: match text_align {
+                StyleTextAlign::Start | StyleTextAlign::Left => fc::TextAlign::Start,
+                StyleTextAlign::End | StyleTextAlign::Right => fc::TextAlign::End,
+                StyleTextAlign::Center => fc::TextAlign::Center,
+                StyleTextAlign::Justify => fc::TextAlign::Justify,}
         };
 
         (
@@ -505,8 +506,9 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let content_size = layout_output.overflow_size;
 
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
+
     // If the node's main-axis size depends on its content, we update its used size now.
-    if crate::solver3::sizing::get_css_height(ctx.styled_dom, dom_id) == CssSize::Auto {
+    if crate::solver3::sizing::get_css_height(ctx.styled_dom, Some(dom_id)) == CssSize::Auto {
         let node_props = &tree.get(node_index).unwrap().box_props;
         let main_axis_padding_border =
             node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
@@ -516,13 +518,22 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     // --- Phase 3: Check for scrollbars and potential reflow ---
-    // **Corrected:** Read overflow properties from CSS instead of using stubs.
-    let (overflow_x, overflow_y) = get_overflow_from_css(ctx.styled_dom, dom_id);
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.state.clone())
+        .unwrap_or_default();
+    
+    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state);
+    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
+
     let scrollbar_info = fc::check_scrollbar_necessity(
         content_size,
         box_props.inner_size(final_used_size, writing_mode),
-        overflow_x,
-        overflow_y,
+        to_overflow_behavior(overflow_x),
+        to_overflow_behavior(overflow_y),
     );
 
     if scrollbar_info.needs_reflow() {
@@ -570,7 +581,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn hash_styled_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
     let mut hasher = DefaultHasher::new();
     if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-        styled_node.state.get_style().hash(&mut hasher);
+        styled_node.state.hash(&mut hasher);
     }
     if let Some(node_data) = dom.node_data.as_container().get(node_id) {
         node_data.get_node_type().hash(&mut hasher);
@@ -583,36 +594,4 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
     node_self_hash.hash(&mut hasher);
     child_hashes.hash(&mut hasher);
     SubtreeHash(hasher.finish())
-}
-
-/// Helper to read overflow properties from the styled DOM.
-pub fn get_overflow_from_css(
-    dom: &StyledDom,
-    id: Option<NodeId>,
-) -> (OverflowBehavior, OverflowBehavior) {
-    let Some(node_id) = id else {
-        return (OverflowBehavior::Visible, OverflowBehavior::Visible);
-    };
-
-    let get_overflow = |prop_type: CssPropertyType| -> OverflowBehavior {
-        if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-            if let Some(prop) = styled_node.state.get_style().get(&prop_type) {
-                if let Some(val) = prop.get_exact() {
-                    return match val {
-                        LayoutOverflow::Visible => OverflowBehavior::Visible,
-                        LayoutOverflow::Hidden => OverflowBehavior::Hidden,
-                        LayoutOverflow::Clip => OverflowBehavior::Clip,
-                        LayoutOverflow::Scroll => OverflowBehavior::Scroll,
-                        LayoutOverflow::Auto => OverflowBehavior::Auto,
-                    };
-                }
-            }
-        }
-        OverflowBehavior::Visible
-    };
-
-    (
-        get_overflow(CssPropertyType::OverflowX),
-        get_overflow(CssPropertyType::OverflowY),
-    )
 }

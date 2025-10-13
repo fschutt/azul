@@ -3737,11 +3737,120 @@ impl CssProperty {
         CssProperty::StringSet(CssPropertyValue::Exact(input))
     }
 
-    // functions that downcast to the concrete CSS type (style)
+    pub const fn as_z_index(&self) -> Option<&LayoutZIndexValue> {
+        match self {
+            CssProperty::ZIndex(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_flex_basis(&self) -> Option<&LayoutFlexBasisValue> {
+        match self {
+            CssProperty::FlexBasis(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_column_gap(&self) -> Option<&LayoutColumnGapValue> {
+        match self {
+            CssProperty::ColumnGap(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_row_gap(&self) -> Option<&LayoutRowGapValue> {
+        match self {
+            CssProperty::RowGap(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_template_columns(&self) -> Option<&LayoutGridTemplateColumnsValue> {
+        match self {
+            CssProperty::GridTemplateColumns(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_template_rows(&self) -> Option<&LayoutGridTemplateRowsValue> {
+        match self {
+            CssProperty::GridTemplateRows(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_auto_columns(&self) -> Option<&LayoutGridAutoColumnsValue> {
+        match self {
+            CssProperty::GridAutoColumns(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_auto_rows(&self) -> Option<&LayoutGridAutoRowsValue> {
+        match self {
+            CssProperty::GridAutoRows(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_column(&self) -> Option<&LayoutGridColumnValue> {
+        match self {
+            CssProperty::GridColumn(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_grid_row(&self) -> Option<&LayoutGridRowValue> {
+        match self {
+            CssProperty::GridRow(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_writing_mode(&self) -> Option<&LayoutWritingModeValue> {
+        match self {
+            CssProperty::WritingMode(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_clear(&self) -> Option<&LayoutClearValue> {
+        match self {
+            CssProperty::Clear(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_layout_text_justify(&self) -> Option<&LayoutTextJustifyValue> {
+        match self {
+            CssProperty::LayoutTextJustify(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_scrollbar_style(&self) -> Option<&ScrollbarStyleValue> {
+        match self {
+            CssProperty::ScrollbarStyle(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub const fn as_visibility(&self) -> Option<&StyleVisibilityValue> {
+        match self {
+            CssProperty::Visibility(f) => Some(f),
+            _ => None,
+        }
+    }
 
     pub const fn as_background_content(&self) -> Option<&StyleBackgroundContentVecValue> {
         match self {
             CssProperty::BackgroundContent(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_justify(&self) -> Option<&LayoutTextJustifyValue> {
+        match self {
+            CssProperty::TextJustify(f) => Some(f),
             _ => None,
         }
     }

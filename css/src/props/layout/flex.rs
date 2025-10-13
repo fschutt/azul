@@ -421,6 +421,8 @@ pub fn parse_layout_flex_wrap<'a>(
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutJustifyContent {
+    FlexStart,
+    FlexEnd,
     Start,
     End,
     Center,
@@ -438,8 +440,10 @@ impl Default for LayoutJustifyContent {
 impl PrintAsCssValue for LayoutJustifyContent {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            Self::Start => "flex-start",
-            Self::End => "flex-end",
+            Self::Start => "start",
+            Self::End => "end",
+            Self::FlexStart => "flex-start",
+            Self::FlexEnd => "flex-end",
             Self::Center => "center",
             Self::SpaceBetween => "space-between",
             Self::SpaceAround => "space-around",

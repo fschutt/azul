@@ -612,7 +612,7 @@ fn test_kashida_justification() {
     })];
     let constraints = UnifiedConstraints {
         available_width: 100.0,
-        justify_content: JustifyContent::Kashida,
+        text_justify: JustifyContent::Kashida,
         text_align: TextAlign::Justify,
         ..Default::default()
     };

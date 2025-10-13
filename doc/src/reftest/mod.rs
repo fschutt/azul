@@ -1,8 +1,7 @@
 use std::{
     env,
-    error::Error,
     fs::{self, File},
-    io::{Cursor, Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
@@ -10,28 +9,26 @@ use std::{
 };
 
 use azul_core::{
-    app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, RendererResources},
-    callbacks::DocumentId,
+    app_resources::{ImageCache, RendererResources},
     display_list::{
-        CachedDisplayList, DisplayListFrame, DisplayListMsg, DisplayListScrollFrame,
-        LayoutRectContent, RectBackground, RenderCallbacks, SolvedLayout, StyleBorderColors,
-        StyleBorderStyles, StyleBorderWidths,
+        CachedDisplayList, DisplayListFrame, DisplayListMsg,
     },
-    styled_dom::{DomId, StyledDom},
-    ui_solver::LayoutResult,
+    styled_dom::StyledDom,
     window::{FullWindowState, LogicalSize, StringPairVec},
     xml::{get_html_node, DomXml, XmlComponentMap, XmlNode},
 };
 use azul_css::{
-    parser::{CssApiWrapper, CssParseWarnMsgOwned},
-    BorderStyle, ColorU, Css, CssDeclaration, CssProperty, FloatValue,
+    css::{Css, CssDeclaration},
+    parser2::{CssApiWrapper, CssParseWarnMsgOwned},
+    props::{
+        property::CssProperty,
+    },
 };
 use azul_layout::{
-    cpurender::RenderOptions,
     xml::{domxml_from_str, parse_xml_string},
 };
 use base64::Engine;
-use image::{self, DynamicImage, GenericImageView, RgbaImage};
+use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
 const WIDTH: u32 = 800;
@@ -141,7 +138,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
             }
         };
 
-        let dpi_factor = (chrome_w as f32 / WIDTH as f32).max((chrome_h as f32 / HEIGHT as f32));
+        let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
 
         // Generate Azul rendering
         let mut debug_data = None;
@@ -429,13 +426,6 @@ fn styled_dom_to_png_with_debug(
 ) -> anyhow::Result<(Vec<String>, u64, u64)> {
     let start_time_layout = std::time::Instant::now();
 
-    // Create document ID and epoch for layout
-    let document_id = DocumentId {
-        namespace_id: IdNamespace(0),
-        id: 0,
-    };
-    let epoch = Epoch::new();
-
     // Create window state for layout
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = LogicalSize {
@@ -448,54 +438,27 @@ fn styled_dom_to_png_with_debug(
     let mut renderer_resources = azul_core::app_resources::RendererResources::default();
     let image_cache = ImageCache::default();
 
-    // Solve layout with debug information
-    let (layout_result, debug_msg) = solve_layout_with_debug(
+    // Solve layout with debug information (solver3)
+    let (display_list, debug_msg) = solve_layout_with_debug(
         styled_dom.clone(),
-        document_id,
-        epoch,
         &fake_window_state,
         &mut renderer_resources,
         debug_collector,
     )?;
 
-    // Get the cached display list
-    let dom_id = DomId { inner: 0 };
-    let mut cached_display_list = LayoutResult::get_cached_display_list(
-        &document_id,
-        dom_id,
-        epoch,
-        &[layout_result],
-        &fake_window_state,
-        &azul_core::app_resources::GlTextureCache::default(),
-        &renderer_resources,
-        &image_cache,
-    );
-
-    cached_display_list.scale_for_dpi(dpi_factor);
-
     // Capture display list for debugging
-    let display_list_debug = format_display_list_for_debug(&cached_display_list);
+    let display_list_debug = format_display_list_for_debug_solver3(&display_list);
     debug_collector.set_display_list_debug_info(display_list_debug);
 
     let layout_time_ms = start_time_layout.elapsed().as_millis() as u64;
 
     let start_time_render = std::time::Instant::now();
 
-    // actually render the image
-    let pixmap = azul_layout::cpurender::render(
-        &cached_display_list,
-        &renderer_resources,
-        RenderOptions {
-            width: width as f32,
-            height: height as f32,
-            dpi_factor,
-        },
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-    let width = pixmap.width();
-    let height = pixmap.height();
-    let pixmap_data = pixmap.data().to_vec();
+    // TODO: Implement rendering for solver3 DisplayList
+    // The old cpurender module worked with CachedDisplayList
+    // Need to create a new renderer that works with DisplayList3
+    // For now, create a placeholder black image
+    let pixmap_data = vec![0u8; (width * height * 4) as usize]; // RGBA black
 
     let rendering_time_ms = start_time_render.elapsed().as_millis() as u64;
 
@@ -1265,94 +1228,102 @@ impl DebugDataCollector {
 }
 
 /// Wrapper around layout solving that captures debug information
+/// Uses the new solver3 + text3 layout engine
 pub fn solve_layout_with_debug(
     styled_dom: StyledDom,
-    document_id: DocumentId,
-    epoch: Epoch,
     fake_window_state: &FullWindowState,
-    renderer_resources: &mut RendererResources,
+    _renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
-) -> anyhow::Result<(LayoutResult, Vec<String>)> {
+) -> anyhow::Result<(azul_layout::solver3::display_list::DisplayList, Vec<String>)> {
     use std::fmt::Write;
-    // Create resources for layout
-    let fc_cache = azul_layout::font::loading::build_font_cache();
-    let image_cache = ImageCache::default();
-    let callbacks = RenderCallbacks {
-        insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
-        layout_fn: azul_layout::solver2::do_the_layout,
-        load_font_fn: azul_layout::font::loading::font_source_get_bytes_load_outlines,
-        parse_font_fn: azul_layout::parse_font_fn,
+    use std::collections::BTreeMap;
+    use azul_core::window::LogicalRect;
+    
+    // Create caches for layout and text
+    let mut layout_cache = azul_layout::Solver3LayoutCache {
+        tree: None,
+        absolute_positions: BTreeMap::new(),
+        viewport: None,
     };
-
-    // Solve the layout
-    let mut resource_updates = Vec::new();
-    let mut debug = Some(Vec::new());
-    let id_namespace = IdNamespace(0);
-
+    let mut text_cache = azul_layout::TextLayoutCache::new();
+    
+    // Create font manager
+    let fc_cache = azul_layout::font::loading::build_font_cache();
+    let font_manager = azul_layout::FontManager::new(fc_cache)?;
+    
+    // Prepare viewport
+    let viewport = LogicalRect {
+        origin: azul_core::window::LogicalPosition::new(0.0, 0.0),
+        size: fake_window_state.size.dimensions,
+    };
+    
+    // Prepare scroll offsets and selections (empty for reftests)
+    let scroll_offsets = BTreeMap::new();
+    let selections = BTreeMap::new();
+    
+    // Prepare debug messages
+    let mut debug_messages = Some(Vec::new());
+    
     // Start timer
     let start = std::time::Instant::now();
-
-    let mut solved_layout = azul_core::display_list::SolvedLayout::new(
+    
+    // Call solver3 layout engine
+    let display_list = azul_layout::layout_document(
+        &mut layout_cache,
+        &mut text_cache,
         styled_dom,
-        epoch,
-        &document_id,
-        fake_window_state,
-        &mut resource_updates,
-        id_namespace,
-        &image_cache,
-        &fc_cache,
-        &callbacks,
-        renderer_resources,
-        DpiScaleFactor {
-            inner: FloatValue::new(fake_window_state.size.get_hidpi_factor()),
-        },
-        &mut debug,
-    );
-
+        viewport,
+        &font_manager,
+        &scroll_offsets,
+        &selections,
+        &mut debug_messages,
+    )?;
+    
     // End timer
     let elapsed = start.elapsed();
-
+    
     // Collect layout warnings
-    let mut layout_warnings = Vec::new();
-    if solved_layout.layout_results.is_empty() {
-        layout_warnings.push("Failed to solve layout, using empty layout result".to_string());
-    }
-
+    let warnings = debug_messages
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| format!("{}: {}", s.location, s.message))
+        .collect();
+    
     // Capture layout statistics
     let mut layout_stats = String::new();
     writeln!(layout_stats, "Layout Statistics").unwrap();
     writeln!(layout_stats, "=================").unwrap();
     writeln!(layout_stats, "Layout time: {:?}", elapsed).unwrap();
-    writeln!(layout_stats, "Resource updates: {}", resource_updates.len()).unwrap();
-
-    if let Some(debug_vec) = &debug {
-        writeln!(layout_stats, "Debug events: {}", debug_vec.len()).unwrap();
-    }
-
-    // Collect layout information
-    if !solved_layout.layout_results.is_empty() {
-        let layout_result = &solved_layout.layout_results[0];
-        debug_collector.set_layout_debug_info(layout_result.print_layout_rects(true), layout_stats);
-    } else {
-        debug_collector
-            .set_layout_debug_info("No layout results available".to_string(), layout_stats);
-    }
-
-    let lr = if solved_layout.layout_results.is_empty() {
-        Err(anyhow::anyhow!("No layout results available"))
-    } else {
-        Ok(solved_layout.layout_results.remove(0))
-    }?;
-
-    let warnings = debug
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| format!("{}: {}", s.location, s.message))
-        .collect();
-    Ok((lr, warnings))
+    writeln!(layout_stats, "Display list items: {}", display_list.items.len()).unwrap();
+    
+    debug_collector.set_layout_debug_info(
+        format!("Display list with {} items", display_list.items.len()),
+        layout_stats
+    );
+    
+    Ok((display_list, warnings))
 }
 
+// Old solve_layout_with_debug that returned LayoutResult - removed
+// The new version returns DisplayList directly from solver3
+
 /// Format the display list for debugging
+pub fn format_display_list_for_debug_solver3(display_list: &azul_layout::DisplayList3) -> String {
+    use std::fmt::Write;
+    let mut output = String::new();
+
+    writeln!(output, "Display List (solver3)").unwrap();
+    writeln!(output, "=============").unwrap();
+    writeln!(output, "Items: {}", display_list.items.len()).unwrap();
+    
+    for (idx, item) in display_list.items.iter().enumerate() {
+        writeln!(output, "  [{}] {:?}", idx, item).unwrap();
+    }
+
+    output
+}
+
+/// Format the display list for debugging (old solver2 version, kept for compatibility)
 pub fn format_display_list_for_debug(display_list: &CachedDisplayList) -> String {
     use std::fmt::Write;
     let mut output = String::new();

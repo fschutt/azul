@@ -411,50 +411,14 @@ impl_pixel_value_fmt!(LayoutLeft);
 impl_pixel_value_fmt!(LayoutColumnGap);
 impl_pixel_value_fmt!(LayoutRowGap);
 
-macro_rules! impl_grid_value_fmt {
-    ($struct_name:ident) => {
-        impl FormatAsRustCode for $struct_name {
-            fn format_as_rust_code(&self, _tabs: usize) -> String {
-                format!("{} {{ /* TODO */ }}", stringify!($struct_name))
-            }
-        }
-    };
-}
-
 impl_grid_value_fmt!(GridTemplate);
 impl_grid_value_fmt!(GridPlacement);
-
-macro_rules! impl_color_value_fmt {
-    ($struct_name:ty) => {
-        impl FormatAsRustCode for $struct_name {
-            fn format_as_rust_code(&self, _tabs: usize) -> String {
-                format!(
-                    "{} {{ inner: {} }}",
-                    stringify!($struct_name),
-                    format_color_value(&self.inner)
-                )
-            }
-        }
-    };
-}
 
 impl_color_value_fmt!(StyleTextColor);
 impl_color_value_fmt!(StyleBorderTopColor);
 impl_color_value_fmt!(StyleBorderLeftColor);
 impl_color_value_fmt!(StyleBorderRightColor);
 impl_color_value_fmt!(StyleBorderBottomColor);
-
-macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
-    impl FormatAsRustCode for $enum_name {
-        fn format_as_rust_code(&self, _tabs: usize) -> String {
-            match self {
-                $(
-                    $enum_name::$enum_type => String::from(concat!(stringify!($enum_name), "::", stringify!($enum_type))),
-                )+
-            }
-        }
-    }
-)}
 
 impl_enum_fmt!(
     StyleMixBlendMode,
@@ -578,6 +542,8 @@ impl_enum_fmt!(
     LayoutJustifyContent,
     Start,
     End,
+    FlexStart,
+    FlexEnd,
     Center,
     SpaceBetween,
     SpaceAround,
@@ -597,8 +563,6 @@ impl_enum_fmt!(
 );
 
 impl_enum_fmt!(Shape, Circle, Ellipse);
-
-impl_enum_fmt!(LayoutPosition, Static, Fixed, Absolute, Relative);
 
 impl_enum_fmt!(LayoutOverflow, Auto, Scroll, Visible, Hidden, Clip);
 

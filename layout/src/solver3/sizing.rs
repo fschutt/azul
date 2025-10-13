@@ -29,8 +29,9 @@ use crate::{
     parsedfont::ParsedFont,
     solver3::{
         geometry::{BoxProps, BoxSizing, CssSize, DisplayType, IntrinsicSizes},
-        layout_tree::{AnonymousBoxType, LayoutTree},
+        layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
         positioning::{get_position_type, PositionType},
+        getters::get_writing_mode,
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
@@ -39,6 +40,7 @@ use crate::{
         StyleProperties, StyledRun, UnifiedConstraints,
     },
 };
+use crate::solver3::fc::{get_display_property, get_style_properties};
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
@@ -133,7 +135,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        let writing_mode = get_writing_mode(node.dom_node_id);
+    let writing_mode = get_writing_mode_opt(self.ctx.styled_dom, node.dom_node_id);
 
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
@@ -363,13 +365,43 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     // Then calculate this node's intrinsic size based on its children
-    let intrinsic = calculate_node_intrinsic_sizes(ctx, &node, &child_intrinsics)?;
+    let intrinsic = calculate_node_intrinsic_sizes_stub(ctx, &node, &child_intrinsics);
 
     if let Some(n) = tree.get_mut(node_index) {
         n.intrinsic_sizes = Some(intrinsic.clone());
     }
 
     Ok(intrinsic)
+}
+
+/// STUB: Calculates intrinsic sizes for a node based on its children
+/// TODO: Implement proper intrinsic size calculation logic
+fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    _ctx: &LayoutContext<T, Q>,
+    _node: &LayoutNode<T>,
+    child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+) -> IntrinsicSizes {
+    // Simple stub: aggregate children's sizes
+    let mut max_width: f32 = 0.0;
+    let mut max_height: f32 = 0.0;
+    let mut total_width: f32 = 0.0;
+    let mut total_height: f32 = 0.0;
+    
+    for intrinsic in child_intrinsics.values() {
+        max_width = max_width.max(intrinsic.max_content_width);
+        max_height = max_height.max(intrinsic.max_content_height);
+        total_width += intrinsic.max_content_width;
+        total_height += intrinsic.max_content_height;
+    }
+    
+    IntrinsicSizes {
+        min_content_width: total_width.min(max_width),
+        min_content_height: total_height.min(max_height),
+        max_content_width: max_width.max(total_width),
+        max_content_height: max_height.max(total_height),
+        preferred_width: None,
+        preferred_height: None,
+    }
 }
 
 /// Calculates the used size of a single node based on its CSS properties and
@@ -392,7 +424,7 @@ pub fn calculate_used_size_for_node(
 ) -> Result<LogicalSize> {
     let css_width = get_css_width(styled_dom, dom_id);
     let css_height = get_css_height(styled_dom, dom_id);
-    let writing_mode = get_writing_mode(styled_dom, dom_id);
+    let writing_mode = get_writing_mode_opt(styled_dom, dom_id);
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
@@ -474,82 +506,60 @@ fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str
     }
 }
 
-fn get_css_property_value<T: Clone>(
-    styled_dom: &StyledDom,
-    dom_id: Option<NodeId>,
-    property: CssProperty,
-    extractor: fn(&CssPropertyValue<T>) -> Option<T>,
-) -> Option<T> {
-    let Some(id) = dom_id else {
-        return None;
-    };
-    let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) else {
-        return None;
-    };
-    styled_node
-        .state
-        .get_style()
-        .get(&property)
-        .and_then(extractor)
-}
-
 // TODO: STUB: Functions to simulate reading computed CSS values.
 pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
     let Some(id) = dom_id else {
         return CssSize::Auto;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(prop) = styled_node.state.get_style().get(&CssPropertyType::Width) {
-            if let Some(val) = prop.get_exact() {
-                return match val {
-                    PixelValue::Px(px) => CssSize::Px(*px),
-                    PixelValue::Percent(p) => CssSize::Percent(*p),
-                };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_width(node_data, &id, node_state)
+        .and_then(|w| w.get_property().map(|inner| {
+            // inner.inner is a PixelValue; check for percent first
+            if let Some(frac) = inner.inner.to_percent() {
+                CssSize::Percent(frac * 100.0)
+            } else {
+                CssSize::Px(inner.inner.to_pixels(0.0))
             }
-        }
-    }
-    CssSize::Auto
+        }))
+        .unwrap_or(CssSize::Auto)
 }
 
 pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
     let Some(id) = dom_id else {
         return CssSize::Auto;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(prop) = styled_node.state.get_style().get(&CssPropertyType::Height) {
-            if let Some(val) = prop.get_exact() {
-                return match val {
-                    PixelValue::Px(px) => CssSize::Px(*px),
-                    PixelValue::Percent(p) => CssSize::Percent(*p),
-                };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_height(node_data, &id, node_state)
+        .and_then(|h| h.get_property().map(|inner| {
+            if let Some(frac) = inner.inner.to_percent() {
+                CssSize::Percent(frac * 100.0)
+            } else {
+                CssSize::Px(inner.inner.to_pixels(0.0))
             }
-        }
-    }
-    CssSize::Auto
+        }))
+        .unwrap_or(CssSize::Auto)
 }
 
-fn get_box_props(dom_id: Option<NodeId>) -> BoxProps {
-    BoxProps::default()
-}
-
-fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
+fn get_writing_mode_opt(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
+    use crate::solver3::cache::to_writing_mode;
     let Some(id) = dom_id else {
         return WritingMode::HorizontalTb;
     };
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(id) {
-        if let Some(prop) = styled_node
-            .state
-            .get_style()
-            .get(&CssPropertyType::WritingMode)
-        {
-            if let Some(val) = prop.get_exact() {
-                return match val {
-                    LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
-                    LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
-                    LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
-                };
-            }
-        }
-    }
-    WritingMode::HorizontalTb
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_writing_mode(node_data, &id, node_state)
+        .and_then(|wm| wm.get_property_or_default())
+        .map(|wm| to_writing_mode(wm))
+        .unwrap_or(WritingMode::HorizontalTb)
 }

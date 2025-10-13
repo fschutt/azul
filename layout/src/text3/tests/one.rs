@@ -451,7 +451,7 @@ fn test_justification_inter_word() {
 
     let constraints = UnifiedConstraints {
         available_width: 100.0,
-        justify_content: JustifyContent::InterWord,
+        text_justify: JustifyContent::InterWord,
         text_align: TextAlign::Justify, // Important!
         ..Default::default()
     };

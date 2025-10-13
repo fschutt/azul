@@ -37,7 +37,7 @@ extern "C" fn myOnClick(data: &mut RefAny, _: &mut CallbackInfo) -> Update {
 
 fn main() {
     let data = DataModel { counter: 0 };
-    let config = AppConfig::new(LayoutSolver::Default);
+    let config = AppConfig::new();
     let app = App::new(RefAny::new(data), config);
     let window = WindowCreateOptions::new(myLayoutFunc);
     app.run(window);

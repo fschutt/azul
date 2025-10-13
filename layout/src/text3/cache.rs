@@ -11,9 +11,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub use azul_core::selection::{ContentIndex, GraphemeClusterId};
 use azul_core::{
     display_list::GlyphInstance,
-    window::{LogicalPosition, LogicalSize},
+    selection::{CursorAffinity, SelectionRange, TextCursor},
+    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::props::basic::ColorU;
 use hyphenation::{Hyphenator, Language, Load, Standard};
@@ -168,7 +170,7 @@ pub struct UnifiedConstraints {
     pub writing_mode: Option<WritingMode>,
     pub text_orientation: TextOrientation,
     pub text_align: TextAlign,
-    pub justify_content: JustifyContent,
+    pub text_justify: JustifyContent,
     pub line_height: f32,
     pub vertical_align: VerticalAlign,
 
@@ -202,7 +204,7 @@ impl Default for UnifiedConstraints {
             writing_mode: None,
             text_orientation: TextOrientation::default(),
             text_align: TextAlign::default(),
-            justify_content: JustifyContent::default(),
+            text_justify: JustifyContent::default(),
             line_height: 16.0, // A more sensible default
             vertical_align: VerticalAlign::default(),
             overflow: OverflowBehavior::default(),
@@ -234,7 +236,7 @@ impl Hash for UnifiedConstraints {
         self.writing_mode.hash(state);
         self.text_orientation.hash(state);
         self.text_align.hash(state);
-        self.justify_content.hash(state);
+        self.text_justify.hash(state);
         (self.line_height.round() as usize).hash(state);
         self.vertical_align.hash(state);
         self.overflow.hash(state);
@@ -261,7 +263,7 @@ impl PartialEq for UnifiedConstraints {
             && self.writing_mode == other.writing_mode
             && self.text_orientation == other.text_orientation
             && self.text_align == other.text_align
-            && self.justify_content == other.justify_content
+            && self.text_justify == other.text_justify
             && round_eq(self.line_height, other.line_height)
             && self.vertical_align == other.vertical_align
             && self.overflow == other.overflow
@@ -1818,29 +1820,6 @@ pub enum GlyphKind {
     },
 }
 
-/// A stable, logical pointer to an item within the original `InlineContent` array.
-///
-/// This eliminates the need for string concatenation and byte-offset math.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ContentIndex {
-    /// The index of the `InlineContent` run in the original input array.
-    pub run_index: u32,
-    /// The index of the character or item *within* that run.
-    pub item_index: u32,
-}
-
-/// A stable, logical identifier for a grapheme cluster.
-///
-/// This survives Bidi reordering and line breaking, making it ideal for tracking
-/// text positions for selection and cursor logic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct GraphemeClusterId {
-    /// The `run_index` from the source `ContentIndex`.
-    pub source_run: u32,
-    /// The byte index of the start of the cluster in its original `StyledRun`.
-    pub start_byte_in_run: u32,
-}
-
 // --- Stage 1: Logical Representation ---
 
 #[derive(Debug, Clone)]
@@ -1983,6 +1962,39 @@ impl<T: ParsedFontTrait> ShapedItem<T> {
             _ => None,
         }
     }
+        /// Returns the bounding box of the item, relative to its own origin.
+    ///
+    /// The origin of the returned `Rect` is `(0,0)`, representing the top-left corner
+    /// of the item's layout space before final positioning. The size represents the
+    /// item's total advance (width in horizontal mode) and its line height (ascent + descent).
+    pub fn bounds(&self) -> Rect {
+        match self {
+            ShapedItem::Cluster(cluster) => {
+                // The width of a text cluster is its total advance.
+                let width = cluster.advance;
+                
+                // The height is the sum of its ascent and descent, which defines its line box.
+                // We use the existing helper function which correctly calculates this from font metrics.
+                let (ascent, descent) = get_item_vertical_metrics(self);
+                let height = ascent + descent;
+
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width,
+                    height,
+                }
+            }
+            // For atomic inline items like objects, combined blocks, and tabs,
+            // their bounds have already been calculated during the shaping or measurement phase.
+            ShapedItem::CombinedBlock { bounds, .. } => *bounds,
+            ShapedItem::Object { bounds, .. } => *bounds,
+            ShapedItem::Tab { bounds, .. } => *bounds,
+            
+            // Breaks are control characters and have no visual geometry.
+            ShapedItem::Break { .. } => Rect::default(), // A zero-sized rectangle.
+        }
+    }
 }
 
 /// A group of glyphs that corresponds to one or more source characters (a cluster).
@@ -2080,6 +2092,420 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
             .iter()
             .rev()
             .find_map(|item| get_baseline_for_item(&item.item))
+    }
+
+    /// Takes a point relative to the layout's origin and returns the closest
+    /// logical cursor position.
+    pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
+        // Find the line that contains the point's Y coordinate.
+        let target_line = self
+            .items
+            .iter()
+            .filter(|item| {
+                item.position.y <= point.y && point.y < item.position.y + item.item.bounds().height
+            })
+            .min_by(|a, b| {
+                (a.position.y - point.y)
+                    .abs()
+                    .partial_cmp(&(b.position.y - point.y).abs())
+                    .unwrap_or(Ordering::Equal)
+            });
+
+        let target_line_idx = match target_line {
+            Some(item) => item.line_index,
+            None => return None, // No line at this y-coordinate
+        };
+
+        let items_on_line: Vec<_> = self
+            .items
+            .iter()
+            .filter(|i| i.line_index == target_line_idx)
+            .collect();
+        if items_on_line.is_empty() {
+            return None;
+        }
+
+        // Find the item on the line that contains the point's X coordinate
+        let target_item = items_on_line.iter().min_by(|a, b| {
+            (a.position.x - point.x)
+                .abs()
+                .partial_cmp(&(b.position.x - point.x).abs())
+                .unwrap_or(Ordering::Equal)
+        })?;
+
+        let cluster = match &target_item.item {
+            ShapedItem::Cluster(c) => c,
+            // Objects are treated as a single cluster for selection
+            ShapedItem::Object { source, .. } | ShapedItem::CombinedBlock { source, .. } => {
+                return Some(TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: source.run_index,
+                        start_byte_in_run: source.item_index,
+                    },
+                    affinity: if point.x
+                        < target_item.position.x + (target_item.item.bounds().width / 2.0)
+                    {
+                        CursorAffinity::Leading
+                    } else {
+                        CursorAffinity::Trailing
+                    },
+                });
+            }
+            _ => return None,
+        };
+
+        // Find the specific glyph within the cluster
+        let mut pen_x = target_item.position.x;
+        for glyph in &cluster.glyphs {
+            let glyph_end_x = pen_x + glyph.advance;
+            if point.x >= pen_x && point.x <= glyph_end_x {
+                return Some(TextCursor {
+                    cluster_id: cluster.source_cluster_id,
+                    affinity: if point.x < pen_x + (glyph.advance / 2.0) {
+                        CursorAffinity::Leading
+                    } else {
+                        CursorAffinity::Trailing
+                    },
+                });
+            }
+            pen_x = glyph_end_x;
+        }
+
+        // If not inside any glyph, snap to the start or end of the cluster
+        Some(TextCursor {
+            cluster_id: cluster.source_cluster_id,
+            affinity: if point.x < target_item.position.x {
+                CursorAffinity::Leading
+            } else {
+                CursorAffinity::Trailing
+            },
+        })
+    }
+
+    /// Given a logical selection range, returns a vector of visual rectangles
+    /// that cover the selected text, in the layout's coordinate space.
+    pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
+        // 1. Build a map from the logical cluster ID to the visual PositionedItem for fast lookups.
+        let mut cluster_map: HashMap<GraphemeClusterId, &PositionedItem<T>> = HashMap::new();
+        for item in &self.items {
+            if let Some(cluster) = item.item.as_cluster() {
+                cluster_map.insert(cluster.source_cluster_id, item);
+            }
+        }
+
+        // 2. Normalize the range to ensure start always logically precedes end.
+        let (start_cursor, end_cursor) = if range.start.cluster_id > range.end.cluster_id
+            || (range.start.cluster_id == range.end.cluster_id
+                && range.start.affinity > range.end.affinity)
+        {
+            (range.end, range.start)
+        } else {
+            (range.start, range.end)
+        };
+
+        // 3. Find the positioned items corresponding to the start and end of the selection.
+        let Some(start_item) = cluster_map.get(&start_cursor.cluster_id) else {
+            return Vec::new();
+        };
+        let Some(end_item) = cluster_map.get(&end_cursor.cluster_id) else {
+            return Vec::new();
+        };
+
+        let mut rects = Vec::new();
+
+        // Helper to get the absolute visual X coordinate of a cursor.
+        let get_cursor_x = |item: &PositionedItem<T>, affinity: CursorAffinity| -> f32 {
+            match affinity {
+                CursorAffinity::Leading => item.position.x,
+                CursorAffinity::Trailing => item.position.x + get_item_measure(&item.item, false),
+            }
+        };
+
+        // Helper to get the visual bounding box of all content on a specific line index.
+        let get_line_bounds = |line_index: usize| -> Option<LogicalRect> {
+            let items_on_line = self.items.iter().filter(|i| i.line_index == line_index);
+
+            let mut min_x: Option<f32> = None;
+            let mut max_x: Option<f32> = None;
+            let mut min_y: Option<f32> = None;
+            let mut max_y: Option<f32> = None;
+
+            for item in items_on_line {
+                // Skip items that don't take up space (like hard breaks)
+                let item_bounds = item.item.bounds();
+                if item_bounds.width <= 0.0 && item_bounds.height <= 0.0 {
+                    continue;
+                }
+
+                let item_x_end = item.position.x + item_bounds.width;
+                let item_y_end = item.position.y + item_bounds.height;
+
+                min_x = Some(min_x.map_or(item.position.x, |mx| mx.min(item.position.x)));
+                max_x = Some(max_x.map_or(item_x_end, |mx| mx.max(item_x_end)));
+                min_y = Some(min_y.map_or(item.position.y, |my| my.min(item.position.y)));
+                max_y = Some(max_y.map_or(item_y_end, |my| my.max(item_y_end)));
+            }
+
+            if let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) =
+                (min_x, max_x, min_y, max_y)
+            {
+                Some(LogicalRect {
+                    origin: LogicalPosition { x: min_x, y: min_y },
+                    size: LogicalSize {
+                        width: max_x - min_x,
+                        height: max_y - min_y,
+                    },
+                })
+            } else {
+                None
+            }
+        };
+
+        // 4. Handle single-line selection.
+        if start_item.line_index == end_item.line_index {
+            if let Some(line_bounds) = get_line_bounds(start_item.line_index) {
+                let start_x = get_cursor_x(start_item, start_cursor.affinity);
+                let end_x = get_cursor_x(end_item, end_cursor.affinity);
+
+                // Use min/max and abs to correctly handle selections made from right-to-left.
+                rects.push(LogicalRect {
+                    origin: LogicalPosition {
+                        x: start_x.min(end_x),
+                        y: line_bounds.origin.y,
+                    },
+                    size: LogicalSize {
+                        width: (end_x - start_x).abs(),
+                        height: line_bounds.size.height,
+                    },
+                });
+            }
+        }
+        // 5. Handle multi-line selection.
+        else {
+            // Rectangle for the start line (from cursor to end of line).
+            if let Some(start_line_bounds) = get_line_bounds(start_item.line_index) {
+                let start_x = get_cursor_x(start_item, start_cursor.affinity);
+                let line_end_x = start_line_bounds.origin.x + start_line_bounds.size.width;
+                rects.push(LogicalRect {
+                    origin: LogicalPosition {
+                        x: start_x,
+                        y: start_line_bounds.origin.y,
+                    },
+                    size: LogicalSize {
+                        width: line_end_x - start_x,
+                        height: start_line_bounds.size.height,
+                    },
+                });
+            }
+
+            // Rectangles for all full lines in between.
+            for line_idx in (start_item.line_index + 1)..end_item.line_index {
+                if let Some(line_bounds) = get_line_bounds(line_idx) {
+                    rects.push(line_bounds);
+                }
+            }
+
+            // Rectangle for the end line (from start of line to cursor).
+            if let Some(end_line_bounds) = get_line_bounds(end_item.line_index) {
+                let line_start_x = end_line_bounds.origin.x;
+                let end_x = get_cursor_x(end_item, end_cursor.affinity);
+                rects.push(LogicalRect {
+                    origin: LogicalPosition {
+                        x: line_start_x,
+                        y: end_line_bounds.origin.y,
+                    },
+                    size: LogicalSize {
+                        width: end_x - line_start_x,
+                        height: end_line_bounds.size.height,
+                    },
+                });
+            }
+        }
+
+        rects
+    }
+
+    /// Calculates the visual rectangle for a cursor at a given logical position.
+    pub fn get_cursor_rect(&self, cursor: &TextCursor) -> Option<LogicalRect> {
+        // Find the item and glyph corresponding to the cursor's cluster ID.
+        for item in &self.items {
+            if let ShapedItem::Cluster(cluster) = &item.item {
+                if cluster.source_cluster_id == cursor.cluster_id {
+                    // This is the correct cluster. Now find the position.
+                    let line_height = item.item.bounds().height;
+                    let cursor_x = match cursor.affinity {
+                        CursorAffinity::Leading => item.position.x,
+                        CursorAffinity::Trailing => item.position.x + cluster.advance,
+                    };
+                    return Some(LogicalRect {
+                        origin: LogicalPosition {
+                            x: cursor_x,
+                            y: item.position.y,
+                        },
+                        size: LogicalSize {
+                            width: 1.0,
+                            height: line_height,
+                        }, // 1px wide cursor
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
+    pub fn move_cursor_left(&self, cursor: TextCursor) -> TextCursor {
+        // Implementation would involve finding the current item, getting its predecessor
+        // in the visual line, and setting the new cursor. Placeholder for brevity.
+        cursor
+    }
+
+    /// Moves a cursor one visual unit to the right.
+    pub fn move_cursor_right(&self, cursor: TextCursor) -> TextCursor {
+        // Similar to move_left, but finds the successor.
+        cursor
+    }
+
+    /// Moves a cursor up one line, attempting to preserve the horizontal column.
+    pub fn move_cursor_up(&self, cursor: TextCursor, goal_x: &mut Option<f32>) -> TextCursor {
+        let Some(current_item) = self.items.iter().find(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        }) else {
+            return cursor;
+        };
+
+        let target_line_idx = current_item.line_index.saturating_sub(1);
+        if current_item.line_index == target_line_idx {
+            return cursor;
+        }
+
+        let current_x = goal_x.unwrap_or_else(|| {
+            let x = match cursor.affinity {
+                CursorAffinity::Leading => current_item.position.x,
+                CursorAffinity::Trailing => {
+                    current_item.position.x + get_item_measure(&current_item.item, false)
+                }
+            };
+            *goal_x = Some(x);
+            x
+        });
+
+        // Find the Y coordinate of the middle of the target line
+        let target_y = self
+            .items
+            .iter()
+            .find(|i| i.line_index == target_line_idx)
+            .map(|i| i.position.y + (i.item.bounds().height / 2.0))
+            .unwrap_or(current_item.position.y);
+
+        self.hittest_cursor(LogicalPosition {
+            x: current_x,
+            y: target_y,
+        })
+        .unwrap_or(cursor)
+    }
+
+    /// Moves a cursor down one line, attempting to preserve the horizontal column.
+    pub fn move_cursor_down(&self, cursor: TextCursor, goal_x: &mut Option<f32>) -> TextCursor {
+        let Some(current_item) = self.items.iter().find(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        }) else {
+            return cursor;
+        };
+
+        let max_line = self.items.iter().map(|i| i.line_index).max().unwrap_or(0);
+        let target_line_idx = (current_item.line_index + 1).min(max_line);
+        if current_item.line_index == target_line_idx {
+            return cursor;
+        }
+
+        let current_x = goal_x.unwrap_or_else(|| {
+            let x = match cursor.affinity {
+                CursorAffinity::Leading => current_item.position.x,
+                CursorAffinity::Trailing => {
+                    current_item.position.x + get_item_measure(&current_item.item, false)
+                }
+            };
+            *goal_x = Some(x);
+            x
+        });
+
+        let target_y = self
+            .items
+            .iter()
+            .find(|i| i.line_index == target_line_idx)
+            .map(|i| i.position.y + (i.item.bounds().height / 2.0))
+            .unwrap_or(current_item.position.y);
+
+        self.hittest_cursor(LogicalPosition {
+            x: current_x,
+            y: target_y,
+        })
+        .unwrap_or(cursor)
+    }
+
+    /// Moves a cursor to the visual start of its current line.
+    pub fn move_cursor_to_line_start(&self, cursor: TextCursor) -> TextCursor {
+        let Some(current_item) = self.items.iter().find(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        }) else {
+            return cursor;
+        };
+
+        let first_item_on_line = self
+            .items
+            .iter()
+            .filter(|i| i.line_index == current_item.line_index)
+            .min_by(|a, b| {
+                a.position
+                    .x
+                    .partial_cmp(&b.position.x)
+                    .unwrap_or(Ordering::Equal)
+            });
+
+        if let Some(ShapedItem::Cluster(c)) = first_item_on_line.map(|i| &i.item) {
+            return TextCursor {
+                cluster_id: c.source_cluster_id,
+                affinity: CursorAffinity::Leading,
+            };
+        }
+        cursor
+    }
+
+    /// Moves a cursor to the visual end of its current line.
+    pub fn move_cursor_to_line_end(&self, cursor: TextCursor) -> TextCursor {
+        let Some(current_item) = self.items.iter().find(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        }) else {
+            return cursor;
+        };
+
+        let last_item_on_line = self
+            .items
+            .iter()
+            .filter(|i| i.line_index == current_item.line_index)
+            .max_by(|a, b| {
+                a.position
+                    .x
+                    .partial_cmp(&b.position.x)
+                    .unwrap_or(Ordering::Equal)
+            });
+
+        if let Some(ShapedItem::Cluster(c)) = last_item_on_line.map(|i| &i.item) {
+            return TextCursor {
+                cluster_id: c.source_cluster_id,
+                affinity: CursorAffinity::Trailing,
+            };
+        }
+        cursor
     }
 }
 
@@ -3561,10 +3987,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
         }
 
         // 2. Calculate justification spacing *for this segment only*.
-        let (extra_word_spacing, extra_char_spacing) = if constraints.justify_content
+        let (extra_word_spacing, extra_char_spacing) = if constraints.text_justify
             != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
-            && constraints.justify_content != JustifyContent::Kashida
+            && constraints.text_justify != JustifyContent::Kashida
         {
             let segment_line_constraints = LineConstraints {
                 segments: vec![segment.clone()],
@@ -3573,7 +3999,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             calculate_justification_spacing(
                 &segment_items,
                 &segment_line_constraints,
-                constraints.justify_content,
+                constraints.text_justify,
                 is_vertical,
             )
         } else {
@@ -3581,7 +4007,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
 
         // Kashida justification needs to be segment-aware if used.
-        let justified_segment_items = if constraints.justify_content == JustifyContent::Kashida
+        let justified_segment_items = if constraints.text_justify == JustifyContent::Kashida
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
         {
             let segment_line_constraints = LineConstraints {
@@ -3728,7 +4154,7 @@ fn calculate_alignment_offset<T: ParsedFontTrait>(
 /// # Arguments
 /// * `items` - A slice of items on the line.
 /// * `line_constraints` - The geometric constraints for the line.
-/// * `justify_content` - The type of justification to calculate.
+/// * `text_justify` - The type of justification to calculate.
 /// * `is_vertical` - Whether the layout is vertical.
 ///
 /// # Returns
@@ -3737,7 +4163,7 @@ fn calculate_alignment_offset<T: ParsedFontTrait>(
 fn calculate_justification_spacing<T: ParsedFontTrait>(
     items: &[ShapedItem<T>],
     line_constraints: &LineConstraints,
-    justify_content: JustifyContent,
+    text_justify: JustifyContent,
     is_vertical: bool,
 ) -> (f32, f32) {
     // (extra_per_word, extra_per_char)
@@ -3753,7 +4179,7 @@ fn calculate_justification_spacing<T: ParsedFontTrait>(
 
     let extra_space = available_width - total_width;
 
-    match justify_content {
+    match text_justify {
         JustifyContent::InterWord => {
             // Count justification opportunities (spaces).
             let space_count = items.iter().filter(|item| is_word_separator(item)).count();

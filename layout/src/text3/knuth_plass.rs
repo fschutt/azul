@@ -334,7 +334,7 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
         let mut extra_per_space = 0.0;
         let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
 
-        let should_justify = constraints.justify_content != JustifyContent::None
+        let should_justify = constraints.text_justify != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll);
 
         if should_justify {

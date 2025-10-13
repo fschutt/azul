@@ -37,6 +37,14 @@ impl LayoutOverflow {
         }
     }
 
+    pub fn is_clipped(&self) -> bool {
+        matches!(self, LayoutOverflow::Hidden | LayoutOverflow::Clip)
+    }
+
+    pub fn is_scroll(&self) -> bool {
+        matches!(self, LayoutOverflow::Scroll)
+    }
+
     /// Returns `true` if the overflow type is `visible`, which is the only
     /// overflow type that doesn't clip its children.
     pub fn is_overflow_visible(&self) -> bool {

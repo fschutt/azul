@@ -20,6 +20,7 @@ pub enum LayoutPosition {
     Relative,
     Absolute,
     Fixed,
+    Sticky,
 }
 
 impl LayoutPosition {
@@ -41,9 +42,12 @@ impl PrintAsCssValue for LayoutPosition {
             LayoutPosition::Relative => "relative",
             LayoutPosition::Absolute => "absolute",
             LayoutPosition::Fixed => "fixed",
+            LayoutPosition::Sticky => "sticky",
         })
     }
 }
+
+impl_enum_fmt!(LayoutPosition, Static, Fixed, Absolute, Relative, Sticky);
 
 // -- Parser for LayoutPosition
 

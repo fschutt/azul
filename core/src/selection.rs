@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::callbacks::DomNodeId;
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.

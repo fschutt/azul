@@ -15,8 +15,7 @@ use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
-    CssProperty, CssPropertyValue, LayoutDebugMessage, LayoutDisplay, LayoutFloat, LayoutOverflow,
-    LayoutPosition,
+    corety::LayoutDebugMessage, css::CssPropertyValue, format_rust_code::GetHash, props::{layout::{LayoutFloat, LayoutOverflow, LayoutPosition}, property::CssProperty}
 };
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
 
@@ -24,6 +23,7 @@ use crate::{
     parsedfont::ParsedFont,
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
+        getters::{get_overflow_x, get_overflow_y, get_position, get_float},
         LayoutContext, Result,
     },
     text3::cache::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
@@ -284,7 +284,11 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             // Inline, TableCell, etc., have their children processed as part of their
             // formatting context layout and don't require anonymous box generation at this stage.
             _ => {
-                for child_dom_id in dom_id.children(&styled_dom.node_hierarchy.as_ref()) {
+                let children: Vec<NodeId> = dom_id
+                    .az_children(&styled_dom.node_hierarchy.as_container())
+                    .collect();
+                    
+                for child_dom_id in children {
                     self.process_node(styled_dom, child_dom_id, Some(node_idx))?;
                 }
             }
@@ -300,8 +304,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         parent_dom_id: NodeId,
         parent_idx: usize,
     ) -> Result<()> {
-        let children: Vec<_> = parent_dom_id
-            .children(&styled_dom.node_hierarchy.as_ref())
+        let children: Vec<NodeId> = parent_dom_id
+            .az_children(&styled_dom.node_hierarchy.as_container())
             .collect();
 
         let has_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
@@ -364,7 +368,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         parent_idx: usize,
     ) -> Result<()> {
         let mut row_children = Vec::new();
-        for child_id in parent_dom_id.children(&styled_dom.node_hierarchy.as_ref()) {
+        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
             let child_display = get_display_type(styled_dom, child_id);
             if child_display == DisplayType::TableCell {
                 row_children.push(child_id);
@@ -413,7 +417,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         parent_dom_id: NodeId,
         parent_idx: usize,
     ) -> Result<()> {
-        for child_id in parent_dom_id.children(&styled_dom.node_hierarchy.as_ref()) {
+        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
             let child_display = get_display_type(styled_dom, child_id);
             if child_display == DisplayType::TableCell {
                 self.process_node(styled_dom, child_id, Some(parent_idx))?;
@@ -536,11 +540,9 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 
 fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
-    if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-        styled_node.state.get_style().hash(&mut hasher);
-    }
-    if let Some(node_data) = dom.node_data.as_container().get(node_id) {
-        node_data.get_node_type().hash(&mut hasher);
+    // Use node_state flags and node_type as a reasonable surrogate for now.
+    if let Some(styled_node) = dom.node_data.as_container().get(node_id) {
+        styled_node.get_hash().hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -555,20 +557,25 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
 
 // Determines the display type of a node based on its tag and CSS properties.
 fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> DisplayType {
-    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-        if let Some(CssProperty::Display(CssPropertyValue::Exact(d))) =
-            styled_node.state.get_style().get(&CssProperty::Display)
+    if let Some(_styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
+        let node_data = &styled_dom.node_data.as_container()[node_id];
+        let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+        if let Some(d) = styled_dom
+            .css_property_cache
+            .ptr
+            .get_display(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
         {
             return match d {
-                LayoutDisplay::Table => DisplayType::Table,
-                LayoutDisplay::TableRow => DisplayType::TableRow,
-                LayoutDisplay::TableCell => DisplayType::TableCell,
-                LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
-                LayoutDisplay::Inline => DisplayType::Inline,
-                LayoutDisplay::Block => DisplayType::Block,
-                LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
-                LayoutDisplay::FlowRoot => DisplayType::FlowRoot,
-                _ => DisplayType::Block, // Default for unhandled display types
+                azul_css::props::layout::LayoutDisplay::Table => DisplayType::Table,
+                azul_css::props::layout::LayoutDisplay::TableRow => DisplayType::TableRow,
+                azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
+                azul_css::props::layout::LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
+                azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
+                azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
+                azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
+                azul_css::props::layout::LayoutDisplay::FlowRoot => DisplayType::FlowRoot,
+                _ => DisplayType::Block,
             };
         }
     }
@@ -604,33 +611,30 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     }
 
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-        let style = styled_node.state.get_style();
 
         // `overflow` other than `visible`
-        if let Some(CssProperty::OverflowX(CssPropertyValue::Exact(overflow))) =
-            style.get(&CssProperty::OverflowX)
-        {
-            if !matches!(overflow, LayoutOverflow::Visible | LayoutOverflow::Clip) {
-                return true;
-            }
+
+        let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.state);
+        if !matches!(overflow_x, LayoutOverflow::Visible | LayoutOverflow::Clip) {
+            return true;
+        }
+
+        let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.state);   
+        if !matches!(overflow_y, LayoutOverflow::Visible | LayoutOverflow::Clip) {
+            return true;
         }
 
         // `position: absolute` or `position: fixed`
-        if let Some(CssProperty::Position(CssPropertyValue::Exact(pos))) =
-            style.get(&CssProperty::Position)
-        {
-            if matches!(pos, LayoutPosition::Absolute | LayoutPosition::Fixed) {
-                return true;
-            }
+        let position = get_position(styled_dom, node_id, &styled_node.state);
+
+        if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
+            return true;
         }
 
         // `float` is not `none`
-        if let Some(CssProperty::Float(CssPropertyValue::Exact(float))) =
-            style.get(&CssProperty::Float)
-        {
-            if !matches!(float, LayoutFloat::None) {
-                return true;
-            }
+        let float = get_float(styled_dom, node_id, &styled_node.state);
+        if !matches!(float, LayoutFloat::None) {
+            return true;
         }
     }
 

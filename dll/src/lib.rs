@@ -78,22 +78,17 @@ pub extern "C" fn AzApp_deepCopy(object: &AzApp) -> AzApp {
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 pub use azul_core::app_resources::AppConfig as AzAppConfigTT;
 pub use AzAppConfigTT as AzAppConfig;
-/// Constructs a default `AppConfig`, uses the layout solver currently available
+/// Constructs a default `AppConfig`
 #[no_mangle]
-pub extern "C" fn AzAppConfig_new(layout_solver: AzLayoutSolver) -> AzAppConfig {
-    AzAppConfig::new(layout_solver)
+pub extern "C" fn AzAppConfig_new() -> AzAppConfig {
+    AzAppConfig::new()
 }
 
-/// Configuration to set which messages should be logged.
+/// Represents the log level of the application (Off, Info, Warn, Error, Trace or Debug).
 pub use azul_core::app_resources::AppLogLevel as AzAppLogLevelTT;
-/// Version of the layout solver to use - future binary versions of azul may have more fields
-/// here, necessary so that old compiled applications don't break with newer releases of azul.
-/// Newer layout versions are opt-in only.
-pub use azul_core::app_resources::LayoutSolverVersion as AzLayoutSolverTT;
 /// External system callbacks to get the system time or create / manage threads
 pub use azul_core::task::ExternalSystemCallbacks as AzSystemCallbacksTT;
 pub use AzAppLogLevelTT as AzAppLogLevel;
-pub use AzLayoutSolverTT as AzLayoutSolver;
 pub use AzSystemCallbacksTT as AzSystemCallbacks;
 /// Use the default, library-internal callbacks instead of providing your own
 #[no_mangle]
@@ -19108,13 +19103,6 @@ mod test_sizes {
                 "AzAppLogLevel"
             ),
             (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel")
-        );
-        assert_eq!(
-            (
-                Layout::new::<azul_core::app_resources::LayoutSolverVersion>(),
-                "AzLayoutSolver"
-            ),
-            (Layout::new::<AzLayoutSolver>(), "AzLayoutSolver")
         );
         assert_eq!(
             (Layout::new::<azul_core::window::Vsync>(), "AzVsync"),

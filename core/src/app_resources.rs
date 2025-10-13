@@ -57,9 +57,6 @@ impl DpiScaleFactor {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AppConfig {
-    /// Which layout model to use - used for versioning changes in the layout
-    /// solver so that upgrading azul won't break existing apps
-    pub layout_solver: LayoutSolverVersion,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -78,9 +75,8 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn new(layout_solver: LayoutSolverVersion) -> Self {
+    pub fn new() -> Self {
         Self {
-            layout_solver,
             log_level: AppLogLevel::Error,
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
@@ -90,11 +86,10 @@ impl AppConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub enum LayoutSolverVersion {
-    /// Current default layout model
-    Default,
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
