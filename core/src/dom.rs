@@ -11,21 +11,28 @@ use core::{
 
 use azul_css::{
     css::{Css, NodeTypeTag},
+    format_rust_code::GetHash,
     props::{basic::FontRef, layout::LayoutDisplay, property::CssProperty},
     AzString, OptionAzString,
 };
 
-pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
+pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{
-    callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny},
-    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
-    resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
+    callbacks::{
+        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, IFrameCallback,
+        IFrameCallbackType, OptionRefAny, RefAny,
+    },
+    id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
+    menu::Menu,
+    prop_cache::{CssPropertyCache, CssPropertyCachePtr},
+    resources::{
+        image_ref_get_hash, CoreImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources,
+    },
     styled_dom::{
-        CssPropertyCache, CssPropertyCachePtr, NodeHierarchyItemId, StyleFontFamilyHash, StyledDom,
-        StyledNode, StyledNodeState,
+        NodeHierarchyItemId, StyleFontFamilyHash, StyledDom, StyledNode, StyledNodeState,
     },
     ui_solver::FormattingContext,
-    window::{Menu, OptionVirtualKeyCodeCombo},
+    window::OptionVirtualKeyCodeCombo,
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -902,39 +909,6 @@ pub struct IFrameNode {
     pub data: RefAny,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct CallbackData {
-    pub event: EventFilter,
-    pub callback: Callback,
-    pub data: RefAny,
-}
-
-impl_vec!(CallbackData, CallbackDataVec, CallbackDataVecDestructor);
-impl_vec_clone!(CallbackData, CallbackDataVec, CallbackDataVecDestructor);
-impl_vec_mut!(CallbackData, CallbackDataVec);
-impl_vec_debug!(CallbackData, CallbackDataVec);
-impl_vec_partialord!(CallbackData, CallbackDataVec);
-impl_vec_ord!(CallbackData, CallbackDataVec);
-impl_vec_partialeq!(CallbackData, CallbackDataVec);
-impl_vec_eq!(CallbackData, CallbackDataVec);
-impl_vec_hash!(CallbackData, CallbackDataVec);
-
-impl CallbackDataVec {
-    #[inline]
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CallbackData> {
-        NodeDataContainerRef {
-            internal: self.as_ref(),
-        }
-    }
-    #[inline]
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, CallbackData> {
-        NodeDataContainerRefMut {
-            internal: self.as_mut(),
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IdOrClass {
@@ -1101,8 +1075,10 @@ pub struct NodeData {
     /// Stores all ids and classes as one vec - size optimization since
     /// most nodes don't have any classes or IDs
     pub(crate) ids_and_classes: IdOrClassVec,
+    /// Callbacks attached to this node:
+    ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    pub(crate) callbacks: CallbackDataVec,
+    pub(crate) callbacks: CoreCallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
     /// Tab index (commonly used property)
@@ -1477,7 +1453,7 @@ impl NodeData {
             node_type,
             dataset: OptionRefAny::None,
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
-            callbacks: CallbackDataVec::from_const_slice(&[]),
+            callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
             tab_index: OptionTabIndex::None,
             extra: None,
@@ -1576,7 +1552,7 @@ impl NodeData {
         &self.ids_and_classes
     }
     #[inline(always)]
-    pub const fn get_callbacks(&self) -> &CallbackDataVec {
+    pub const fn get_callbacks(&self) -> &CoreCallbackDataVec {
         &self.callbacks
     }
     #[inline(always)]
@@ -1618,7 +1594,7 @@ impl NodeData {
         self.ids_and_classes = ids_and_classes;
     }
     #[inline(always)]
-    pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) {
+    pub fn set_callbacks(&mut self, callbacks: CoreCallbackDataVec) {
         self.callbacks = callbacks;
     }
     #[inline(always)]
@@ -1661,14 +1637,14 @@ impl NodeData {
     }
 
     #[inline]
-    pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType) {
-        let mut v: CallbackDataVec = Vec::new().into();
+    pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType) {
+        let mut v: CoreCallbackDataVec = Vec::new().into();
         mem::swap(&mut v, &mut self.callbacks);
         let mut v = v.into_library_owned_vec();
-        v.push(CallbackData {
+        v.push(CoreCallbackData {
             event,
             data,
-            callback: Callback { cb: callback },
+            callback: CoreCallback { cb: callback },
         });
         self.callbacks = v.into();
     }
@@ -1746,7 +1722,7 @@ impl NodeData {
         self
     }
     #[inline(always)]
-    pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self {
+    pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
         self.callbacks = callbacks;
         self
     }
@@ -1799,10 +1775,10 @@ impl NodeData {
 
     pub fn get_render_image_callback_node<'a>(
         &'a mut self,
-    ) -> Option<(&'a mut ImageCallback, ImageRefHash)> {
+    ) -> Option<(&'a mut CoreImageCallback, ImageRefHash)> {
         match &mut self.node_type {
             NodeType::Image(img) => {
-                let hash = img.get_hash();
+                let hash = image_ref_get_hash(&img);
                 img.get_image_callback_mut().map(|r| (r, hash))
             }
             _ => None,
@@ -1988,7 +1964,7 @@ impl Dom {
         self
     }
     #[inline(always)]
-    pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self {
+    pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
         self.root.callbacks = callbacks;
         self
     }

@@ -8,6 +8,7 @@ use core::{
 };
 
 use azul_css::{
+    format_rust_code::GetHash,
     props::basic::{
         ColorU, FloatValue, FontRef, LayoutRect, LayoutSize, StyleFontFamily, StyleFontFamilyVec,
         StyleFontSize,
@@ -18,23 +19,60 @@ use azul_css::{
 // structure
 use rust_fontconfig::FcFontCache;
 
+// Re-export Core* callback types for public use
+pub use crate::callbacks::{
+    CoreImageCallback, CoreRenderImageCallback, CoreRenderImageCallbackType,
+};
 use crate::{
-    callbacks::{
-        DocumentId, DomNodeId, RefAny, RenderImageCallback, RenderImageCallbackType,
-        UpdateImageType,
-    },
+    callbacks::{DocumentId, DomNodeId, IFrameCallback, RefAny, UpdateImageType},
     dom::{NodeData, NodeType},
     gl::{OptionGlContextPtr, Texture},
-    id_tree::NodeId,
+    id::NodeId,
+    prop_cache::CssPropertyCache,
     styled_dom::{
-        CssPropertyCache, DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash,
-        StyledDom, StyledNodeState,
+        DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
+        StyledNodeState,
     },
-    task::ExternalSystemCallbacks,
     ui_solver::GlyphInstance,
-    window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize, OptionChar},
+    window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
     FastBTreeSet, FastHashMap,
 };
+
+// ============================================================================
+// STUB TYPES - These types have been moved to azul-layout but are still
+// referenced in legacy code. They are defined here as stubs to allow
+// azul-core to compile during the refactoring process.
+// ============================================================================
+
+/// Stub type - External system callbacks have been moved to azul-layout
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ExternalSystemCallbacks {
+    _dummy: u8,
+}
+
+impl ExternalSystemCallbacks {
+    pub fn rust_internal() -> Self {
+        Self { _dummy: 0 }
+    }
+}
+
+/// Stub type - FullWindowState has been moved to azul-layout
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct FullWindowState {
+    _dummy: u8,
+}
+
+/// Stub type - LayoutResult from old solver1/solver2 API
+/// (replaced by DomLayoutResult in new solver3)
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct LayoutResult {
+    _dummy: u8,
+}
+
+// ============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -250,13 +288,6 @@ impl FontInstanceKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct ImageCallback {
-    pub data: RefAny,
-    pub callback: RenderImageCallback,
-}
-
 // NOTE: This type should NOT be exposed in the API!
 // The only public functions are the constructors
 #[derive(Debug)]
@@ -275,7 +306,7 @@ pub enum DecodedImage {
     // Image backed by CPU-rendered pixels
     Raw((ImageDescriptor, ImageData)),
     // Same as `Texture`, but rendered AFTER the layout has been done
-    Callback(ImageCallback),
+    Callback(CoreImageCallback),
     // YUVImage(...)
     // VulkanSurface(...)
     // MetalSurface(...),
@@ -321,7 +352,7 @@ impl ImageRef {
         unsafe { &*self.data }
     }
 
-    pub fn get_image_callback<'a>(&'a self) -> Option<&'a ImageCallback> {
+    pub fn get_image_callback<'a>(&'a self) -> Option<&'a CoreImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe
         }
@@ -332,7 +363,7 @@ impl ImageRef {
         }
     }
 
-    pub fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut ImageCallback> {
+    pub fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut CoreImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe
         }
@@ -440,10 +471,6 @@ impl ImageRef {
         }
     }
 
-    pub fn get_hash(&self) -> ImageRefHash {
-        ImageRefHash(self.data as usize)
-    }
-
     pub fn null_image(width: usize, height: usize, format: RawImageFormat, tag: Vec<u8>) -> Self {
         Self::new(DecodedImage::NullImage {
             width,
@@ -453,9 +480,9 @@ impl ImageRef {
         })
     }
 
-    pub fn callback(gl_callback: RenderImageCallbackType, data: RefAny) -> Self {
-        Self::new(DecodedImage::Callback(ImageCallback {
-            callback: RenderImageCallback { cb: gl_callback },
+    pub fn callback(gl_callback: CoreRenderImageCallbackType, data: RefAny) -> Self {
+        Self::new(DecodedImage::Callback(CoreImageCallback {
+            callback: CoreRenderImageCallback { cb: gl_callback },
             data,
         }))
     }
@@ -541,6 +568,10 @@ impl Drop for ImageRef {
             }
         }
     }
+}
+
+pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
+    ImageRefHash(ir.data as usize)
 }
 
 pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
@@ -836,114 +867,6 @@ impl RendererResources {
         instances.get(&(font_size_au, dpi_scale)).copied()
     }
 
-    /// Updates the internal cache, adds `ResourceUpdate::Remove()`
-    /// to the `all_resource_updates`
-    ///
-    /// This function will query all current images and fonts submitted
-    /// into the cache and set them for the next frame so that unused
-    /// resources will be cleaned up.
-    ///
-    /// This function should be called after the StyledDom has been
-    /// exchanged for the next frame and AFTER all OpenGL textures
-    /// and image callbacks have been resolved.
-    pub fn do_gc(
-        &mut self,
-        all_resource_updates: &mut Vec<ResourceUpdate>,
-        css_image_cache: &ImageCache,
-        // layout calculated for the NEXT frame
-        new_layout_results: &[LayoutResult],
-        // initialized texture cache of the NEXT frame
-        gl_texture_cache: &GlTextureCache,
-    ) {
-        use alloc::collections::btree_set::BTreeSet;
-
-        // Get all fonts / images that are in the DOM for the next frame
-        let mut next_frame_image_keys = BTreeSet::new();
-
-        for layout_result in new_layout_results {
-            for image_key in layout_result
-                .styled_dom
-                .scan_for_image_keys(css_image_cache)
-            {
-                let hash = image_key.get_hash();
-                next_frame_image_keys.insert(hash);
-            }
-        }
-
-        for ((_dom_id, _node_id, _callback_imageref_hash), image_ref_hash) in
-            gl_texture_cache.hashes.iter()
-        {
-            next_frame_image_keys.insert(*image_ref_hash);
-        }
-
-        // If the current frame contains a font key but the next frame doesn't, delete the font key
-        let mut delete_font_resources = Vec::new();
-        for (font_key, font_instances) in self.last_frame_registered_fonts.iter() {
-            delete_font_resources.extend(
-                font_instances
-                    .iter()
-                    .filter(|(au, _)| {
-                        !(self
-                            .currently_registered_fonts
-                            .get(font_key)
-                            .map(|f| f.1.contains_key(au))
-                            .unwrap_or(false))
-                    })
-                    .map(|(au, font_instance_key)| {
-                        (
-                            font_key.clone(),
-                            DeleteFontMsg::Instance(*font_instance_key, *au),
-                        )
-                    }),
-            );
-            // Delete the font and all instances if there are no more instances of the font
-            // NOTE: deletion is in reverse order - instances are deleted first, then the font is
-            // deleted
-            if !self.currently_registered_fonts.contains_key(font_key) || font_instances.is_empty()
-            {
-                delete_font_resources
-                    .push((font_key.clone(), DeleteFontMsg::Font(font_key.clone())));
-            }
-        }
-
-        // If the current frame contains an image, but the next frame does not, delete it
-        let delete_image_resources = self
-            .currently_registered_images
-            .iter()
-            .filter(|(image_ref_hash, _)| !next_frame_image_keys.contains(image_ref_hash))
-            .map(|(image_ref_hash, resolved_image)| {
-                (
-                    image_ref_hash.clone(),
-                    DeleteImageMsg(resolved_image.key.clone()),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        for (image_ref_hash_to_delete, _) in delete_image_resources.iter() {
-            self.currently_registered_images
-                .remove(image_ref_hash_to_delete);
-        }
-
-        all_resource_updates.extend(
-            delete_font_resources
-                .iter()
-                .map(|(_, f)| f.into_resource_update()),
-        );
-        all_resource_updates.extend(
-            delete_image_resources
-                .iter()
-                .map(|(_, i)| i.into_resource_update()),
-        );
-
-        self.last_frame_registered_fonts = self
-            .currently_registered_fonts
-            .iter()
-            .map(|(fk, (_, fi))| (fk.clone(), fi.clone()))
-            .collect();
-
-        self.remove_font_families_with_zero_references();
-    }
-
     // Delete all font family hashes that do not have a font key anymore
     fn remove_font_families_with_zero_references(&mut self) {
         let font_family_to_delete = self
@@ -977,309 +900,6 @@ impl RendererResources {
         for f in font_families_to_delete {
             self.font_families_map.remove(&f); // font family does not exist anymore
         }
-    }
-
-    // Re-invokes the RenderImageCallback on the given node (if there is any),
-    // updates the internal texture (without exchanging the hashes, so that
-    // the GC still works) and updates the internal texture cache.
-    #[must_use]
-    pub fn rerender_image_callback(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        document_id: DocumentId,
-        epoch: Epoch,
-        id_namespace: IdNamespace,
-        gl_context: &OptionGlContextPtr,
-        image_cache: &ImageCache,
-        system_fonts: &FcFontCache,
-        hidpi_factor: f32,
-        callbacks: &RenderCallbacks,
-        layout_results: &mut [LayoutResult],
-        gl_texture_cache: &mut GlTextureCache,
-    ) -> Option<UpdateImageResult> {
-        use crate::{
-            callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
-            gl::{insert_into_active_gl_textures, remove_single_texture_from_active_gl_textures},
-        };
-
-        let mut layout_result = layout_results.get_mut(dom_id.inner)?;
-        let mut node_data_vec = layout_result.styled_dom.node_data.as_container_mut();
-        let mut node_data = node_data_vec.get_mut(node_id)?;
-        let (mut render_image_callback, render_image_callback_hash) =
-            node_data.get_render_image_callback_node()?;
-
-        let callback_domnode_id = DomNodeId {
-            dom: dom_id,
-            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-        };
-
-        let rect_size = layout_result.rects.as_ref().get(node_id)?.size.clone();
-
-        let size = LayoutSize::new(
-            rect_size.width.round() as isize,
-            rect_size.height.round() as isize,
-        );
-
-        // NOTE: all of these extra arguments are necessary so that the callback
-        // has access to information about the text layout, which is used to render
-        // the "text selection" highlight (the text selection is nothing but an image
-        // or an image mask).
-        let mut gl_callback_info = RenderImageCallbackInfo::new(
-            /* gl_context: */ gl_context,
-            /* image_cache: */ image_cache,
-            /* system_fonts: */ system_fonts,
-            /* node_hierarchy */ &layout_result.styled_dom.node_hierarchy,
-            /* positioned_rects */ &layout_result.rects,
-            /* bounds: */ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
-            /* hit_dom_node */ callback_domnode_id,
-        );
-
-        let new_imageref = (render_image_callback.callback.cb)(
-            &mut render_image_callback.data,
-            &mut gl_callback_info,
-        );
-
-        // remove old imageref from GlTextureCache and active textures
-        let existing_image_key = gl_texture_cache
-            .solved_textures
-            .get(&dom_id)
-            .and_then(|m| m.get(&node_id))
-            .map(|k| k.0.clone())
-            .or(self
-                .currently_registered_images
-                .get(&render_image_callback_hash)
-                .map(|i| i.key.clone()))?;
-
-        if let Some(dom_map) = gl_texture_cache.solved_textures.get_mut(&dom_id) {
-            if let Some((image_key, image_descriptor, external_image_id)) = dom_map.remove(&node_id)
-            {
-                remove_single_texture_from_active_gl_textures(
-                    &document_id,
-                    &epoch,
-                    &external_image_id,
-                );
-            }
-        }
-
-        match new_imageref.into_inner()? {
-            DecodedImage::Gl(new_tex) => {
-                // for GL textures, generate a new external image ID
-                let new_descriptor = new_tex.get_descriptor();
-                let new_external_id = insert_into_active_gl_textures(document_id, epoch, new_tex);
-                let new_image_data = ImageData::External(ExternalImageData {
-                    id: new_external_id,
-                    channel_index: 0,
-                    image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
-                });
-
-                gl_texture_cache
-                    .solved_textures
-                    .entry(dom_id)
-                    .or_insert_with(|| BTreeMap::new())
-                    .insert(
-                        node_id,
-                        (existing_image_key, new_descriptor.clone(), new_external_id),
-                    );
-
-                Some(UpdateImageResult {
-                    key_to_update: existing_image_key,
-                    new_descriptor,
-                    new_image_data,
-                })
-            }
-            DecodedImage::Raw((descriptor, data)) => {
-                if let Some(existing_image) = self
-                    .currently_registered_images
-                    .get_mut(&render_image_callback_hash)
-                {
-                    existing_image.descriptor = descriptor.clone(); // update descriptor, key stays the same
-                    Some(UpdateImageResult {
-                        key_to_update: existing_image_key,
-                        new_descriptor: descriptor,
-                        new_image_data: data,
-                    })
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    // Updates images and image mask resources
-    // NOTE: assumes the GL context is made current
-    #[must_use]
-    pub fn update_image_resources(
-        &mut self,
-        layout_results: &[LayoutResult],
-        images_to_update: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
-        image_masks_to_update: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-        callbacks: &RenderCallbacks,
-        image_cache: &ImageCache,
-        gl_texture_cache: &mut GlTextureCache,
-        document_id: DocumentId,
-        epoch: Epoch,
-    ) -> Vec<UpdateImageResult> {
-        use crate::dom::NodeType;
-
-        let mut updated_images = Vec::new();
-        let mut renderer_resources: &mut RendererResources = self;
-
-        // update images
-        for (dom_id, image_map) in images_to_update {
-            let layout_result = match layout_results.get(dom_id.inner) {
-                Some(s) => s,
-                None => continue,
-            };
-
-            for (node_id, (image_ref, image_type)) in image_map {
-                // get the existing key + extents of the image
-                let existing_image_ref_hash = match image_type {
-                    UpdateImageType::Content => {
-                        match layout_result
-                            .styled_dom
-                            .node_data
-                            .as_container()
-                            .get(node_id)
-                            .map(|n| n.get_node_type())
-                        {
-                            Some(NodeType::Image(image_ref)) => image_ref.get_hash(),
-                            _ => continue,
-                        }
-                    }
-                    UpdateImageType::Background => {
-                        let node_data = layout_result.styled_dom.node_data.as_container();
-                        let node_data = match node_data.get(node_id) {
-                            Some(s) => s,
-                            None => continue,
-                        };
-
-                        let styled_node_states =
-                            layout_result.styled_dom.styled_nodes.as_container();
-                        let node_state = match styled_node_states.get(node_id) {
-                            Some(s) => s.state.clone(),
-                            None => continue,
-                        };
-
-                        let default =
-                            azul_css::props::style::StyleBackgroundContentVec::from_const_slice(&[]);
-
-                        // TODO: only updates the first image background - usually not a problem
-                        let bg_hash = layout_result
-                            .styled_dom
-                            .css_property_cache
-                            .ptr
-                            .get_background_content(node_data, &node_id, &node_state)
-                            .and_then(|bg| {
-                                bg.get_property()
-                                    .unwrap_or(&default)
-                                    .as_ref()
-                                    .iter()
-                                    .find_map(|b| match b {
-                                        azul_css::props::style::StyleBackgroundContent::Image(
-                                            id,
-                                        ) => {
-                                            let image_ref = image_cache.get_css_image_id(id)?;
-                                            Some(image_ref.get_hash())
-                                        }
-                                        _ => None,
-                                    })
-                            });
-
-                        match bg_hash {
-                            Some(h) => h,
-                            None => continue,
-                        }
-                    }
-                };
-
-                let new_image_ref_hash = image_ref.get_hash();
-
-                let decoded_image = match image_ref.into_inner() {
-                    Some(s) => s,
-                    None => continue,
-                };
-
-                // Try getting the existing image key either
-                // from the textures or from the renderer resources
-                let existing_key = gl_texture_cache
-                    .solved_textures
-                    .get(&dom_id)
-                    .and_then(|map| map.get(&node_id))
-                    .map(|val| val.0);
-
-                let existing_key = match existing_key {
-                    Some(s) => Some(s),
-                    None => renderer_resources
-                        .get_image(&existing_image_ref_hash)
-                        .map(|resolved_image| resolved_image.key),
-                };
-
-                let key = match existing_key {
-                    Some(s) => s,
-                    None => continue, /* updating an image requires at
-                                       * least one image to be present */
-                };
-
-                let (descriptor, data) = match decoded_image {
-                    DecodedImage::Gl(texture) => {
-                        let descriptor = texture.get_descriptor();
-                        let new_external_image_id = match gl_texture_cache.update_texture(
-                            dom_id,
-                            node_id,
-                            document_id,
-                            epoch,
-                            texture,
-                            callbacks,
-                        ) {
-                            Some(s) => s,
-                            None => continue,
-                        };
-
-                        let data = ImageData::External(ExternalImageData {
-                            id: new_external_image_id,
-                            channel_index: 0,
-                            image_type: ExternalImageType::TextureHandle(
-                                ImageBufferKind::Texture2D,
-                            ),
-                        });
-
-                        (descriptor, data)
-                    }
-                    DecodedImage::Raw((descriptor, data)) => {
-                        // use the hash to get the existing image key
-                        // TODO: may lead to problems when the same ImageRef is used more than once?
-                        renderer_resources.update_image(&existing_image_ref_hash, descriptor);
-                        (descriptor, data)
-                    }
-                    DecodedImage::NullImage { .. } => continue, // TODO: NULL image descriptor?
-                    DecodedImage::Callback(callback) => {
-                        // TODO: re-render image callbacks?
-                        /*
-                        let (key, descriptor) = match gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&node_id)) {
-                            Some((k, d)) => (k, d),
-                            None => continue,
-                        };*/
-
-                        continue;
-                    }
-                };
-
-                // update the image descriptor in the renderer resources
-
-                updated_images.push(UpdateImageResult {
-                    key_to_update: key,
-                    new_descriptor: descriptor,
-                    new_image_data: data,
-                });
-            }
-        }
-
-        // TODO: update image masks
-        for (dom_id, image_mask_map) in image_masks_to_update {}
-
-        updated_images
     }
 }
 
@@ -1317,201 +937,6 @@ impl GlTextureCache {
             solved_textures: BTreeMap::new(),
             hashes: BTreeMap::new(),
         }
-    }
-
-    /// Invokes all ImageCallbacks with the sizes given by the LayoutResult
-    /// and adds them to the `RendererResources`.
-    pub fn new(
-        layout_results: &mut [LayoutResult],
-        gl_context: &OptionGlContextPtr,
-        id_namespace: IdNamespace,
-        document_id: &DocumentId,
-        epoch: Epoch,
-        hidpi_factor: f32,
-        image_cache: &ImageCache,
-        system_fonts: &FcFontCache,
-        callbacks: &RenderCallbacks,
-        all_resource_updates: &mut Vec<ResourceUpdate>,
-        renderer_resources: &mut RendererResources,
-    ) -> Self {
-        use gl_context_loader::gl;
-
-        use crate::{
-            callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
-            dom::NodeType,
-            resources::{
-                add_resources, AddImage, DecodedImage, ExternalImageData, ExternalImageType,
-                ImageBufferKind, ImageData, ImageRef,
-            },
-        };
-
-        let mut solved_image_callbacks = BTreeMap::new();
-
-        // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
-        for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
-            for callback_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
-                // Invoke OpenGL callback, render texture
-                let rect_size = layout_result.rects.as_ref()[callback_node_id].size;
-
-                let callback_image = {
-                    let callback_domnode_id = DomNodeId {
-                        dom: DomId { inner: dom_id },
-                        node: NodeHierarchyItemId::from_crate_internal(Some(callback_node_id)),
-                    };
-
-                    let size = LayoutSize::new(
-                        rect_size.width.round() as isize,
-                        rect_size.height.round() as isize,
-                    );
-
-                    // NOTE: all of these extra arguments are necessary so that the callback
-                    // has access to information about the text layout, which is used to render
-                    // the "text selection" highlight (the text selection is nothing but an image
-                    // or an image mask).
-                    let mut gl_callback_info = RenderImageCallbackInfo::new(
-                        /* gl_context: */ &gl_context,
-                        /* image_cache: */ image_cache,
-                        /* system_fonts: */ system_fonts,
-                        /* node_hierarchy */ &layout_result.styled_dom.node_hierarchy,
-                        /* positioned_rects */ &layout_result.rects,
-                        /* bounds: */ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
-                        /* hit_dom_node */ callback_domnode_id,
-                    );
-
-                    let callback_image: Option<(ImageRef, ImageRefHash)> = {
-                        // get a MUTABLE reference to the RefAny inside of the DOM
-                        let mut node_data_mut =
-                            layout_result.styled_dom.node_data.as_container_mut();
-                        match &mut node_data_mut[callback_node_id].node_type {
-                            NodeType::Image(img) => {
-                                let callback_imageref_hash = img.get_hash();
-
-                                img.get_image_callback_mut().map(|gl_texture_callback| {
-                                    (
-                                        (gl_texture_callback.callback.cb)(
-                                            &mut gl_texture_callback.data,
-                                            &mut gl_callback_info,
-                                        ),
-                                        callback_imageref_hash,
-                                    )
-                                })
-                            }
-                            _ => None,
-                        }
-                    };
-
-                    // Reset the framebuffer and SRGB color target to 0
-                    if let Some(gl) = gl_context.as_ref() {
-                        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
-                        gl.disable(gl::FRAMEBUFFER_SRGB);
-                        gl.disable(gl::MULTISAMPLE);
-                    }
-
-                    callback_image
-                };
-
-                if let Some((image_ref, callback_imageref_hash)) = callback_image {
-                    solved_image_callbacks
-                        .entry(layout_result.dom_id.clone())
-                        .or_insert_with(|| BTreeMap::default())
-                        .insert(callback_node_id, (callback_imageref_hash, image_ref));
-                }
-            }
-        }
-
-        let mut image_resource_updates = Vec::new();
-        let mut gl_texture_cache = Self::empty();
-
-        for (dom_id, image_refs) in solved_image_callbacks {
-            for (node_id, (callback_imageref_hash, image_ref)) in image_refs {
-                // callback_imageref_hash = the hash of the ImageRef::callback()
-                // that is currently in the DOM
-                //
-                // image_ref_hash = the hash of the ImageRef::gl_texture() that was
-                // returned by invoking the ImageRef::callback()
-
-                let image_ref_hash = image_ref.get_hash();
-                let image_data = match image_ref.into_inner() {
-                    Some(s) => s,
-                    None => continue,
-                };
-
-                let image_result = match image_data {
-                    DecodedImage::Gl(texture) => {
-                        let descriptor = texture.get_descriptor();
-                        let key = ImageKey::unique(id_namespace);
-                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(
-                            *document_id,
-                            epoch,
-                            texture,
-                        );
-
-                        gl_texture_cache
-                            .solved_textures
-                            .entry(dom_id.clone())
-                            .or_insert_with(|| BTreeMap::new())
-                            .insert(node_id, (key, descriptor, external_image_id));
-
-                        gl_texture_cache
-                            .hashes
-                            .insert((dom_id, node_id, callback_imageref_hash), image_ref_hash);
-
-                        Some((
-                            image_ref_hash,
-                            AddImageMsg(AddImage {
-                                key,
-                                data: ImageData::External(ExternalImageData {
-                                    id: external_image_id,
-                                    channel_index: 0,
-                                    image_type: ExternalImageType::TextureHandle(
-                                        ImageBufferKind::Texture2D,
-                                    ),
-                                }),
-                                descriptor,
-                                tiling: None,
-                            }),
-                        ))
-                    }
-                    DecodedImage::Raw((descriptor, data)) => {
-                        let key = ImageKey::unique(id_namespace);
-                        Some((
-                            image_ref_hash,
-                            AddImageMsg(AddImage {
-                                key,
-                                data,
-                                descriptor,
-                                tiling: None,
-                            }),
-                        ))
-                    }
-                    DecodedImage::NullImage {
-                        width: _,
-                        height: _,
-                        format: _,
-                        tag: _,
-                    } => None,
-                    // Texture callbacks inside of texture callbacks are not rendered
-                    DecodedImage::Callback(_) => None,
-                };
-
-                if let Some((image_ref_hash, add_img_msg)) = image_result {
-                    image_resource_updates.push((
-                        callback_imageref_hash,
-                        image_ref_hash,
-                        add_img_msg,
-                    ));
-                }
-            }
-        }
-
-        // Add the new rendered images to the RenderApi
-        add_gl_resources(
-            renderer_resources,
-            all_resource_updates,
-            image_resource_updates,
-        );
-
-        gl_texture_cache
     }
 
     /// Updates a given texture
@@ -2839,7 +2264,7 @@ pub fn build_add_image_resource_updates(
     images_in_dom
         .iter()
         .filter_map(|image_ref| {
-            let image_ref_hash = image_ref.get_hash();
+            let image_ref_hash = image_ref_get_hash(&image_ref);
 
             if renderer_resources
                 .currently_registered_images

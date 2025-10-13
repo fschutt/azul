@@ -1,10 +1,15 @@
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
 
 use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
 
-use crate::{dom::NodeId, id_tree::NodeDataContainerRef, resources::{OpacityKey, TransformKey}, styled_dom::StyledDom, transform::{ComputedTransform3D, RotationMode}, ui_solver::GpuOpacityKeyEvent};
-
-
+use crate::{
+    dom::NodeId,
+    id::NodeDataContainerRef,
+    resources::{OpacityKey, TransformKey},
+    styled_dom::StyledDom,
+    transform::{ComputedTransform3D, RotationMode},
+    ui_solver::GpuOpacityKeyEvent,
+};
 
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuValueCache {
@@ -32,10 +37,7 @@ impl GpuValueCache {
     }
 
     #[must_use]
-    pub fn synchronize<'a>(
-        &mut self,
-        styled_dom: &StyledDom,
-    ) -> GpuEventChanges {
+    pub fn synchronize<'a>(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_data = styled_dom.node_data.as_container();
         let node_states = styled_dom.styled_nodes.as_container();
@@ -71,7 +73,8 @@ impl GpuValueCache {
                     .get_transform(node_data, &node_id, styled_node_state)?
                     .get_property()
                     .map(|t| {
-                        // TODO: look up the parent nodes size properly to resolve animation of transforms with %
+                        // TODO: look up the parent nodes size properly to resolve animation of
+                        // transforms with %
                         let parent_size_width = 0.0;
                         let parent_size_height = 0.0;
                         let transform_origin = css_property_cache.get_transform_origin(
@@ -210,4 +213,3 @@ impl GpuEventChanges {
             .extend(other.opacity_key_changes.drain(..));
     }
 }
-

@@ -30,8 +30,14 @@ pub mod selection;
 // pub mod diff;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
 pub mod gl;
+/// GPU value synchronization (colors, transforms) for WebRender preparation
+pub mod gpu;
 /// Internal, arena-based storage for Dom nodes
-pub mod id_tree;
+pub mod id;
+/// Types for handling menus (context menu, menubar)
+pub mod menu;
+/// Cache for CSS Properties
+pub mod prop_cache;
 /// CSS cascading module
 pub mod style;
 /// `StyledDom` = CSSOM
@@ -40,6 +46,8 @@ pub mod styled_dom;
 pub mod svg;
 /// Async (task, thread, timer) helper functions
 pub mod task;
+/// CSS transform computation
+pub mod transform;
 /// Handles the UI layout and UI layout solver
 pub mod ui_solver;
 /// Window creation / interaction with the OS' windowing API
@@ -48,12 +56,6 @@ pub mod window;
 pub mod window_state;
 /// XML structures
 pub mod xml;
-/// CSS transform computation
-pub mod transform;
-/// GPU value synchronization (colors, transforms) for WebRender preparation
-pub mod gpu;
-/// Cache for CSS Properties
-pub mod prop_cache;
 
 // pub mod old_text_layout; // -- IGNORE, this was for the initial solver only --
 

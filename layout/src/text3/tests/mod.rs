@@ -8,8 +8,8 @@ use hyphenation::Language;
 
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontLoaderTrait, LayoutFontMetrics, FontProviderTrait, FontRef, Glyph,
-        GlyphOrientation, GlyphSource, LayoutError, ParsedFontTrait, Point, PositionedItem,
+        BidiLevel, Direction, FontLoaderTrait, FontProviderTrait, FontRef, Glyph, GlyphOrientation,
+        GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, PositionedItem,
         ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation, TextTransform,
         VerticalMetrics, WritingMode,
     },

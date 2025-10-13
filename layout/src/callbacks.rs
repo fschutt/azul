@@ -5,21 +5,17 @@
 //! hierarchy), which is why this module lives in azul-layout instead of azul-core.
 
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
+
 use azul_core::{
-    callbacks::{
-        DomNodeId, RefAny, Update, ScrollPosition,
-    },
+    callbacks::{DomNodeId, FocusTarget, RefAny, ScrollPosition, Update},
     gl::OptionGlContextPtr,
     id_tree::NodeId,
-    resources::{ImageCache, RendererResources, ImageRef, ImageMask, UpdateImageType},
+    resources::{ImageCache, ImageMask, ImageRef, RendererResources, UpdateImageType},
     styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
-    task::{
-        ExternalSystemCallbacks, Thread, ThreadId, Timer, TimerId,
-    },
+    task::{ExternalSystemCallbacks, Thread, ThreadId, Timer, TimerId},
     window::{
-        FullWindowState, LogicalPosition, LogicalRect, LogicalSize,
-        MouseState, KeyboardState, RawWindowHandle, WindowCreateOptions,
-        WindowFlags, WindowState, OptionLogicalPosition,
+        FullWindowState, KeyboardState, LogicalPosition, LogicalRect, LogicalSize, MouseState,
+        OptionLogicalPosition, RawWindowHandle, WindowCreateOptions, WindowFlags, WindowState,
     },
     FastBTreeSet, FastHashMap,
 };
@@ -35,8 +31,9 @@ use crate::window::LayoutWindow;
 #[derive(Debug)]
 #[repr(C)]
 pub struct CallbackInfo {
-    /// Pointer to the LayoutWindow containing all layout results
-    layout_window: *const LayoutWindow,
+    /// Pointer to the LayoutWindow containing all layout results (MUTABLE for timer/thread/GPU
+    /// access)
+    layout_window: *mut LayoutWindow,
     /// Necessary to query FontRefs from callbacks
     renderer_resources: *const RendererResources,
     /// Previous window state
@@ -99,20 +96,10 @@ pub struct CallbackInfo {
     cursor_in_viewport: OptionLogicalPosition,
 }
 
-// Re-export FocusTarget from core if it exists there, or define it here
-// For now, using a placeholder
-#[derive(Debug, Clone, PartialEq)]
-pub enum FocusTarget {
-    Id(DomNodeId),
-    Previous,
-    Next,
-    NoFocus,
-}
-
 impl CallbackInfo {
     #[allow(clippy::too_many_arguments)]
     pub fn new<'a>(
-        layout_window: &'a LayoutWindow,
+        layout_window: &'a mut LayoutWindow,
         renderer_resources: &'a RendererResources,
         previous_window_state: &'a Option<FullWindowState>,
         current_window_state: &'a FullWindowState,
@@ -149,7 +136,7 @@ impl CallbackInfo {
         cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
-            layout_window: layout_window as *const LayoutWindow,
+            layout_window: layout_window as *mut LayoutWindow,
             renderer_resources: renderer_resources as *const RendererResources,
             previous_window_state: previous_window_state as *const Option<FullWindowState>,
             current_window_state: current_window_state as *const FullWindowState,
@@ -189,6 +176,10 @@ impl CallbackInfo {
         unsafe { &*self.layout_window }
     }
 
+    fn internal_get_layout_window_mut(&mut self) -> &mut LayoutWindow {
+        unsafe { &mut *self.layout_window }
+    }
+
     // Public API methods - delegates to LayoutWindow
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         self.internal_get_layout_window().get_node_size(node_id)
@@ -196,6 +187,108 @@ impl CallbackInfo {
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.internal_get_layout_window().get_node_position(node_id)
+    }
+
+    // ===== Timer Management =====
+
+    /// Add a timer to this window
+    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
+        self.internal_get_layout_window_mut()
+            .add_timer(timer_id, timer);
+    }
+
+    /// Remove a timer from this window
+    pub fn remove_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
+        self.internal_get_layout_window_mut().remove_timer(timer_id)
+    }
+
+    /// Get a reference to a timer
+    pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
+        self.internal_get_layout_window().get_timer(timer_id)
+    }
+
+    /// Get a mutable reference to a timer
+    pub fn get_timer_mut(&mut self, timer_id: &TimerId) -> Option<&mut Timer> {
+        self.internal_get_layout_window_mut()
+            .get_timer_mut(timer_id)
+    }
+
+    /// Get all timer IDs
+    pub fn get_timer_ids(&self) -> Vec<TimerId> {
+        self.internal_get_layout_window().get_timer_ids()
+    }
+
+    // ===== Thread Management =====
+
+    /// Add a thread to this window
+    pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
+        self.internal_get_layout_window_mut()
+            .add_thread(thread_id, thread);
+    }
+
+    /// Remove a thread from this window
+    pub fn remove_thread(&mut self, thread_id: &ThreadId) -> Option<Thread> {
+        self.internal_get_layout_window_mut()
+            .remove_thread(thread_id)
+    }
+
+    /// Get a reference to a thread
+    pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
+        self.internal_get_layout_window().get_thread(thread_id)
+    }
+
+    /// Get a mutable reference to a thread
+    pub fn get_thread_mut(&mut self, thread_id: &ThreadId) -> Option<&mut Thread> {
+        self.internal_get_layout_window_mut()
+            .get_thread_mut(thread_id)
+    }
+
+    /// Get all thread IDs
+    pub fn get_thread_ids(&self) -> Vec<ThreadId> {
+        self.internal_get_layout_window().get_thread_ids()
+    }
+
+    // ===== GPU Value Cache Management =====
+
+    /// Get the GPU value cache for a specific DOM
+    pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&azul_core::gpu::GpuValueCache> {
+        self.internal_get_layout_window().get_gpu_cache(dom_id)
+    }
+
+    /// Get a mutable reference to the GPU value cache for a specific DOM
+    pub fn get_gpu_cache_mut(
+        &mut self,
+        dom_id: &DomId,
+    ) -> Option<&mut azul_core::gpu::GpuValueCache> {
+        self.internal_get_layout_window_mut()
+            .get_gpu_cache_mut(dom_id)
+    }
+
+    /// Get or create a GPU value cache for a specific DOM
+    pub fn get_or_create_gpu_cache(&mut self, dom_id: DomId) -> &mut azul_core::gpu::GpuValueCache {
+        self.internal_get_layout_window_mut()
+            .get_or_create_gpu_cache(dom_id)
+    }
+
+    // ===== Layout Result Access =====
+
+    /// Get a layout result for a specific DOM
+    pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&crate::window::DomLayoutResult> {
+        self.internal_get_layout_window().get_layout_result(dom_id)
+    }
+
+    /// Get a mutable layout result for a specific DOM
+    pub fn get_layout_result_mut(
+        &mut self,
+        dom_id: &DomId,
+    ) -> Option<&mut crate::window::DomLayoutResult> {
+        self.internal_get_layout_window_mut()
+            .get_layout_result_mut(dom_id)
+    }
+
+    /// Get all DOM IDs that have layout results
+    pub fn get_dom_ids(&self) -> Vec<DomId> {
+        self.internal_get_layout_window().get_dom_ids()
     }
 
     // TODO: Add more query methods as needed:

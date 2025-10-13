@@ -49,7 +49,7 @@ pub fn edit_text(
     for selection in sorted_selections {
         let (mut temp_content, new_cursor) =
             apply_edit_to_selection(&new_content, &selection, edit);
-        
+
         // When we insert/delete text, we need to adjust all previously-processed cursors
         // that come after this edit position in the same run
         let edit_run = match selection {
@@ -60,7 +60,7 @@ pub fn edit_text(
             Selection::Cursor(c) => c.cluster_id.start_byte_in_run,
             Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
         };
-        
+
         // Calculate the byte offset change
         let byte_offset_change: i32 = match edit {
             TextEdit::Insert(text) => text.len() as i32,
@@ -70,17 +70,20 @@ pub fn edit_text(
                 -1
             }
         };
-        
+
         // Adjust all previously-processed cursors in the same run that come after this position
         for prev_selection in new_selections.iter_mut() {
             if let Selection::Cursor(cursor) = prev_selection {
-                if cursor.cluster_id.source_run == edit_run && cursor.cluster_id.start_byte_in_run >= edit_byte {
-                    cursor.cluster_id.start_byte_in_run = 
-                        (cursor.cluster_id.start_byte_in_run as i32 + byte_offset_change).max(0) as u32;
+                if cursor.cluster_id.source_run == edit_run
+                    && cursor.cluster_id.start_byte_in_run >= edit_byte
+                {
+                    cursor.cluster_id.start_byte_in_run =
+                        (cursor.cluster_id.start_byte_in_run as i32 + byte_offset_change).max(0)
+                            as u32;
                 }
             }
         }
-        
+
         new_content = temp_content;
         new_selections.push(Selection::Cursor(new_cursor));
     }

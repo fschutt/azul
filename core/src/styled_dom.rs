@@ -54,13 +54,19 @@ use azul_css::{
 };
 
 use crate::{
-    callbacks::{CallbackInfo, RefAny, Update}, dom::{
+    callbacks::{RefAny, Update},
+    dom::{
         CompactDom, Dom, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
         TabIndex, TagId,
-    }, id_tree::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId}, prop_cache::{CssPropertyCache, CssPropertyCachePtr}, resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources}, style::{
+    },
+    id::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
+    prop_cache::{CssPropertyCache, CssPropertyCachePtr},
+    resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
+    style::{
         construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
         CascadeInfoVec,
-    }, window::Menu, FastBTreeSet, FastHashMap
+    },
+    FastBTreeSet, FastHashMap,
 };
 
 #[repr(C)]
@@ -172,7 +178,6 @@ impl StyledNodeVec {
         }
     }
 }
-
 
 #[test]
 fn test_it() {
@@ -824,164 +829,6 @@ impl StyledDom {
         }
     }
 
-    /// Inject scroll bar DIVs with relevant event handlers into the DOM
-    ///
-    /// This function essentially takes a DOM and inserts a wrapper DIV
-    /// on every parent. First, all scrollbars are set to "display:none;"
-    /// with a special library-internal marker that indicates that this
-    /// DIV is a scrollbar. Then later on in the layout code, the items
-    /// are set to "display: flex / block" as necessary, because
-    /// this way scrollbars aren't treated as "special" objects (the event
-    /// handling for scrollbars are just regular callback handlers).
-    pub fn inject_scroll_bars(&mut self) {
-        use azul_css::parser2::CssApiWrapper;
-
-        // allocate 14 nodes for every node
-        //
-        // 0: root component
-        // 1: |- vertical container (flex-direction: column-reverse, flex-grow: 1)
-        // 2:    |- horizontal scrollbar (height: 15px, flex-direction: row)
-        // 3:    |  |- left thumb
-        // 4:    |  |- middle content
-        // 5:    |  |   |- thumb track
-        // 6:    |  |- right thumb
-        // 7:    |- content container (flex-direction: row-reverse, flex-grow: 1)
-        // 8:       |- vertical scrollbar (width: 15px, flex-direction: column)
-        // 9:       |   |- top thumb
-        // 10:      |   |- middle content
-        // 11:      |   |    |- thumb track
-        // 12:      |   |- bottom thumb
-        // 13:      |- content container (flex-direction: row, flex-grow: 1)
-        // 14:          |- self.root
-        //                  |- ... self.children
-
-        let dom_to_inject = Dom::div()
-        // .with_class("__azul-native-scroll-root-component".into())
-        .with_inline_style("display:flex; flex-grow:1; flex-direction:column;".into())
-        .with_children(vec![
-
-            Dom::div()
-            // .with_class("__azul-native-scroll-vertical-container".into())
-            .with_inline_style("display:flex; flex-grow:1; flex-direction:column-reverse;".into())
-            .with_children(vec![
-
-                Dom::div()
-                // .with_class("__azul-native-scroll-horizontal-scrollbar".into())
-                .with_inline_style("display:flex; flex-grow:1; flex-direction:row; height:15px; background:grey;".into())
-                .with_children(vec![
-                    Dom::div(),
-                    // .with_class("__azul-native-scroll-horizontal-scrollbar-track-left".into()),
-                    Dom::div()
-                    // .with_class("__azul-native-scroll-horizontal-scrollbar-track-middle".into())
-                    .with_children(vec![
-                        Dom::div()
-                        // .with_class("__azul-native-scroll-horizontal-scrollbar-track-thumb".into())
-                    ].into()),
-                    Dom::div()
-                    // .with_class("__azul-native-scroll-horizontal-scrollbar-track-right".into()),
-                ].into()),
-
-                Dom::div()
-                // .with_class("__azul-native-scroll-content-container-1".into())
-                .with_inline_style("display:flex; flex-grow:1; flex-direction:row-reverse;".into())
-                .with_children(vec![
-
-                    Dom::div()
-                    // .with_class("__azul-native-scroll-vertical-scrollbar".into())
-                    .with_inline_style("display:flex; flex-grow:1; flex-direction:column; width:15px; background:grey;".into())
-                    .with_children(vec![
-                       Dom::div(),
-                       // .with_class("__azul-native-scroll-vertical-scrollbar-track-top".into()),
-                       Dom::div()
-                       // .with_class("__azul-native-scroll-vertical-scrollbar-track-middle".into())
-                       .with_children(vec![
-                           Dom::div()
-                           // .with_class("__azul-native-scroll-vertical-scrollbar-track-thumb".into())
-                       ].into()),
-                       Dom::div()
-                       // .with_class("__azul-native-scroll-vertical-scrollbar-track-bottom".into()),
-                    ].into()),
-
-                    Dom::div()
-                    // .with_class("__azul-native-scroll-content-container-1".into())
-                    .with_inline_style("display:flex; flex-grow:1; flex-direction:column;".into())
-                    .with_children(vec![
-                        Dom::div() // <- this div is where the new children will be injected into
-                    ].into())
-                ].into())
-            ].into())
-        ].into())
-        .style(CssApiWrapper::empty());
-
-        // allocate new nodes
-        let nodes_to_allocate =
-            self.node_data.len() + (self.non_leaf_nodes.len() * dom_to_inject.node_data.len());
-
-        // pre-allocate a new DOM tree with self.nodes.len() * dom_to_inject.nodes.len() nodes
-
-        let mut new_styled_dom = StyledDom {
-            root: self.root,
-            node_hierarchy: vec![NodeHierarchyItem::zeroed(); nodes_to_allocate].into(),
-            node_data: vec![NodeData::default(); nodes_to_allocate].into(),
-            styled_nodes: vec![StyledNode::default(); nodes_to_allocate].into(),
-            cascade_info: vec![CascadeInfo::default(); nodes_to_allocate].into(),
-            nodes_with_window_callbacks: self.nodes_with_window_callbacks.clone(),
-            nodes_with_not_callbacks: self.nodes_with_not_callbacks.clone(),
-            nodes_with_datasets: self.nodes_with_datasets.clone(),
-            tag_ids_to_node_ids: self.tag_ids_to_node_ids.clone(),
-            non_leaf_nodes: self.non_leaf_nodes.clone(),
-            css_property_cache: self.css_property_cache.clone(),
-            dom_id: self.dom_id,
-        };
-
-        // inject self.root as the nth node
-        let inject_as_id = 0;
-
-        #[cfg(feature = "std")]
-        {
-            println!(
-                "inject scroll bars:\r\n{}",
-                dom_to_inject.get_html_string("", "", true)
-            );
-        }
-
-        // *self = new_styled_dom;
-    }
-
-    /// Inject a menu bar into the root component
-    pub fn inject_menu_bar(mut self, menu_bar: &Menu) -> Self {
-        use azul_css::parser2::CssApiWrapper;
-
-        use crate::window::MenuItem;
-
-        let menu_dom = menu_bar
-            .items
-            .as_ref()
-            .iter()
-            .map(|mi| match mi {
-                MenuItem::String(smi) => Dom::text(smi.label.clone().into_library_owned_string())
-                    .with_inline_style("font-family:sans-serif;".into()),
-                MenuItem::Separator => {
-                    Dom::div().with_inline_style("padding:1px;background:grey;".into())
-                }
-                MenuItem::BreakLine => Dom::div(),
-            })
-            .collect::<Dom>()
-            .with_inline_style(
-                "
-            height:20px;
-            display:flex;
-            flex-direction:row;"
-                    .into(),
-            )
-            .style(CssApiWrapper::empty());
-
-        let mut core_container = Dom::body().style(CssApiWrapper::empty());
-        core_container.append_child(menu_dom);
-        core_container.append_child(self);
-        core_container
-    }
-
     /// Same as `append_child()`, but as a builder method
     pub fn with_child(&mut self, other: Self) -> Self {
         let mut s = self.swap_with_default();
@@ -1021,66 +868,6 @@ impl StyledDom {
             });
 
         self.tag_ids_to_node_ids = new_tag_ids.into();
-    }
-
-    /// Inserts default On::Scroll and On::Tab handle for scroll-able
-    /// and tabindex-able nodes.
-    #[inline]
-    pub fn insert_default_system_callbacks(&mut self, config: DefaultCallbacksCfg) {
-        use crate::{
-            callbacks::Callback,
-            dom::{CallbackData, EventFilter, FocusEventFilter, HoverEventFilter},
-        };
-
-        let scroll_refany = RefAny::new(DefaultScrollCallbackData {
-            smooth_scroll: config.smooth_scroll,
-        });
-
-        for n in self.node_data.iter_mut() {
-            // TODO: ScrollStart / ScrollEnd?
-            if !n
-                .callbacks
-                .iter()
-                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Scroll))
-            {
-                n.callbacks.push(CallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Scroll),
-                    data: scroll_refany.clone(),
-                    callback: Callback {
-                        cb: default_on_scroll,
-                    },
-                });
-            }
-        }
-
-        if !config.enable_autotab {
-            return;
-        }
-
-        let tab_data = RefAny::new(DefaultTabIndexCallbackData {});
-        for focusable_node in self.tag_ids_to_node_ids.iter() {
-            if focusable_node.tab_index.is_some() {
-                let focusable_node_id = match focusable_node.node_id.into_crate_internal() {
-                    Some(s) => s,
-                    None => continue,
-                };
-
-                let mut node_data = &mut self.node_data.as_container_mut()[focusable_node_id];
-                if !node_data
-                    .callbacks
-                    .iter()
-                    .any(|cb| cb.event == EventFilter::Focus(FocusEventFilter::VirtualKeyDown))
-                {
-                    node_data.callbacks.push(CallbackData {
-                        event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                        data: tab_data.clone(),
-                        callback: Callback {
-                            cb: default_on_tabindex,
-                        },
-                    });
-                }
-            }
-        }
     }
 
     #[inline]
@@ -1897,95 +1684,8 @@ impl StyledDom {
         new
     }
 
-    pub fn set_menu_bar(&mut self, menu: Menu) {
-        if let Some(root) = self.root.into_crate_internal() {
-            self.node_data.as_mut()[root.index()].set_menu_bar(menu)
-        }
-    }
-
-    pub fn set_context_menu(&mut self, menu: Menu) {
-        if let Some(root) = self.root.into_crate_internal() {
-            self.node_data.as_mut()[root.index()].set_context_menu(menu);
-
-            // add a new hit-testing tag for root node
-            let mut new_tags = self.tag_ids_to_node_ids.clone().into_library_owned_vec();
-
-            let tag_id = match self.styled_nodes.as_mut()[root.index()].tag_id {
-                OptionTagId::Some(s) => s,
-                OptionTagId::None => AzTagId::from_crate_internal(TagId::unique()),
-            };
-
-            new_tags.push(TagIdToNodeIdMapping {
-                tag_id,
-                node_id: self.root,
-                tab_index: OptionTabIndex::None,
-                parent_node_ids: NodeIdVec::from_const_slice(&[]),
-            });
-
-            self.styled_nodes.as_mut()[root.index()].tag_id = OptionTagId::Some(tag_id);
-            self.tag_ids_to_node_ids = new_tags.into();
-        }
-    }
-
     // Computes the diff between the two DOMs
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DefaultCallbacksCfg {
-    pub smooth_scroll: bool,
-    pub enable_autotab: bool,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct DefaultScrollCallbackData {
-    pub smooth_scroll: bool,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct DefaultTabIndexCallbackData {}
-
-/// Default On::TabIndex event handler
-extern "C" fn default_on_tabindex(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<DefaultTabIndexCallbackData>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    Update::DoNothing
-}
-
-/// Default On::Scroll event handler
-extern "C" fn default_on_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<DefaultScrollCallbackData>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    let mouse_state = info.get_current_mouse_state();
-
-    let (scroll_x, scroll_y) = match (
-        mouse_state.scroll_y.into_option(),
-        mouse_state.scroll_x.into_option(),
-    ) {
-        (None, None) => return Update::DoNothing,
-        (x, y) => (x.unwrap_or(0.0), y.unwrap_or(0.0)),
-    };
-
-    let hit_node_id = info.get_hit_node();
-
-    let new_scroll_position = match info.get_scroll_position(hit_node_id) {
-        Some(mut s) => {
-            s.x += scroll_x;
-            s.y += scroll_y;
-            s
-        }
-        None => return Update::DoNothing,
-    };
-
-    info.set_scroll_position(hit_node_id, new_scroll_position);
-
-    Update::DoNothing
 }
 
 fn fill_content_group_children(

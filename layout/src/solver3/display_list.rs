@@ -443,7 +443,7 @@ where
                     // Draw selection range
                     let rects = layout.get_selection_rects(range);
                     let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
-                    
+
                     // Convert f32 radius to BorderRadius
                     let border_radius = BorderRadius {
                         top_left: style.radius,
@@ -711,8 +711,7 @@ where
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let bg_color =
-                get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 

@@ -8,7 +8,7 @@ use azul_css::css::{
 
 use crate::{
     dom::NodeData,
-    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeHierarchyRef, NodeId},
+    id::{NodeDataContainer, NodeDataContainerRef, NodeHierarchyRef, NodeId},
     styled_dom::NodeHierarchyItem,
 };
 

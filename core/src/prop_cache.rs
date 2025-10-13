@@ -1,19 +1,63 @@
-use azul_css::props::basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize};
-use azul_css::props::property::{BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue, CaretColorValue, ColumnCountValue, ColumnFillValue, ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue, ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue, LayoutBoxSizingValue, LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue, LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue, LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue, LayoutGridColumnValue, LayoutGridRowValue, LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue, LayoutHeightValue, LayoutJustifyContentValue, LayoutJustifyItemsValue, LayoutJustifySelfValue, LayoutLeftValue, LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue, LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue, LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue, SelectionBackgroundColorValue, SelectionColorValue, ShapeImageThresholdValue, ShapeMarginValue, ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue, StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue, StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue, StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue, StyleTextAlignValue, StyleTextColorValue, StyleTransformOriginValue, StyleTransformVecValue, StyleVisibilityValue, StyleWhiteSpaceValue, StyleWordSpacingValue, WidowsValue};
-use azul_css::AzString;
-use std::collections::BTreeMap;
-use crate::id_tree::NodeDataContainerRef;
-use crate::style::CascadeInfo;
-use crate::{dom::NodeId, id_tree::NodeDataContainer, styled_dom::ParentWithNodeDepth};
-use crate::styled_dom::{AzTagId, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepthVec};
-use crate::dom::NodeDataInlineCssProperty;
-use crate::styled_dom::{StyledNodeState, TagIdToNodeIdMapping};
-use azul_css::css::Css;
-use azul_css::css::CssPath;
-use crate::dom::{TabIndex, TagId};
-use azul_css::props::layout::LayoutDisplay;
-use azul_css::props::style::{StyleCursor, StyleTextColor, StyleTransformOrigin};
-use crate::dom::NodeData;
+use alloc::collections::BTreeMap;
+
+use azul_css::{
+    css::{Css, CssPath},
+    props::{
+        basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
+        layout::LayoutDisplay,
+        property::{
+            BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
+            CaretColorValue, ColumnCountValue, ColumnFillValue, ColumnRuleColorValue,
+            ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue, ColumnWidthValue,
+            ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType,
+            FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue,
+            LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
+            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue,
+            LayoutBoxSizingValue, LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue,
+            LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexGrowValue,
+            LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue,
+            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
+            LayoutGridColumnValue, LayoutGridRowValue, LayoutGridTemplateColumnsValue,
+            LayoutGridTemplateRowsValue, LayoutHeightValue, LayoutJustifyContentValue,
+            LayoutJustifyItemsValue, LayoutJustifySelfValue, LayoutLeftValue,
+            LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue,
+            LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue,
+            LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
+            LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
+            LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
+            LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
+            LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
+            SelectionBackgroundColorValue, SelectionColorValue, ShapeImageThresholdValue,
+            ShapeMarginValue, ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
+            StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
+            StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
+            StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
+            StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue,
+            StyleBorderLeftColorValue, StyleBorderLeftStyleValue, StyleBorderRightColorValue,
+            StyleBorderRightStyleValue, StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue,
+            StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue,
+            StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue,
+            StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
+            StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
+            StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
+            StyleTextAlignValue, StyleTextColorValue, StyleTransformOriginValue,
+            StyleTransformVecValue, StyleVisibilityValue, StyleWhiteSpaceValue,
+            StyleWordSpacingValue, WidowsValue,
+        },
+        style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
+    },
+    AzString,
+};
+
+use crate::{
+    dom::{NodeData, NodeDataInlineCssProperty, NodeId, TabIndex, TagId},
+    id::{NodeDataContainer, NodeDataContainerRef},
+    style::CascadeInfo,
+    styled_dom::{
+        AzTagId, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
+        ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
+    },
+};
 
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many

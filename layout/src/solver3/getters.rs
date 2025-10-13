@@ -151,7 +151,7 @@ pub fn get_background_color(
     node_state: &StyledNodeState,
 ) -> ColorU {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
+
     // Get the background content from the styled DOM
     styled_dom
         .css_property_cache
@@ -183,7 +183,7 @@ pub fn get_border_info<T: ParsedFontTrait>(
     node_state: &StyledNodeState,
 ) -> BorderInfo {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
+
     // Get border width (using top border as representative, could average all sides)
     let width = styled_dom
         .css_property_cache
@@ -192,7 +192,7 @@ pub fn get_border_info<T: ParsedFontTrait>(
         .and_then(|w| w.get_property().cloned())
         .map(|w| w.inner.to_pixels(0.0))
         .unwrap_or(0.0);
-    
+
     // Get border color (using top border as representative)
     let color = styled_dom
         .css_property_cache
@@ -206,7 +206,7 @@ pub fn get_border_info<T: ParsedFontTrait>(
             b: 0,
             a: 255,
         });
-    
+
     BorderInfo { width, color }
 }
 
@@ -224,10 +224,10 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
     let Some(node_id) = node_id else {
         return SelectionStyle::default();
     };
-    
+
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_state = &StyledNodeState::default();
-    
+
     let bg_color = styled_dom
         .css_property_cache
         .ptr
@@ -240,7 +240,7 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
             b: 237, // Cornflower blue - typical selection color
             a: 128, // Semi-transparent
         });
-    
+
     SelectionStyle {
         bg_color,
         radius: 0.0, // TODO: Could add a custom -azul-selection-radius property
@@ -259,10 +259,10 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
     let Some(node_id) = node_id else {
         return CaretStyle::default();
     };
-    
+
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_state = &StyledNodeState::default();
-    
+
     let color = styled_dom
         .css_property_cache
         .ptr
@@ -275,7 +275,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
             b: 0,
             a: 255, // Black caret by default
         });
-    
+
     let animation_duration = styled_dom
         .css_property_cache
         .ptr
@@ -283,7 +283,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .and_then(|d| d.get_property().cloned())
         .map(|d| d.inner.inner) // Duration.inner is the u32 milliseconds value
         .unwrap_or(500); // 500ms blink by default
-    
+
     CaretStyle {
         color,
         animation_duration,
@@ -304,14 +304,14 @@ pub struct ScrollbarInfo {
 pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> ScrollbarInfo {
     // Check if there's inline content that might overflow
     let has_inline_content = node.inline_layout_result.is_some();
-    
+
     // For now, we assume standard scrollbar dimensions
     // TODO: Calculate actual overflow by comparing:
     //   - Content size (from inline_layout_result or child positions)
     //   - Container size (from used_size)
     //   - Then check if content exceeds container bounds
     // This requires access to the full layout tree and positioned children
-    
+
     ScrollbarInfo {
         needs_vertical: false,
         needs_horizontal: false,

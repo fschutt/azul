@@ -16,16 +16,24 @@ pub mod callbacks;
 pub mod cpurender;
 #[cfg(feature = "font_loading")]
 pub mod font;
+#[cfg(feature = "text_layout")]
+pub mod hit_test;
 pub mod image;
 pub mod solver3;
 #[cfg(feature = "text_layout")]
 pub mod text3;
+#[cfg(feature = "text_layout")]
+pub mod thread;
+#[cfg(feature = "text_layout")]
+pub mod timer;
 #[cfg(feature = "text_layout")]
 pub mod window;
 #[cfg(feature = "xml")]
 pub mod xml;
 
 // Export the main layout function and window management
+#[cfg(feature = "text_layout")]
+pub use hit_test::{CursorTypeHitTest, FullHitTest};
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]

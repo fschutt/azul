@@ -2390,7 +2390,7 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         // We're at leading edge, move to previous cluster's trailing edge
         // Search backwards for a cluster on the same line, or any cluster if at line start
         let current_line = self.items[current_pos].line_index;
-        
+
         // First, try to find previous item on same line
         for i in (0..current_pos).rev() {
             if let Some(cluster) = self.items[i].item.as_cluster() {
@@ -2445,7 +2445,7 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
 
         // We're at trailing edge, move to next cluster's leading edge
         let current_line = self.items[current_pos].line_index;
-        
+
         // First, try to find next item on same line
         for i in (current_pos + 1)..self.items.len() {
             if let Some(cluster) = self.items[i].item.as_cluster() {
