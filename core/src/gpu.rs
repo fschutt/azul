@@ -1,3 +1,23 @@
+//! GPU value caching for CSS transforms and opacity.
+//!
+//! This module manages the synchronization between DOM CSS properties (transforms and opacity)
+//! and GPU-side keys used by WebRender. It tracks changes to transform and opacity values
+//! and generates events when values are added, changed, or removed.
+//!
+//! # Performance
+//!
+//! The cache uses CPU feature detection (SSE/AVX on x86_64) to optimize transform calculations.
+//! Values are only recalculated when CSS properties change, minimizing GPU updates.
+//!
+//! # Architecture
+//!
+//! - `GpuValueCache`: Stores current transform/opacity keys and values for all nodes
+//! - `GpuEventChanges`: Contains delta events for transform/opacity changes
+//! - `GpuTransformKeyEvent`: Events for transform additions, changes, and removals
+//!
+//! The cache is synchronized with the `StyledDom` on each frame, generating minimal
+//! update events to send to the GPU.
+
 use alloc::collections::BTreeMap;
 
 use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
@@ -11,6 +31,18 @@ use crate::{
     ui_solver::GpuOpacityKeyEvent,
 };
 
+/// Caches GPU transform and opacity keys and their current values for all nodes.
+///
+/// This cache stores the WebRender keys and computed values for nodes with
+/// CSS transforms or opacity. It's synchronized with the `StyledDom` to detect
+/// changes and generate minimal update events.
+///
+/// # Fields
+///
+/// * `transform_keys` - Maps node IDs to their WebRender transform keys
+/// * `current_transform_values` - Current computed transform for each node
+/// * `opacity_keys` - Maps node IDs to their WebRender opacity keys
+/// * `current_opacity_values` - Current opacity value for each node
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuValueCache {
     pub transform_keys: BTreeMap<NodeId, TransformKey>,
@@ -19,23 +51,47 @@ pub struct GpuValueCache {
     pub current_opacity_values: BTreeMap<NodeId, f32>,
 }
 
+/// Represents a change to a GPU transform key.
+///
+/// These events are generated when synchronizing the cache with the `StyledDom`
+/// and are used to update WebRender's transform state efficiently.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum GpuTransformKeyEvent {
+    /// A new transform was added to a node
     Added(NodeId, TransformKey, ComputedTransform3D),
+    /// An existing transform was modified (includes old and new values)
     Changed(
         NodeId,
         TransformKey,
         ComputedTransform3D,
         ComputedTransform3D,
     ),
+    /// A transform was removed from a node
     Removed(NodeId, TransformKey),
 }
 
 impl GpuValueCache {
+    /// Creates an empty GPU value cache.
     pub fn empty() -> Self {
         Self::default()
     }
 
+    /// Synchronizes the cache with the current `StyledDom`, generating change events.
+    ///
+    /// This method:
+    /// 1. Computes current transform and opacity values from CSS properties
+    /// 2. Compares with cached values to detect changes
+    /// 3. Generates events for additions, changes, and removals
+    /// 4. Updates the internal cache state
+    ///
+    /// # Performance
+    ///
+    /// On x86_64, this function detects and uses SSE/AVX instructions for
+    /// optimized transform calculations.
+    ///
+    /// # Returns
+    ///
+    /// `GpuEventChanges` containing all transform and opacity change events.
     #[must_use]
     pub fn synchronize<'a>(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
         let css_property_cache = styled_dom.get_css_property_cache();
@@ -193,19 +249,32 @@ impl GpuValueCache {
     }
 }
 
+/// Contains all GPU-related change events from a cache synchronization.
+///
+/// This structure groups transform and opacity changes together for efficient
+/// batch processing when updating WebRender.
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuEventChanges {
+    /// All transform key changes (additions, modifications, removals)
     pub transform_key_changes: Vec<GpuTransformKeyEvent>,
+    /// All opacity key changes (additions, modifications, removals)
     pub opacity_key_changes: Vec<GpuOpacityKeyEvent>,
 }
 
 impl GpuEventChanges {
+    /// Creates an empty set of GPU event changes.
     pub fn empty() -> Self {
         Self::default()
     }
+
+    /// Returns `true` if there are no transform or opacity changes.
     pub fn is_empty(&self) -> bool {
         self.transform_key_changes.is_empty() && self.opacity_key_changes.is_empty()
     }
+
+    /// Merges another `GpuEventChanges` into this one, consuming the other.
+    ///
+    /// This is useful for combining changes from multiple sources.
     pub fn merge(&mut self, other: &mut Self) {
         self.transform_key_changes
             .extend(other.transform_key_changes.drain(..));

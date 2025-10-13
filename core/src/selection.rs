@@ -1,10 +1,50 @@
+//! Text selection and cursor positioning for inline content.
+//!
+//! This module provides data structures for managing text cursors and selection ranges
+//! in a bidirectional (Bidi) and line-breaking aware manner. It handles:
+//!
+//! - **Grapheme cluster identification**: Unicode-aware character boundaries
+//! - **Bidi support**: Cursor movement in mixed LTR/RTL text
+//! - **Stable positions**: Selection anchors survive layout changes
+//! - **Affinity tracking**: Cursor position at leading/trailing edges
+//!
+//! # Architecture
+//!
+//! Text positions are represented as:
+//! - `ContentIndex`: Logical position in the original inline content array
+//! - `GraphemeClusterId`: Stable identifier for a grapheme cluster (survives reordering)
+//! - `TextCursor`: Precise cursor location with leading/trailing affinity
+//! - `SelectionRange`: Start and end cursors defining a selection
+//!
+//! # Use Cases
+//!
+//! - Text editing: Insert/delete at cursor position
+//! - Selection rendering: Highlight selected text
+//! - Keyboard navigation: Move cursor by grapheme/word/line
+//! - Mouse selection: Convert pixel coordinates to text positions
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+//!
+//! let cursor = TextCursor {
+//!     cluster_id: GraphemeClusterId {
+//!         source_run: 0,
+//!         start_byte_in_run: 0,
+//!     },
+//!     affinity: CursorAffinity::Leading,
+//! };
+//! ```
+
 use alloc::vec::Vec;
 
 use crate::callbacks::DomNodeId;
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.
 ///
-/// This eliminates the need for string concatenation and byte-offset math.
+/// This structure eliminates the need for string concatenation and byte-offset math
+/// by tracking both the run index and the item index within that run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ContentIndex {
     /// The index of the `InlineContent` run in the original input array.

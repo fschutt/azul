@@ -1,35 +1,91 @@
+//! 3D transform matrix computations for CSS transforms.
+//!
+//! This module implements 4x4 transformation matrices for CSS `transform` properties,
+//! including translation, rotation, scaling, skewing, and perspective. It handles conversion
+//! from CSS transform functions to hardware-accelerated matrices for WebRender.
+//!
+//! # Performance
+//!
+//! On x86_64 platforms, the module automatically detects and uses SSE/AVX instructions
+//! for optimized matrix multiplication and inversion.
+//!
+//! # Coordinate Systems
+//!
+//! Matrices are stored in **row-major** format (unlike some graphics APIs that use column-major).
+//! The module handles coordinate system differences between WebRender and hit-testing via
+//! the `RotationMode` enum.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use azul_core::transform::{ComputedTransform3D, RotationMode};
+//! use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
+//!
+//! let origin = StyleTransformOrigin::default();
+//! let transforms = vec![]; // Vec<StyleTransform>
+//! let transform = ComputedTransform3D::from_style_transform_vec(
+//!     &transforms,
+//!     &origin,
+//!     800.0, // parent width
+//!     600.0, // parent height
+//!     RotationMode::ForWebRender,
+//! );
+//! ```
+
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
 
 use crate::window::LogicalPosition;
 
+/// CPU feature detection: true if initialization has been performed
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+/// CPU feature detection: true if AVX instructions are available
 static USE_AVX: AtomicBool = AtomicBool::new(false);
+/// CPU feature detection: true if SSE instructions are available
 static USE_SSE: AtomicBool = AtomicBool::new(false);
 
-/// For some reason the rotation matrix for webrender is inverted:
-/// When rendering, the matrix turns the rectangle counter-clockwise
-/// direction instead of clockwise.
+/// Specifies the coordinate system convention for rotations.
 ///
-/// This is technically a workaround, but it's necessary so that
-/// rotation works properly
+/// WebRender uses a different rotation direction than hit-testing, so transforms
+/// must be adjusted based on their use case. This enum controls whether the
+/// rotation matrix is inverted to match the expected behavior.
 #[derive(Debug, Copy, Clone)]
 pub enum RotationMode {
+    /// Use rotation convention for WebRender (counter-clockwise, requires inversion)
     ForWebRender,
+    /// Use rotation convention for hit-testing (clockwise, no inversion)
     ForHitTesting,
 }
 
-/// Computed transform of pixels in pixel space
+/// A computed 4x4 transformation matrix in pixel space.
 ///
-/// NOTE: Matrix is row-major, not column-major
+/// Represents the final transformation matrix for a DOM element after applying
+/// all CSS transform functions (translate, rotate, scale, etc.) and accounting
+/// for transform-origin.
+///
+/// # Memory Layout
+///
+/// Matrix is stored in **row-major** format:
+/// ```text
+/// m[0] = [m11, m12, m13, m14]
+/// m[1] = [m21, m22, m23, m24]
+/// m[2] = [m31, m32, m33, m34]
+/// m[3] = [m41, m42, m43, m44]
+/// ```
+///
+/// # Optimization
+///
+/// Matrix operations use SSE/AVX when available on x86_64.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ComputedTransform3D {
+    /// The 4x4 matrix in row-major format
     pub m: [[f32; 4]; 4],
 }
 
 impl ComputedTransform3D {
+    /// The identity matrix (no transformation).
     pub const IDENTITY: Self = Self {
         m: [
             [1.0, 0.0, 0.0, 0.0],
@@ -39,6 +95,9 @@ impl ComputedTransform3D {
         ],
     };
 
+    /// Creates a new 4x4 transformation matrix with the given elements.
+    ///
+    /// Elements are specified in row-major order (m11, m12, ..., m44).
     pub const fn new(
         m11: f32,
         m12: f32,
@@ -67,13 +126,28 @@ impl ComputedTransform3D {
         }
     }
 
+    /// Creates a 2D transformation matrix (3D matrix with Z = 0).
+    ///
+    /// This is equivalent to the CSS `matrix()` function. The transformation
+    /// only affects the X and Y axes.
+    ///
+    /// # Parameters
+    ///
+    /// Corresponds to `matrix(m11, m12, m21, m22, m41, m42)` in CSS.
     pub const fn new_2d(m11: f32, m12: f32, m21: f32, m22: f32, m41: f32, m42: f32) -> Self {
         Self::new(
             m11, m12, 0.0, 0.0, m21, m22, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, m41, m42, 0.0, 1.0,
         )
     }
 
-    // very slow inverse function
+    /// Computes the inverse of this transformation matrix.
+    ///
+    /// This function uses a standard matrix inversion algorithm. Returns the identity
+    /// matrix if the determinant is zero (singular matrix).
+    ///
+    /// # Performance
+    ///
+    /// This is a relatively expensive operation. Use sparingly or cache results.
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 

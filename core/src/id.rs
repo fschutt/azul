@@ -1,3 +1,33 @@
+//! Node tree data structures and hierarchy management.
+//!
+//! This module provides the core data structures for managing DOM-like tree hierarchies:
+//!
+//! - `NodeId`: Type-safe node identifiers with Option<NodeId> optimization
+//! - `NodeHierarchy`: Parent-child relationships between nodes
+//! - `NodeDataContainer`: Generic storage for node data with efficient indexing
+//!
+//! # Memory Layout
+//!
+//! `NodeId` uses `NonZeroUsize` internally, allowing `Option<NodeId>` to be the same
+//! size as `NodeId` (pointer-sized). This is crucial for memory efficiency in large DOMs.
+//!
+//! # Performance
+//!
+//! - Node lookups are O(1) via direct array indexing
+//! - Parent/child traversal is O(1) via pre-computed indices
+//! - No heap allocations after initial tree construction
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use azul_core::id::{NodeHierarchy, NodeId};
+//!
+//! let node_id = NodeId::new(0); // First node
+//! let parent = NodeId::new(1); // Second node
+//!
+//! // Build hierarchy...
+//! ```
+
 use alloc::vec::Vec;
 use core::{
     ops::{Index, IndexMut},
@@ -6,7 +36,10 @@ use core::{
 
 pub use self::node_id::NodeId;
 use crate::styled_dom::NodeHierarchyItem;
+
+/// Type alias for depth-first traversal results: (depth, node_id) pairs
 pub type NodeDepths = Vec<(usize, NodeId)>;
+
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 
@@ -22,26 +55,46 @@ mod node_id {
         ops::{Add, AddAssign},
     };
 
-    /// A node identifier within a particular `Arena`.
+    /// A type-safe identifier for a node within a DOM tree.
+    ///
+    /// `NodeId` wraps a `NonZeroUsize`, which allows `Option<NodeId>` to be
+    /// the same size as `NodeId` itself (pointer-sized) via null pointer optimization.
+    /// This is crucial for memory efficiency when storing optional parent/child references.
+    ///
+    /// # Internal Representation
+    ///
+    /// Internally, indices are stored as `value + 1` to ensure they're never zero.
+    /// Use `NodeId::new(0)` for the first node, `NodeId::new(1)` for the second, etc.
+    ///
+    /// # Safety
+    ///
+    /// In debug mode, panics on overflow (>4 billion nodes). In release mode, saturates.
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
         index: NonZeroUsize,
     }
 
     impl NodeId {
+        /// The zero/first node ID (internally stored as 1 due to NonZeroUsize).
         pub const ZERO: NodeId = NodeId {
             index: unsafe { NonZeroUsize::new_unchecked(1) },
         };
 
-        /// **NOTE**: In debug mode, it panics on overflow, since having a
-        /// pointer that is zero is undefined behaviour (it would basically be
-        /// cast to a `None`), which is incorrect, so we rather panic on overflow
-        /// to prevent that.
+        /// Creates a new `NodeId` from a zero-based index.
         ///
-        /// To trigger an overflow however, you'd need more that 4 billion DOM nodes -
-        /// it is more likely that you run out of RAM before you do that. The only thing
-        /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
-        /// disabled in release mode.
+        /// # Panics
+        ///
+        /// In debug mode, panics if the index would overflow when incremented.
+        /// In release mode, saturates to the maximum value.
+        ///
+        /// # Examples
+        ///
+        /// ```rust,no_run
+        /// use azul_core::id::NodeId;
+        ///
+        /// let first_node = NodeId::new(0);
+        /// let second_node = NodeId::new(1);
+        /// ```
         #[inline(always)]
         pub const fn new(value: usize) -> Self {
             NodeId {

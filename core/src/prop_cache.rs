@@ -1,3 +1,30 @@
+//! CSS property cache for efficient style resolution and animation.
+//!
+//! This module implements a cache layer between the raw CSS stylesheet and the rendered DOM.
+//! It resolves CSS properties for each node, handling:
+//!
+//! - **Cascade resolution**: Computes final values from CSS rules, inline styles, and inheritance
+//! - **Pseudo-class states**: Caches styles for `:hover`, `:active`, `:focus`, etc.
+//! - **Animation support**: Tracks animating properties for smooth interpolation
+//! - **Performance**: Avoids re-parsing and re-resolving unchanged properties
+//!
+//! # Architecture
+//!
+//! The cache is organized per-node and per-property-type. Each property has a dedicated
+//! getter method that:
+//! 1. Checks if the property is cached
+//! 2. If not, resolves it from CSS rules + inline styles
+//! 3. Caches the result for subsequent frames
+//!
+//! # Memory
+//!
+//! The cache size grows with DOM size × number of distinct property values.
+//! Properties with default values are not cached to save memory.
+//!
+//! # Thread Safety
+//!
+//! Not thread-safe. Each window has its own cache instance.
+
 use alloc::collections::BTreeMap;
 
 use azul_css::{

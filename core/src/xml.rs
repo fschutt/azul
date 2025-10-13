@@ -1,4 +1,50 @@
-//! XML structure definitions
+//! XML and XHTML parsing for declarative UI definitions.
+//!
+//! This module provides comprehensive XML parsing and manipulation for Azul's XML-based
+//! UI format (`.azul` files). It supports:
+//!
+//! - **XHTML parsing**: Parse HTML-like syntax into DOM structures
+//! - **CSS extraction**: Extract `<style>` blocks and inline styles
+//! - **Component system**: Define reusable UI components with arguments
+//! - **Hot reload**: Track file changes and rebuild UI incrementally
+//! - **Error reporting**: Detailed syntax error messages with line/column info
+//!
+//! # File Format
+//!
+//! `.azul` files are XML documents with special syntax:
+//!
+//! ```xml
+//! <app>
+//!   <style>
+//!     .button { background: blue; }
+//!   </style>
+//!   
+//!   <button class="button">Click me</button>
+//! </app>
+//! ```
+//!
+//! # Architecture
+//!
+//! The parsing process:
+//! 1. Tokenize XML into tag/attribute/text nodes
+//! 2. Build DOM tree from XML structure
+//! 3. Extract CSS from `<style>` tags
+//! 4. Resolve component references
+//! 5. Apply inline styles
+//!
+//! # Performance
+//!
+//! Parsing is done on-demand and results are cached. File watching detects changes
+//! for hot reload in development mode.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use azul_core::xml::{XmlNode, XmlParseOptions};
+//!
+//! let xml = "<div>Hello</div>";
+//! // let node = XmlNode::parse(xml)?;
+//! ```
 
 use alloc::{
     boxed::Box,
@@ -33,8 +79,9 @@ use crate::{
     window::{AzStringPair, StringPairVec},
 };
 
-/// Error that can happen during hot-reload -
-/// stringified, since it is only used for printing and is not exposed in the public API
+/// Error that can occur during XML parsing or hot-reload.
+///
+/// Stringified for error reporting; not part of the public API.
 pub type SyntaxError = String;
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
 pub type XmlTagName = AzString;

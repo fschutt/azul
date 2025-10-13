@@ -1,4 +1,33 @@
-//! SVG rendering module
+//! SVG rendering and path tessellation.
+//!
+//! This module provides functionality for parsing, manipulating, and rendering SVG paths.
+//! It includes:
+//!
+//! - **Path tessellation**: Converts SVG paths into triangle meshes for GPU rendering
+//! - **Stroke generation**: Creates stroked paths with various line join and cap styles
+//! - **Transform support**: Applies CSS transforms to SVG elements
+//! - **Style parsing**: Handles SVG fill, stroke, opacity, and other attributes
+//!
+//! # Architecture
+//!
+//! The module uses Lyon for geometric tessellation and generates vertex/index buffers
+//! that can be uploaded to WebRender for hardware-accelerated rendering.
+//!
+//! # Performance
+//!
+//! Path tessellation is cached and only recomputed when geometry or style changes.
+//! The tessellation tolerance controls the trade-off between visual quality and
+//! vertex count (default: 0.1 pixels).
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use azul_core::svg::{SvgPath, SvgStrokeOptions};
+//!
+//! // Parse and tessellate an SVG path
+//! let path_str = "M 10 10 L 100 100";
+//! // let path = SvgPath::parse(path_str);
+//! ```
 
 use alloc::{
     string::{String, ToString},
@@ -27,25 +56,38 @@ use crate::{
     xml::XmlError,
 };
 
+/// Default miter limit for stroke joins (ratio of miter length to stroke width)
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
+/// Default stroke width in pixels
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
+/// Default tessellation tolerance in pixels (smaller = more vertices, higher quality)
 const DEFAULT_TOLERANCE: f32 = 0.1;
 
+/// Represents the dimensions of an SVG viewport or element.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgSize {
+    /// Width in SVG user units
     pub width: f32,
+    /// Height in SVG user units
     pub height: f32,
 }
 
+/// A line segment in 2D space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgLine {
+    /// Start point of the line
     pub start: SvgPoint,
+    /// End point of the line
     pub end: SvgPoint,
 }
 
 impl SvgLine {
+    /// Computes the inward-facing normal vector for this line.
+    ///
+    /// The normal points 90 degrees to the right of the line direction.
+    /// Returns `None` if the line has zero length.
     pub fn inwards_normal(&self) -> Option<SvgPoint> {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
