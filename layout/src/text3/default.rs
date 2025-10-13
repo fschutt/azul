@@ -18,7 +18,7 @@ use crate::text3::{
 };
 // Imports for the provided ParsedFont implementation
 use crate::{
-    parsedfont::ParsedFont,
+    font::parsed::ParsedFont,
     text3::cache::{FontVariantCaps, FontVariantLigatures, FontVariantNumeric},
 };
 

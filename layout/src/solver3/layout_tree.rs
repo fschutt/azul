@@ -20,7 +20,7 @@ use azul_css::{
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
 
 use crate::{
-    parsedfont::ParsedFont,
+    font::parsed::ParsedFont,
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
         getters::{get_overflow_x, get_overflow_y, get_position, get_float},

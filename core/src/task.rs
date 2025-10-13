@@ -26,7 +26,7 @@ use azul_css::{props::property::CssProperty, AzString};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    app_resources::{ImageCache, ImageMask, ImageRef},
+    resources::{ImageCache, ImageMask, ImageRef},
     callbacks::{
         CallbackInfo, DomNodeId, FocusTarget, OptionDomNodeId, RefAny, ScrollPosition,
         ThreadCallback, TimerCallback, TimerCallbackInfo, TimerCallbackReturn, TimerCallbackType,

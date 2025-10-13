@@ -24,9 +24,9 @@ use azul_css::{
 use rust_fontconfig::{FcFontCache, FontSource};
 
 use crate::{
-    app_resources::{
-        FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef, LayoutedGlyphs,
-        RendererResources, ShapedWords, WordPositions, Words,
+    resources::{
+        FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef,
+        RendererResources,
     },
     gl::OptionGlContextPtr,
     id_tree::{NodeDataContainer, NodeId},
@@ -830,290 +830,6 @@ impl_option!(
     [Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash]
 );
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct InlineTextHit {
-    // if the unicode_codepoint is None, it's usually a mark glyph that was hit
-    pub unicode_codepoint: OptionChar, // Option<char>
-
-    // position of the cursor relative to X
-    pub hit_relative_to_inline_text: LogicalPosition,
-    pub hit_relative_to_line: LogicalPosition,
-    pub hit_relative_to_text_content: LogicalPosition,
-    pub hit_relative_to_glyph: LogicalPosition,
-
-    // relative to text
-    pub line_index_relative_to_text: usize,
-    pub word_index_relative_to_text: usize,
-    pub text_content_index_relative_to_text: usize,
-    pub glyph_index_relative_to_text: usize,
-    pub char_index_relative_to_text: usize,
-
-    // relative to line
-    pub word_index_relative_to_line: usize,
-    pub text_content_index_relative_to_line: usize,
-    pub glyph_index_relative_to_line: usize,
-    pub char_index_relative_to_line: usize,
-
-    // relative to text content (word)
-    pub glyph_index_relative_to_word: usize,
-    pub char_index_relative_to_word: usize,
-}
-
-impl_vec!(InlineTextHit, InlineTextHitVec, InlineTextHitVecDestructor);
-impl_vec_clone!(InlineTextHit, InlineTextHitVec, InlineTextHitVecDestructor);
-impl_vec_debug!(InlineTextHit, InlineTextHitVec);
-impl_vec_partialeq!(InlineTextHit, InlineTextHitVec);
-impl_vec_partialord!(InlineTextHit, InlineTextHitVec);
-
-/// inline text so that hit-testing is easier
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct InlineText {
-    /// List of lines, relative to (0.0, 0.0) representing the top left corner of the line
-    pub lines: InlineLineVec,
-    /// Size of the text content, may be larger than the
-    /// position of lines due to descending glyphs
-    pub content_size: LogicalSize,
-    /// Size of the font used to layout this line
-    pub font_size_px: f32,
-    /// Index of the last word
-    pub last_word_index: usize,
-    /// NOTE: descender is NEGATIVE (pixels from baseline to font size)
-    pub baseline_descender_px: f32,
-}
-
-impl_option!(
-    InlineText,
-    OptionInlineText,
-    copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
-);
-
-impl InlineText {
-    /// Returns the final, positioned glyphs from an inline text
-    ///
-    /// NOTE: It seems that at least in webrender, the glyphs have to be
-    /// positioned in relation to the screen (instead of relative to the parent container)
-    ///
-    /// The text_origin gets added to each glyph
-    ///
-    /// NOTE: The lines in the text are relative to the TOP left corner (of the text, i.e.
-    /// relative to the text_origin), but the word position is relative to the BOTTOM left
-    /// corner (of the line bounds)
-    pub fn get_layouted_glyphs(&self) -> LayoutedGlyphs {
-        use crate::display_list::GlyphInstance;
-
-        let default: InlineGlyphVec = Vec::new().into();
-        let default_ref = &default;
-
-        // descender_px is NEGATIVE
-        let baseline_descender_px = LogicalPosition::new(0.0, self.baseline_descender_px);
-
-        LayoutedGlyphs {
-            glyphs: self
-                .lines
-                .iter()
-                .flat_map(move |line| {
-                    // bottom left corner of line rect
-                    let line_origin = line.bounds.origin;
-
-                    line.words.iter().flat_map(move |word| {
-                        let (glyphs, mut word_origin) = match word {
-                            InlineWord::Tab | InlineWord::Return | InlineWord::Space => {
-                                (default_ref, LogicalPosition::zero())
-                            }
-                            InlineWord::Word(text_contents) => {
-                                (&text_contents.glyphs, text_contents.bounds.origin)
-                            }
-                        };
-
-                        word_origin.y = 0.0;
-
-                        glyphs.iter().map(move |glyph| GlyphInstance {
-                            index: glyph.glyph_index,
-                            point: {
-                                line_origin
-                                    + baseline_descender_px
-                                    + word_origin
-                                    + glyph.bounds.origin
-                            },
-                            size: glyph.bounds.size,
-                        })
-                    })
-                })
-                .collect::<Vec<GlyphInstance>>(),
-        }
-    }
-
-    /// Hit tests all glyphs, returns the hit glyphs - note that the result may
-    /// be empty (no glyphs hit), or it may contain more than one result
-    /// (overlapping glyphs - more than one glyph hit)
-    ///
-    /// Usually the result will contain a single `InlineTextHit`
-    pub fn hit_test(&self, position: LogicalPosition) -> Vec<InlineTextHit> {
-        let bounds = LogicalRect::new(LogicalPosition::zero(), self.content_size);
-
-        let hit_relative_to_inline_text = match bounds.hit_test(&position) {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
-
-        let mut global_char_hit = 0;
-        let mut global_word_hit = 0;
-        let mut global_glyph_hit = 0;
-        let mut global_text_content_hit = 0;
-
-        // NOTE: this function cannot exit early, since it has to
-        // iterate through all lines
-
-        let font_size_px = self.font_size_px;
-        let descender_px = self.baseline_descender_px;
-
-        self.lines
-        .iter() // TODO: par_iter
-        .enumerate()
-        .flat_map(|(line_index, line)| {
-
-            let char_at_line_start = global_char_hit;
-            let word_at_line_start = global_word_hit;
-            let glyph_at_line_start = global_glyph_hit;
-            let text_content_at_line_start = global_text_content_hit;
-
-            let mut line_bounds = line.bounds.clone();
-            line_bounds.origin.y -= line.bounds.size.height;
-
-            line_bounds.hit_test(&hit_relative_to_inline_text)
-            .map(|mut hit_relative_to_line| {
-
-                line.words
-                .iter() // TODO: par_iter
-                .flat_map(|word| {
-
-                    let char_at_text_content_start = global_char_hit;
-                    let glyph_at_text_content_start = global_glyph_hit;
-
-                    let word_result = word
-                    .get_text_content()
-                    .and_then(|text_content| {
-
-                        let mut text_content_bounds = text_content.bounds.clone();
-                        text_content_bounds.origin.y = 0.0;
-
-                        text_content_bounds
-                        .hit_test(&hit_relative_to_line)
-                        .map(|mut hit_relative_to_text_content| {
-
-                            text_content.glyphs
-                            .iter() // TODO: par_iter
-                            .flat_map(|glyph| {
-
-                                let mut glyph_bounds = glyph.bounds;
-                                glyph_bounds.origin.y = text_content.bounds.size.height + descender_px - glyph.bounds.size.height;
-
-                                let result = glyph_bounds
-                                .hit_test(&hit_relative_to_text_content)
-                                .map(|hit_relative_to_glyph| {
-                                    InlineTextHit {
-                                        unicode_codepoint: glyph.unicode_codepoint,
-
-                                        hit_relative_to_inline_text,
-                                        hit_relative_to_line,
-                                        hit_relative_to_text_content,
-                                        hit_relative_to_glyph,
-
-                                        line_index_relative_to_text: line_index,
-                                        word_index_relative_to_text: global_word_hit,
-                                        text_content_index_relative_to_text: global_text_content_hit,
-                                        glyph_index_relative_to_text: global_glyph_hit,
-                                        char_index_relative_to_text: global_char_hit,
-
-                                        word_index_relative_to_line: global_word_hit - word_at_line_start,
-                                        text_content_index_relative_to_line: global_text_content_hit - text_content_at_line_start,
-                                        glyph_index_relative_to_line: global_glyph_hit - glyph_at_line_start,
-                                        char_index_relative_to_line: global_char_hit - char_at_line_start,
-
-                                        glyph_index_relative_to_word: global_glyph_hit - glyph_at_text_content_start,
-                                        char_index_relative_to_word: global_char_hit - char_at_text_content_start,
-                                    }
-                                });
-
-                                if glyph.has_codepoint() {
-                                    global_char_hit += 1;
-                                }
-
-                                global_glyph_hit += 1;
-
-                                result
-                            })
-                            .collect::<Vec<_>>()
-                        })
-                    }).unwrap_or_default();
-
-                    if word.has_text_content() {
-                        global_text_content_hit += 1;
-                    }
-
-                    global_word_hit += 1;
-
-                    word_result.into_iter()
-                })
-                .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
-            .into_iter()
-
-        })
-        .collect::<Vec<_>>()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct InlineLine {
-    pub words: InlineWordVec,
-    pub bounds: LogicalRect,
-}
-
-impl_vec!(InlineLine, InlineLineVec, InlineLineVecDestructor);
-impl_vec_clone!(InlineLine, InlineLineVec, InlineLineVecDestructor);
-impl_vec_debug!(InlineLine, InlineLineVec);
-impl_vec_partialeq!(InlineLine, InlineLineVec);
-impl_vec_partialord!(InlineLine, InlineLineVec);
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C, u8)]
-pub enum InlineWord {
-    Tab,
-    Return,
-    Space,
-    Word(InlineTextContents),
-}
-
-impl InlineWord {
-    pub fn has_text_content(&self) -> bool {
-        self.get_text_content().is_some()
-    }
-    pub fn get_text_content(&self) -> Option<&InlineTextContents> {
-        match self {
-            InlineWord::Tab | InlineWord::Return | InlineWord::Space => None,
-            InlineWord::Word(tc) => Some(tc),
-        }
-    }
-}
-
-impl_vec!(InlineWord, InlineWordVec, InlineWordVecDestructor);
-impl_vec_clone!(InlineWord, InlineWordVec, InlineWordVecDestructor);
-impl_vec_debug!(InlineWord, InlineWordVec);
-impl_vec_partialeq!(InlineWord, InlineWordVec);
-impl_vec_partialord!(InlineWord, InlineWordVec);
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct InlineTextContents {
-    pub glyphs: InlineGlyphVec,
-    pub bounds: LogicalRect,
-}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1615,14 +1331,6 @@ impl CallbackInfo {
         *self.internal_get_focus_target() = Some(target);
     }
 
-    pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
-        self.internal_get_layout_results()
-            .get(node_id.dom.inner)?
-            .words_cache
-            .get(&node_id.node.into_crate_internal()?)
-            .map(|words| words.internal_str.clone())
-    }
-
     pub fn set_string_contents(&mut self, node_id: DomNodeId, new_string_contents: AzString) {
         if let Some(nid) = node_id.node.into_crate_internal() {
             self.internal_get_words_changed_in_callbacks()
@@ -1630,23 +1338,6 @@ impl CallbackInfo {
                 .or_insert_with(|| BTreeMap::new())
                 .insert(nid, new_string_contents);
         }
-    }
-
-    pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
-        let nid = node_id.node.into_crate_internal()?;
-        let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
-        let words = layout_result.words_cache.get(&nid)?;
-        let shaped_words = layout_result.shaped_words_cache.get(&nid)?;
-        let word_positions = layout_result.positioned_words_cache.get(&nid)?;
-        let positioned_rectangles = layout_result.rects.as_ref();
-        let positioned_rectangle = positioned_rectangles.get(nid)?;
-        let (_, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
-        Some(crate::app_resources::get_inline_text(
-            &words,
-            &shaped_words,
-            &word_positions,
-            &inline_text_layout,
-        ))
     }
 
     /// Returns the FontRef for the given NodeId
@@ -2113,9 +1804,6 @@ pub struct RenderImageCallbackInfo {
     image_cache: *const ImageCache,
     system_fonts: *const FcFontCache,
     node_hierarchy: *const NodeHierarchyItemVec,
-    words_cache: *const BTreeMap<NodeId, Words>,
-    shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
-    positioned_words_cache: *const BTreeMap<NodeId, WordPositions>,
     positioned_rects: *const NodeDataContainer<PositionedRectangle>,
     /// Extension for future ABI stability (referenced data)
     _abi_ref: *const c_void,
@@ -2134,9 +1822,6 @@ impl Clone for RenderImageCallbackInfo {
             image_cache: self.image_cache,
             system_fonts: self.system_fonts,
             node_hierarchy: self.node_hierarchy,
-            words_cache: self.words_cache,
-            shaped_words_cache: self.shaped_words_cache,
-            positioned_words_cache: self.positioned_words_cache,
             positioned_rects: self.positioned_rects,
             _abi_ref: self._abi_ref,
             _abi_mut: self._abi_mut,
@@ -2150,9 +1835,6 @@ impl RenderImageCallbackInfo {
         image_cache: &'a ImageCache,
         system_fonts: &'a FcFontCache,
         node_hierarchy: &'a NodeHierarchyItemVec,
-        words_cache: &'a BTreeMap<NodeId, Words>,
-        shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
-        positioned_words_cache: &'a BTreeMap<NodeId, WordPositions>,
         positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
         bounds: HidpiAdjustedBounds,
         callback_node_id: DomNodeId,
@@ -2163,10 +1845,6 @@ impl RenderImageCallbackInfo {
             image_cache: image_cache as *const ImageCache,
             system_fonts: system_fonts as *const FcFontCache,
             node_hierarchy: node_hierarchy as *const NodeHierarchyItemVec,
-            words_cache: words_cache as *const BTreeMap<NodeId, Words>,
-            shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
-            positioned_words_cache: positioned_words_cache
-                as *const BTreeMap<NodeId, WordPositions>,
             positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
             bounds,
             _abi_ref: core::ptr::null(),
@@ -2189,15 +1867,6 @@ impl RenderImageCallbackInfo {
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a NodeHierarchyItemVec {
         unsafe { &*self.node_hierarchy }
     }
-    fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> {
-        unsafe { &*self.words_cache }
-    }
-    fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> {
-        unsafe { &*self.shaped_words_cache }
-    }
-    fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, WordPositions> {
-        unsafe { &*self.positioned_words_cache }
-    }
     fn internal_get_positioned_rectangles<'a>(
         &'a self,
     ) -> &'a NodeDataContainer<PositionedRectangle> {
@@ -2212,34 +1881,6 @@ impl RenderImageCallbackInfo {
     }
     pub fn get_callback_node_id(&self) -> DomNodeId {
         self.callback_node_id
-    }
-
-    // fn get_font()
-    // fn get_image()
-
-    pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
-        if node_id.dom != self.get_callback_node_id().dom {
-            return None;
-        }
-
-        let nid = node_id.node.into_crate_internal()?;
-        let words = self.internal_get_words_cache();
-        let words = words.get(&nid)?;
-        let shaped_words = self.internal_get_shaped_words_cache();
-        let shaped_words = shaped_words.get(&nid)?;
-        let word_positions = self.internal_get_positioned_words_cache();
-        let word_positions = word_positions.get(&nid)?;
-        let positioned_rectangle = self.internal_get_positioned_rectangles();
-        let positioned_rectangle = positioned_rectangle.as_ref();
-        let positioned_rectangle = positioned_rectangle.get(nid)?;
-        let (_, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
-
-        Some(crate::app_resources::get_inline_text(
-            &words,
-            &shaped_words,
-            &word_positions,
-            &inline_text_layout,
-        ))
     }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {

@@ -22,7 +22,7 @@ pub use gl_context_loader::{
 use gl_context_loader::{gl, GenericGlContext, GlType};
 
 use crate::{
-    app_resources::{
+    resources::{
         Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat,
     },
     callbacks::DocumentId,

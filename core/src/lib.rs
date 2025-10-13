@@ -19,9 +19,9 @@ pub mod macros;
 #[macro_use]
 pub mod callbacks;
 /// Functions to manage adding fonts + images, garbage collection
-pub mod app_resources;
-/// Layout and display list creation algorithm, z-index reordering of a `CachedDisplayList`
-pub mod display_list;
+pub mod resources;
+/// Type definitions for Glyphs
+pub mod glyph; 
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
 /// Functions to paginate a DOM into multiple pages (sub-DOMs) for printing

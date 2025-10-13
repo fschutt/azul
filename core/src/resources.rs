@@ -11,8 +11,7 @@ use azul_css::{
     props::basic::{
         ColorU, FloatValue, FontRef, LayoutRect, LayoutSize, StyleFontFamily, StyleFontFamilyVec,
         StyleFontSize,
-    },
-    AzString, F32Vec, OptionI32, U16Vec, U32Vec, U8Vec,
+    }, AzString, F32Vec, LayoutDebugMessage, OptionI32, U16Vec, U32Vec, U8Vec
 };
 // pub use azul_css::props::basic::FontMetrics; // TODO: FontMetrics needs to be moved to new
 // structure
@@ -20,23 +19,12 @@ use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::{
-        DocumentId, DomNodeId, InlineText, RefAny, RenderImageCallback, RenderImageCallbackType,
+        DocumentId, DomNodeId, RefAny, RenderImageCallback, RenderImageCallbackType,
         UpdateImageType,
-    },
-    display_list::{GlStoreImageFn, GlyphInstance, RenderCallbacks},
-    dom::{NodeData, NodeType},
-    gl::{OptionGlContextPtr, Texture},
-    id_tree::NodeId,
-    styled_dom::{
+    }, dom::{NodeData, NodeType}, gl::{OptionGlContextPtr, Texture}, id_tree::NodeId, styled_dom::{
         CssPropertyCache, DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash,
         StyledDom, StyledNodeState,
-    },
-    task::ExternalSystemCallbacks,
-    ui_solver::{
-        InlineTextLayout, InlineTextLine, LayoutResult, ResolvedTextLayoutOptions, ScriptType,
-    },
-    window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
-    FastBTreeSet, FastHashMap,
+    }, task::ExternalSystemCallbacks, ui_solver::{GlyphInstance, LayoutResult, ResolvedTextLayoutOptions, ScriptType}, window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize, OptionChar}, FastBTreeSet, FastHashMap
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -651,7 +639,7 @@ pub trait RendererResourcesTrait: core::fmt::Debug {
     fn update_image(
         &mut self,
         image_ref_hash: &ImageRefHash,
-        descriptor: crate::app_resources::ImageDescriptor,
+        descriptor: crate::resources::ImageDescriptor,
     );
 }
 
@@ -682,7 +670,7 @@ impl RendererResourcesTrait for RendererResources {
     fn update_image(
         &mut self,
         image_ref_hash: &ImageRefHash,
-        descriptor: crate::app_resources::ImageDescriptor,
+        descriptor: crate::resources::ImageDescriptor,
     ) {
         if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
             s.descriptor = descriptor;
@@ -1033,9 +1021,6 @@ impl RendererResources {
             /* image_cache: */ image_cache,
             /* system_fonts: */ system_fonts,
             /* node_hierarchy */ &layout_result.styled_dom.node_hierarchy,
-            /* words_cache */ &layout_result.words_cache,
-            /* shaped_words_cache */ &layout_result.shaped_words_cache,
-            /* positioned_words_cache */ &layout_result.positioned_words_cache,
             /* positioned_rects */ &layout_result.rects,
             /* bounds: */ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
             /* hit_dom_node */ callback_domnode_id,
@@ -1343,7 +1328,7 @@ impl GlTextureCache {
         use gl_context_loader::gl;
 
         use crate::{
-            app_resources::{
+            resources::{
                 add_resources, AddImage, DecodedImage, ExternalImageData, ExternalImageType,
                 ImageBufferKind, ImageData, ImageRef,
             },
@@ -1379,9 +1364,6 @@ impl GlTextureCache {
                         /* image_cache: */ image_cache,
                         /* system_fonts: */ system_fonts,
                         /* node_hierarchy */ &layout_result.styled_dom.node_hierarchy,
-                        /* words_cache */ &layout_result.words_cache,
-                        /* shaped_words_cache */ &layout_result.shaped_words_cache,
-                        /* positioned_words_cache */ &layout_result.positioned_words_cache,
                         /* positioned_rects */ &layout_result.rects,
                         /* bounds: */ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
                         /* hit_dom_node */ callback_domnode_id,
@@ -2116,632 +2098,6 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
-/// Text broken up into `Tab`, `Word()`, `Return` characters
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct Words {
-    /// Words (and spaces), broken up into semantic items
-    pub items: WordVec,
-    /// String that makes up this paragraph of words
-    pub internal_str: AzString,
-    /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't
-    /// possible using UTF-8)
-    pub internal_chars: U32Vec,
-    /// Whether the words are RTL or LTR
-    pub is_rtl: bool,
-}
-
-impl Words {
-    pub fn get_substr(&self, word: &Word) -> String {
-        self.internal_chars.as_ref()[word.start..word.end]
-            .iter()
-            .filter_map(|c| core::char::from_u32(*c))
-            .collect()
-    }
-
-    pub fn get_str(&self) -> &str {
-        &self.internal_str.as_str()
-    }
-
-    pub fn get_char(&self, idx: usize) -> Option<char> {
-        self.internal_chars
-            .as_ref()
-            .get(idx)
-            .and_then(|c| core::char::from_u32(*c))
-    }
-}
-
-/// Section of a certain type
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct Word {
-    pub start: usize,
-    pub end: usize,
-    pub word_type: WordType,
-}
-
-impl_vec!(Word, WordVec, WordVecDestructor);
-impl_vec_clone!(Word, WordVec, WordVecDestructor);
-impl_vec_debug!(Word, WordVec);
-impl_vec_partialeq!(Word, WordVec);
-impl_vec_eq!(Word, WordVec);
-impl_vec_ord!(Word, WordVec);
-impl_vec_partialord!(Word, WordVec);
-impl_vec_hash!(Word, WordVec);
-
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
-pub enum LineCaretIntersection {
-    /// In order to not intersect with any holes, the caret needs to
-    /// be advanced to the position x, but can stay on the same line.
-    NoLineBreak { new_x: f32, new_y: f32 },
-    /// Caret needs to advance X number of lines and be positioned
-    /// with a leading of x
-    LineBreak { new_x: f32, new_y: f32 },
-}
-
-impl LineCaretIntersection {
-    #[inline]
-    pub fn new(
-        current_x: f32,
-        word_width: f32,
-        current_y: f32,
-        line_height: f32,
-        max_width: Option<f32>,
-    ) -> Self {
-        match max_width {
-            None => LineCaretIntersection::NoLineBreak {
-                new_x: current_x + word_width,
-                new_y: current_y,
-            },
-            Some(max) => {
-                // window smaller than minimum word content: don't break line
-                if current_x == 0.0 && max < word_width {
-                    LineCaretIntersection::NoLineBreak {
-                        new_x: current_x + word_width,
-                        new_y: current_y,
-                    }
-                } else if (current_x + word_width) > max {
-                    LineCaretIntersection::LineBreak {
-                        new_x: 0.0,
-                        new_y: current_y + line_height,
-                    }
-                } else {
-                    LineCaretIntersection::NoLineBreak {
-                        new_x: current_x + word_width,
-                        new_y: current_y,
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Either a white-space delimited word, tab or return character
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C, u8)]
-pub enum WordType {
-    /// Encountered a word (delimited by spaces)
-    Word,
-    // `\t` or `x09`
-    Tab,
-    /// `\r`, `\n` or `\r\n`, escaped: `\x0D`, `\x0A` or `\x0D\x0A`
-    Return,
-    /// Space character
-    Space,
-    /// Hyphenated word that can span multiple lines
-    WordWithHyphenation(U32Vec),
-}
-
-/// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
-/// according to their final size in pixels.
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct ShapedWords {
-    /// Words scaled to their appropriate font size, but not yet positioned on the screen
-    pub items: ShapedWordVec,
-    /// Longest word in the `self.scaled_words`, necessary for
-    /// calculating overflow rectangles.
-    pub longest_word_width: usize,
-    /// Horizontal advance of the space glyph
-    pub space_advance: usize,
-    /// Units per EM square
-    pub font_metrics_units_per_em: u16,
-    /// Descender of the font
-    pub font_metrics_ascender: i16,
-    pub font_metrics_descender: i16,
-    pub font_metrics_line_gap: i16,
-}
-
-impl ShapedWords {
-    pub fn get_longest_word_width_px(&self, target_font_size: f32) -> f32 {
-        self.longest_word_width as f32 / self.font_metrics_units_per_em as f32 * target_font_size
-    }
-    pub fn get_space_advance_px(&self, target_font_size: f32) -> f32 {
-        self.space_advance as f32 / self.font_metrics_units_per_em as f32 * target_font_size
-    }
-    /// Get the distance from the top of the text to the baseline of the text (= ascender)
-    pub fn get_baseline_px(&self, target_font_size: f32) -> f32 {
-        target_font_size + self.get_descender(target_font_size)
-    }
-    /// NOTE: descender is NEGATIVE
-    pub fn get_descender(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32
-            * target_font_size
-    }
-
-    /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
-    pub fn get_line_height(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em as f32
-            - self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32
-            + self.font_metrics_line_gap as f32 / self.font_metrics_units_per_em as f32
-                * target_font_size
-    }
-
-    pub fn get_ascender(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em as f32 * target_font_size
-    }
-}
-
-/// A Unicode variation selector.
-///
-/// VS04-VS14 are omitted as they aren't currently used.
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub enum VariationSelector {
-    /// VARIATION SELECTOR-1
-    VS01 = 1,
-    /// VARIATION SELECTOR-2
-    VS02 = 2,
-    /// VARIATION SELECTOR-3
-    VS03 = 3,
-    /// Text presentation
-    VS15 = 15,
-    /// Emoji presentation
-    VS16 = 16,
-}
-
-impl_option!(
-    VariationSelector,
-    OptionVariationSelector,
-    [Debug, Copy, PartialEq, PartialOrd, Clone, Hash]
-);
-
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C, u8)]
-pub enum GlyphOrigin {
-    Char(char),
-    Direct,
-}
-
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct PlacementDistance {
-    pub x: i32,
-    pub y: i32,
-}
-
-/// When not Attachment::None indicates that this glyph
-/// is an attachment with placement indicated by the variant.
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C, u8)]
-pub enum Placement {
-    None,
-    Distance(PlacementDistance),
-    MarkAnchor(MarkAnchorPlacement),
-    /// An overprint mark.
-    ///
-    /// This mark is shown at the same position as the base glyph.
-    ///
-    /// Fields: (base glyph index in `Vec<GlyphInfo>`)
-    MarkOverprint(usize),
-    CursiveAnchor(CursiveAnchorPlacement),
-}
-
-/// Cursive anchored placement.
-///
-/// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct CursiveAnchorPlacement {
-    /// exit glyph index in the `Vec<GlyphInfo>`
-    pub exit_glyph_index: usize,
-    /// RIGHT_TO_LEFT flag from lookup table
-    pub right_to_left: bool,
-    /// exit glyph anchor
-    pub exit_glyph_anchor: Anchor,
-    /// entry glyph anchor
-    pub entry_glyph_anchor: Anchor,
-}
-
-/// An anchored mark.
-///
-/// This is a mark where its anchor is aligned with the base glyph anchor.
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct MarkAnchorPlacement {
-    /// base glyph index in `Vec<GlyphInfo>`
-    pub base_glyph_index: usize,
-    /// base glyph anchor
-    pub base_glyph_anchor: Anchor,
-    /// mark anchor
-    pub mark_anchor: Anchor,
-}
-
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct Anchor {
-    pub x: i16,
-    pub y: i16,
-}
-
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct RawGlyph {
-    pub unicode_codepoint: OptionChar, // Option<char>
-    pub glyph_index: u16,
-    pub liga_component_pos: u16,
-    pub glyph_origin: GlyphOrigin,
-    pub small_caps: bool,
-    pub multi_subst_dup: bool,
-    pub is_vert_alt: bool,
-    pub fake_bold: bool,
-    pub fake_italic: bool,
-    pub variation: OptionVariationSelector,
-}
-
-impl RawGlyph {
-    pub fn has_codepoint(&self) -> bool {
-        self.unicode_codepoint.is_some()
-    }
-
-    pub fn get_codepoint(&self) -> Option<char> {
-        self.unicode_codepoint
-            .as_ref()
-            .and_then(|u| core::char::from_u32(*u))
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct GlyphInfo {
-    pub glyph: RawGlyph,
-    pub size: Advance,
-    pub kerning: i16,
-    pub placement: Placement,
-}
-
-#[derive(Debug, PartialEq, Default)]
-pub struct ShapedTextBufferUnsized {
-    pub infos: Vec<GlyphInfo>,
-}
-
-impl ShapedTextBufferUnsized {
-    /// Get the word width in unscaled units (respects kerning)
-    pub fn get_word_visual_width_unscaled(&self) -> usize {
-        self.infos
-            .iter()
-            .map(|s| s.size.get_x_advance_total_unscaled() as usize)
-            .sum()
-    }
-}
-
-pub fn get_inline_text(
-    words: &Words,
-    shaped_words: &ShapedWords,
-    word_positions: &WordPositions,
-    inline_text_layout: &InlineTextLayout,
-) -> InlineText {
-    use crate::callbacks::{InlineGlyph, InlineLine, InlineTextContents, InlineWord};
-
-    // check the range so that in the worst case there isn't a random crash here
-    fn get_range_checked_inclusive_end(
-        input: &[Word],
-        word_start: usize,
-        word_end: usize,
-    ) -> Option<&[Word]> {
-        if word_start < input.len() && word_end < input.len() && word_start <= word_end {
-            Some(&input[word_start..=word_end])
-        } else {
-            None
-        }
-    }
-
-    let font_size_px = word_positions.text_layout_options.font_size_px;
-    let descender_px = &shaped_words.get_descender(font_size_px); // descender is NEGATIVE
-    let letter_spacing_px = word_positions
-        .text_layout_options
-        .letter_spacing
-        .as_ref()
-        .copied()
-        .unwrap_or(0.0);
-    let units_per_em = shaped_words.font_metrics_units_per_em;
-
-    let inline_lines = inline_text_layout
-        .lines
-        .as_ref()
-        .iter()
-        .filter_map(|line| {
-            let word_items = words.items.as_ref();
-            let word_start = line.word_start.min(line.word_end);
-            let word_end = line.word_end.max(line.word_start);
-
-            let words = get_range_checked_inclusive_end(word_items, word_start, word_end)?
-                .iter()
-                .enumerate()
-                .filter_map(|(word_idx, word)| {
-                    let word_idx = word_start + word_idx;
-                    match word.word_type {
-                        WordType::Word | WordType::WordWithHyphenation(_) => {
-                            let word_position = word_positions.word_positions.get(word_idx)?;
-                            let shaped_word_index = word_position.shaped_word_index?;
-                            let shaped_word = shaped_words.items.get(shaped_word_index)?;
-
-                            // most words are less than 16 chars, avg length of an english word is
-                            // 4.7 chars
-                            let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
-                            let mut x_pos_in_word_px = 0.0;
-
-                            // all words only store the unscaled horizontal advance + horizontal
-                            // kerning
-                            for glyph_info in shaped_word.glyph_infos.iter() {
-                                // local x and y displacement of the glyph - does NOT advance the
-                                // horizontal cursor!
-                                let mut displacement = LogicalPosition::zero();
-
-                                // if the character is a mark, the mark displacement has to be added
-                                // ON TOP OF the existing displacement
-                                // the origin should be relative to the word, not the final text
-                                let (letter_spacing_for_glyph, origin) = match glyph_info.placement
-                                {
-                                    Placement::None => (
-                                        letter_spacing_px,
-                                        LogicalPosition::new(
-                                            x_pos_in_word_px + displacement.x,
-                                            displacement.y,
-                                        ),
-                                    ),
-                                    Placement::Distance(PlacementDistance { x, y }) => {
-                                        let font_metrics_divisor =
-                                            units_per_em as f32 / font_size_px;
-                                        displacement = LogicalPosition {
-                                            x: x as f32 / font_metrics_divisor,
-                                            y: y as f32 / font_metrics_divisor,
-                                        };
-                                        (
-                                            letter_spacing_px,
-                                            LogicalPosition::new(
-                                                x_pos_in_word_px + displacement.x,
-                                                displacement.y,
-                                            ),
-                                        )
-                                    }
-                                    Placement::MarkAnchor(MarkAnchorPlacement {
-                                        base_glyph_index,
-                                        ..
-                                    }) => {
-                                        let anchor = &all_glyphs_in_this_word[base_glyph_index];
-                                        (0.0, anchor.bounds.origin + displacement)
-                                        // TODO: wrong
-                                    }
-                                    Placement::MarkOverprint(index) => {
-                                        let anchor = &all_glyphs_in_this_word[index];
-                                        (0.0, anchor.bounds.origin + displacement)
-                                    }
-                                    Placement::CursiveAnchor(CursiveAnchorPlacement {
-                                        exit_glyph_index,
-                                        ..
-                                    }) => {
-                                        let anchor = &all_glyphs_in_this_word[exit_glyph_index];
-                                        (0.0, anchor.bounds.origin + displacement)
-                                        // TODO: wrong
-                                    }
-                                };
-
-                                let glyph_scale_x = glyph_info
-                                    .size
-                                    .get_x_size_scaled(units_per_em, font_size_px);
-                                let glyph_scale_y = glyph_info
-                                    .size
-                                    .get_y_size_scaled(units_per_em, font_size_px);
-
-                                let glyph_advance_x = glyph_info
-                                    .size
-                                    .get_x_advance_scaled(units_per_em, font_size_px);
-                                let kerning_x = glyph_info
-                                    .size
-                                    .get_kerning_scaled(units_per_em, font_size_px);
-
-                                let inline_char = InlineGlyph {
-                                    bounds: LogicalRect::new(
-                                        origin,
-                                        LogicalSize::new(glyph_scale_x, glyph_scale_y),
-                                    ),
-                                    unicode_codepoint: glyph_info.glyph.unicode_codepoint,
-                                    glyph_index: glyph_info.glyph.glyph_index as u32,
-                                };
-
-                                x_pos_in_word_px +=
-                                    glyph_advance_x + kerning_x + letter_spacing_for_glyph;
-
-                                all_glyphs_in_this_word.push(inline_char);
-                            }
-
-                            let inline_word = InlineWord::Word(InlineTextContents {
-                                glyphs: all_glyphs_in_this_word.into(),
-                                bounds: LogicalRect::new(
-                                    word_position.position,
-                                    word_position.size,
-                                ),
-                            });
-
-                            Some(inline_word)
-                        }
-                        WordType::Tab => Some(InlineWord::Tab),
-                        WordType::Return => Some(InlineWord::Return),
-                        WordType::Space => Some(InlineWord::Space),
-                    }
-                })
-                .collect::<Vec<InlineWord>>();
-
-            Some(InlineLine {
-                words: words.into(),
-                bounds: line.bounds,
-            })
-        })
-        .collect::<Vec<InlineLine>>();
-
-    InlineText {
-        lines: inline_lines.into(), // relative to 0, 0
-        content_size: word_positions.content_size,
-        font_size_px,
-        last_word_index: word_positions.number_of_shaped_words,
-        baseline_descender_px: *descender_px,
-    }
-}
-
-impl_vec!(GlyphInfo, GlyphInfoVec, GlyphInfoVecDestructor);
-impl_vec_clone!(GlyphInfo, GlyphInfoVec, GlyphInfoVecDestructor);
-impl_vec_debug!(GlyphInfo, GlyphInfoVec);
-impl_vec_partialeq!(GlyphInfo, GlyphInfoVec);
-impl_vec_partialord!(GlyphInfo, GlyphInfoVec);
-impl_vec_hash!(GlyphInfo, GlyphInfoVec);
-
-#[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct Advance {
-    pub advance_x: u16,
-    pub size_x: i32,
-    pub size_y: i32,
-    pub kerning: i16,
-}
-
-impl Advance {
-    #[inline]
-    pub const fn get_x_advance_total_unscaled(&self) -> i32 {
-        self.advance_x as i32 + self.kerning as i32
-    }
-    #[inline]
-    pub const fn get_x_advance_unscaled(&self) -> u16 {
-        self.advance_x
-    }
-    #[inline]
-    pub const fn get_x_size_unscaled(&self) -> i32 {
-        self.size_x
-    }
-    #[inline]
-    pub const fn get_y_size_unscaled(&self) -> i32 {
-        self.size_y
-    }
-    #[inline]
-    pub const fn get_kerning_unscaled(&self) -> i16 {
-        self.kerning
-    }
-
-    #[inline]
-    pub fn get_x_advance_total_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
-        self.get_x_advance_total_unscaled() as f32 / units_per_em as f32 * target_font_size
-    }
-    #[inline]
-    pub fn get_x_advance_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
-        self.get_x_advance_unscaled() as f32 / units_per_em as f32 * target_font_size
-    }
-    #[inline]
-    pub fn get_x_size_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
-        self.get_x_size_unscaled() as f32 / units_per_em as f32 * target_font_size
-    }
-    #[inline]
-    pub fn get_y_size_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
-        self.get_y_size_unscaled() as f32 / units_per_em as f32 * target_font_size
-    }
-    #[inline]
-    pub fn get_kerning_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
-        self.get_kerning_unscaled() as f32 / units_per_em as f32 * target_font_size
-    }
-}
-
-/// Word that is scaled (to a font / font instance), but not yet positioned
-#[derive(PartialEq, PartialOrd, Clone)]
-#[repr(C)]
-pub struct ShapedWord {
-    /// Glyph codepoint, glyph ID + kerning data
-    pub glyph_infos: GlyphInfoVec,
-    /// The sum of the width of all the characters in this word
-    pub word_width: usize,
-}
-
-impl fmt::Debug for ShapedWord {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "ShapedWord {{ glyph_infos: {} glyphs, word_width: {} }}",
-            self.glyph_infos.len(),
-            self.word_width
-        )
-    }
-}
-
-impl_vec!(ShapedWord, ShapedWordVec, ShapedWordVecDestructor);
-impl_vec_clone!(ShapedWord, ShapedWordVec, ShapedWordVecDestructor);
-impl_vec_partialeq!(ShapedWord, ShapedWordVec);
-impl_vec_partialord!(ShapedWord, ShapedWordVec);
-impl_vec_debug!(ShapedWord, ShapedWordVec);
-
-impl ShapedWord {
-    pub fn get_word_width(&self, units_per_em: u16, target_font_size: f32) -> f32 {
-        self.word_width as f32 / units_per_em as f32 * target_font_size
-    }
-    /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
-    pub fn number_of_glyphs(&self) -> usize {
-        self.glyph_infos
-            .iter()
-            .filter(|i| i.placement == Placement::None)
-            .count()
-    }
-}
-
-/// Stores the positions of the vertically laid out texts
-#[derive(Debug, Clone, PartialEq)]
-pub struct WordPositions {
-    /// Options like word spacing, character spacing, etc. that were
-    /// used to layout these glyphs
-    pub text_layout_options: ResolvedTextLayoutOptions,
-    /// Stores the positions of words.
-    pub word_positions: Vec<WordPosition>,
-    /// Index of the word at which the line breaks + length of line
-    /// (useful for text selection + horizontal centering)
-    pub line_breaks: Vec<InlineTextLine>,
-    /// Horizontal width of the last line (in pixels), necessary for inline layout later on,
-    /// so that the next text run can contine where the last text run left off.
-    ///
-    /// Usually, the "trailing" of the current text block is the "leading" of the
-    /// next text block, to make it seem like two text runs push into each other.
-    pub trailing: f32,
-    /// How many words are in the text?
-    pub number_of_shaped_words: usize,
-    /// How many lines (NOTE: virtual lines, meaning line breaks in the layouted text) are there?
-    pub number_of_lines: usize,
-    /// Horizontal and vertical boundaries of the layouted words.
-    ///
-    /// Note that the vertical extent can be larger than the last words' position,
-    /// because of trailing negative glyph advances.
-    pub content_size: LogicalSize,
-    pub is_rtl: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct WordPosition {
-    pub shaped_word_index: Option<usize>,
-    pub position: LogicalPosition,
-    pub size: LogicalSize,
-    pub hyphenated: bool,
-}
-
-/// Returns the layouted glyph instances
-#[derive(Debug, Clone, PartialEq)]
-pub struct LayoutedGlyphs {
-    pub glyphs: Vec<GlyphInstance>,
-}
-
 /// Scans the `StyledDom` for new images and fonts. After this call,
 /// the `all_resource_updates` contains all the `AddFont` / `AddImage`
 /// / `AddFontInstance` messages.
@@ -3264,6 +2620,33 @@ pub type LoadFontFn = fn(&StyleFontFamily, &FcFontCache) -> Option<LoadedFontSou
 
 // function to parse the font given the loaded font source
 pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<azul_text_layout::Font>>
+
+
+pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
+
+// todo: very unclean
+pub type LayoutFn = fn(
+    StyledDom,
+    &ImageCache,
+    &FcFontCache,
+    &mut RendererResources,
+    DpiScaleFactor,
+    &mut Vec<ResourceUpdate>,
+    IdNamespace,
+    &DocumentId,
+    Epoch,
+    &RenderCallbacks,
+    &FullWindowState,
+    &mut Option<Vec<LayoutDebugMessage>>,
+) -> Vec<LayoutResult>;
+
+#[derive(Clone)]
+pub struct RenderCallbacks {
+    pub insert_into_active_gl_textures_fn: GlStoreImageFn,
+    pub layout_fn: LayoutFn,
+    pub load_font_fn: LoadFontFn,
+    pub parse_font_fn: ParseFontFn,
+}
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and

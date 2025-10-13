@@ -10,7 +10,7 @@ use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
 use crate::{
-    parsedfont::ParsedFont,
+    font::parsed::ParsedFont,
     text3::{cache::*, default::PathLoader, script::Script},
 };
 

@@ -26,7 +26,7 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    parsedfont::ParsedFont,
+    font::parsed::ParsedFont,
     solver3::{
         geometry::{BoxProps, BoxSizing, CssSize, DisplayType, IntrinsicSizes},
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},

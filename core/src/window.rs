@@ -24,7 +24,7 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    app_resources::{
+    resources::{
         DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef,
         RendererResources, ResourceUpdate,
     },

@@ -34,15 +34,14 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    app_resources::{
+    resources::{
         Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
-        RendererResources, ShapedWords, TransformKey, UpdateImageResult, WordPositions, Words,
+        RendererResources, TransformKey, UpdateImageResult, RenderCallbacks
     },
     callbacks::{
         DocumentId, HidpiAdjustedBounds, HitTestItem, IFrameCallbackInfo, IFrameCallbackReturn,
         PipelineId, ScrollHitTestItem,
     },
-    display_list::{CachedDisplayList, RenderCallbacks},
     dom::{DomNodeHash, ScrollTagId, TagId},
     gl::OptionGlContextPtr,
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeId},
@@ -856,6 +855,22 @@ impl IntrinsicSizes {
     }
 }
 
+pub type GlyphIndex = u32;
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+pub struct GlyphInstance {
+    pub index: GlyphIndex,
+    pub point: LogicalPosition,
+    pub size: LogicalSize,
+}
+
+impl GlyphInstance {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.point.scale_for_dpi(scale_factor);
+        self.size.scale_for_dpi(scale_factor);
+    }
+}
+
 pub struct LayoutResult {
     pub dom_id: DomId,
     pub parent_dom_id: Option<DomId>,
@@ -865,9 +880,6 @@ pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub scrollable_nodes: ScrolledNodes,
     pub iframe_mapping: BTreeMap<NodeId, DomId>,
-    pub words_cache: BTreeMap<NodeId, Words>,
-    pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
-    pub positioned_words_cache: BTreeMap<NodeId, WordPositions>,
     pub gpu_value_cache: GpuValueCache,
     pub formatting_contexts: NodeDataContainer<FormattingContext>,
     pub intrinsic_sizes: NodeDataContainer<IntrinsicSizes>,
@@ -896,9 +908,6 @@ impl LayoutResult {
             intrinsic_sizes,
             scrollable_nodes: Default::default(),
             iframe_mapping: BTreeMap::new(),
-            words_cache: BTreeMap::new(),
-            shaped_words_cache: BTreeMap::new(),
-            positioned_words_cache: BTreeMap::new(),
             gpu_value_cache: Default::default(),
         }
     }
@@ -996,28 +1005,8 @@ impl LayoutResult {
             output.push('\n');
 
             for (i, line) in inline_text_layout.lines.as_ref().iter().enumerate() {
-                // Try to get text content for this line
-                let line_text = if let Some(words) = self.words_cache.get(&node_id) {
-                    if line.word_start <= line.word_end
-                        && line.word_end < words.internal_str.as_str().len()
-                    {
-                        let line_words = (line.word_start..=line.word_end)
-                            .filter_map(|i| words.items.get(i))
-                            .map(|w| {
-                                (w.start..w.end)
-                                    .filter_map(|s| words.internal_chars.get(s))
-                                    .filter_map(|c| char::from_u32(*c))
-                                    .collect::<String>()
-                            })
-                            .collect::<Vec<_>>();
-
-                        format!("'{}' ", line_words.join(" "))
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    String::new()
-                };
+                // TODO: Try to get text content for this line
+                let line_text = String::new();
 
                 output.push_str(&format!(
                     "{}   - line {}: {}{}x{} @ ({},{})",
@@ -1062,15 +1051,6 @@ impl fmt::Debug for LayoutResult {
             .field("intrinsic_sizes", &self.intrinsic_sizes)
             .field("rects", &self.rects)
             .field("gpu_value_cache", &self.gpu_value_cache)
-            .field("words", &self.words_cache.keys().collect::<Vec<_>>())
-            .field(
-                "shaped_words",
-                &self.shaped_words_cache.keys().collect::<Vec<_>>(),
-            )
-            .field(
-                "positioned_words",
-                &self.positioned_words_cache.keys().collect::<Vec<_>>(),
-            )
             .finish()
     }
 }

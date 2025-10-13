@@ -15,7 +15,6 @@ pub mod cpurender;
 #[cfg(feature = "font_loading")]
 pub mod font;
 pub mod image;
-pub mod parsedfont;
 pub mod solver2;
 pub mod solver3;
 #[cfg(feature = "text_layout")]
@@ -45,7 +44,7 @@ pub fn parse_font_fn(
 ) -> Option<azul_css::props::basic::FontRef> {
     use core::ffi::c_void;
 
-    use crate::parsedfont::ParsedFont;
+    use crate::font::parsed::ParsedFont;
 
     fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {

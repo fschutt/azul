@@ -54,7 +54,7 @@ use azul_css::{
 };
 
 use crate::{
-    app_resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
+    resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     callbacks::{CallbackInfo, RefAny, Update},
     dom::{
         CompactDom, Dom, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
@@ -3986,7 +3986,7 @@ impl StyledDom {
         &self,
         resources: &RendererResources,
     ) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
-        use crate::{app_resources::font_size_to_au, dom::NodeType::*};
+        use crate::{resources::font_size_to_au, dom::NodeType::*};
 
         let keys = self
             .node_data
@@ -4047,7 +4047,7 @@ impl StyledDom {
     pub fn scan_for_image_keys(&self, css_image_cache: &ImageCache) -> FastBTreeSet<ImageRef> {
         use azul_css::props::style::StyleBackgroundContentVec;
 
-        use crate::{app_resources::OptionImageMask, dom::NodeType::*};
+        use crate::{resources::OptionImageMask, dom::NodeType::*};
 
         #[derive(Default)]
         struct ScanImageVec {
@@ -4556,7 +4556,7 @@ impl StyledDom {
             .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| {
-                use crate::app_resources::DecodedImage;
+                use crate::resources::DecodedImage;
                 match node_data.get_node_type() {
                     NodeType::Image(image_ref) => {
                         if let DecodedImage::Callback(_) = image_ref.get_data() {

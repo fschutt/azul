@@ -18,7 +18,7 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    app_resources::{ImageCache, RendererResources},
+    resources::{ImageCache, RendererResources},
     callbacks::{DocumentId, DomNodeId, HitTestItem, ScrollPosition, Update},
     dom::{EventFilter, FocusEventFilter, HoverEventFilter, NotEventFilter, WindowEventFilter},
     gl::OptionGlContextPtr,

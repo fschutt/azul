@@ -17,7 +17,7 @@ use azul_css::{
 
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
 use crate::{
-    app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
+    resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
     callbacks::{Callback, CallbackType, IFrameCallback, IFrameCallbackType, OptionRefAny, RefAny},
     id_tree::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
     styled_dom::{

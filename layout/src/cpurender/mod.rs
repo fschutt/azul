@@ -14,7 +14,7 @@ use azul_css::props::{
 };
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
 
-use crate::parsedfont::ParsedFont;
+use crate::font::parsed::ParsedFont;
 
 pub struct RenderOptions {
     pub width: f32,

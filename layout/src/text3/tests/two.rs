@@ -12,7 +12,7 @@ use rust_fontconfig::{FcWeight, FontId};
 
 use super::{create_mock_font_manager, default_style, MockFont};
 use crate::{
-    parsedfont::ParsedFont,
+    font::parsed::ParsedFont,
     text3::{cache::*, default::PathLoader, script::Script},
 };
 
