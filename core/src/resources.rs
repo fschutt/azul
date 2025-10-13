@@ -26,6 +26,7 @@ pub use crate::callbacks::{
 use crate::{
     callbacks::IFrameCallback,
     dom::{DomId, NodeData, NodeType},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     gl::{OptionGlContextPtr, Texture},
     hit_test::DocumentId,
     id::NodeId,
@@ -35,7 +36,7 @@ use crate::{
         NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState,
     },
     ui_solver::GlyphInstance,
-    window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
+    window::OptionChar,
     FastBTreeSet, FastHashMap,
 };
 
@@ -283,6 +284,12 @@ pub struct ImageRef {
     /// How many copies does this image have (if 0, the font data will be deleted on drop)
     pub copies: *const AtomicUsize,
     pub run_destructor: bool,
+}
+
+impl ImageRef {
+    pub fn get_hash(&self) -> ImageRefHash {
+        image_ref_get_hash(self)
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]

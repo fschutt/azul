@@ -25,11 +25,11 @@ use crate::{
     },
     gl::OptionGlContextPtr,
     gpu::GpuEventChanges,
-    hit_test::{HitTestItem, ScrollPosition},
+    hit_test::{FullHitTest, HitTestItem, ScrollPosition},
     id::NodeId,
     resources::{ImageCache, RendererResources},
     styled_dom::{ChangedCssProperty, NodeHierarchyItemId},
-    window::{FullHitTest, RawWindowHandle, ScrollStates},
+    window::RawWindowHandle,
     FastBTreeSet, FastHashMap,
 };
 
@@ -236,4 +236,49 @@ pub fn get_focus_events(input: &[HoverEventFilter]) -> Vec<FocusEventFilter> {
         .iter()
         .filter_map(|hover_event| hover_event.to_focus_event_filter())
         .collect()
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ProcessEventResult {
+    DoNothing = 0,
+    ShouldReRenderCurrentWindow = 1,
+    ShouldUpdateDisplayListCurrentWindow = 2,
+    // GPU transforms changed: do another hit-test and recurse
+    // until nothing has changed anymore
+    UpdateHitTesterAndProcessAgain = 3,
+    // Only refresh the display (in case of pure scroll or GPU-only events)
+    ShouldRegenerateDomCurrentWindow = 4,
+    ShouldRegenerateDomAllWindows = 5,
+}
+
+impl ProcessEventResult {
+    pub fn order(&self) -> usize {
+        use self::ProcessEventResult::*;
+        match self {
+            DoNothing => 0,
+            ShouldReRenderCurrentWindow => 1,
+            ShouldUpdateDisplayListCurrentWindow => 2,
+            UpdateHitTesterAndProcessAgain => 3,
+            ShouldRegenerateDomCurrentWindow => 4,
+            ShouldRegenerateDomAllWindows => 5,
+        }
+    }
+}
+
+impl PartialOrd for ProcessEventResult {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.order().partial_cmp(&other.order())
+    }
+}
+
+impl Ord for ProcessEventResult {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.order().cmp(&other.order())
+    }
+}
+
+impl ProcessEventResult {
+    pub fn max_self(self, other: Self) -> Self {
+        self.max(other)
+    }
 }

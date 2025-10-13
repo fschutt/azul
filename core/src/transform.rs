@@ -36,7 +36,7 @@ use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
 
-use crate::window::LogicalPosition;
+use crate::geom::LogicalPosition;
 
 /// CPU feature detection: true if initialization has been performed
 static INITIALIZED: AtomicBool = AtomicBool::new(false);

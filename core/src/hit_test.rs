@@ -1,16 +1,36 @@
+use alloc::collections::BTreeMap;
 use core::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
-use std::collections::BTreeMap;
 
 use crate::{
-    dom::{DomId, DomNodeHash, ScrollTagId},
+    dom::{DomId, DomNodeHash, DomNodeId, ScrollTagId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     id::NodeId,
     resources::IdNamespace,
     styled_dom::NodeHierarchyItemId,
-    window::{LogicalPosition, LogicalRect, LogicalSize},
+    window::MouseCursorType,
+    FastHashMap,
 };
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct HitTest {
+    pub regular_hit_test_nodes: BTreeMap<NodeId, HitTestItem>,
+    pub scroll_hit_test_nodes: BTreeMap<NodeId, ScrollHitTestItem>,
+}
+
+impl HitTest {
+    pub fn empty() -> Self {
+        Self {
+            regular_hit_test_nodes: BTreeMap::new(),
+            scroll_hit_test_nodes: BTreeMap::new(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.regular_hit_test_nodes.is_empty() && self.scroll_hit_test_nodes.is_empty()
+    }
+}
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq, Ord, PartialOrd)]
 #[repr(C)]
@@ -153,4 +173,130 @@ pub struct ScrollHitTestItem {
     pub point_relative_to_item: LogicalPosition,
     /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
     pub scroll_node: OverflowingScrollNode,
+}
+
+#[derive(Debug, Default)]
+pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
+
+impl ScrollStates {
+    /// Special rendering function that skips building a layout and only does
+    /// hit-testing and rendering - called on pure scroll events, since it's
+    /// significantly less CPU-intensive to just render the last display list instead of
+    /// re-layouting on every single scroll event.
+    #[must_use]
+    pub fn should_scroll_render(
+        &mut self,
+        (scroll_x, scroll_y): &(f32, f32),
+        hit_test: &FullHitTest,
+    ) -> bool {
+        let mut should_scroll_render = false;
+
+        for hit_test in hit_test.hovered_nodes.values() {
+            for scroll_hit_test_item in hit_test.scroll_hit_test_nodes.values() {
+                self.scroll_node(&scroll_hit_test_item.scroll_node, *scroll_x, *scroll_y);
+                should_scroll_render = true;
+                break; // only scroll first node that was hit
+            }
+        }
+
+        should_scroll_render
+    }
+
+    pub fn new() -> ScrollStates {
+        ScrollStates::default()
+    }
+
+    pub fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LogicalPosition> {
+        self.0.get(&scroll_id).map(|entry| entry.get())
+    }
+
+    /// Set the scroll amount - does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub fn set_scroll_position(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_position: LogicalPosition,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .set(scroll_position.x, scroll_position.y, &node.child_rect);
+    }
+
+    /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub fn scroll_node(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_by_x: f32,
+        scroll_by_y: f32,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .add(scroll_by_x, scroll_by_y, &node.child_rect);
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct ScrollState {
+    /// Amount in pixel that the current node is scrolled
+    pub scroll_position: LogicalPosition,
+}
+
+impl ScrollState {
+    /// Return the current position of the scroll state
+    pub fn get(&self) -> LogicalPosition {
+        self.scroll_position
+    }
+
+    /// Add a scroll X / Y onto the existing scroll state
+    pub fn add(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
+        self.scroll_position.x = (self.scroll_position.x + x)
+            .max(0.0)
+            .min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y)
+            .max(0.0)
+            .min(child_rect.size.height);
+    }
+
+    /// Set the scroll state to a new position
+    pub fn set(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
+        self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
+    }
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        ScrollState {
+            scroll_position: LogicalPosition::zero(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FullHitTest {
+    pub hovered_nodes: BTreeMap<DomId, HitTest>,
+    pub focused_node: Option<(DomId, NodeId)>,
+}
+
+impl FullHitTest {
+    pub fn empty(focused_node: Option<DomNodeId>) -> Self {
+        Self {
+            hovered_nodes: BTreeMap::new(),
+            focused_node: focused_node.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CursorTypeHitTest {
+    /// closest-node is used for determining the cursor: property
+    /// The node is guaranteed to have a non-default cursor: property,
+    /// so that the cursor icon can be set accordingly
+    pub cursor_node: Option<(DomId, NodeId)>,
+    /// Mouse cursor type to set (if cursor_node is None, this is set to
+    /// `MouseCursorType::Default`)
+    pub cursor_icon: MouseCursorType,
 }

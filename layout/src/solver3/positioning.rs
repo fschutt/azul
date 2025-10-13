@@ -4,11 +4,11 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
-    callbacks::ScrollPosition,
     dom::NodeId,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    hit_test::ScrollPosition,
     resources::RendererResources,
     styled_dom::StyledDom,
-    window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
     corety::LayoutDebugMessage,
@@ -24,6 +24,7 @@ use crate::{
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
         geometry::CssSize,
+        getters::get_writing_mode,
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
     },
@@ -342,23 +343,4 @@ fn find_absolute_containing_block_rect<T: ParsedFontTrait>(
     }
 
     Ok(viewport) // Fallback to the initial containing block.
-}
-
-// STUB: This helper function is now needed in this file. In a real project,
-// it would live in a shared utility module.
-fn get_writing_mode(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
-    let Some(id) = dom_id else {
-        return WritingMode::HorizontalTb;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-
-    use crate::solver3::cache::to_writing_mode;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_writing_mode(node_data, &id, node_state)
-        .and_then(|wm| wm.get_property().copied())
-        .map(to_writing_mode)
-        .unwrap_or(WritingMode::HorizontalTb)
 }

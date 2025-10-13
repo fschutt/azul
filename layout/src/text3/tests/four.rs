@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use azul_core::geom::LogicalSize;
 use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
@@ -109,14 +110,10 @@ impl ParsedFontTrait for MockFont {
     }
 
     // NOTE: This is fake, we don't have glyph sizes here - also very slow, but ok for mocking
-    fn get_glyph_size(
-        &self,
-        glyph_id: u16,
-        font_size: f32,
-    ) -> Option<azul_core::window::LogicalSize> {
+    fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
         self.glyphs.values().find_map(|(id, advance)| {
             if *id == glyph_id {
-                Some(azul_core::window::LogicalSize {
+                Some(LogicalSize {
                     width: *advance,
                     height: font_size,
                 })

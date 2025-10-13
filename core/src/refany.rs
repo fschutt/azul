@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::{
     alloc::Layout,
     ffi::c_void,

@@ -112,10 +112,10 @@ impl ParsedFontTrait for MockFont {
         &self,
         glyph_id: u16,
         font_size: f32,
-    ) -> Option<azul_core::window::LogicalSize> {
+    ) -> Option<azul_core::geom::LogicalSize> {
         self.glyphs.values().find_map(|(id, advance)| {
             if *id == glyph_id {
-                Some(azul_core::window::LogicalSize {
+                Some(azul_core::geom::LogicalSize {
                     width: *advance,
                     height: font_size,
                 })

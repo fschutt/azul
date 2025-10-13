@@ -22,10 +22,11 @@ pub use gl_context_loader::{
 use gl_context_loader::{gl, GenericGlContext, GlType};
 
 use crate::{
+    geom::PhysicalSizeU32,
     hit_test::DocumentId,
     resources::{Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat},
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
-    window::{PhysicalSizeU32, RendererType},
+    window::RendererType,
     FastHashMap,
 };
 

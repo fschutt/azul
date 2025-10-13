@@ -9,28 +9,27 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
-    callbacks::{DocumentId, DomNodeId, ExternalSystemCallbacks, FocusTarget, ScrollPosition},
-    dom::NodeId,
+    callbacks::{FocusTarget, Update},
+    dom::{DomId, DomNodeId, NodeId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
+    hit_test::{DocumentId, ScrollPosition},
+    refany::RefAny,
     resources::{
-        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageRefHash, RenderCallbacks,
-        RendererResources,
+        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageRefHash, RendererResources,
     },
     selection::SelectionState,
-    styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
-    task::{Instant, Thread, ThreadId, Timer, TimerId},
-    ui_solver::OptionLogicalPosition,
-    window::{
-        FullWindowState, LogicalPosition, LogicalRect, LogicalSize, RawWindowHandle, RendererType,
-        WindowState,
-    },
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+    task::{Instant, ThreadId, ThreadSendMsg, TimerId},
+    window::{RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::LayoutDebugMessage;
 use rust_fontconfig::FcFontCache;
 
 use crate::{
+    callbacks::{CallCallbacksResult, Callback, ExternalSystemCallbacks, MenuCallback},
     font::parsed::ParsedFont,
     solver3::{
         self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
@@ -40,6 +39,9 @@ use crate::{
         cache::{FontManager, LayoutCache as TextLayoutCache},
         default::PathLoader,
     },
+    thread::{OptionThreadReceiveMsg, Thread, ThreadReceiveMsg, ThreadWriteBackMsg},
+    timer::Timer,
+    window_state::{FullWindowState, WindowState},
 };
 
 /// Tracks the state of an IFrame for conditional re-invocation
@@ -270,11 +272,6 @@ impl LayoutWindow {
         self.selections.clear();
         self.iframe_states.clear();
         self.next_dom_id = 1;
-    }
-
-    /// Get a layout result for a specific DOM
-    pub fn get_layout_result(&self, dom_id: DomId) -> Option<&DomLayoutResult> {
-        self.layout_results.get(&dom_id)
     }
 
     /// Set scroll position for a node
@@ -591,14 +588,9 @@ impl LayoutWindow {
     ) -> CallCallbacksResult {
         use std::collections::BTreeMap;
 
-        use azul_core::{
-            app_resources::ImageCache,
-            task::TerminateTimer,
-            window::{CallCallbacksResult, Update},
-            FastBTreeSet, FastHashMap,
-        };
+        use azul_core::{callbacks::Update, task::TerminateTimer, FastBTreeSet, FastHashMap};
 
-        use crate::callbacks::CallbackInfo;
+        use crate::callbacks::{CallCallbacksResult, CallbackInfo};
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -751,13 +743,12 @@ impl LayoutWindow {
     ) -> CallCallbacksResult {
         use std::collections::BTreeSet;
 
-        use azul_core::{
-            callbacks::RefAny,
-            task::{OptionThreadReceiveMsg, ThreadReceiveMsg, ThreadSendMsg, ThreadWriteBackMsg},
-            window::{CallCallbacksResult, Update},
-        };
+        use azul_core::{callbacks::Update, refany::RefAny};
 
-        use crate::callbacks::CallbackInfo;
+        use crate::{
+            callbacks::{CallCallbacksResult, CallbackInfo},
+            thread::{OptionThreadReceiveMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
+        };
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -921,12 +912,9 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-        use azul_core::{
-            callbacks::{Callback, RefAny},
-            window::{CallCallbacksResult, Update},
-        };
+        use azul_core::{callbacks::Update, refany::RefAny};
 
-        use crate::callbacks::CallbackInfo;
+        use crate::callbacks::{CallCallbacksResult, Callback, CallbackInfo};
 
         let hit_dom_node = DomNodeId {
             dom: DomId::ROOT_ID,
@@ -1056,12 +1044,9 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-        use azul_core::{
-            callbacks::MenuCallback,
-            window::{CallCallbacksResult, Update},
-        };
+        use azul_core::callbacks::Update;
 
-        use crate::callbacks::CallbackInfo;
+        use crate::callbacks::{CallCallbacksResult, CallbackInfo, MenuCallback};
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -1177,12 +1162,13 @@ impl LayoutWindow {
 #[cfg(test)]
 mod tests {
     use azul_core::{
+        dom::DomId,
         gpu::GpuValueCache,
-        styled_dom::DomId,
-        task::{Instant, Thread, ThreadId, Timer, TimerId},
+        task::{Instant, ThreadId, TimerId},
     };
 
     use super::*;
+    use crate::{thread::Thread, timer::Timer};
 
     #[test]
     fn test_timer_add_remove() {

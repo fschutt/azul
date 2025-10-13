@@ -47,12 +47,12 @@ use azul_css::{
 };
 
 use crate::{
+    geom::PhysicalSizeU32,
     gl::{
         GlContextPtr, IndexBufferFormat, Texture, VertexAttribute, VertexAttributeType,
         VertexBuffer, VertexLayout, VertexLayoutDescription,
     },
     transform::{ComputedTransform3D, RotationMode},
-    window::PhysicalSizeU32,
     xml::XmlError,
 };
 

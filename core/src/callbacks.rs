@@ -25,6 +25,7 @@ use rust_fontconfig::{FcFontCache, FontSource};
 
 use crate::{
     dom::{DomId, DomNodeId, EventFilter},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, PhysicalSize},
     gl::OptionGlContextPtr,
     hit_test::OverflowingScrollNode,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
@@ -38,8 +39,7 @@ use crate::{
     },
     ui_solver::PositionInfo,
     window::{
-        AzStringPair, KeyboardState, LogicalPosition, LogicalRect, LogicalSize, MouseState,
-        OptionChar, OptionLogicalPosition, PhysicalSize, RawWindowHandle, UpdateFocusWarning,
+        AzStringPair, KeyboardState, MouseState, OptionChar, RawWindowHandle, UpdateFocusWarning,
         WindowFlags, WindowSize, WindowTheme,
     },
     FastBTreeSet, FastHashMap,

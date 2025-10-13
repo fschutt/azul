@@ -6,10 +6,8 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
-    callbacks::{DomNodeId, HitTestItem},
-    dom::NodeId,
-    styled_dom::DomId,
-    ui_solver::HitTest,
+    dom::{DomId, DomNodeId, NodeId},
+    hit_test::{HitTest, HitTestItem},
     window::MouseCursorType,
 };
 use azul_css::props::style::StyleCursor;

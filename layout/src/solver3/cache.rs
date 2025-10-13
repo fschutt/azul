@@ -19,9 +19,9 @@ use std::{
 
 use azul_core::{
     dom::NodeId,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::{StyledDom, StyledNode},
     ui_solver::FormattingContext,
-    window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -51,15 +51,6 @@ use crate::{
         cache::{FontLoaderTrait, ParsedFontTrait},
     },
 };
-
-/// Convert LayoutWritingMode to WritingMode
-pub fn to_writing_mode(wm: LayoutWritingMode) -> WritingMode {
-    match wm {
-        LayoutWritingMode::HorizontalTb => WritingMode::HorizontalTb,
-        LayoutWritingMode::VerticalRl => WritingMode::VerticalRl,
-        LayoutWritingMode::VerticalLr => WritingMode::VerticalLr,
-    }
-}
 
 /// Convert LayoutOverflow to OverflowBehavior
 fn to_overflow_behavior(overflow: LayoutOverflow) -> fc::OverflowBehavior {
@@ -215,7 +206,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
         .get(dom_id)
         .map(|n| n.state.clone())
         .unwrap_or_default();
-    let writing_mode = to_writing_mode(get_writing_mode(styled_dom, dom_id, &styled_node_state));
+    let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state);
     let parent_pos = absolute_positions
         .get(&parent_idx)
         .copied()
@@ -246,8 +237,8 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
             };
 
             let main_axis_offset = match writing_mode {
-                WritingMode::HorizontalTb => new_pos.y - content_box_origin.y,
-                WritingMode::VerticalRl | WritingMode::VerticalLr => {
+                LayoutWritingMode::HorizontalTb => new_pos.y - content_box_origin.y,
+                LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => {
                     new_pos.x - content_box_origin.x
                 }
             };
@@ -265,8 +256,8 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
             let new_main_pos = main_pen + child_node.box_props.margin.main_start(writing_mode);
             let old_relative_pos = child_node.relative_position.unwrap_or_default();
             let cross_pos = match writing_mode {
-                WritingMode::HorizontalTb => old_relative_pos.x,
-                WritingMode::VerticalRl | WritingMode::VerticalLr => old_relative_pos.y,
+                LayoutWritingMode::HorizontalTb => old_relative_pos.x,
+                LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => old_relative_pos.y,
             };
             let new_relative_pos =
                 LogicalPosition::from_main_cross(new_main_pos, cross_pos, writing_mode);
@@ -487,8 +478,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             .get(dom_id)
             .map(|n| n.state.clone())
             .unwrap_or_default();
-        let layout_writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state); // This should come from the node's style.
-        let writing_mode = to_writing_mode(layout_writing_mode);
+        let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state); // This should come from the node's style.
         let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state);
 
         let constraints = LayoutConstraints {
@@ -518,7 +508,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
 
     // If the node's main-axis size depends on its content, we update its used size now.
-    if crate::solver3::sizing::get_css_height(ctx.styled_dom, Some(dom_id)) == CssSize::Auto {
+    if get_css_height(ctx.styled_dom, Some(dom_id)) == CssSize::Auto {
         let node_props = &tree.get(node_index).unwrap().box_props;
         let main_axis_padding_border =
             node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);

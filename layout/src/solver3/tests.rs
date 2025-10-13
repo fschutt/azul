@@ -10,11 +10,13 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
-    callbacks::{IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn, RefAny, ScrollPosition},
-    dom::{Dom, NodeData, NodeId, NodeType},
+    callbacks::{IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn},
+    dom::{Dom, DomId, NodeData, NodeId, NodeType},
+    hit_test::ScrollPosition,
+    refany::RefAny,
     resources::ImageRef,
     selection::SelectionState,
-    styled_dom::{DomId, StyledDom},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
@@ -111,7 +113,7 @@ fn test_window_resize_invalidates_layout() {
     let mut dom1 = create_simple_dom();
     let styled_dom1 = create_styled_dom(&mut dom1);
 
-    let mut window_state = azul_core::window::FullWindowState::default();
+    let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
     let result1 = window.layout_and_generate_display_list(
@@ -239,7 +241,7 @@ fn test_scroll_state_per_dom() {
 #[test]
 fn test_selection_state_tracking() {
     use azul_core::{
-        callbacks::DomNodeId,
+        dom::DomNodeId,
         selection::{CursorAffinity, GraphemeClusterId, Selection, TextCursor},
     };
     use rust_fontconfig::FcFontCache;
@@ -248,7 +250,7 @@ fn test_selection_state_tracking() {
         LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
 
     let dom_id = DomId::ROOT_ID;
-    let node_id = azul_core::id_tree::NodeId::ZERO;
+    let node_id = NodeId::ZERO;
 
     // Create a selection state
     let cursor = TextCursor {
@@ -263,7 +265,7 @@ fn test_selection_state_tracking() {
         selections: vec![Selection::Cursor(cursor)],
         node_id: DomNodeId {
             dom: dom_id,
-            node: azul_core::id_tree::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         },
     };
 
@@ -291,7 +293,7 @@ fn test_layout_result_caching() {
     let mut dom = create_simple_dom();
     let styled_dom = create_styled_dom(&mut dom);
 
-    let mut window_state = azul_core::window::FullWindowState::default();
+    let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
     // Perform layout
@@ -477,7 +479,7 @@ fn test_iframe_conditional_reinvocation() {
     let css1 = CssApiWrapper::empty();
     let styled_dom1 = StyledDom::new(&mut dom1, css1);
 
-    let mut window_state = azul_core::window::FullWindowState::default();
+    let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
     let _ = window.layout_and_generate_display_list(
@@ -501,7 +503,7 @@ fn test_iframe_conditional_reinvocation() {
         },
         data: iframe_data.clone(),
     };
-    dom2.add_child(NodeData::new(NodeType::IFrame(iframe_node2)));
+    dom2.add_child(Dom::iframe(iframe_node2));
 
     let css2 = CssApiWrapper::empty();
     let styled_dom2 = StyledDom::new(&mut dom2, css2);
@@ -527,7 +529,7 @@ fn test_iframe_conditional_reinvocation() {
         },
         data: iframe_data.clone(),
     };
-    dom3.add_child(NodeData::new(NodeType::IFrame(iframe_node3)));
+    dom3.add_child(Dom::iframe(iframe_node3.data, iframe_node3.callback.cb));
 
     let css3 = CssApiWrapper::empty();
     let styled_dom3 = StyledDom::new(&mut dom3, css3);
@@ -591,7 +593,7 @@ fn test_multi_dom_layout_results() {
     let mut root_dom = create_simple_dom();
     let styled_root = create_styled_dom(&mut root_dom);
 
-    let mut window_state = azul_core::window::FullWindowState::default();
+    let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
     let _ = window.layout_and_generate_display_list(
@@ -629,7 +631,7 @@ fn test_clear_caches_resets_all_state() {
     let mut dom = create_simple_dom();
     let styled_dom = create_styled_dom(&mut dom);
 
-    let mut window_state = azul_core::window::FullWindowState::default();
+    let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
     let _ = window.layout_and_generate_display_list(

@@ -1,8 +1,8 @@
 // In a new file, layout/src/text3/tests4.rs
 
 use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     selection::*,
-    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 
 use super::{create_mock_font_manager, default_style, MockFont};

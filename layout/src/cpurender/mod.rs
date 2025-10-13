@@ -4,7 +4,7 @@
 //! Unlike the old hierarchical CachedDisplayList, the new DisplayList is a simple
 //! flat vector of rendering commands that can be executed sequentially.
 
-use azul_core::{resources::RendererResources, window::LogicalRect};
+use azul_core::{geom::LogicalRect, resources::RendererResources};
 use azul_css::props::basic::ColorU;
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
 

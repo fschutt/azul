@@ -30,6 +30,10 @@ pub mod selection;
 // pub mod diff;
 /// Animation system
 pub mod animation;
+/// Event handling (mouse, keyboard, window events)
+pub mod events;
+/// Geometry module for physical and logical sizes
+pub mod geom;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
 pub mod gl;
 /// GPU value synchronization (colors, transforms) for WebRender preparation
@@ -58,12 +62,8 @@ pub mod transform;
 pub mod ui_solver;
 /// Window creation / interaction with the OS' windowing API
 pub mod window;
-/// Window state handling / synchronization
-pub mod window_state;
 /// XML structures
 pub mod xml;
-
-// pub mod old_text_layout; // -- IGNORE, this was for the initial solver only --
 
 // Typedef for possible faster implementation of hashing
 pub type FastHashMap<T, U> = alloc::collections::BTreeMap<T, U>;

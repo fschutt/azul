@@ -10,8 +10,8 @@ use azul_core::{
 use azul_css::props::{
     basic::ColorU,
     layout::{
-        LayoutFlexWrap, LayoutFloat, LayoutJustifyContent, LayoutOverflow, LayoutPosition,
-        LayoutWritingMode,
+        LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
+        LayoutPosition, LayoutWidth, LayoutWritingMode,
     },
     style::StyleTextAlign,
 };
@@ -43,6 +43,18 @@ macro_rules! get_css_property {
     };
 }
 
+get_css_property!(
+    get_css_width,
+    get_width,
+    LayoutWidth,
+    LayoutWidth::default()
+);
+get_css_property!(
+    get_css_height,
+    get_height,
+    LayoutHeight,
+    LayoutHeight::default()
+);
 get_css_property!(
     get_writing_mode,
     get_writing_mode,
@@ -318,4 +330,41 @@ pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) 
         scrollbar_width: if has_inline_content { 16.0 } else { 0.0 },
         scrollbar_height: if has_inline_content { 16.0 } else { 0.0 },
     }
+}
+
+// TODO: STUB helper functions that would be needed for the above code.
+pub(crate) fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> DisplayType {
+    let Some(id) = dom_id else {
+        return DisplayType::Inline;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_display(node_data, &id, node_state)
+        .and_then(|d| {
+            d.get_property().map(|inner| match inner {
+                azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
+                azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
+                azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
+                azul_css::props::layout::LayoutDisplay::Table => DisplayType::Table,
+                azul_css::props::layout::LayoutDisplay::TableRow => DisplayType::TableRow,
+                azul_css::props::layout::LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
+                azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
+                // ...weitere Mapping-Fälle nach Bedarf...
+                _ => DisplayType::Inline,
+            })
+        })
+        .unwrap_or(DisplayType::Inline)
+}
+
+// TODO: STUB helper
+pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
+    // Beispiel: Hole Schriftgröße, Farbe, etc. aus dem StyledDom und baue StyleProperties
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
+    // Hier müssten alle relevanten Properties ausgelesen und in StyleProperties übertragen werden
+    // (dies ist ein Platzhalter, da die genaue Struktur von StyleProperties nicht bekannt ist)
+    StyleProperties::default()
 }

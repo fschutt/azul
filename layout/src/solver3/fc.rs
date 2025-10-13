@@ -9,10 +9,10 @@ use std::{
 
 use azul_core::{
     dom::{NodeId, NodeType},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::RendererResources,
     styled_dom::StyledDom,
     ui_solver::FormattingContext,
-    window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -73,7 +73,7 @@ pub struct LayoutConstraints<'a> {
     /// The available space for the content, excluding padding and borders.
     pub available_size: LogicalSize,
     /// The CSS writing-mode of the context.
-    pub writing_mode: WritingMode,
+    pub writing_mode: LayoutWritingMode,
     /// The state of the parent Block Formatting Context, if applicable.
     /// This is how state (like floats) is passed down.
     pub bfc_state: Option<&'a mut BfcState>,
@@ -157,7 +157,7 @@ impl FloatingContext {
         main_start: f32,
         main_end: f32,
         bfc_cross_size: f32,
-        wm: WritingMode,
+        wm: LayoutWritingMode,
     ) -> (f32, f32) {
         let mut available_cross_start = 0.0_f32;
         let mut available_cross_end = bfc_cross_size;
@@ -190,7 +190,7 @@ impl FloatingContext {
         &self,
         clear: LayoutClear,
         current_main_offset: f32,
-        wm: WritingMode,
+        wm: LayoutWritingMode,
     ) -> f32 {
         let mut max_end_offset = 0.0_f32;
 
@@ -222,7 +222,7 @@ struct BfcLayoutState {
     floats: FloatingContext,
     margins: MarginCollapseContext,
     /// The writing mode of the BFC root.
-    writing_mode: WritingMode,
+    writing_mode: LayoutWritingMode,
 }
 
 /// Result of a formatting context layout operation
@@ -771,8 +771,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 .get(dom_id)
                 .map(|n| n.state.clone())
                 .unwrap_or_default();
-            let layout_writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state);
-            let writing_mode = crate::solver3::cache::to_writing_mode(layout_writing_mode);
+            let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state);
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(width, f32::INFINITY),
                 writing_mode,
@@ -840,43 +839,6 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         }
     }
     Ok((content, child_map))
-}
-
-// TODO: STUB helper functions that would be needed for the above code.
-pub(crate) fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> DisplayType {
-    let Some(id) = dom_id else {
-        return DisplayType::Inline;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_display(node_data, &id, node_state)
-        .and_then(|d| {
-            d.get_property().map(|inner| match inner {
-                azul_css::props::layout::LayoutDisplay::Block => DisplayType::Block,
-                azul_css::props::layout::LayoutDisplay::Inline => DisplayType::Inline,
-                azul_css::props::layout::LayoutDisplay::InlineBlock => DisplayType::InlineBlock,
-                azul_css::props::layout::LayoutDisplay::Table => DisplayType::Table,
-                azul_css::props::layout::LayoutDisplay::TableRow => DisplayType::TableRow,
-                azul_css::props::layout::LayoutDisplay::TableRowGroup => DisplayType::TableRowGroup,
-                azul_css::props::layout::LayoutDisplay::TableCell => DisplayType::TableCell,
-                // ...weitere Mapping-Fälle nach Bedarf...
-                _ => DisplayType::Inline,
-            })
-        })
-        .unwrap_or(DisplayType::Inline)
-}
-
-// TODO: STUB helper
-pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
-    // Beispiel: Hole Schriftgröße, Farbe, etc. aus dem StyledDom und baue StyleProperties
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
-    // Hier müssten alle relevanten Properties ausgelesen und in StyleProperties übertragen werden
-    // (dies ist ein Platzhalter, da die genaue Struktur von StyleProperties nicht bekannt ist)
-    StyleProperties::default()
 }
 
 /// Positions a floated child within the BFC and updates the floating context.

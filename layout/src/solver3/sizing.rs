@@ -9,10 +9,10 @@ use std::{
 
 use azul_core::{
     dom::{NodeId, NodeType},
+    geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
     ui_solver::FormattingContext,
-    window::{LogicalSize, WritingMode},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -30,7 +30,7 @@ use crate::{
     solver3::{
         fc::{get_display_property, get_style_properties},
         geometry::{BoxProps, BoxSizing, CssSize, DisplayType, IntrinsicSizes},
-        getters::get_writing_mode,
+        getters::{get_css_height, get_css_width, get_writing_mode},
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
         positioning::{get_position_type, PositionType},
         LayoutContext, LayoutError, Result,
@@ -144,7 +144,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         for &child_index in &node.children {
             if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
                 let (child_min_cross, child_max_cross, child_main_size) = match writing_mode {
-                    WritingMode::HorizontalTb => (
+                    LayoutWritingMode::HorizontalTb => (
                         child_intrinsic.min_content_width,
                         child_intrinsic.max_content_width,
                         child_intrinsic.max_content_height,
@@ -163,7 +163,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         }
 
         let (min_width, max_width, min_height, max_height) = match writing_mode {
-            WritingMode::HorizontalTb => (
+            LayoutWritingMode::HorizontalTb => (
                 max_child_min_cross,
                 max_child_max_cross,
                 total_main_size,
@@ -424,7 +424,7 @@ pub fn calculate_used_size_for_node(
 ) -> Result<LogicalSize> {
     let css_width = get_css_width(styled_dom, dom_id);
     let css_height = get_css_height(styled_dom, dom_id);
-    let writing_mode = get_writing_mode_opt(styled_dom, dom_id);
+    let writing_mode = get_writing_mode(styled_dom, dom_id);
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
@@ -504,66 +504,4 @@ fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str
             location: "sizing".into(),
         });
     }
-}
-
-// TODO: STUB: Functions to simulate reading computed CSS values.
-pub fn get_css_width(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
-    let Some(id) = dom_id else {
-        return CssSize::Auto;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_width(node_data, &id, node_state)
-        .and_then(|w| {
-            w.get_property().map(|inner| {
-                // inner.inner is a PixelValue; check for percent first
-                if let Some(frac) = inner.inner.to_percent() {
-                    CssSize::Percent(frac * 100.0)
-                } else {
-                    CssSize::Px(inner.inner.to_pixels(0.0))
-                }
-            })
-        })
-        .unwrap_or(CssSize::Auto)
-}
-
-pub fn get_css_height(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> CssSize {
-    let Some(id) = dom_id else {
-        return CssSize::Auto;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_height(node_data, &id, node_state)
-        .and_then(|h| {
-            h.get_property().map(|inner| {
-                if let Some(frac) = inner.inner.to_percent() {
-                    CssSize::Percent(frac * 100.0)
-                } else {
-                    CssSize::Px(inner.inner.to_pixels(0.0))
-                }
-            })
-        })
-        .unwrap_or(CssSize::Auto)
-}
-
-fn get_writing_mode_opt(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> WritingMode {
-    use crate::solver3::cache::to_writing_mode;
-    let Some(id) = dom_id else {
-        return WritingMode::HorizontalTb;
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_writing_mode(node_data, &id, node_state)
-        .and_then(|wm| wm.get_property_or_default())
-        .map(|wm| to_writing_mode(wm))
-        .unwrap_or(WritingMode::HorizontalTb)
 }

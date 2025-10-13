@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use azul_core::{
+    geom::{LogicalPosition, LogicalSize},
     ui_solver::GlyphInstance,
-    window::{LogicalPosition, LogicalSize},
 };
 use azul_css::props::basic::ColorU;
 

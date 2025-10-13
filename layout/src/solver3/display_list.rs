@@ -39,13 +39,13 @@ use std::collections::BTreeMap;
 
 use allsorts::glyph_position;
 use azul_core::{
-    callbacks::ScrollPosition,
     dom::{NodeId, NodeType},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    hit_test::ScrollPosition,
     resources::{ImageKey, ImageRefHash},
     selection::{Selection, SelectionState},
     styled_dom::StyledDom,
     ui_solver::GlyphInstance,
-    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -423,7 +423,7 @@ where
 
         // Iterate through all selections (multi-cursor/multi-selection support)
         for selection in &selection_state.selections {
-            match selection {
+            match &selection {
                 Selection::Cursor(cursor) => {
                     // Draw cursor
                     if let Some(mut rect) = layout.get_cursor_rect(cursor) {

@@ -13,9 +13,9 @@ use std::{
 
 pub use azul_core::selection::{ContentIndex, GraphemeClusterId};
 use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     selection::{CursorAffinity, SelectionRange, TextCursor},
     ui_solver::GlyphInstance,
-    window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::props::basic::ColorU;
 use hyphenation::{Hyphenator, Language, Load, Standard};

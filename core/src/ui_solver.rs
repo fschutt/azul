@@ -36,19 +36,17 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn},
     dom::{DomId, DomNodeHash, ScrollTagId, TagId},
+    geom::{LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize},
     gl::OptionGlContextPtr,
     gpu::GpuEventChanges,
-    hit_test::{ExternalScrollId, HitTestItem, ScrollHitTestItem, ScrolledNodes},
+    hit_test::{ExternalScrollId, HitTestItem, ScrollHitTestItem, ScrollStates, ScrolledNodes},
     id::{NodeDataContainer, NodeDataContainerRef, NodeId},
     resources::{
         Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
         RendererResources, TransformKey, UpdateImageResult,
     },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    window::{
-        LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, OptionChar, ScrollStates,
-        WindowSize, WindowTheme,
-    },
+    window::{OptionChar, WindowSize, WindowTheme},
 };
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
@@ -68,6 +66,32 @@ pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 pub const DEFAULT_WORD_SPACING: f32 = 1.0;
 pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
 pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ResolvedOffsets {
+    pub top: f32,
+    pub left: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl ResolvedOffsets {
+    pub const fn zero() -> Self {
+        Self {
+            top: 0.0,
+            left: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
+    }
+    pub fn total_vertical(&self) -> f32 {
+        self.top + self.bottom
+    }
+    pub fn total_horizontal(&self) -> f32 {
+        self.left + self.right
+    }
+}
 
 /// Represents the CSS formatting context for an element
 #[derive(Clone, PartialEq)]
@@ -160,31 +184,6 @@ pub struct QuickResizeResult {
     pub gpu_event_changes: GpuEventChanges,
     pub updated_images: Vec<UpdateImageResult>,
     pub resized_nodes: BTreeMap<DomId, Vec<NodeId>>,
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum GpuOpacityKeyEvent {
-    Added(NodeId, OpacityKey, f32),
-    Changed(NodeId, OpacityKey, f32, f32),
-    Removed(NodeId, OpacityKey),
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct HitTest {
-    pub regular_hit_test_nodes: BTreeMap<NodeId, HitTestItem>,
-    pub scroll_hit_test_nodes: BTreeMap<NodeId, ScrollHitTestItem>,
-}
-
-impl HitTest {
-    pub fn empty() -> Self {
-        Self {
-            regular_hit_test_nodes: BTreeMap::new(),
-            scroll_hit_test_nodes: BTreeMap::new(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.regular_hit_test_nodes.is_empty() && self.scroll_hit_test_nodes.is_empty()
-    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]

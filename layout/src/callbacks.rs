@@ -6,17 +6,20 @@
 
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 
+// Re-export callback macro from azul-core
+use azul_core::impl_callback;
 use azul_core::{
-    callbacks::{DomNodeId, FocusTarget, RefAny, ScrollPosition, Update},
+    animation::UpdateImageType,
+    callbacks::{FocusTarget, Update},
+    dom::{DomId, DomNodeId, NodeId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
-    id_tree::NodeId,
-    resources::{ImageCache, ImageMask, ImageRef, RendererResources, UpdateImageType},
-    styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
-    task::{ExternalSystemCallbacks, Thread, ThreadId, Timer, TimerId},
-    window::{
-        FullWindowState, KeyboardState, LogicalPosition, LogicalRect, LogicalSize, MouseState,
-        OptionLogicalPosition, RawWindowHandle, WindowCreateOptions, WindowFlags, WindowState,
-    },
+    hit_test::ScrollPosition,
+    refany::RefAny,
+    resources::{ImageCache, ImageMask, ImageRef, RendererResources},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+    task::{ThreadId, TimerId},
+    window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
@@ -25,7 +28,65 @@ use azul_css::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::window::LayoutWindow;
+use crate::{
+    thread::Thread,
+    timer::Timer,
+    window::LayoutWindow,
+    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+};
+
+/// Main callback type for UI event handling
+pub type CallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update;
+
+/// Stores a function pointer that is executed when the given UI element is hit
+///
+/// Must return an `Update` that denotes if the screen should be redrawn.
+#[repr(C)]
+pub struct Callback {
+    pub cb: CallbackType,
+}
+
+impl_callback!(Callback);
+
+/// Optional Callback
+#[derive(Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum OptionCallback {
+    None,
+    Some(Callback),
+}
+
+impl OptionCallback {
+    pub fn into_option(self) -> Option<Callback> {
+        match self {
+            OptionCallback::None => None,
+            OptionCallback::Some(c) => Some(c),
+        }
+    }
+
+    pub fn is_some(&self) -> bool {
+        matches!(self, OptionCallback::Some(_))
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, OptionCallback::None)
+    }
+}
+
+impl From<Option<Callback>> for OptionCallback {
+    fn from(o: Option<Callback>) -> Self {
+        match o {
+            None => OptionCallback::None,
+            Some(c) => OptionCallback::Some(c),
+        }
+    }
+}
+
+impl From<OptionCallback> for Option<Callback> {
+    fn from(o: OptionCallback) -> Self {
+        o.into_option()
+    }
+}
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
 #[derive(Debug)]
@@ -297,4 +358,137 @@ impl CallbackInfo {
     // - get_first_child
     // - get_scroll_position
     // etc.
+}
+
+/// Config necessary for threading + animations to work in no_std environments
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ExternalSystemCallbacks {
+    pub create_thread_fn: crate::thread::CreateThreadCallback,
+    pub get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+}
+
+impl ExternalSystemCallbacks {
+    #[cfg(not(feature = "std"))]
+    pub fn rust_internal() -> Self {
+        use crate::thread::create_thread_libstd;
+
+        Self {
+            create_thread_fn: crate::thread::CreateThreadCallback {
+                cb: create_thread_libstd,
+            },
+            get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub fn rust_internal() -> Self {
+        use crate::thread::create_thread_libstd;
+
+        Self {
+            create_thread_fn: crate::thread::CreateThreadCallback {
+                cb: create_thread_libstd,
+            },
+            get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+        }
+    }
+}
+
+/// Result of calling callbacks, containing all state changes
+#[derive(Debug)]
+pub struct CallCallbacksResult {
+    /// Whether the UI should be rendered due to a scroll event
+    pub should_scroll_render: bool,
+    /// Whether the callbacks say to rebuild the UI or not
+    pub callbacks_update_screen: Update,
+    /// WindowState that was (potentially) modified in the callbacks
+    pub modified_window_state: Option<WindowState>,
+    /// Text changes that don't require full relayout
+    pub words_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
+    /// Image changes (for animated images/video)
+    pub images_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>>,
+    /// Clip mask changes (for vector animations)
+    pub image_masks_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>>,
+    /// CSS property changes from callbacks
+    pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
+    /// Scroll position changes from callbacks
+    pub nodes_scrolled_in_callbacks:
+        Option<BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>>,
+    /// Whether the focused node was changed
+    pub update_focused_node: Option<Option<DomNodeId>>,
+    /// Timers added in callbacks
+    pub timers: Option<FastHashMap<TimerId, Timer>>,
+    /// Threads added in callbacks
+    pub threads: Option<FastHashMap<ThreadId, Thread>>,
+    /// Timers removed in callbacks
+    pub timers_removed: Option<FastBTreeSet<TimerId>>,
+    /// Threads removed in callbacks
+    pub threads_removed: Option<FastBTreeSet<ThreadId>>,
+    /// Windows created in callbacks
+    pub windows_created: Vec<WindowCreateOptions>,
+    /// Whether the cursor changed
+    pub cursor_changed: bool,
+}
+
+impl CallCallbacksResult {
+    pub fn cursor_changed(&self) -> bool {
+        self.cursor_changed
+    }
+
+    pub fn focus_changed(&self) -> bool {
+        self.update_focused_node.is_some()
+    }
+}
+
+/// Menu callback: What data / function pointer should
+/// be called when the menu item is clicked?
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub struct MenuCallback {
+    pub callback: Callback,
+    pub data: RefAny,
+}
+
+/// Optional MenuCallback
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C, u8)]
+pub enum OptionMenuCallback {
+    None,
+    Some(MenuCallback),
+}
+
+impl OptionMenuCallback {
+    pub fn into_option(self) -> Option<MenuCallback> {
+        match self {
+            OptionMenuCallback::None => None,
+            OptionMenuCallback::Some(c) => Some(c),
+        }
+    }
+
+    pub fn is_some(&self) -> bool {
+        matches!(self, OptionMenuCallback::Some(_))
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, OptionMenuCallback::None)
+    }
+}
+
+impl From<Option<MenuCallback>> for OptionMenuCallback {
+    fn from(o: Option<MenuCallback>) -> Self {
+        match o {
+            None => OptionMenuCallback::None,
+            Some(c) => OptionMenuCallback::Some(c),
+        }
+    }
+}
+
+impl From<OptionMenuCallback> for Option<MenuCallback> {
+    fn from(o: OptionMenuCallback) -> Self {
+        o.into_option()
+    }
 }

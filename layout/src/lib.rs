@@ -28,6 +28,8 @@ pub mod thread;
 pub mod timer;
 #[cfg(feature = "text_layout")]
 pub mod window;
+#[cfg(feature = "text_layout")]
+pub mod window_state;
 #[cfg(feature = "xml")]
 pub mod xml;
 

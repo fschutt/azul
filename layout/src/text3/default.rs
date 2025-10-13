@@ -4,7 +4,7 @@ use allsorts::{
     gpos,
     gsub::{self, FeatureInfo, FeatureMask, Features},
 };
-use azul_core::{glyph::Placement, window::LogicalSize};
+use azul_core::{geom::LogicalSize, glyph::Placement};
 use rust_fontconfig::FcFontCache;
 
 // Imports from the layout engine's module

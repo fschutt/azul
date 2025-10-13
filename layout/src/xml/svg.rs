@@ -64,9 +64,9 @@ pub use azul_core::svg::{
     TextRendering,
 };
 use azul_core::{
+    geom::PhysicalSizeU32,
     gl::{GlContextPtr, Texture},
     resources::{RawImage, RawImageFormat},
-    window::PhysicalSizeU32,
 };
 #[cfg(feature = "svg")]
 pub use azul_css::props::basic::animation::{

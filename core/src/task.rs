@@ -28,13 +28,14 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     callbacks::{FocusTarget, TimerCallbackReturn, Update},
     dom::{DomId, DomNodeId, OptionDomNodeId},
+    geom::{LogicalPosition, OptionLogicalPosition},
     gl::OptionGlContextPtr,
     hit_test::ScrollPosition,
     id::NodeId,
     refany::RefAny,
     resources::{ImageCache, ImageMask, ImageRef},
     styled_dom::NodeHierarchyItemId,
-    window::{LogicalPosition, OptionLogicalPosition, RawWindowHandle},
+    window::RawWindowHandle,
     FastBTreeSet, FastHashMap,
 };
 
@@ -740,6 +741,18 @@ pub struct GetSystemTimeCallback {
     pub cb: GetSystemTimeCallbackType,
 }
 impl_callback!(GetSystemTimeCallback);
+
+/// Default implementation that gets the current system time
+#[cfg(feature = "std")]
+pub extern "C" fn get_system_time_libstd() -> Instant {
+    StdInstant::now().into()
+}
+
+/// Default implementation for systems without a clock
+#[cfg(not(feature = "std"))]
+pub extern "C" fn get_system_time_libstd() -> Instant {
+    Instant::Tick(SystemTick::new(0))
+}
 
 // function called to check if the thread has finished
 pub type CheckThreadFinishedCallbackType =

@@ -18,12 +18,12 @@ mod tests;
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
-    callbacks::{DocumentId, ScrollPosition},
-    dom::NodeId,
+    dom::{DomId, NodeId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    hit_test::{DocumentId, ScrollPosition},
     resources::RendererResources,
     selection::SelectionState,
-    styled_dom::{DomId, StyledDom},
-    window::{LogicalPosition, LogicalRect, LogicalSize},
+    styled_dom::StyledDom,
 };
 use azul_css::{
     props::property::{CssProperty, CssPropertyCategory},
@@ -208,9 +208,7 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                     .map(|n| &n.state)
                     .cloned()
                     .unwrap_or_default();
-                let writing_mode_layout = get_writing_mode(styled_dom, dom_id, styled_node_state);
-                use crate::solver3::cache::to_writing_mode;
-                let writing_mode = to_writing_mode(writing_mode_layout);
+                let writing_mode = get_writing_mode(styled_dom, dom_id, styled_node_state);
                 let content_size = parent_node.box_props.inner_size(size, writing_mode);
                 return (content_pos, content_size);
             }

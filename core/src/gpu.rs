@@ -28,7 +28,6 @@ use crate::{
     resources::{OpacityKey, TransformKey},
     styled_dom::StyledDom,
     transform::{ComputedTransform3D, RotationMode},
-    ui_solver::GpuOpacityKeyEvent,
 };
 
 /// Caches GPU transform and opacity keys and their current values for all nodes.
@@ -281,4 +280,11 @@ impl GpuEventChanges {
         self.opacity_key_changes
             .extend(other.opacity_key_changes.drain(..));
     }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum GpuOpacityKeyEvent {
+    Added(NodeId, OpacityKey, f32),
+    Changed(NodeId, OpacityKey, f32, f32),
+    Removed(NodeId, OpacityKey),
 }

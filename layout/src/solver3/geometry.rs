@@ -1,9 +1,10 @@
 //! TODO: Move these to CSS module
 
 use azul_core::{
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     ui_solver::ResolvedOffsets,
-    window::{LogicalPosition, LogicalRect, LogicalSize, WritingMode},
 };
+use azul_css::props::layout::LayoutWritingMode;
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub enum DisplayType {
@@ -59,44 +60,44 @@ pub struct EdgeSizes {
 
 impl EdgeSizes {
     /// Returns the size of the edge at the start of the main/block axis.
-    pub fn main_start(&self, wm: WritingMode) -> f32 {
+    pub fn main_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
-            WritingMode::HorizontalTb => self.top,
-            WritingMode::VerticalRl | WritingMode::VerticalLr => self.left,
+            LayoutWritingMode::HorizontalTb => self.top,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.left,
         }
     }
 
     /// Returns the size of the edge at the end of the main/block axis.
-    pub fn main_end(&self, wm: WritingMode) -> f32 {
+    pub fn main_end(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
-            WritingMode::HorizontalTb => self.bottom,
-            WritingMode::VerticalRl | WritingMode::VerticalLr => self.right,
+            LayoutWritingMode::HorizontalTb => self.bottom,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.right,
         }
     }
 
     /// Returns the sum of the start and end sizes on the main/block axis.
-    pub fn main_sum(&self, wm: WritingMode) -> f32 {
+    pub fn main_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.main_start(wm) + self.main_end(wm)
     }
 
     /// Returns the size of the edge at the start of the cross/inline axis.
-    pub fn cross_start(&self, wm: WritingMode) -> f32 {
+    pub fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
-            WritingMode::HorizontalTb => self.left,
-            WritingMode::VerticalRl | WritingMode::VerticalLr => self.top,
+            LayoutWritingMode::HorizontalTb => self.left,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.top,
         }
     }
 
     /// Returns the size of the edge at the end of the cross/inline axis.
-    pub fn cross_end(&self, wm: WritingMode) -> f32 {
+    pub fn cross_end(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
-            WritingMode::HorizontalTb => self.right,
-            WritingMode::VerticalRl | WritingMode::VerticalLr => self.bottom,
+            LayoutWritingMode::HorizontalTb => self.right,
+            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.bottom,
         }
     }
 
     /// Returns the sum of the start and end sizes on the cross/inline axis.
-    pub fn cross_sum(&self, wm: WritingMode) -> f32 {
+    pub fn cross_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.cross_start(wm) + self.cross_end(wm)
     }
 }
@@ -112,7 +113,7 @@ pub struct BoxProps {
 impl BoxProps {
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
-    pub fn inner_size(&self, outer_size: LogicalSize, wm: WritingMode) -> LogicalSize {
+    pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
         let outer_main = outer_size.main(wm);
         let outer_cross = outer_size.cross(wm);
 
