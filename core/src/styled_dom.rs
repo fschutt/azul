@@ -54,13 +54,14 @@ use azul_css::{
 };
 
 use crate::{
-    callbacks::{RefAny, Update},
+    callbacks::Update,
     dom::{
-        CompactDom, Dom, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
+        CompactDom, Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
         TabIndex, TagId,
     },
     id::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
+    refany::RefAny,
     resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
     style::{
         construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
@@ -259,34 +260,6 @@ impl StyleFontFamiliesHash {
         Self(hasher.finalize64())
     }
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[repr(C)]
-pub struct DomId {
-    pub inner: usize,
-}
-
-impl fmt::Display for DomId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl DomId {
-    pub const ROOT_ID: DomId = DomId { inner: 0 };
-}
-
-impl Default for DomId {
-    fn default() -> DomId {
-        DomId::ROOT_ID
-    }
-}
-
-impl_option!(
-    DomId,
-    OptionDomId,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
-);
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]

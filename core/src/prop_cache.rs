@@ -25,7 +25,9 @@
 //!
 //! Not thread-safe. Each window has its own cache instance.
 
-use alloc::collections::BTreeMap;
+extern crate alloc;
+
+use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
 
 use azul_css::{
     css::{Css, CssPath},

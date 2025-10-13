@@ -28,16 +28,22 @@ pub mod resources;
 pub mod selection;
 // Algorithms to create git-like diffs between two doms in linear time
 // pub mod diff;
+/// Animation system
+pub mod animation;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
 pub mod gl;
 /// GPU value synchronization (colors, transforms) for WebRender preparation
 pub mod gpu;
+/// Hit-testing module
+pub mod hit_test;
 /// Internal, arena-based storage for Dom nodes
 pub mod id;
 /// Types for handling menus (context menu, menubar)
 pub mod menu;
 /// Cache for CSS Properties
 pub mod prop_cache;
+/// Type-erased reference wrapper (like `Box<dyn Any>` but for references)
+pub mod refany;
 /// CSS cascading module
 pub mod style;
 /// `StyledDom` = CSSOM

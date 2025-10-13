@@ -24,55 +24,20 @@ pub use crate::callbacks::{
     CoreImageCallback, CoreRenderImageCallback, CoreRenderImageCallbackType,
 };
 use crate::{
-    callbacks::{DocumentId, DomNodeId, IFrameCallback, RefAny, UpdateImageType},
-    dom::{NodeData, NodeType},
+    callbacks::IFrameCallback,
+    dom::{DomId, NodeData, NodeType},
     gl::{OptionGlContextPtr, Texture},
+    hit_test::DocumentId,
     id::NodeId,
     prop_cache::CssPropertyCache,
+    refany::RefAny,
     styled_dom::{
-        DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
-        StyledNodeState,
+        NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState,
     },
     ui_solver::GlyphInstance,
     window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
     FastBTreeSet, FastHashMap,
 };
-
-// ============================================================================
-// STUB TYPES - These types have been moved to azul-layout but are still
-// referenced in legacy code. They are defined here as stubs to allow
-// azul-core to compile during the refactoring process.
-// ============================================================================
-
-/// Stub type - External system callbacks have been moved to azul-layout
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct ExternalSystemCallbacks {
-    _dummy: u8,
-}
-
-impl ExternalSystemCallbacks {
-    pub fn rust_internal() -> Self {
-        Self { _dummy: 0 }
-    }
-}
-
-/// Stub type - FullWindowState has been moved to azul-layout
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct FullWindowState {
-    _dummy: u8,
-}
-
-/// Stub type - LayoutResult from old solver1/solver2 API
-/// (replaced by DomLayoutResult in new solver3)
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct LayoutResult {
-    _dummy: u8,
-}
-
-// ============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -105,8 +70,6 @@ pub struct AppConfig {
     /// (STUB) Whether keyboard navigation should be enabled (default: true).
     /// Currently not implemented.
     pub enable_tab_navigation: bool,
-    /// External callbacks to create a thread or get the curent time
-    pub system_callbacks: ExternalSystemCallbacks,
 }
 
 impl AppConfig {
@@ -116,7 +79,6 @@ impl AppConfig {
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
-            system_callbacks: ExternalSystemCallbacks::rust_internal(),
         }
     }
 }
@@ -947,14 +909,14 @@ impl GlTextureCache {
         document_id: DocumentId,
         epoch: Epoch,
         new_texture: Texture,
-        callbacks: &RenderCallbacks,
+        insert_into_active_gl_textures_fn: &GlStoreImageFn,
     ) -> Option<ExternalImageId> {
         let new_descriptor = new_texture.get_descriptor();
         let di_map = self.solved_textures.get_mut(&dom_id)?;
         let i = di_map.get_mut(&node_id)?;
         i.1 = new_descriptor;
         let external_image_id =
-            (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
+            (insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
         Some(external_image_id)
     }
 }
@@ -2056,30 +2018,6 @@ pub type LoadFontFn = fn(&StyleFontFamily, &FcFontCache) -> Option<LoadedFontSou
 pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<azul_text_layout::Font>>
 
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
-
-// todo: very unclean
-pub type LayoutFn = fn(
-    StyledDom,
-    &ImageCache,
-    &FcFontCache,
-    &mut RendererResources,
-    DpiScaleFactor,
-    &mut Vec<ResourceUpdate>,
-    IdNamespace,
-    &DocumentId,
-    Epoch,
-    &RenderCallbacks,
-    &FullWindowState,
-    &mut Option<Vec<LayoutDebugMessage>>,
-) -> Vec<LayoutResult>;
-
-#[derive(Clone)]
-pub struct RenderCallbacks {
-    pub insert_into_active_gl_textures_fn: GlStoreImageFn,
-    pub layout_fn: LayoutFn,
-    pub load_font_fn: LoadFontFn,
-    pub parse_font_fn: ParseFontFn,
-}
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and

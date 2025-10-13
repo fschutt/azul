@@ -34,19 +34,17 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    callbacks::{
-        DocumentId, HidpiAdjustedBounds, HitTestItem, IFrameCallbackInfo, IFrameCallbackReturn,
-        PipelineId, ScrollHitTestItem,
-    },
-    dom::{DomNodeHash, ScrollTagId, TagId},
+    callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn},
+    dom::{DomId, DomNodeHash, ScrollTagId, TagId},
     gl::OptionGlContextPtr,
     gpu::GpuEventChanges,
+    hit_test::{ExternalScrollId, HitTestItem, ScrollHitTestItem, ScrolledNodes},
     id::{NodeDataContainer, NodeDataContainerRef, NodeId},
     resources::{
         Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
-        RenderCallbacks, RendererResources, TransformKey, UpdateImageResult,
+        RendererResources, TransformKey, UpdateImageResult,
     },
-    styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
     window::{
         LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, OptionChar, ScrollStates,
         WindowSize, WindowTheme,
@@ -70,55 +68,6 @@ pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 pub const DEFAULT_WORD_SPACING: f32 = 1.0;
 pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
 pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq, Ord, PartialOrd)]
-#[repr(C)]
-pub struct ExternalScrollId(pub u64, pub PipelineId);
-
-impl ::core::fmt::Display for ExternalScrollId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ExternalScrollId({})", self.0)
-    }
-}
-
-impl ::core::fmt::Debug for ExternalScrollId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
-pub struct ScrolledNodes {
-    pub overflowing_nodes: BTreeMap<NodeHierarchyItemId, OverflowingScrollNode>,
-    /// Nodes that need to clip their direct children (i.e. nodes with overflow-x and overflow-y
-    /// set to "Hidden")
-    pub clip_nodes: BTreeMap<NodeId, LogicalSize>,
-    pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeHierarchyItemId>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct OverflowingScrollNode {
-    pub parent_rect: LogicalRect,
-    pub child_rect: LogicalRect,
-    pub virtual_child_rect: LogicalRect,
-    pub parent_external_scroll_id: ExternalScrollId,
-    pub parent_dom_hash: DomNodeHash,
-    pub scroll_tag_id: ScrollTagId,
-}
-
-impl Default for OverflowingScrollNode {
-    fn default() -> Self {
-        use crate::dom::TagId;
-        Self {
-            parent_rect: LogicalRect::zero(),
-            child_rect: LogicalRect::zero(),
-            virtual_child_rect: LogicalRect::zero(),
-            parent_external_scroll_id: ExternalScrollId(0, PipelineId::DUMMY),
-            parent_dom_hash: DomNodeHash(0),
-            scroll_tag_id: ScrollTagId(TagId(0)),
-        }
-    }
-}
 
 /// Represents the CSS formatting context for an element
 #[derive(Clone, PartialEq)]

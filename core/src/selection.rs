@@ -39,7 +39,7 @@
 
 use alloc::vec::Vec;
 
-use crate::callbacks::DomNodeId;
+use crate::dom::DomNodeId;
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.
 ///

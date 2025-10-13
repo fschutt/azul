@@ -20,11 +20,12 @@ pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{
     callbacks::{
         CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, IFrameCallback,
-        IFrameCallbackType, OptionRefAny, RefAny,
+        IFrameCallbackType,
     },
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
     menu::Menu,
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
+    refany::{OptionRefAny, RefAny},
     resources::{
         image_ref_get_hash, CoreImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources,
     },
@@ -1811,6 +1812,54 @@ impl NodeData {
         let html_type = self.node_type.get_path();
         format!("</{}>", html_type)
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub struct DomId {
+    pub inner: usize,
+}
+
+impl fmt::Display for DomId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl DomId {
+    pub const ROOT_ID: DomId = DomId { inner: 0 };
+}
+
+impl Default for DomId {
+    fn default() -> DomId {
+        DomId::ROOT_ID
+    }
+}
+
+impl_option!(
+    DomId,
+    OptionDomId,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DomNodeId {
+    pub dom: DomId,
+    pub node: NodeHierarchyItemId,
+}
+
+impl_option!(
+    DomNodeId,
+    OptionDomNodeId,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+impl DomNodeId {
+    pub const ROOT: DomNodeId = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::NONE,
+    };
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read

@@ -18,7 +18,7 @@
 //! The cache is synchronized with the `StyledDom` on each frame, generating minimal
 //! update events to send to the GPU.
 
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, vec::Vec};
 
 use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
 

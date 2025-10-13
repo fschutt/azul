@@ -26,12 +26,16 @@
 //! to avoid circular dependencies between `azul-core` and `azul-layout`. The actual function
 //! pointers are stored in `azul-layout` and converted via unsafe code with identical memory layout.
 
+extern crate alloc;
+
+use alloc::vec::Vec;
 use core::hash::Hash;
 
 use azul_css::AzString;
 
 use crate::{
-    callbacks::{CoreCallback, CoreCallbackType, RefAny},
+    callbacks::{CoreCallback, CoreCallbackType},
+    refany::RefAny,
     resources::ImageRef,
     window::{ContextMenuMouseButton, OptionVirtualKeyCodeCombo},
 };

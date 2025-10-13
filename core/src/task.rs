@@ -26,14 +26,14 @@ use azul_css::{props::property::CssProperty, AzString};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    callbacks::{
-        DomNodeId, FocusTarget, OptionDomNodeId, RefAny, ScrollPosition, TimerCallbackReturn,
-        Update,
-    },
+    callbacks::{FocusTarget, TimerCallbackReturn, Update},
+    dom::{DomId, DomNodeId, OptionDomNodeId},
     gl::OptionGlContextPtr,
+    hit_test::ScrollPosition,
     id::NodeId,
+    refany::RefAny,
     resources::{ImageCache, ImageMask, ImageRef},
-    styled_dom::{DomId, NodeHierarchyItemId},
+    styled_dom::NodeHierarchyItemId,
     window::{LogicalPosition, OptionLogicalPosition, RawWindowHandle},
     FastBTreeSet, FastHashMap,
 };
