@@ -19,7 +19,7 @@ use crate::{
 #[derive(Debug, Clone)]
 struct MockFont {
     id: u32,
-    metrics: FontMetrics,
+    metrics: LayoutFontMetrics,
     glyphs: HashMap<char, (u16, f32)>, // char -> (glyph_id, advance)
     ligatures: HashMap<String, (u16, f32)>, // ligature string -> (glyph_id, advance)
 }
@@ -142,7 +142,7 @@ impl ParsedFontTrait for MockFont {
         None
     }
 
-    fn get_font_metrics(&self) -> FontMetrics {
+    fn get_font_metrics(&self) -> LayoutFontMetrics {
         self.metrics.clone()
     }
 
@@ -237,7 +237,7 @@ fn create_mock_font_manager() -> MockFontManager {
 
     let mock_font = Arc::new(MockFont {
         id: 1,
-        metrics: FontMetrics {
+        metrics: LayoutFontMetrics {
             ascent: 80.0,
             descent: -20.0,
             line_gap: 0.0,

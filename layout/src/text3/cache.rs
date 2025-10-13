@@ -2368,14 +2368,110 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
 
     /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
     pub fn move_cursor_left(&self, cursor: TextCursor) -> TextCursor {
-        // Implementation would involve finding the current item, getting its predecessor
-        // in the visual line, and setting the new cursor. Placeholder for brevity.
+        // Find current item
+        let current_item_pos = self.items.iter().position(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        });
+
+        let Some(current_pos) = current_item_pos else {
+            return cursor;
+        };
+
+        // If we're at trailing edge, move to leading edge of same cluster
+        if cursor.affinity == CursorAffinity::Trailing {
+            return TextCursor {
+                cluster_id: cursor.cluster_id,
+                affinity: CursorAffinity::Leading,
+            };
+        }
+
+        // We're at leading edge, move to previous cluster's trailing edge
+        // Search backwards for a cluster on the same line, or any cluster if at line start
+        let current_line = self.items[current_pos].line_index;
+        
+        // First, try to find previous item on same line
+        for i in (0..current_pos).rev() {
+            if let Some(cluster) = self.items[i].item.as_cluster() {
+                if self.items[i].line_index == current_line {
+                    return TextCursor {
+                        cluster_id: cluster.source_cluster_id,
+                        affinity: CursorAffinity::Trailing,
+                    };
+                }
+            }
+        }
+
+        // If no previous item on same line, try to move to end of previous line
+        if current_line > 0 {
+            let prev_line = current_line - 1;
+            for i in (0..current_pos).rev() {
+                if let Some(cluster) = self.items[i].item.as_cluster() {
+                    if self.items[i].line_index == prev_line {
+                        return TextCursor {
+                            cluster_id: cluster.source_cluster_id,
+                            affinity: CursorAffinity::Trailing,
+                        };
+                    }
+                }
+            }
+        }
+
+        // At start of text, can't move further
         cursor
     }
 
     /// Moves a cursor one visual unit to the right.
     pub fn move_cursor_right(&self, cursor: TextCursor) -> TextCursor {
-        // Similar to move_left, but finds the successor.
+        // Find current item
+        let current_item_pos = self.items.iter().position(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        });
+
+        let Some(current_pos) = current_item_pos else {
+            return cursor;
+        };
+
+        // If we're at leading edge, move to trailing edge of same cluster
+        if cursor.affinity == CursorAffinity::Leading {
+            return TextCursor {
+                cluster_id: cursor.cluster_id,
+                affinity: CursorAffinity::Trailing,
+            };
+        }
+
+        // We're at trailing edge, move to next cluster's leading edge
+        let current_line = self.items[current_pos].line_index;
+        
+        // First, try to find next item on same line
+        for i in (current_pos + 1)..self.items.len() {
+            if let Some(cluster) = self.items[i].item.as_cluster() {
+                if self.items[i].line_index == current_line {
+                    return TextCursor {
+                        cluster_id: cluster.source_cluster_id,
+                        affinity: CursorAffinity::Leading,
+                    };
+                }
+            }
+        }
+
+        // If no next item on same line, try to move to start of next line
+        let next_line = current_line + 1;
+        for i in (current_pos + 1)..self.items.len() {
+            if let Some(cluster) = self.items[i].item.as_cluster() {
+                if self.items[i].line_index == next_line {
+                    return TextCursor {
+                        cluster_id: cluster.source_cluster_id,
+                        affinity: CursorAffinity::Leading,
+                    };
+                }
+            }
+        }
+
+        // At end of text, can't move further
         cursor
     }
 
@@ -2482,11 +2578,13 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
                     .unwrap_or(Ordering::Equal)
             });
 
-        if let Some(ShapedItem::Cluster(c)) = first_item_on_line.map(|i| &i.item) {
-            return TextCursor {
-                cluster_id: c.source_cluster_id,
-                affinity: CursorAffinity::Leading,
-            };
+        if let Some(item) = first_item_on_line {
+            if let ShapedItem::Cluster(c) = &item.item {
+                return TextCursor {
+                    cluster_id: c.source_cluster_id,
+                    affinity: CursorAffinity::Leading,
+                };
+            }
         }
         cursor
     }
@@ -2512,11 +2610,13 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
                     .unwrap_or(Ordering::Equal)
             });
 
-        if let Some(ShapedItem::Cluster(c)) = last_item_on_line.map(|i| &i.item) {
-            return TextCursor {
-                cluster_id: c.source_cluster_id,
-                affinity: CursorAffinity::Trailing,
-            };
+        if let Some(item) = last_item_on_line {
+            if let ShapedItem::Cluster(c) = &item.item {
+                return TextCursor {
+                    cluster_id: c.source_cluster_id,
+                    affinity: CursorAffinity::Trailing,
+                };
+            }
         }
         cursor
     }

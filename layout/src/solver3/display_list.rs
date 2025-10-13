@@ -42,7 +42,7 @@ use azul_core::{
     callbacks::ScrollPosition,
     dom::{NodeId, NodeType},
     resources::{ImageKey, ImageRefHash},
-    selection::SelectionState,
+    selection::{Selection, SelectionState},
     styled_dom::StyledDom,
     ui_solver::GlyphInstance,
     window::{LogicalPosition, LogicalRect, LogicalSize},
@@ -403,59 +403,64 @@ where
             return Ok(());
         };
 
-        // TODO: Selection rendering needs to be fixed - StyledDom doesn't have a dom_id field
-        // and SelectionState structure has changed
-        /*
-        // Check for selection state in the context
+        // Get the selection state for this DOM
         let Some(selection_state) = self.ctx.selections.get(&self.ctx.styled_dom.dom_id) else {
             return Ok(());
         };
 
-        match selection_state {
-            SelectionState::Range(range)
-                if range.node_id.node.into_crate_internal() == Some(dom_id) =>
-            {
-                let rects = layout.get_selection_rects(range);
-                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
-                let node_pos = self
-                    .positioned_tree
-                    .absolute_positions
-                    .get(&node_index)
-                    .copied()
-                    .unwrap_or_default();
-
-                for mut rect in rects {
-                    // Adjust rect to absolute position
-                    rect.origin.x += node_pos.x;
-                    rect.origin.y += node_pos.y;
-                    builder.push_selection_rect(rect, style.bg_color, style.radius);
-                }
-            }
-            SelectionState::Cursor(cursor, cursor_node_id)
-                if cursor_node_id.node.into_crate_internal() == Some(dom_id) =>
-            {
-                if let Some(mut rect) = layout.get_cursor_rect(cursor) {
-                    let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
-                    let node_pos = self
-                        .positioned_tree
-                        .absolute_positions
-                        .get(&node_index)
-                        .copied()
-                        .unwrap_or_default();
-
-                    // Adjust rect to absolute position
-                    rect.origin.x += node_pos.x;
-                    rect.origin.y += node_pos.y;
-
-                    // TODO: The blinking logic would need to be handled by the renderer
-                    // using an opacity key or similar, or by the main loop toggling this.
-                    // For now, we just draw it.
-                    builder.push_cursor_rect(rect, style.color);
-                }
-            }
-            _ => {}
+        // Check if this selection state applies to the current node
+        if selection_state.node_id.node.into_crate_internal() != Some(dom_id) {
+            return Ok(());
         }
-        */
+
+        // Get the absolute position of this node
+        let node_pos = self
+            .positioned_tree
+            .absolute_positions
+            .get(&node_index)
+            .copied()
+            .unwrap_or_default();
+
+        // Iterate through all selections (multi-cursor/multi-selection support)
+        for selection in &selection_state.selections {
+            match selection {
+                Selection::Cursor(cursor) => {
+                    // Draw cursor
+                    if let Some(mut rect) = layout.get_cursor_rect(cursor) {
+                        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+
+                        // Adjust rect to absolute position
+                        rect.origin.x += node_pos.x;
+                        rect.origin.y += node_pos.y;
+
+                        // TODO: The blinking logic would need to be handled by the renderer
+                        // using an opacity key or similar, or by the main loop toggling this.
+                        // For now, we just draw it.
+                        builder.push_cursor_rect(rect, style.color);
+                    }
+                }
+                Selection::Range(range) => {
+                    // Draw selection range
+                    let rects = layout.get_selection_rects(range);
+                    let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
+                    
+                    // Convert f32 radius to BorderRadius
+                    let border_radius = BorderRadius {
+                        top_left: style.radius,
+                        top_right: style.radius,
+                        bottom_left: style.radius,
+                        bottom_right: style.radius,
+                    };
+
+                    for mut rect in rects {
+                        // Adjust rect to absolute position
+                        rect.origin.x += node_pos.x;
+                        rect.origin.y += node_pos.y;
+                        builder.push_selection_rect(rect, style.bg_color, border_radius);
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -604,10 +609,8 @@ where
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
         let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-        // TODO: LayoutOverflow doesn't have is_clipped() method
-        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip)
-            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip)
-            || !border_radius.is_zero();
+        let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
+
         if needs_clip {
             let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
@@ -709,7 +712,7 @@ where
         let border_radius = if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
             let bg_color =
-                get_background_color::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
+                get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 

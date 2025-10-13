@@ -21,14 +21,6 @@ use crate::{
     text3::cache::ParsedFontTrait,
 };
 
-// ============================================================================
-// Core CSS Property Getters
-// ============================================================================
-
-// ============================================================================
-// Core CSS Property Getters
-// ============================================================================
-
 /// Helper macro to reduce boilerplate for simple CSS property getters
 macro_rules! get_css_property {
     ($fn_name:ident, $cache_method:ident, $return_type:ty, $default:expr) => {
@@ -95,9 +87,7 @@ get_css_property!(
     LayoutPosition::Static
 );
 
-// ============================================================================
 // Complex Property Getters
-// ============================================================================
 
 /// Get border radius for all four corners
 pub fn get_border_radius(
@@ -152,23 +142,33 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
     0
 }
 
-// ============================================================================
 // Rendering Property Getters
-// ============================================================================
 
 /// Information about background color for a node
-pub fn get_background_color<T: ParsedFontTrait>(
-    _styled_dom: &StyledDom,
-    _node_id: NodeId,
-    _node_state: &StyledNodeState,
+pub fn get_background_color(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
 ) -> ColorU {
-    // TODO: Implement actual background color retrieval
-    ColorU {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 0,
-    }
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // Get the background content from the styled DOM
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_content(node_data, &node_id, node_state)
+        .and_then(|bg| bg.get_property())
+        .and_then(|bg_vec| bg_vec.get(0)) // Use .get() method on the Vec type
+        .and_then(|first_bg| match first_bg {
+            azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color.clone()),
+            _ => None,
+        })
+        .unwrap_or(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0, // Transparent by default
+        })
 }
 
 /// Information about border rendering
@@ -178,25 +178,39 @@ pub struct BorderInfo {
 }
 
 pub fn get_border_info<T: ParsedFontTrait>(
-    _styled_dom: &StyledDom,
-    _node_id: NodeId,
-    _node_state: &StyledNodeState,
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
 ) -> BorderInfo {
-    // TODO: Implement actual border info retrieval
-    BorderInfo {
-        width: 0.0,
-        color: ColorU {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // Get border width (using top border as representative, could average all sides)
+    let width = styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_top_width(node_data, &node_id, node_state)
+        .and_then(|w| w.get_property().cloned())
+        .map(|w| w.inner.to_pixels(0.0))
+        .unwrap_or(0.0);
+    
+    // Get border color (using top border as representative)
+    let color = styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_top_color(node_data, &node_id, node_state)
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or(ColorU {
             r: 0,
             g: 0,
             b: 0,
             a: 255,
-        },
-    }
+        });
+    
+    BorderInfo { width, color }
 }
 
-// ============================================================================
 // Selection and Caret Styling
-// ============================================================================
 
 /// Style information for text selection rendering
 #[derive(Debug, Clone, Copy, Default)]
@@ -207,9 +221,30 @@ pub struct SelectionStyle {
 
 /// Get selection style for a node
 pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> SelectionStyle {
-    // TODO: Read -azul-selection-* properties from the styled DOM
-    let _ = (styled_dom, node_id);
-    SelectionStyle::default()
+    let Some(node_id) = node_id else {
+        return SelectionStyle::default();
+    };
+    
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let node_state = &StyledNodeState::default();
+    
+    let bg_color = styled_dom
+        .css_property_cache
+        .ptr
+        .get_selection_background_color(node_data, &node_id, node_state)
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or(ColorU {
+            r: 100,
+            g: 149,
+            b: 237, // Cornflower blue - typical selection color
+            a: 128, // Semi-transparent
+        });
+    
+    SelectionStyle {
+        bg_color,
+        radius: 0.0, // TODO: Could add a custom -azul-selection-radius property
+    }
 }
 
 /// Style information for caret rendering
@@ -221,14 +256,41 @@ pub struct CaretStyle {
 
 /// Get caret style for a node
 pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> CaretStyle {
-    // TODO: Read caret-* properties from the styled DOM
-    let _ = (styled_dom, node_id);
-    CaretStyle::default()
+    let Some(node_id) = node_id else {
+        return CaretStyle::default();
+    };
+    
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let node_state = &StyledNodeState::default();
+    
+    let color = styled_dom
+        .css_property_cache
+        .ptr
+        .get_caret_color(node_data, &node_id, node_state)
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255, // Black caret by default
+        });
+    
+    let animation_duration = styled_dom
+        .css_property_cache
+        .ptr
+        .get_caret_animation_duration(node_data, &node_id, node_state)
+        .and_then(|d| d.get_property().cloned())
+        .map(|d| d.inner.inner) // Duration.inner is the u32 milliseconds value
+        .unwrap_or(500); // 500ms blink by default
+    
+    CaretStyle {
+        color,
+        animation_duration,
+    }
 }
 
-// ============================================================================
 // Scrollbar Information
-// ============================================================================
 
 /// Information about scrollbar requirements and dimensions
 pub struct ScrollbarInfo {
@@ -239,12 +301,21 @@ pub struct ScrollbarInfo {
 }
 
 /// Get scrollbar information from a layout node
-pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(_node: &LayoutNode<T>) -> ScrollbarInfo {
-    // TODO: Calculate actual scrollbar requirements based on overflow
+pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> ScrollbarInfo {
+    // Check if there's inline content that might overflow
+    let has_inline_content = node.inline_layout_result.is_some();
+    
+    // For now, we assume standard scrollbar dimensions
+    // TODO: Calculate actual overflow by comparing:
+    //   - Content size (from inline_layout_result or child positions)
+    //   - Container size (from used_size)
+    //   - Then check if content exceeds container bounds
+    // This requires access to the full layout tree and positioned children
+    
     ScrollbarInfo {
         needs_vertical: false,
         needs_horizontal: false,
-        scrollbar_width: 16.0,
-        scrollbar_height: 16.0,
+        scrollbar_width: if has_inline_content { 16.0 } else { 0.0 },
+        scrollbar_height: if has_inline_content { 16.0 } else { 0.0 },
     }
 }

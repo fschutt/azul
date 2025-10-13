@@ -9,8 +9,7 @@ use std::{
 };
 
 use azul_core::{
-    app_resources::{ImageCache, RendererResources},
-    display_list::{CachedDisplayList, DisplayListFrame, DisplayListMsg},
+    resources::RendererResources,
     styled_dom::StyledDom,
     window::{FullWindowState, LogicalSize, StringPairVec},
     xml::{get_html_node, DomXml, XmlComponentMap, XmlNode},
@@ -429,8 +428,7 @@ fn styled_dom_to_png_with_debug(
     fake_window_state.size.dpi = (96.0 * dpi_factor) as u32;
 
     // Create resources for layout
-    let mut renderer_resources = azul_core::app_resources::RendererResources::default();
-    let image_cache = ImageCache::default();
+    let mut renderer_resources = azul_core::resources::RendererResources::default();
 
     // Solve layout with debug information (solver3)
     let (display_list, debug_msg) = solve_layout_with_debug(
@@ -448,16 +446,25 @@ fn styled_dom_to_png_with_debug(
 
     let start_time_render = std::time::Instant::now();
 
-    // TODO: Implement rendering for solver3 DisplayList
-    // The old cpurender module worked with CachedDisplayList
-    // Need to create a new renderer that works with DisplayList3
-    // For now, create a placeholder black image
-    let pixmap_data = vec![0u8; (width * height * 4) as usize]; // RGBA black
+    // Render the display list using the new cpurender module
+    let pixmap = azul_layout::cpurender::render(
+        &display_list,
+        &renderer_resources,
+        azul_layout::cpurender::RenderOptions {
+            width: width as f32,
+            height: height as f32,
+            dpi_factor,
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("Rendering failed: {}", e))?;
 
     let rendering_time_ms = start_time_render.elapsed().as_millis() as u64;
 
+    // Convert pixmap to image bytes
+    let pixmap_data = pixmap.data();
+
     // Use image crate to save webp image
-    let rgba = image::RgbaImage::from_raw(width, height, pixmap_data)
+    let rgba = image::RgbaImage::from_raw(pixmap.width(), pixmap.height(), pixmap_data.to_vec())
         .ok_or(anyhow::anyhow!("Failed to create image from pixmap data"))?;
 
     // Save as WebP with lossless quality
@@ -465,8 +472,8 @@ fn styled_dom_to_png_with_debug(
     let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp_data);
     encoder.encode(
         &rgba.into_raw(),
-        width,
-        height,
+        pixmap.width(),
+        pixmap.height(),
         image::ColorType::Rgba8.into(),
     )?;
 
@@ -1226,34 +1233,14 @@ impl DebugDataCollector {
 pub fn solve_layout_with_debug(
     styled_dom: StyledDom,
     fake_window_state: &FullWindowState,
-    _renderer_resources: &mut RendererResources,
+    renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
 ) -> anyhow::Result<(azul_layout::solver3::display_list::DisplayList, Vec<String>)> {
-    use std::{collections::BTreeMap, fmt::Write};
+    use std::fmt::Write;
 
-    use azul_core::window::LogicalRect;
-
-    // Create caches for layout and text
-    let mut layout_cache = azul_layout::Solver3LayoutCache {
-        tree: None,
-        absolute_positions: BTreeMap::new(),
-        viewport: None,
-    };
-    let mut text_cache = azul_layout::TextLayoutCache::new();
-
-    // Create font manager
+    // Create LayoutWindow for layout computation
     let fc_cache = azul_layout::font::loading::build_font_cache();
-    let font_manager = azul_layout::FontManager::new(fc_cache)?;
-
-    // Prepare viewport
-    let viewport = LogicalRect {
-        origin: azul_core::window::LogicalPosition::new(0.0, 0.0),
-        size: fake_window_state.size.dimensions,
-    };
-
-    // Prepare scroll offsets and selections (empty for reftests)
-    let scroll_offsets = BTreeMap::new();
-    let selections = BTreeMap::new();
+    let mut layout_window = azul_layout::LayoutWindow::new(fc_cache)?;
 
     // Prepare debug messages
     let mut debug_messages = Some(Vec::new());
@@ -1261,15 +1248,11 @@ pub fn solve_layout_with_debug(
     // Start timer
     let start = std::time::Instant::now();
 
-    // Call solver3 layout engine
-    let display_list = azul_layout::layout_document(
-        &mut layout_cache,
-        &mut text_cache,
+    // Call layout_and_generate_display_list with all required parameters
+    let display_list = layout_window.layout_and_generate_display_list(
         styled_dom,
-        viewport,
-        &font_manager,
-        &scroll_offsets,
-        &selections,
+        fake_window_state,
+        renderer_resources,
         &mut debug_messages,
     )?;
 
@@ -1322,129 +1305,8 @@ pub fn format_display_list_for_debug_solver3(display_list: &azul_layout::Display
     output
 }
 
-/// Format the display list for debugging (old solver2 version, kept for compatibility)
-pub fn format_display_list_for_debug(display_list: &CachedDisplayList) -> String {
-    use std::fmt::Write;
-    let mut output = String::new();
-
-    writeln!(output, "Display List").unwrap();
-    writeln!(output, "=============").unwrap();
-
-    match &display_list.root {
-        DisplayListMsg::Frame(frame) => {
-            format_frame(&mut output, frame, 0);
-        }
-        DisplayListMsg::ScrollFrame(scroll_frame) => {
-            writeln!(output, "Root: ScrollFrame").unwrap();
-            format_frame(&mut output, &scroll_frame.frame, 1);
-        }
-        DisplayListMsg::IFrame(id, size, origin, cached) => {
-            writeln!(
-                output,
-                "Root: IFrame (id: {:?}, size: {:?}, origin: {:?})",
-                id, size, origin
-            )
-            .unwrap();
-            format_display_list_for_debug_internal(&mut output, cached, 1);
-        }
-    }
-
-    output
-}
-
-/// Format the display list for debugging (internal recursive function)
-fn format_display_list_for_debug_internal(
-    output: &mut String,
-    display_list: &CachedDisplayList,
-    indent: usize,
-) {
-    use std::fmt::Write;
-    match &display_list.root {
-        DisplayListMsg::Frame(frame) => {
-            format_frame(output, frame, indent);
-        }
-        DisplayListMsg::ScrollFrame(scroll_frame) => {
-            writeln!(output, "{}ScrollFrame", "  ".repeat(indent)).unwrap();
-            format_frame(output, &scroll_frame.frame, indent + 1);
-        }
-        DisplayListMsg::IFrame(id, size, origin, cached) => {
-            writeln!(
-                output,
-                "{}IFrame (id: {:?}, size: {:?}, origin: {:?})",
-                "  ".repeat(indent),
-                id,
-                size,
-                origin
-            )
-            .unwrap();
-            format_display_list_for_debug_internal(output, cached, indent + 1);
-        }
-    }
-}
-
-/// Format a display list frame for debugging
-fn format_frame(output: &mut String, frame: &DisplayListFrame, indent: usize) {
-    use std::fmt::Write;
-    let indent_str = "  ".repeat(indent);
-
-    writeln!(output, "{}Frame (size: {:?})", indent_str, frame.size).unwrap();
-
-    // Print content
-    if !frame.content.is_empty() {
-        writeln!(output, "{}Content ({})", indent_str, frame.content.len()).unwrap();
-        for (i, content) in frame.content.iter().enumerate() {
-            if i < 10 {
-                // Limit displayed items
-                writeln!(output, "{}  {:?}", indent_str, content).unwrap();
-            } else {
-                writeln!(
-                    output,
-                    "{}  ... ({} more items)",
-                    indent_str,
-                    frame.content.len() - 10
-                )
-                .unwrap();
-                break;
-            }
-        }
-    }
-
-    // Print children
-    if !frame.children.is_empty() {
-        writeln!(output, "{}Children ({})", indent_str, frame.children.len()).unwrap();
-        for (i, child) in frame.children.iter().enumerate() {
-            if i < 5 {
-                // Limit displayed children
-                match child {
-                    DisplayListMsg::Frame(child_frame) => {
-                        format_frame(output, child_frame, indent + 1);
-                    }
-                    DisplayListMsg::ScrollFrame(scroll_frame) => {
-                        writeln!(output, "{}  ScrollFrame", indent_str).unwrap();
-                        format_frame(output, &scroll_frame.frame, indent + 2);
-                    }
-                    DisplayListMsg::IFrame(id, size, origin, cached) => {
-                        writeln!(
-                            output,
-                            "{}  IFrame (id: {:?}, size: {:?}, origin: {:?})",
-                            indent_str, id, size, origin
-                        )
-                        .unwrap();
-                    }
-                }
-            } else {
-                writeln!(
-                    output,
-                    "{}  ... ({} more children)",
-                    indent_str,
-                    frame.children.len() - 5
-                )
-                .unwrap();
-                break;
-            }
-        }
-    }
-}
+// Old solver2 display list formatting functions removed
+// (CachedDisplayList, DisplayListMsg, DisplayListFrame no longer exist)
 
 /// Enhanced test result with debug data
 #[derive(Debug, Clone, Serialize, Deserialize)]

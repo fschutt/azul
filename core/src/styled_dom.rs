@@ -3423,6 +3423,8 @@ pub struct StyledDom {
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
+    /// The ID of this DOM in the layout tree (for multi-DOM support with IFrames)
+    pub dom_id: DomId,
 }
 
 impl Default for StyledDom {
@@ -3450,6 +3452,7 @@ impl Default for StyledDom {
             nodes_with_not_callbacks: Vec::new().into(),
             nodes_with_datasets: Vec::new().into(),
             css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
+            dom_id: DomId::ROOT_ID,
         }
     }
 }
@@ -3603,6 +3606,7 @@ impl StyledDom {
             nodes_with_datasets: nodes_with_datasets.into(),
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
+            dom_id: DomId::ROOT_ID, // Will be assigned by layout engine for iframes
         }
     }
 
@@ -3810,6 +3814,7 @@ impl StyledDom {
             tag_ids_to_node_ids: self.tag_ids_to_node_ids.clone(),
             non_leaf_nodes: self.non_leaf_nodes.clone(),
             css_property_cache: self.css_property_cache.clone(),
+            dom_id: self.dom_id,
         };
 
         // inject self.root as the nth node
