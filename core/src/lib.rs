@@ -22,8 +22,6 @@ pub mod callbacks;
 pub mod dom;
 /// Type definitions for Glyphs
 pub mod glyph;
-/// Functions to paginate a DOM into multiple pages (sub-DOMs) for printing
-pub mod pagination;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod resources;
 /// Primitives for cursor and text selection handling
@@ -42,8 +40,6 @@ pub mod styled_dom;
 pub mod svg;
 /// Async (task, thread, timer) helper functions
 pub mod task;
-/// Main `Layout` and `GetTextLayout` trait definition
-pub mod traits;
 /// Handles the UI layout and UI layout solver
 pub mod ui_solver;
 /// Window creation / interaction with the OS' windowing API
@@ -52,6 +48,14 @@ pub mod window;
 pub mod window_state;
 /// XML structures
 pub mod xml;
+/// CSS transform computation
+pub mod transform;
+/// GPU value synchronization (colors, transforms) for WebRender preparation
+pub mod gpu;
+/// Cache for CSS Properties
+pub mod prop_cache;
+
+// pub mod old_text_layout; // -- IGNORE, this was for the initial solver only --
 
 // Typedef for possible faster implementation of hashing
 pub type FastHashMap<T, U> = alloc::collections::BTreeMap<T, U>;

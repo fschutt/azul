@@ -12,6 +12,9 @@ pub mod positioning;
 pub mod sizing;
 pub mod taffy_bridge;
 
+#[cfg(test)]
+mod tests;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{

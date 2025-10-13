@@ -37,8 +37,7 @@ use crate::{
         ThreadReceiver, ThreadSendMsg, ThreadSender, Timer, TimerId,
     },
     ui_solver::{
-        LayoutResult, OverflowingScrollNode, PositionInfo, PositionedRectangle,
-        ResolvedTextLayoutOptions, TextLayoutOptions,
+        OverflowingScrollNode, PositionInfo
     },
     window::{
         AzStringPair, FullWindowState, KeyboardState, LogicalPosition, LogicalRect, LogicalSize,

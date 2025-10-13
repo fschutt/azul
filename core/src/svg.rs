@@ -22,7 +22,7 @@ use crate::{
         GlContextPtr, IndexBufferFormat, Texture, VertexAttribute, VertexAttributeType,
         VertexBuffer, VertexLayout, VertexLayoutDescription,
     },
-    ui_solver::{ComputedTransform3D, RotationMode},
+    transform::{ComputedTransform3D, RotationMode},
     window::PhysicalSizeU32,
     xml::XmlError,
 };

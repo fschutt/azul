@@ -10,6 +10,8 @@
 extern crate alloc;
 extern crate core;
 
+#[cfg(feature = "text_layout")]
+pub mod callbacks;
 #[cfg(feature = "cpurender")]
 pub mod cpurender;
 #[cfg(feature = "font_loading")]

@@ -17,7 +17,7 @@ use azul_css::{
     css::CssPath,
     props::{
         basic::{ColorU, FloatValue, LayoutPoint, LayoutRect, LayoutSize},
-        property::CssProperty,
+        property::CssProperty, style::StyleCursor,
     },
     AzString, LayoutDebugMessage, OptionAzString, OptionF32, OptionI32, U8Vec,
 };
@@ -40,7 +40,7 @@ use crate::{
     styled_dom::{DomId, NodeHierarchyItemId},
     task::{ExternalSystemCallbacks, Instant, Thread, ThreadId, Timer, TimerId},
     ui_solver::{
-        ExternalScrollId, HitTest, LayoutResult, OverflowingScrollNode, QuickResizeResult,
+        ExternalScrollId, HitTest, /* LayoutResult, */ OverflowingScrollNode, QuickResizeResult,
     },
     window_state::RelayoutFn,
     FastBTreeSet, FastHashMap,
@@ -813,38 +813,8 @@ impl CursorTypeHitTest {
                     &styled_dom.styled_nodes.as_container()[*node_id].state,
                 ) {
                     cursor_node = Some((*dom_id, *node_id));
-                    cursor_icon = match cursor_prop.get_property().copied().unwrap_or_default() {
-                        StyleCursor::Alias => MouseCursorType::Alias,
-                        StyleCursor::AllScroll => MouseCursorType::AllScroll,
-                        StyleCursor::Cell => MouseCursorType::Cell,
-                        StyleCursor::ColResize => MouseCursorType::ColResize,
-                        StyleCursor::ContextMenu => MouseCursorType::ContextMenu,
-                        StyleCursor::Copy => MouseCursorType::Copy,
-                        StyleCursor::Crosshair => MouseCursorType::Crosshair,
-                        StyleCursor::Default => MouseCursorType::Default,
-                        StyleCursor::EResize => MouseCursorType::EResize,
-                        StyleCursor::EwResize => MouseCursorType::EwResize,
-                        StyleCursor::Grab => MouseCursorType::Grab,
-                        StyleCursor::Grabbing => MouseCursorType::Grabbing,
-                        StyleCursor::Help => MouseCursorType::Help,
-                        StyleCursor::Move => MouseCursorType::Move,
-                        StyleCursor::NResize => MouseCursorType::NResize,
-                        StyleCursor::NsResize => MouseCursorType::NsResize,
-                        StyleCursor::NeswResize => MouseCursorType::NeswResize,
-                        StyleCursor::NwseResize => MouseCursorType::NwseResize,
-                        StyleCursor::Pointer => MouseCursorType::Hand,
-                        StyleCursor::Progress => MouseCursorType::Progress,
-                        StyleCursor::RowResize => MouseCursorType::RowResize,
-                        StyleCursor::SResize => MouseCursorType::SResize,
-                        StyleCursor::SeResize => MouseCursorType::SeResize,
-                        StyleCursor::Text => MouseCursorType::Text,
-                        StyleCursor::Unset => MouseCursorType::Default,
-                        StyleCursor::VerticalText => MouseCursorType::VerticalText,
-                        StyleCursor::WResize => MouseCursorType::WResize,
-                        StyleCursor::Wait => MouseCursorType::Wait,
-                        StyleCursor::ZoomIn => MouseCursorType::ZoomIn,
-                        StyleCursor::ZoomOut => MouseCursorType::ZoomOut,
-                    }
+                    let ci = cursor_prop.get_property().copied().unwrap_or_default(); 
+                    cursor_icon = translate_cursor(ci);
                 }
             }
         }
@@ -855,6 +825,43 @@ impl CursorTypeHitTest {
         }
     }
 }
+
+fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
+    use azul_css::props::style::effects::StyleCursor;
+    match cursor {
+        StyleCursor::Default => MouseCursorType::Default,
+        StyleCursor::Crosshair => MouseCursorType::Crosshair,
+        StyleCursor::Pointer => MouseCursorType::Hand,
+        StyleCursor::Move => MouseCursorType::Move,
+        StyleCursor::Text => MouseCursorType::Text,
+        StyleCursor::Wait => MouseCursorType::Wait,
+        StyleCursor::Help => MouseCursorType::Help,
+        StyleCursor::Progress => MouseCursorType::Progress,
+        StyleCursor::ContextMenu => MouseCursorType::ContextMenu,
+        StyleCursor::Cell => MouseCursorType::Cell,
+        StyleCursor::VerticalText => MouseCursorType::VerticalText,
+        StyleCursor::Alias => MouseCursorType::Alias,
+        StyleCursor::Copy => MouseCursorType::Copy,
+        StyleCursor::Grab => MouseCursorType::Grab,
+        StyleCursor::Grabbing => MouseCursorType::Grabbing,
+        StyleCursor::AllScroll => MouseCursorType::AllScroll,
+        StyleCursor::ZoomIn => MouseCursorType::ZoomIn,
+        StyleCursor::ZoomOut => MouseCursorType::ZoomOut,
+        StyleCursor::EResize => MouseCursorType::EResize,
+        StyleCursor::NResize => MouseCursorType::NResize,
+        StyleCursor::SResize => MouseCursorType::SResize,
+        StyleCursor::SeResize => MouseCursorType::SeResize,
+        StyleCursor::WResize => MouseCursorType::WResize,
+        StyleCursor::EwResize => MouseCursorType::EwResize,
+        StyleCursor::NsResize => MouseCursorType::NsResize,
+        StyleCursor::NeswResize => MouseCursorType::NeswResize,
+        StyleCursor::NwseResize => MouseCursorType::NwseResize,
+        StyleCursor::ColResize => MouseCursorType::ColResize,
+        StyleCursor::RowResize => MouseCursorType::RowResize,
+        StyleCursor::Unset => MouseCursorType::Default,
+    }
+}
+
 pub struct WindowInternalInit {
     pub window_create_options: WindowCreateOptions,
     pub document_id: DocumentId,

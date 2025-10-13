@@ -31,7 +31,7 @@ use crate::{
         StyledDom, StyledNodeState,
     },
     task::ExternalSystemCallbacks,
-    ui_solver::{GlyphInstance, LayoutResult, ResolvedTextLayoutOptions, ScriptType},
+    ui_solver::GlyphInstance,
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize, OptionChar},
     FastBTreeSet, FastHashMap,
 };

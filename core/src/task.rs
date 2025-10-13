@@ -35,7 +35,6 @@ use crate::{
     id_tree::NodeId,
     resources::{ImageCache, ImageMask, ImageRef},
     styled_dom::{DomId, NodeHierarchyItemId},
-    ui_solver::LayoutResult,
     window::{
         FullWindowState, LogicalPosition, OptionLogicalPosition, RawWindowHandle,
         WindowCreateOptions, WindowState,
