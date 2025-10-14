@@ -171,6 +171,17 @@ fn get_current_crate_name(project_root: &Path) -> Result<String> {
         ))
     })?;
 
+    // Check if this is a workspace root
+    if manifest.workspace.is_some() && manifest.package.is_none() {
+        // This is a workspace root without a package
+        // Fallback: use the directory name as crate name
+        return Ok(project_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string());
+    }
+
     let name = manifest
         .package
         .ok_or_else(|| {

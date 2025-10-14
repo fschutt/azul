@@ -4,6 +4,7 @@ mod codegen;
 mod deploy;
 mod docgen;
 mod license;
+mod memtest;
 mod patch;
 mod print_cmd;
 mod reftest;
@@ -31,6 +32,40 @@ fn main() -> anyhow::Result<()> {
 
         // Handle print command with remaining args
         return print_cmd::handle_print_command(&api_data, &args[2..]);
+    }
+
+    // Check for "memtest" subcommand
+    if args.len() > 1 && args[1] == "memtest" {
+        // Load API data
+        let api_data = api::ApiData::from_str(include_str!("../../api.json"))
+            .context("Failed to parse API definition")?;
+
+        // Get project root (parent of doc/)
+        let project_root = PathBuf::from(manifest_dir).parent().unwrap().to_path_buf();
+
+        println!("🧪 Generating memory layout test crate...\n");
+        memtest::generate_memtest_crate(&api_data, &project_root)?;
+
+        // Optionally run the tests if "run" is passed
+        if args.len() > 2 && args[2] == "run" {
+            println!("\n🏃 Running memory layout tests...\n");
+            let memtest_dir = project_root.join("target").join("memtest");
+            let status = std::process::Command::new("cargo")
+                .arg("test")
+                .arg("--")
+                .arg("--nocapture")
+                .current_dir(&memtest_dir)
+                .status()?;
+
+            if !status.success() {
+                eprintln!("\n❌ Memory layout tests failed!");
+                std::process::exit(1);
+            } else {
+                println!("\n✅ All memory layout tests passed!");
+            }
+        }
+
+        return Ok(());
     }
 
     println!("Starting Azul Build and Deploy System...");
