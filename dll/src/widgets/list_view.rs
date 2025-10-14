@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use azul_core::{
+    callbacks::CoreCallbackData,
     dom::{
         Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssPropertyVec, TabIndex,
@@ -9,8 +10,16 @@ use azul_core::{
     gl::OptionUsize,
     menu::{Menu, OptionMenu},
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS: &[StyleBackgroundContent] =
@@ -488,9 +497,9 @@ const CSS_MATCH_12980082330151137475: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_13758717721055992976_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-list-header-arrow-down-inner
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(6),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(6)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Transform(StyleTransformVecValue::Exact(
         StyleTransformVec::from_const_slice(STYLE_TRANSFORM_16978981723642914576_ITEMS),
     ))),
@@ -501,9 +510,7 @@ const CSS_MATCH_13758717721055992976_PROPERTIES: &[NodeDataInlineCssProperty] = 
         LayoutOverflow::Hidden,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(6),
-        },
+        LayoutHeight::Px(PixelValue::const_px(6)),
     ))),
 ];
 const CSS_MATCH_13758717721055992976: NodeDataInlineCssPropertyVec =
@@ -511,9 +518,9 @@ const CSS_MATCH_13758717721055992976: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_15295293133676720691_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-list-header-dragwidth-drag
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(2),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(2)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Absolute,
     ))),
@@ -524,9 +531,7 @@ const CSS_MATCH_15295293133676720691: NodeDataInlineCssPropertyVec =
 const CSS_MATCH_15315949193378715186_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-list-header
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(25),
-        },
+        LayoutHeight::Px(PixelValue::const_px(25)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
         LayoutFlexDirection::Row,
@@ -577,16 +582,14 @@ const CSS_MATCH_15673486787900743642: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_1574792189506859253_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-list-header-arrow-down-inner-deco
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(12),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(12)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Transform(StyleTransformVecValue::Exact(
         StyleTransformVec::from_const_slice(STYLE_TRANSFORM_17732691695785266054_ITEMS),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(12),
-        },
+        LayoutHeight::Px(PixelValue::const_px(12)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
@@ -750,9 +753,9 @@ const CSS_MATCH_4852927511892172364: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_6002662151290653203_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-list-header-dragwidth
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(0),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(0)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),

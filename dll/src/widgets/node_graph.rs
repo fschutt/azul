@@ -14,8 +14,16 @@ use azul_core::{
     svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::CursorPosition::InWindow,
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 use crate::{
     extra::coloru_from_str,
@@ -920,14 +928,14 @@ impl NodeGraph {
                     .with_inline_css_props(nodegraph_props.into())
                     .with_callbacks(
                         vec![
-                            CallbackData {
+                            CoreCallbackData {
                                 event: EventFilter::Hover(HoverEventFilter::MouseOver),
                                 data: node_graph_local_dataset.clone(),
                                 callback: Callback {
                                     cb: nodegraph_drag_graph_or_nodes,
                                 },
                             },
-                            CallbackData {
+                            CoreCallbackData {
                                 event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
                                 data: node_graph_local_dataset.clone(),
                                 callback: Callback {
@@ -1224,17 +1232,13 @@ fn render_node(
             },
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight {
-                inner: PixelValue::const_px(15),
-            },
+            LayoutHeight::Px(PixelValue::const_px(15)),
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
             StyleTextAlign::Right,
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth {
-                inner: PixelValue::const_px(100),
-            },
+            LayoutWidth::Px(PixelValue::const_px(100)),
         ))),
     ];
     const CSS_MATCH_11452431279102104133: NodeDataInlineCssPropertyVec =
@@ -1500,9 +1504,7 @@ fn render_node(
             LayoutPosition::Relative,
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth {
-                inner: PixelValue::const_px(0),
-            },
+            LayoutWidth::Px(PixelValue::const_px(0)),
         ))),
     ];
     const CSS_MATCH_14906563417280941890: NodeDataInlineCssPropertyVec =
@@ -1525,9 +1527,7 @@ fn render_node(
             LayoutPosition::Relative,
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth {
-                inner: PixelValue::const_px(0),
-            },
+            LayoutWidth::Px(PixelValue::const_px(0)),
         ))),
     ];
     const CSS_MATCH_16946967739775705757: NodeDataInlineCssPropertyVec =
@@ -1541,9 +1541,7 @@ fn render_node(
             },
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight {
-                inner: PixelValue::const_px(50),
-            },
+            LayoutHeight::Px(PixelValue::const_px(50)),
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
             LayoutPaddingLeft {
@@ -1570,17 +1568,13 @@ fn render_node(
             },
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight {
-                inner: PixelValue::const_px(15),
-            },
+            LayoutHeight::Px(PixelValue::const_px(15)),
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
             StyleTextAlign::Left,
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth {
-                inner: PixelValue::const_px(100),
-            },
+            LayoutWidth::Px(PixelValue::const_px(100)),
         ))),
     ];
     const CSS_MATCH_2008162367868363199: NodeDataInlineCssPropertyVec =
@@ -1866,9 +1860,7 @@ fn render_node(
             StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_11383897783350685780_ITEMS),
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight {
-                inner: PixelValue::const_px(20),
-            },
+            LayoutHeight::Px(PixelValue::const_px(20)),
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
             LayoutPosition::Absolute,
@@ -1880,9 +1872,7 @@ fn render_node(
             StyleTransformVec::from_const_slice(STYLE_TRANSFORM_14683950870521466298_ITEMS),
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth {
-                inner: PixelValue::const_px(20),
-            },
+            LayoutWidth::Px(PixelValue::const_px(20)),
         ))),
     ];
     const CSS_MATCH_7395766480280098891: NodeDataInlineCssPropertyVec =
@@ -2078,7 +2068,7 @@ fn render_node(
     .with_children(vec![
         Dom::div()
         .with_callbacks(vec![
-           CallbackData {
+           CoreCallbackData {
                event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
                data: node_local_dataset.clone(),
                callback: Callback { cb: nodegraph_set_active_node },
@@ -2331,9 +2321,7 @@ fn render_node(
                }.into()
            ))),
            NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-               LayoutWidth {
-                   inner: PixelValue::const_px(250),
-               },
+               LayoutWidth::Px(PixelValue::const_px(250),),
            ))),
         ].into())
         .with_ids_and_classes({
@@ -2345,7 +2333,7 @@ fn render_node(
            Dom::text(AzString::from_const_str("X"))
                .with_inline_css_props(CSS_MATCH_7395766480280098891)
                .with_callbacks(vec![
-                   CallbackData {
+                   CoreCallbackData {
                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
                        data: node_local_dataset.clone(),
                        callback: Callback { cb: nodegraph_delete_node },
@@ -2438,7 +2426,7 @@ fn render_node(
                                                })])),
                                            Dom::div()
                                                .with_callbacks(vec![
-                                                   CallbackData {
+                                                   CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
                                                        data: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Input(io_id),
@@ -2446,7 +2434,7 @@ fn render_node(
                                                        }),
                                                        callback: Callback { cb: nodegraph_input_output_connect },
                                                    },
-                                                   CallbackData {
+                                                   CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
                                                        data: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Input(io_id),
@@ -2464,14 +2452,10 @@ fn render_node(
                                                            StyleCursor::Pointer,
                                                        ))),
                                                        NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-                                                           LayoutHeight {
-                                                               inner: PixelValue::const_px(15),
-                                                           },
+                                                           LayoutHeight::Px(PixelValue::const_px(15),),
                                                        ))),
                                                        NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-                                                           LayoutWidth {
-                                                               inner: PixelValue::const_px(15),
-                                                           },
+                                                           LayoutWidth::Px(PixelValue::const_px(15),),
                                                        ))),
                                                    ])
                                                )
@@ -2602,7 +2586,7 @@ fn render_node(
                                        .with_children(DomVec::from_vec(vec![
                                            Dom::div()
                                                .with_callbacks(vec![
-                                                   CallbackData {
+                                                   CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
                                                        data: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Output(io_id),
@@ -2610,7 +2594,7 @@ fn render_node(
                                                        }),
                                                        callback: Callback { cb: nodegraph_input_output_connect },
                                                    },
-                                                   CallbackData {
+                                                   CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
                                                        data: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Output(io_id),
@@ -2631,14 +2615,10 @@ fn render_node(
                                                            StyleCursor::Pointer,
                                                        ))),
                                                        NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-                                                           LayoutHeight {
-                                                               inner: PixelValue::const_px(15),
-                                                           },
+                                                           LayoutHeight::Px(PixelValue::const_px(15),),
                                                        ))),
                                                        NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-                                                           LayoutWidth {
-                                                               inner: PixelValue::const_px(15),
-                                                           },
+                                                           LayoutWidth::Px(PixelValue::const_px(15),),
                                                        ))),
                                                    ])
                                                )
@@ -2807,14 +2787,14 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                                             ),
                                         )),
                                         NodeDataInlineCssProperty::Normal(CssProperty::Width(
-                                            LayoutWidthValue::Exact(LayoutWidth {
-                                                inner: PixelValue::px(rect.size.width),
-                                            }),
+                                            LayoutWidthValue::Exact(LayoutWidth::Px(
+                                                PixelValue::px(rect.size.width),
+                                            )),
                                         )),
                                         NodeDataInlineCssProperty::Normal(CssProperty::Height(
-                                            LayoutHeightValue::Exact(LayoutHeight {
-                                                inner: PixelValue::px(rect.size.height),
-                                            }),
+                                            LayoutHeightValue::Exact(LayoutHeight::Px(
+                                                PixelValue::px(rect.size.height),
+                                            )),
                                         )),
                                     ]
                                     .into(),
@@ -3206,15 +3186,15 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
 
                 info.set_css_property(
                     first_child,
-                    CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-                        inner: PixelValue::px(new_rect.size.width),
-                    })),
+                    CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
+                        new_rect.size.width,
+                    )))),
                 );
                 info.set_css_property(
                     first_child,
-                    CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight {
-                        inner: PixelValue::px(new_rect.size.height),
-                    })),
+                    CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(
+                        PixelValue::px(new_rect.size.height),
+                    ))),
                 );
             }
 

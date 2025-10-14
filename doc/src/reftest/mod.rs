@@ -209,6 +209,79 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Runs a single reftest and prints all debug information to stdout.
+/// Designed for headless inspection by an LLM.
+pub fn run_single_reftest_headless(
+    test_name: &str,
+    test_dir: &Path,
+    output_dir: &Path,
+) -> anyhow::Result<()> {
+    // Create output directory if it doesn't exist
+    fs::create_dir_all(output_dir)?;
+
+    let test_file = test_dir.join(format!("{}.xht", test_name));
+    if !test_file.exists() {
+        return Err(anyhow::anyhow!(
+            "Test file not found: {}",
+            test_file.display()
+        ));
+    }
+
+    println!("Processing test: {}", test_name);
+
+    // Get Chrome path and check if installed
+    let chrome_path = get_chrome_path();
+    if get_chrome_version(&chrome_path).contains("Unknown") {
+        return Err(anyhow::anyhow!(
+            "Google Chrome not found. Please install it or set the CHROME env var."
+        ));
+    }
+
+    let chrome_img_path = output_dir.join(format!("{}_chrome.webp", test_name));
+    let azul_img_path = output_dir.join(format!("{}_azul.webp", test_name));
+
+    // 1. Generate Chrome screenshot
+    println!("  Generating Chrome reference...");
+    generate_chrome_screenshot(&chrome_path, &test_file, &chrome_img_path, WIDTH, HEIGHT)?;
+    println!(
+        "  - Chrome screenshot saved to {}",
+        chrome_img_path.display()
+    );
+
+    let (chrome_w, chrome_h) = image::open(&chrome_img_path)?.dimensions();
+    let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
+
+    // 2. Generate Azul rendering and collect debug data
+    println!("  Generating Azul rendering...");
+    let debug_data = generate_azul_rendering(&test_file, &azul_img_path, dpi_factor)?;
+    println!("  - Azul rendering saved to {}", azul_img_path.display());
+
+    // 3. Compare images
+    println!("  Comparing images...");
+    match compare_images(&chrome_img_path, &azul_img_path) {
+        Ok(diff_count) => {
+            let passed = diff_count < 1000;
+            println!("\n--- COMPARISON RESULT ---");
+            println!("Test Name: {}", test_name);
+            println!("Result: {}", if passed { "PASSED" } else { "FAILED" });
+            println!("Differing Pixels: {}", diff_count);
+            println!("-------------------------\n");
+        }
+        Err(e) => {
+            eprintln!("\n--- COMPARISON FAILED ---");
+            eprintln!("Error during image comparison: {}", e);
+            println!("-------------------------\n");
+        }
+    }
+
+    // 4. Print all collected debug data to stdout
+    println!("\n--- DEBUG INFORMATION ---");
+    println!("{}", debug_data.format());
+    println!("--- END DEBUG INFORMATION ---\n");
+
+    Ok(())
+}
+
 fn find_test_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut test_files = Vec::new();
 

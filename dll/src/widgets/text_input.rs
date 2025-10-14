@@ -12,8 +12,16 @@ use azul_core::{
     task::OptionTimerId,
     window::VirtualKeyCode,
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 const BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
@@ -766,35 +774,35 @@ impl TextInput {
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(
                 vec![
-                    CallbackData {
+                    CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: state_ref.clone(),
                         callback: Callback {
                             cb: default_on_focus_received,
                         },
                     },
-                    CallbackData {
+                    CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusLost),
                         data: state_ref.clone(),
                         callback: Callback {
                             cb: default_on_focus_lost,
                         },
                     },
-                    CallbackData {
+                    CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::TextInput),
                         data: state_ref.clone(),
                         callback: Callback {
                             cb: default_on_text_input,
                         },
                     },
-                    CallbackData {
+                    CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
                         data: state_ref.clone(),
                         callback: Callback {
                             cb: default_on_virtual_key_down,
                         },
                     },
-                    CallbackData {
+                    CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseOver),
                         data: state_ref.clone(),
                         callback: Callback {

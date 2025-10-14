@@ -5,8 +5,16 @@ use azul_core::{
         NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4878363956973295354_ITEMS: &[StyleBackgroundContent] =
@@ -56,9 +64,9 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
 
 const CSS_MATCH_10111026547520801912_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-table-container .column-wrapper .line-numbers
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(25),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(25)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
         StyleFontSize {
             inner: PixelValue::const_px(14),
@@ -140,9 +148,9 @@ const CSS_MATCH_11184921220530473733: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_11324334306954975636_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.2
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(210),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(210)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -403,9 +411,9 @@ const CSS_MATCH_12657755885219626491: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_12860013474863056225_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.1
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(135),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(135)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -780,13 +788,11 @@ const CSS_MATCH_14738982339524920711: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_15716718910432952660_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-action-vertical-large .icon-wrapper .icon
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(32),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(32)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(32),
-        },
+        LayoutHeight::Px(PixelValue::const_px(32)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
@@ -839,9 +845,9 @@ const CSS_MATCH_16851364358900804450: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_17089226259487272686_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.7
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(185),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(185)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -889,9 +895,9 @@ const CSS_MATCH_17089226259487272686: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_17283019665138187991_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-formula-container .formula-commit .btn-3
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(30),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(30)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
@@ -1181,9 +1187,9 @@ const CSS_MATCH_1934381104964361563: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_2161661208916302443_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-formula-container .formula-entry .dropdown-sm
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(10),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(10)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_12869309920691526943_ITEMS,
@@ -1407,9 +1413,7 @@ const CSS_MATCH_3221151331850347044_PROPERTIES: &[NodeDataInlineCssProperty] = &
         },
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(90),
-        },
+        LayoutHeight::Px(PixelValue::const_px(90)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
         StyleFontSize {
@@ -1451,9 +1455,9 @@ const CSS_MATCH_3221151331850347044: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_3888401522023951407_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.5
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(180),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(180)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1501,9 +1505,9 @@ const CSS_MATCH_3888401522023951407: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_4060245836920688376_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.6
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(135),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(135)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1586,9 +1590,9 @@ const CSS_MATCH_4856252049803891913: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_489944609689083320_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-table-container .header-row .select-all
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(25),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(25)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
@@ -1635,13 +1639,11 @@ const CSS_MATCH_489944609689083320: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_491594124841839797_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-action-vertical-large .dropdown .icon
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(5),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(5)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(5),
-        },
+        LayoutHeight::Px(PixelValue::const_px(5)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
@@ -1654,9 +1656,9 @@ const CSS_MATCH_491594124841839797: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_5884971763667172938_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-table-container .header-row p
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(65),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(65)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
         StyleTextAlign::Center,
     ))),
@@ -1742,9 +1744,7 @@ const CSS_MATCH_6328747057139953245: NodeDataInlineCssPropertyVec =
 const CSS_MATCH_6727848633830580264_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-table-container .header-row
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(20),
-        },
+        LayoutHeight::Px(PixelValue::const_px(20)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
         LayoutFlexDirection::Row,
@@ -1755,9 +1755,9 @@ const CSS_MATCH_6727848633830580264: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_6736299128913213977_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.4
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(140),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(140)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1884,9 +1884,9 @@ const CSS_MATCH_6756514148882865175: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_681808671153488983_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-formula-container .formula-dropdown
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(100),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(100)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(6),
@@ -2056,9 +2056,9 @@ const CSS_MATCH_7952568575592251546: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_8539348830707080062_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .minixel-formula-container .formula-commit
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(110),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(110)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::MarginRight(LayoutMarginRightValue::Exact(
         LayoutMarginRight {
             inner: PixelValue::const_px(3),
@@ -2234,9 +2234,9 @@ const CSS_MATCH_9206206203058145671: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_970131228357345953_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-section.3
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(265),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(265)),
+    ))),
     // .__azul_native-ribbon-section
     NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -2284,9 +2284,9 @@ const CSS_MATCH_970131228357345953: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_9926913261609802002_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul_native-ribbon-tabs div.between-tabs
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(3),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(3)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
@@ -2748,7 +2748,7 @@ fn render_tab_element(
             CSS_MATCH_2310038472753606232
         })
         .with_callbacks(
-            vec![CallbackData {
+            vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp), // onmouseup
                 callback: Callback { cb: my_callback },
                 data: RefAny::new(MyCustomStruct {

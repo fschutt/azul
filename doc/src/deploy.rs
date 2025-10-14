@@ -21,7 +21,6 @@ pub struct Config {
     pub build_linux: bool,
     pub build_macos: bool,
     pub build_python: bool,
-    pub reftest: bool,
     pub open: bool,
     pub apply_patch: bool,
     pub print_imports: bool,
@@ -47,9 +46,6 @@ impl Config {
         if self.open {
             v.push("open=true".to_string());
         }
-        if self.reftest {
-            v.push("run-reftest=true".to_string());
-        }
         if self.apply_patch {
             v.push("apply-patch=true".to_string());
         }
@@ -66,7 +62,6 @@ impl Config {
             build_linux: false,
             build_macos: false,
             build_python: false,
-            reftest: false,
             open: false,
             apply_patch: false,
             print_imports: false,
@@ -75,11 +70,6 @@ impl Config {
         for arg in &args[1..] {
             if let Some(value) = arg.strip_prefix("--build=") {
                 config.parse_build_arg(value);
-                continue;
-            }
-
-            if arg == "--reftest" {
-                config.reftest = true;
                 continue;
             }
 

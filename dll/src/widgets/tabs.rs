@@ -5,8 +5,16 @@ use azul_core::{
         NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
@@ -210,9 +218,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
         StyleTextAlign::Center,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(21),
-        },
+        LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -329,9 +335,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
         },
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(23),
-        },
+        LayoutHeight::Px(PixelValue::const_px(23)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(
         LayoutBoxSizing::ContentBox,
@@ -366,9 +370,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
         StyleTextAlign::Center,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(21),
-        },
+        LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -464,9 +466,9 @@ const CSS_MATCH_14575853790110873394: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_17290739305197504468_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tabs-header .__azul-native-tabs-before-tabs
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(2),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(2)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
@@ -774,9 +776,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
         StyleTextAlign::Center,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(21),
-        },
+        LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1070,9 +1070,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
         StyleTextAlign::Center,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(21),
-        },
+        LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1335,7 +1333,7 @@ impl TabHeader {
                     tab_items.push(
                         Dom::text(tab.clone())
                             .with_callbacks(if on_click_is_some {
-                                vec![CallbackData {
+                                vec![CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                                     callback: Callback { cb: on_tab_click },
                                     data: dataset.clone(),

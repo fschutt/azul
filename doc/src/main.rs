@@ -34,6 +34,96 @@ fn main() -> anyhow::Result<()> {
         return print_cmd::handle_print_command(&api_data, &args[2..]);
     }
 
+    // Check for "reftest" subcommand
+    if args.len() > 1 && args[1] == "reftest" {
+        println!("üí† Running local reftests...");
+
+        let output_dir = PathBuf::from("target").join("reftest");
+        let config = RunRefTestsConfig {
+            // The test files are in `doc/src/reftest/working`
+            test_dir: PathBuf::from(manifest_dir).join("src/reftest/working"),
+            output_dir: output_dir.clone(),
+            output_filename: "index.html",
+        };
+
+        reftest::run_reftests(config)?;
+
+        let report_path = output_dir.join("index.html");
+        println!(
+            "\n‚úÖ Reftest complete. Report generated at: {}",
+            report_path.display()
+        );
+
+        if args.len() > 2 && args[2] == "open" {
+            if open::that(report_path).is_ok() {
+                println!("üåê Opened report in default browser.");
+            } else {
+                eprintln!("‚ùå Could not open browser. Please open the report manually.");
+            }
+        }
+
+        return Ok(());
+    }
+
+    let mut run_reftest = false;
+    // Check for "reftest" subcommand
+    if args.len() > 1 && args[1] == "reftest" {
+        println!("üí† Running local reftests...");
+
+        let output_dir = PathBuf::from("target").join("reftest");
+        let config = RunRefTestsConfig {
+            // The test files are in `doc/src/reftest/working`
+            test_dir: PathBuf::from(manifest_dir).join("src/reftest/working"),
+            output_dir: output_dir.clone(),
+            output_filename: "index.html",
+        };
+
+        run_reftest = true;
+        reftest::run_reftests(config)?;
+
+        let report_path = output_dir.join("index.html");
+        println!(
+            "\n‚úÖ Reftest complete. Report generated at: {}",
+            report_path.display()
+        );
+
+        if args.len() > 2 && args[2] == "open" {
+            if open::that(report_path).is_ok() {
+                println!("üåê Opened report in default browser.");
+            } else {
+                eprintln!("‚ùå Could not open browser. Please open the report manually.");
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Check for "reftest-headless" subcommand for LLM debugging
+    if args.len() > 1 && args[1] == "reftest-headless" {
+        if args.len() < 3 {
+            eprintln!("‚ùå Usage: azul-doc reftest-headless <test_name>");
+            eprintln!("  Example: azul-doc reftest-headless grid-span-2");
+            std::process::exit(1);
+        }
+        let test_name = &args[2];
+        println!("ü§™ Running headless reftest for: {}", test_name);
+
+        let output_dir = PathBuf::from("target").join("reftest_headless");
+        let test_dir = PathBuf::from(manifest_dir).join("src/reftest/working");
+
+        run_reftest = true;
+        reftest::run_single_reftest_headless(test_name, &test_dir, &output_dir)?;
+
+        println!("\n‚úÖ Headless reftest for '{}' complete.", test_name);
+        println!("   Debug information has been printed to the console.");
+        println!(
+            "   Generated images can be found in: {}",
+            output_dir.display()
+        );
+
+        return Ok(());
+    }
+
     // Check for "memtest" subcommand
     if args.len() > 1 && args[1] == "memtest" {
         // Load API data
@@ -227,16 +317,6 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    if config.reftest {
-        let config = RunRefTestsConfig {
-            test_dir: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/working")),
-            output_dir: output_dir.clone(),
-            output_filename: "reftest.html",
-        };
-
-        let _ = crate::reftest::run_reftests(config)?;
-    }
-
     // Open the result in browser if not in CI
     if config.open {
         if let Ok(_) = open::that(output_dir.join("index.html").to_string_lossy().to_string()) {
@@ -258,7 +338,7 @@ fn main() -> anyhow::Result<()> {
     println!("   │  ├─ index.html");
     println!("   │  ├─ releases.html");
     println!("   │  ├─ donate.html");
-    if config.reftest {
+    if run_reftest {
         println!("   │  └─ reftest.html");
     }
     println!("   │");

@@ -1,9 +1,20 @@
-use azul_css::*;
-
-use crate::desktop::dom::{
-    Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-    NodeDataInlineCssPropertyVec,
+use azul_core::{
+    callbacks::CoreCallbackData,
+    dom::{
+        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssPropertyVec,
+    },
 };
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
@@ -19,9 +30,7 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
 const CSS_MATCH_15775557796860201720_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-before div
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(8),
-        },
+        LayoutHeight::Px(PixelValue::const_px(8)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
@@ -64,9 +73,9 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[NodeDataInlineCssProperty] = 
         }),
     )),
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-before
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(5),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(5)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
         LayoutMarginTop {
             inner: PixelValue::const_px(6),
@@ -167,9 +176,7 @@ const CSS_MATCH_8602559445190067154: NodeDataInlineCssPropertyVec =
 const CSS_MATCH_9156589477016488419_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-after div
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(8),
-        },
+        LayoutHeight::Px(PixelValue::const_px(8)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {

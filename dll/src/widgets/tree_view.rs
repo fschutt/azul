@@ -1,8 +1,20 @@
-use azul_core::dom::{
-    Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-    NodeDataInlineCssPropertyVec, TabIndex,
+use azul_core::{
+    callbacks::CoreCallbackData,
+    dom::{
+        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssPropertyVec, TabIndex,
+    },
 };
-use azul_css::*;
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundContent] =
@@ -69,9 +81,9 @@ const LINEAR_COLOR_STOP_8524009933333352376_ITEMS: &[NormalizedLinearColorStop] 
 
 const CSS_MATCH_10250347571702901767_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-t-content-minus
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(9),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(9)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(0),
     }))),
@@ -88,9 +100,7 @@ const CSS_MATCH_10250347571702901767_PROPERTIES: &[NodeDataInlineCssProperty] = 
         inner: PixelValue::const_px(9),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(9),
-        },
+        LayoutHeight::Px(PixelValue::const_px(9)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -118,9 +128,9 @@ const CSS_MATCH_10250347571702901767: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_11045010670475678001_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-minus-icon
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(4),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(4)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(4),
     }))),
@@ -131,9 +141,7 @@ const CSS_MATCH_11045010670475678001_PROPERTIES: &[NodeDataInlineCssProperty] = 
         inner: PixelValue::const_px(2),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(1),
-        },
+        LayoutHeight::Px(PixelValue::const_px(1)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
@@ -146,9 +154,9 @@ const CSS_MATCH_11045010670475678001: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_1250869685159433269_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-cross-content-2
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(9),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(9)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(8),
     }))),
@@ -165,9 +173,7 @@ const CSS_MATCH_1250869685159433269_PROPERTIES: &[NodeDataInlineCssProperty] = &
         inner: PixelValue::const_px(8),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(9),
-        },
+        LayoutHeight::Px(PixelValue::const_px(9)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
@@ -342,16 +348,14 @@ const CSS_MATCH_13401060217940352039: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_13463400830017583629_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-pipe-down
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(18),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(18)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Block,
@@ -567,9 +571,9 @@ const CSS_MATCH_14249021884908901216: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_14455923367901630186_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-space-1-filled
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(8),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(8)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
@@ -580,9 +584,7 @@ const CSS_MATCH_14455923367901630186_PROPERTIES: &[NodeDataInlineCssProperty] = 
         LayoutOverflow::Visible,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Block,
@@ -879,9 +881,9 @@ const CSS_MATCH_15054086665198995512: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_17035174955428217627_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-t-content
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(8),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(8)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(0),
     }))),
@@ -892,9 +894,7 @@ const CSS_MATCH_17035174955428217627_PROPERTIES: &[NodeDataInlineCssProperty] = 
         inner: PixelValue::const_px(0),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
@@ -922,13 +922,11 @@ const CSS_MATCH_17035174955428217627: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_17631951240816806439_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-space-1
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(9),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(9)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
 ];
 const CSS_MATCH_17631951240816806439: NodeDataInlineCssPropertyVec =
@@ -936,9 +934,9 @@ const CSS_MATCH_17631951240816806439: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_17932671798964167701_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-space-1-filled-content
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(18),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(18)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(0),
     }))),
@@ -955,9 +953,7 @@ const CSS_MATCH_17932671798964167701_PROPERTIES: &[NodeDataInlineCssProperty] = 
         inner: PixelValue::const_px(0),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(9),
-        },
+        LayoutHeight::Px(PixelValue::const_px(9)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1046,9 +1042,7 @@ const CSS_MATCH_3920366294746786702_PROPERTIES: &[NodeDataInlineCssProperty] = &
         },
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Block,
@@ -1059,9 +1053,9 @@ const CSS_MATCH_3920366294746786702: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_5479296065075700509_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-l-content
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(11),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(11)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(0),
     }))),
@@ -1078,9 +1072,7 @@ const CSS_MATCH_5479296065075700509_PROPERTIES: &[NodeDataInlineCssProperty] = &
         inner: PixelValue::const_px(7),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(9),
-        },
+        LayoutHeight::Px(PixelValue::const_px(9)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
@@ -1128,9 +1120,9 @@ const CSS_MATCH_5479296065075700509: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_5748554468056235124_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-pipe-down-content
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(8),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(8)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(-1),
     }))),
@@ -1141,9 +1133,7 @@ const CSS_MATCH_5748554468056235124_PROPERTIES: &[NodeDataInlineCssProperty] = &
         inner: PixelValue::const_px(0),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(19),
-        },
+        LayoutHeight::Px(PixelValue::const_px(19)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
@@ -1171,9 +1161,9 @@ const CSS_MATCH_5748554468056235124: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_6438488809014395635_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-minus-content
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(9),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(9)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(4),
     }))),
@@ -1187,9 +1177,7 @@ const CSS_MATCH_6438488809014395635_PROPERTIES: &[NodeDataInlineCssProperty] = &
         LayoutJustifyContentValue::Exact(LayoutJustifyContent::Center),
     )),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(9),
-        },
+        LayoutHeight::Px(PixelValue::const_px(9)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1285,9 +1273,9 @@ const CSS_MATCH_6438488809014395635: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_6621536559891676126_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-cross
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(18),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(18)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
@@ -1298,9 +1286,7 @@ const CSS_MATCH_6621536559891676126_PROPERTIES: &[NodeDataInlineCssProperty] = &
         LayoutOverflow::Visible,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Block,
@@ -1311,16 +1297,14 @@ const CSS_MATCH_6621536559891676126: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_8394859448076413888_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-minus
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(18),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(18)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
 ];
 const CSS_MATCH_8394859448076413888: NodeDataInlineCssPropertyVec =
@@ -1328,9 +1312,9 @@ const CSS_MATCH_8394859448076413888: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_9438342815980407130_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-cross-content-1
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(9),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(9)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Top(LayoutTopValue::Exact(LayoutTop {
         inner: PixelValue::const_px(0),
     }))),
@@ -1347,9 +1331,7 @@ const CSS_MATCH_9438342815980407130_PROPERTIES: &[NodeDataInlineCssProperty] = &
         inner: PixelValue::const_px(0),
     }))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(9),
-        },
+        LayoutHeight::Px(PixelValue::const_px(9)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
@@ -1397,9 +1379,9 @@ const CSS_MATCH_9438342815980407130: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_9496626968151854549_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-l
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(18),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(18)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
@@ -1410,9 +1392,7 @@ const CSS_MATCH_9496626968151854549_PROPERTIES: &[NodeDataInlineCssProperty] = &
         LayoutOverflow::Visible,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Block,
@@ -1423,16 +1403,14 @@ const CSS_MATCH_9496626968151854549: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_9703015952013196920_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tree-t
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(18),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(18)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(18),
-        },
+        LayoutHeight::Px(PixelValue::const_px(18)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
         LayoutDisplay::Block,

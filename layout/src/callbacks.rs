@@ -11,7 +11,7 @@ use azul_core::impl_callback;
 use azul_core::{
     animation::UpdateImageType,
     callbacks::{FocusTarget, Update},
-    dom::{DomId, DomNodeId, NodeId},
+    dom::{DomId, DomNodeId, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
     hit_test::ScrollPosition,
@@ -352,12 +352,273 @@ impl CallbackInfo {
         self.internal_get_layout_window().get_dom_ids()
     }
 
-    // TODO: Add more query methods as needed:
-    // - get_computed_css_property
-    // - get_parent
-    // - get_first_child
-    // - get_scroll_position
-    // etc.
+    // ===== Node Hierarchy Navigation =====
+
+    pub fn get_hit_node(&self) -> DomNodeId {
+        self.hit_dom_node
+    }
+
+    pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = node_hierarchy.get(node_id_internal)?;
+        let parent_id = hier_item.parent_id()?;
+        Some(DomNodeId {
+            dom: node_id.dom,
+            node: NodeHierarchyItemId {
+                inner: parent_id.index(),
+            },
+        })
+    }
+
+    pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = node_hierarchy.get(node_id_internal)?;
+        let sibling_id = hier_item.previous_sibling_id()?;
+        Some(DomNodeId {
+            dom: node_id.dom,
+            node: NodeHierarchyItemId {
+                inner: sibling_id.index(),
+            },
+        })
+    }
+
+    pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = node_hierarchy.get(node_id_internal)?;
+        let sibling_id = hier_item.next_sibling_id()?;
+        Some(DomNodeId {
+            dom: node_id.dom,
+            node: NodeHierarchyItemId {
+                inner: sibling_id.index(),
+            },
+        })
+    }
+
+    pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = node_hierarchy.get(node_id_internal)?;
+        let child_id = hier_item.first_child_id(node_id_internal)?;
+        Some(DomNodeId {
+            dom: node_id.dom,
+            node: NodeHierarchyItemId {
+                inner: child_id.index(),
+            },
+        })
+    }
+
+    pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = node_hierarchy.get(node_id_internal)?;
+        let child_id = hier_item.last_child_id()?;
+        Some(DomNodeId {
+            dom: node_id.dom,
+            node: NodeHierarchyItemId {
+                inner: child_id.index(),
+            },
+        })
+    }
+
+    // ===== Node Data and State =====
+
+    pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data_cont.get(node_id_internal)?;
+        node_data.get_dataset().clone().into_option()
+    }
+
+    pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
+        let mut found: Option<(u64, DomNodeId)> = None;
+        let search_type_id = search_key.get_type_id();
+
+        for dom_id in self.get_dom_ids() {
+            let layout_window = self.internal_get_layout_window();
+            let layout_result = match layout_window.get_layout_result(&dom_id) {
+                Some(lr) => lr,
+                None => continue,
+            };
+
+            let node_data_cont = layout_result.styled_dom.node_data.as_container();
+            for (node_idx, node_data) in node_data_cont.iter().enumerate() {
+                if let Some(dataset) = node_data.get_dataset().clone().into_option() {
+                    if dataset.get_type_id() == search_type_id {
+                        let node_id = DomNodeId {
+                            dom: dom_id,
+                            node: NodeHierarchyItemId { inner: node_idx },
+                        };
+                        let instance_id = dataset.instance_id;
+
+                        match found {
+                            None => found = Some((instance_id, node_id)),
+                            Some((prev_instance, _)) => {
+                                if instance_id < prev_instance {
+                                    found = Some((instance_id, node_id));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        found.map(|s| s.1)
+    }
+
+    pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
+        let layout_window = self.internal_get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data_cont.get(node_id_internal)?;
+
+        if let NodeType::Text(ref text) = node_data.get_node_type() {
+            Some(text.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn set_string_contents(&mut self, node_id: DomNodeId, new_string_contents: AzString) {
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        unsafe {
+            (*self.words_changed_in_callbacks)
+                .entry(node_id.dom)
+                .or_insert_with(BTreeMap::new)
+                .insert(node_id_internal, new_string_contents);
+        }
+    }
+
+    // ===== Window State Access =====
+
+    pub fn get_current_window_state(&self) -> WindowState {
+        unsafe { (*self.current_window_state).clone().into() }
+    }
+
+    pub fn get_current_window_flags(&self) -> WindowFlags {
+        unsafe { (*self.current_window_state).flags.clone() }
+    }
+
+    pub fn get_current_keyboard_state(&self) -> KeyboardState {
+        unsafe { (*self.current_window_state).keyboard_state.clone() }
+    }
+
+    pub fn get_current_mouse_state(&self) -> MouseState {
+        unsafe { (*self.current_window_state).mouse_state.clone() }
+    }
+
+    pub fn get_previous_window_state(&self) -> Option<WindowState> {
+        unsafe {
+            (*self.previous_window_state)
+                .as_ref()
+                .map(|s| s.clone().into())
+        }
+    }
+
+    pub fn get_previous_keyboard_state(&self) -> Option<KeyboardState> {
+        unsafe {
+            (*self.previous_window_state)
+                .as_ref()
+                .map(|s| s.keyboard_state.clone())
+        }
+    }
+
+    pub fn get_previous_mouse_state(&self) -> Option<MouseState> {
+        unsafe {
+            (*self.previous_window_state)
+                .as_ref()
+                .map(|s| s.mouse_state.clone())
+        }
+    }
+
+    pub fn set_window_state(&mut self, new_state: WindowState) {
+        unsafe {
+            *self.modifiable_window_state = new_state;
+        }
+    }
+
+    pub fn set_window_flags(&mut self, new_flags: WindowFlags) {
+        unsafe {
+            (*self.modifiable_window_state).flags = new_flags;
+        }
+    }
+
+    // ===== CSS and Styling =====
+
+    pub fn set_css_property(&mut self, node_id: DomNodeId, prop: CssProperty) {
+        let node_id_internal = NodeId::new(node_id.node.inner);
+        unsafe {
+            (*self.css_properties_changed_in_callbacks)
+                .entry(node_id.dom)
+                .or_insert_with(BTreeMap::new)
+                .entry(node_id_internal)
+                .or_insert_with(Vec::new)
+                .push(prop);
+        }
+    }
+
+    // ===== Focus Management =====
+
+    pub fn set_focus(&mut self, target: FocusTarget) {
+        unsafe {
+            *self.focus_target = Some(target);
+        }
+    }
+
+    // ===== Cursor and Input =====
+
+    pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition {
+        self.cursor_relative_to_item
+    }
+
+    pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
+        self.cursor_in_viewport
+    }
+
+    pub fn stop_propagation(&mut self) {
+        unsafe {
+            *self.stop_propagation = true;
+        }
+    }
+
+    // ===== Window Creation =====
+
+    pub fn create_window(&mut self, window: WindowCreateOptions) {
+        unsafe {
+            (*self.new_windows).push(window);
+        }
+    }
+
+    pub fn get_current_window_handle(&self) -> RawWindowHandle {
+        unsafe { (*self.current_window_handle).clone() }
+    }
+
+    // ===== System Callbacks =====
+
+    pub fn get_system_time_fn(&self) -> azul_core::task::GetSystemTimeCallback {
+        unsafe { (*self.system_callbacks).get_system_time_fn }
+    }
+
+    pub fn get_current_time(&self) -> azul_core::task::Instant {
+        let cb = self.get_system_time_fn();
+        (cb.cb)()
+    }
 }
 
 /// Config necessary for threading + animations to work in no_std environments

@@ -1,8 +1,20 @@
-use azul_core::dom::{
-    Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-    NodeDataInlineCssPropertyVec,
+use azul_core::{
+    callbacks::CoreCallbackData,
+    dom::{
+        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+        NodeDataInlineCssPropertyVec,
+    },
 };
-use azul_css::*;
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, Update};
 
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -237,9 +249,7 @@ impl ProgressBar {
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
                 // .__azul-native-progress-bar-container
                 NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight {
-                        inner: self.height.clone(),
-                    },
+                    LayoutHeight::Px(self.height.clone()),
                 ))),
                 NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
                     LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),

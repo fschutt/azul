@@ -9,8 +9,16 @@ use azul_core::{
     },
     styled_dom::StyledDom,
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
@@ -589,16 +597,14 @@ const CSS_MATCH_4687758758634879229: NodeDataInlineCssPropertyVec =
 
 const CSS_MATCH_5369484915686807864_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-dropdown-arrow-content
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth {
-        inner: PixelValue::const_px(6),
-    }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+        LayoutWidth::Px(PixelValue::const_px(6)),
+    ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Transform(StyleTransformVecValue::Exact(
         StyleTransformVec::from_const_slice(STYLE_TRANSFORM_9499236770162623295_ITEMS),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight {
-            inner: PixelValue::const_px(6),
-        },
+        LayoutHeight::Px(PixelValue::const_px(6)),
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
@@ -927,7 +933,7 @@ impl DropDown {
                 })
                 .with_tab_index(TabIndex::Auto)
                 .with_callbacks(
-                    vec![CoreCallbackData {
+                    vec![CoreCoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: data.clone(),
                         callback: CoreCallback {
@@ -1107,7 +1113,7 @@ extern "C" fn dropdownWindowLayoutFn(
             Dom::text(choice.clone())
                 .with_tab_index(TabIndex::Auto)
                 .with_callbacks(
-                    vec![CoreCallbackData {
+                    vec![CoreCoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: RefAny::new(ChoiceChangeLocalDataset {
                             choice_id,
@@ -1122,7 +1128,7 @@ extern "C" fn dropdownWindowLayoutFn(
         })
         .collect::<Dom>()
         .with_callbacks(
-            vec![CoreCallbackData {
+            vec![CoreCoreCallbackData {
                 event: EventFilter::Window(WindowEventFilter::WindowFocusLost),
                 data: data_clone,
                 callback: CoreCallback {

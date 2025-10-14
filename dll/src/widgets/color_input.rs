@@ -1,10 +1,22 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
-use azul_core::dom::{
-    Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec,
+use azul_core::{
+    callbacks::CoreCallbackData,
+    dom::{
+        Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
+        NodeDataInlineCssPropertyVec,
+    },
 };
-use azul_css::*;
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+use azul_css::{
+    props::{
+        basic::*,
+        layout::*,
+        property::{CssProperty, *},
+        style::*,
+    },
+    *,
+};
+use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -128,7 +140,7 @@ impl ColorInput {
             .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
             .with_inline_css_props(style.into())
             .with_callbacks(
-                vec![CoreCallbackData {
+                vec![CoreCoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     data: RefAny::new(self.state),
                     callback: CoreCallback {
@@ -141,7 +153,7 @@ impl ColorInput {
 }
 
 extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use crate::desktop::dialogs::color_picker_dialog;
+    use azul_core::dialogs::color_picker_dialog;
 
     let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
         Some(s) => s,
