@@ -1,7 +1,3 @@
-use std::collections::{BTreeMap, HashMap};
-
-use indexmap::IndexMap;
-
 use crate::api::ApiData;
 
 /// Generate size test code that verifies struct layouts

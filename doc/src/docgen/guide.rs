@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use comrak::{ExtensionOptions, ParseOptions, Plugins, RenderOptions, RenderPlugins};
 
 use super::HTML_ROOT;

@@ -6,10 +6,9 @@ use std::{
     path::Path,
 };
 
-use anyhow::Context;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::api::{ApiData, LoadedExample, VersionData};
+use crate::api::{ApiData, LoadedExample};
 
 const HTML_ROOT: &str = "https://azul.rs";
 

@@ -1,18 +1,15 @@
-use std::collections::{BTreeMap, HashMap};
-
-use indexmap::IndexMap;
+use std::collections::HashMap;
 
 use crate::{
     api::ApiData,
     codegen::{
-        func_gen::{build_functions_map, generate_rust_dll_bindings, FunctionsMap},
+        func_gen::{build_functions_map, generate_rust_dll_bindings},
         struct_gen::{GenerateConfig, StructMetadata},
     },
     utils::{
         analyze::{
-            analyze_type, class_is_small_enum, class_is_small_struct, class_is_stack_allocated,
-            class_is_typedef, get_all_imports, get_class, has_recursive_destructor,
-            is_primitive_arg, search_for_class_by_class_name,
+            analyze_type, class_is_stack_allocated, get_all_imports, is_primitive_arg,
+            search_for_class_by_class_name,
         },
         string::snake_case_to_lower_camel,
     },

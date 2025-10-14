@@ -1,8 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use cargo_metadata::semver::Version;
-
-use crate::api::{ApiData, ClassData, ModuleData, VersionData};
+use crate::api::{ClassData, ModuleData, VersionData};
 
 // Basic Rust types that are treated as primitives
 const BASIC_TYPES: [&str; 19] = [

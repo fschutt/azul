@@ -101,32 +101,3 @@ pub fn format_doc(docstring: &str) -> String {
 
     final_doc.replace("\r\n", "<br/>")
 }
-
-/// Render an example description for HTML
-pub fn render_example_description(descr: &str, replace: bool) -> String {
-    let descr = descr.trim();
-    if replace {
-        descr
-            .replace("\"", "&quot;")
-            .replace("\n", "")
-            .replace("\r\n", "")
-            .replace("#", "&pound;")
-    } else {
-        descr.to_string()
-    }
-}
-
-/// Render example code for HTML
-pub fn render_example_code(code: &str, replace: bool) -> String {
-    let code = code.replace(">", "&gt;").replace("<", "&lt;");
-    if replace {
-        code.replace("\"", "&quot;")
-            .replace("\n", "<br/>")
-            .replace("\r\n", "<br/>")
-            .replace(" ", "&nbsp;")
-            .trim()
-            .to_string()
-    } else {
-        code.trim().to_string()
-    }
-}

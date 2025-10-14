@@ -1,20 +1,13 @@
 use std::{
     env,
     fs::{self, File},
-    io::{self, Write},
-    path::{Path, PathBuf},
-    process::Command,
+    io::Write,
+    path::Path,
 };
 
-use anyhow::{Context, Result};
-use zip::write::FileOptions;
+use anyhow::Result;
 
-use crate::{
-    api::{self, ApiData},
-    codegen, docgen,
-    license::License,
-    utils,
-};
+use crate::{api::ApiData, license::License};
 
 pub struct Config {
     pub build_windows: bool,

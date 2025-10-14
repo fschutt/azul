@@ -9,7 +9,7 @@ use anyhow::Result;
 use indexmap::IndexMap;
 
 use crate::{
-    api::{ApiData, ClassData, EnumVariantData, FieldData, VersionData},
+    api::{ClassData, EnumVariantData, FieldData, VersionData},
     utils::analyze::{analyze_type, get_class, is_primitive_arg, search_for_class_by_class_name},
 };
 

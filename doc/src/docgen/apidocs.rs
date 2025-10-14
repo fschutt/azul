@@ -3,8 +3,8 @@ use crate::{
     api::{ApiData, VersionData},
     utils::{
         analyze::{
-            analyze_type, class_is_stack_allocated, enum_is_union, has_recursive_destructor,
-            is_primitive_arg, search_for_class_by_class_name,
+            analyze_type, enum_is_union, has_recursive_destructor, is_primitive_arg,
+            search_for_class_by_class_name,
         },
         string::format_doc,
     },

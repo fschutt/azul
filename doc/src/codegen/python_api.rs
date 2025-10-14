@@ -1,16 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
-
 use indexmap::IndexMap;
 
 use crate::{
     api::{ApiData, ClassData},
-    utils::{
-        analyze::{
-            analyze_type, class_is_small_enum, class_is_small_struct, class_is_stack_allocated,
-            class_is_typedef, enum_is_union, get_class, has_recursive_destructor, is_primitive_arg,
-            search_for_class_by_class_name,
-        },
-        string::snake_case_to_lower_camel,
+    utils::analyze::{
+        analyze_type, enum_is_union, get_class, is_primitive_arg, search_for_class_by_class_name,
     },
 };
 

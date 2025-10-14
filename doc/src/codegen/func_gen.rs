@@ -15,10 +15,10 @@ use indexmap::IndexMap;
 
 use super::struct_gen::{generate_structs, GenerateConfig, StructMetadata};
 use crate::{
-    api::{ApiData, ClassData, VersionData},
+    api::VersionData,
     utils::{
         analyze::{analyze_type, is_primitive_arg, search_for_class_by_class_name},
-        string::snake_case_to_lower_camel,
+        string::{snake_case_to_lower_camel, strip_fn_arg_types, strip_fn_arg_types_mem_transmute},
     },
 };
 
@@ -115,49 +115,6 @@ pub fn generate_rust_dll_bindings(
     code.push_str("\n\n");
 
     Ok(code)
-}
-
-/// Strip argument names and keep only types with mem::transmute
-/// "x: f32, y: f32" -> "transmute(x), transmute(y)"
-fn strip_fn_arg_types_mem_transmute(arg_list: &str) -> String {
-    if arg_list.is_empty() {
-        return String::new();
-    }
-
-    arg_list
-        .split(',')
-        .map(|arg| {
-            let parts: Vec<&str> = arg.trim().split(':').collect();
-            if parts.len() >= 2 {
-                let arg_name = parts[0].trim();
-                format!("transmute({})", arg_name)
-            } else {
-                "transmute(?)".to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Strip argument names and keep only types
-/// "x: f32, y: f32" -> "f32, f32"
-fn strip_fn_arg_types(arg_list: &str) -> String {
-    if arg_list.is_empty() {
-        return String::new();
-    }
-
-    arg_list
-        .split(',')
-        .map(|arg| {
-            let parts: Vec<&str> = arg.trim().split(':').collect();
-            if parts.len() >= 2 {
-                parts[1..].join(":").trim().to_string()
-            } else {
-                arg.trim().to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Build a FunctionsMap by processing all classes in the API
@@ -311,24 +268,4 @@ fn build_return_type(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_strip_fn_arg_types() {
-        assert_eq!(strip_fn_arg_types("x: f32, y: f32"), "f32, f32");
-        assert_eq!(strip_fn_arg_types("self_: &AzPoint"), "&AzPoint");
-        assert_eq!(strip_fn_arg_types(""), "");
-    }
-
-    #[test]
-    fn test_strip_fn_arg_types_mem_transmute() {
-        assert_eq!(
-            strip_fn_arg_types_mem_transmute("x: f32, y: f32"),
-            "transmute(x), transmute(y)"
-        );
-        assert_eq!(
-            strip_fn_arg_types_mem_transmute("self_: &AzPoint"),
-            "transmute(self_)"
-        );
-        assert_eq!(strip_fn_arg_types_mem_transmute(""), "");
-    }
 }
