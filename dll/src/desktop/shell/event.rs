@@ -1,16 +1,20 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use azul_core::{
-    resources::ResourceUpdate,
     callbacks::LayoutCallbackInfo,
+    events::{NodesToCheck, ProcessEventResult},
     geom::{LogicalPosition, LogicalSize, PhysicalSize},
     hit_test::{CursorTypeHitTest, FullHitTest},
-    events::{ProcessEventResult, NodesToCheck},
-    window::{CursorPosition, MouseCursorType, OptionMouseCursorType, RawWindowHandle, VirtualKeyCode, WindowFrame, WindowId},
+    resources::ResourceUpdate,
+    window::{
+        CursorPosition, MouseCursorType, OptionMouseCursorType, RawWindowHandle, VirtualKeyCode,
+        WindowFrame, WindowId,
+    },
 };
 use azul_layout::{
     callbacks::MenuCallback,
-    // window_state::StyleAndLayoutChanges, // TODO: This type needs to be ported from REFACTORING/portedfromcore.rs
+    // window_state::StyleAndLayoutChanges, // TODO: This type needs to be ported from
+    // REFACTORING/portedfromcore.rs
 };
 use gl_context_loader::GenericGlContext;
 use webrender::{

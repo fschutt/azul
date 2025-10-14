@@ -23,16 +23,15 @@ use azul_core::{
     callbacks::{DocumentId, DomNodeId, RefAny, UpdateImageType},
     display_list::RenderCallbacks,
     dom::NodeId,
+    events::NodesToCheck,
     gl::OptionGlContextPtr,
     styled_dom::DomId,
     task::{Thread, ThreadId, Timer, TimerId},
     ui_solver::LayoutResult,
     window::{
-        CallCallbacksResult, FullWindowState, LogicalSize, Menu, MenuCallback, MenuItem,
-        MonitorVec, MouseCursorType, ScrollResult, WindowCreateOptions, LayoutWindow,
-        WindowState,
+        CallCallbacksResult, FullWindowState, LayoutWindow, LogicalSize, Menu, MenuCallback,
+        MenuItem, MonitorVec, MouseCursorType, ScrollResult, WindowCreateOptions, WindowState,
     },
-    events::NodesToCheck,
     FastBTreeSet, FastHashMap,
 };
 use gl_context_loader::{gl, GenericGlContext};

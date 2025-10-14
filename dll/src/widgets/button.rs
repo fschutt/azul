@@ -1,7 +1,6 @@
 use std::vec::Vec;
 
 use azul_core::{
-    resources::{ImageRef, OptionImageRef},
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,
@@ -9,11 +8,16 @@ use azul_core::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
+    resources::{ImageRef, OptionImageRef},
+};
+use azul_css::{
+    props::basic::{
+        color::ColorU,
+        font::{StyleFontFamily, StyleFontFamilyVec},
+    },
+    *,
 };
 use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
-use azul_css::*;
-use azul_css::props::basic::color::ColorU;
-use azul_css::props::style::font::{StyleFontFamily, StyleFontFamilyVec};
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -427,13 +431,14 @@ impl Button {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        use azul_layout::callbacks::{Callback, CallbackData};
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+
         use crate::desktop::dom::{EventFilter, HoverEventFilter};
 
         let callbacks = match self.on_click.into_option() {
-            Some(ButtonOnClick { data, callback }) => vec![CallbackData {
+            Some(ButtonOnClick { data, callback }) => vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                callback: Callback { cb: callback.cb },
+                callback: CoreCallback { cb: callback.cb },
                 data,
             }],
             None => Vec::new(),

@@ -1,16 +1,16 @@
-use azul_layout::callbacks::{
-    Callback, CallbackInfo, LayoutCallback, LayoutCallbackInfo, MarshaledLayoutCallback,
-    MarshaledLayoutCallbackInner, RefAny, Update, CallbackData,
-};
 use azul_core::{
+    callbacks::{
+        CoreCallback, CoreCallbackData, LayoutCallback, LayoutCallbackInfo,
+        MarshaledLayoutCallback, MarshaledLayoutCallbackInner,
+    },
     dom::{
-        Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
-        WindowEventFilter,
+        Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
+        NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex, WindowEventFilter,
     },
     styled_dom::StyledDom,
 };
 use azul_css::*;
+use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
@@ -927,10 +927,10 @@ impl DropDown {
                 })
                 .with_tab_index(TabIndex::Auto)
                 .with_callbacks(
-                    vec![CallbackData {
+                    vec![CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: data.clone(),
-                        callback: Callback {
+                        callback: CoreCallback {
                             cb: on_dropdown_click,
                         },
                     }]
@@ -989,7 +989,8 @@ struct DropDownLocalDataset {
 }
 
 extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use azul_core::window::{WindowCreateOptions, WindowPosition};
+    use azul_core::window::WindowPosition;
+    use azul_layout::window_state::WindowCreateOptions;
 
     println!("dropdown clicked!");
 
@@ -1106,13 +1107,13 @@ extern "C" fn dropdownWindowLayoutFn(
             Dom::text(choice.clone())
                 .with_tab_index(TabIndex::Auto)
                 .with_callbacks(
-                    vec![CallbackData {
+                    vec![CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: RefAny::new(ChoiceChangeLocalDataset {
                             choice_id,
                             on_choice_change: dropdown_local_dataset.on_choice_change.clone(),
                         }),
-                        callback: Callback {
+                        callback: CoreCallback {
                             cb: on_choice_change,
                         },
                     }]
@@ -1121,10 +1122,10 @@ extern "C" fn dropdownWindowLayoutFn(
         })
         .collect::<Dom>()
         .with_callbacks(
-            vec![CallbackData {
+            vec![CoreCallbackData {
                 event: EventFilter::Window(WindowEventFilter::WindowFocusLost),
                 data: data_clone,
-                callback: Callback {
+                callback: CoreCallback {
                     cb: close_choice_window,
                 },
             }]

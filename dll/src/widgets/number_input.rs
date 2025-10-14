@@ -2,11 +2,9 @@
 
 use std::string::String;
 
-use azul_core::{
-    callbacks::{CallbackInfo, RefAny, Update},
-    dom::{Dom, NodeDataInlineCssPropertyVec},
-};
+use azul_core::dom::{Dom, NodeDataInlineCssPropertyVec};
 use azul_css::*;
+use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
 
 use crate::widgets::text_input::{
     OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,

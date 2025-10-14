@@ -1,12 +1,9 @@
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
-use azul_core::{
-    dom::{
-        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec, TabIndex,
-    },
+use azul_core::dom::{
+    Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
+    NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec, TabIndex,
 };
-use azul_css::*;
-use azul_css::props::basic::color::ColorU;
+use azul_css::{props::basic::color::ColorU, *};
+use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
 
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-container",
@@ -206,16 +203,18 @@ impl CheckBox {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        use azul_layout::callbacks::{Callback, CallbackData};
-        use azul_core::dom::{Dom, EventFilter, HoverEventFilter};
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{Dom, EventFilter, HoverEventFilter},
+        };
 
         Dom::div()
             .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
             .with_inline_css_props(self.container_style)
             .with_callbacks(
-                vec![CallbackData {
+                vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback: Callback {
+                    callback: CoreCallback {
                         cb: self::input::default_on_checkbox_clicked,
                     },
                     data: RefAny::new(self.state),
@@ -235,9 +234,8 @@ impl CheckBox {
 // handle input events for the checkbox
 mod input {
 
+    use azul_css::props::{property::CssProperty, style::effects::StyleOpacity};
     use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
-    use azul_css::props::property::CssProperty;
-    use azul_css::props::style::effects::StyleOpacity;
 
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
 

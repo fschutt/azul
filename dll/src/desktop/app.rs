@@ -2,20 +2,16 @@ use alloc::sync::Arc;
 use std::{fmt, sync::Mutex, thread::JoinHandle};
 
 use azul_core::{
-    resources::{AppConfig, ImageCache, ImageRef},
     callbacks::{Dummy, Update},
     refany::RefAny,
-    window::MonitorVec,
+    resources::{AppConfig, ImageCache, ImageRef},
     task::TimerId,
-};
-use azul_layout::{
-    timer::Timer,
-    window_state::WindowCreateOptions,
+    window::MonitorVec,
 };
 use azul_css::{impl_option, impl_option_inner, AzString};
+use azul_layout::{timer::Timer, window_state::WindowCreateOptions};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use rust_fontconfig::FcFontCache;
-
 
 #[derive(Debug, Clone)]
 #[repr(C)]

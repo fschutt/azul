@@ -27,16 +27,10 @@ pub mod resources {
     pub use azul_layout::{font::*, image::*};
 }
 
-
 mod compositor;
 #[cfg(feature = "logging")]
 mod logging;
 mod wr_translate;
-
-/// `GetTextLayout` trait definition
-pub mod traits {
-    pub use azul_core::traits::GetTextLayout;
-}
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {

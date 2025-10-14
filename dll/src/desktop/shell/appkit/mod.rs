@@ -14,26 +14,23 @@ use std::{
 };
 
 use azul_core::{
-    resources::ImageCache,
     dom::DomNodeId,
-    hit_test::HitTestItem,
-    gl::OptionGlContextPtr,
-    task::{ThreadId, TimerId},
     events::NodesToCheck,
     geom::{LogicalPosition, PhysicalPositionI32, PhysicalSize},
+    gl::OptionGlContextPtr,
+    hit_test::HitTestItem,
     menu::Menu,
+    resources::ImageCache,
+    task::{ThreadId, TimerId},
     window::{
-        CursorPosition, HwAcceleration, MacOSHandle, MonitorVec, MouseCursorType,
-        RawWindowHandle, RendererType, ScrollResult, VirtualKeyCode,
-        WindowFrame, WindowId, WindowPosition, WindowsHandle,
+        CursorPosition, HwAcceleration, MacOSHandle, MonitorVec, MouseCursorType, RawWindowHandle,
+        RendererType, ScrollResult, VirtualKeyCode, WindowFrame, WindowId, WindowPosition,
+        WindowsHandle,
     },
     FastBTreeSet, FastHashMap,
 };
 use azul_layout::{
-    thread::Thread,
-    timer::Timer,
-    callbacks::MenuCallback,
-    window::LayoutWindow,
+    callbacks::MenuCallback, thread::Thread, timer::Timer, window::LayoutWindow,
     window_state::WindowCreateOptions,
 };
 use gl_context_loader::GenericGlContext;

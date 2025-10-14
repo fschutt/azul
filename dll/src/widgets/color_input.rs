@@ -1,14 +1,10 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
-use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
-use azul_core::{
-    
-    dom::{
-        Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
-        NodeDataInlineCssPropertyVec,
-    },
+use azul_core::dom::{
+    Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec,
 };
 use azul_css::*;
+use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -118,8 +114,10 @@ impl ColorInput {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        use azul_layout::callbacks::{Callback, CallbackData};
-        use azul_core::dom::{EventFilter, HoverEventFilter, IdOrClass::Class};
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            dom::{EventFilter, HoverEventFilter, IdOrClass::Class},
+        };
 
         let mut style = self.style.into_library_owned_vec();
         style.push(Normal(CssProperty::const_background_content(
@@ -130,10 +128,10 @@ impl ColorInput {
             .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
             .with_inline_css_props(style.into())
             .with_callbacks(
-                vec![CallbackData {
+                vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     data: RefAny::new(self.state),
-                    callback: Callback {
+                    callback: CoreCallback {
                         cb: on_color_input_clicked,
                     },
                 }]

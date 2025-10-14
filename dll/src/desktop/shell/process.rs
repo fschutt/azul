@@ -1,15 +1,16 @@
 use azul_core::{
-    resources::{AppConfig, ImageCache},
     callbacks::{RefAny, Update},
+    events::{Events, NodesToCheck, ProcessEventResult},
+    resources::{AppConfig, ImageCache},
     styled_dom::DomId,
-    events::{ProcessEventResult, NodesToCheck, Events},
     window::{RawWindowHandle, WindowId},
 };
 use azul_layout::{
-    solver3::LayoutResult,
     callbacks::CallCallbacksResult,
+    solver3::LayoutResult,
     window_state::{FullWindowState, WindowCreateOptions},
-    // TODO: CallbacksOfHitTest, StyleAndLayoutChanges need to be ported from REFACTORING/portedfromcore.rs
+    // TODO: CallbacksOfHitTest, StyleAndLayoutChanges need to be ported from
+    // REFACTORING/portedfromcore.rs
 };
 use webrender::Transaction as WrTransaction;
 
@@ -191,9 +192,9 @@ pub(crate) fn process_callback_results(
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
     use azul_core::callbacks::Update;
+
     // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
     // use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
-
     use crate::desktop::wr_translate::wr_translate_document_id;
 
     let mut result = ProcessEventResult::DoNothing;

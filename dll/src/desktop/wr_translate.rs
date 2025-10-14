@@ -10,6 +10,9 @@ use core::mem;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use azul_core::resources::{FontHinting, FontLCDFilter};
 use azul_core::{
+    dom::{DomNodeId, TagId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    hit_test::{DocumentId, ExternalScrollId, PipelineId, ScrollStates},
     resources::{
         AddFont, AddFontInstance, AddImage, Au, DpiScaleFactor, Epoch, ExternalImageData,
         ExternalImageId, ExternalImageType, FontInstanceFlags, FontInstanceKey,
@@ -19,33 +22,34 @@ use azul_core::{
         RawImageFormat as ImageFormat, ResourceUpdate, SyntheticItalics, TransformKey, UpdateImage,
         UpdateImageResult,
     },
-    hit_test::{DocumentId, PipelineId, ExternalScrollId, ScrollStates},
-    dom::{DomNodeId, TagId},
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
     transform::ComputedTransform3D,
-    window::CursorPosition,
     ui_solver::GlyphInstance,
-};
-use azul_layout::{
-    solver3::{
-        display_list::{DisplayList, DisplayListItem, BorderRadius},
-        LayoutResult,
-    },
-    hit_test::FullHitTest,
-    window::LayoutWindow,
+    window::CursorPosition,
 };
 use azul_css::{
-    props::basic::color::{ColorF as CssColorF, ColorU as CssColorU},
-    props::basic::geometry::{
-        LayoutPoint as CssLayoutPoint,
-        LayoutRect as CssLayoutRect,
-        LayoutSize as CssLayoutSize,
+    props::{
+        basic::{
+            color::{ColorF as CssColorF, ColorU as CssColorU},
+            geometry::{
+                LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
+                LayoutSize as CssLayoutSize,
+            },
+        },
+        style::{
+            background::ExtendMode as CssExtendMode, border::BorderStyle as CssBorderStyle,
+            box_shadow::BoxShadowClipMode as CssBoxShadowClipMode,
+            effects::StyleMixBlendMode as CssMixBlendMode,
+        },
     },
-    props::style::border::BorderStyle as CssBorderStyle,
-    props::style::box_shadow::BoxShadowClipMode as CssBoxShadowClipMode,
-    props::style::background::ExtendMode as CssExtendMode,
-    props::style::effects::StyleMixBlendMode as CssMixBlendMode,
     U8Vec,
+};
+use azul_layout::{
+    hit_test::FullHitTest,
+    solver3::{
+        display_list::{BorderRadius, DisplayList, DisplayListItem},
+        LayoutResult,
+    },
+    window::LayoutWindow,
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use webrender::api::{FontHinting as WrFontHinting, FontLCDFilter as WrFontLCDFilter};
@@ -1289,12 +1293,12 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 // TODO: This function needs to be completely rewritten for the new DisplayList API
 // The old API used CachedDisplayList with DisplayListMsg items
 // The new API (in layout/src/solver3/display_list.rs) uses DisplayList with DisplayListItem
-// 
+//
 // New API structure:
 // - DisplayList { items: Vec<DisplayListItem> }
 // - DisplayListItem enum with variants like:
 //   - Rect { bounds, color, border_radius }
-//   - Border { bounds, color, width, border_radius }  
+//   - Border { bounds, color, width, border_radius }
 //   - Text { glyphs, font, color, clip_rect }
 //   - Image { bounds, key }
 //   - PushClip / PopClip
@@ -1313,7 +1317,7 @@ pub(crate) fn wr_translate_display_list(
     let root_space_and_clip =
         WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
-    
+
     // TODO: Implement new display list translation
     // for item in input.items {
     //     match item {
@@ -1325,7 +1329,7 @@ pub(crate) fn wr_translate_display_list(
     //         // etc.
     //     }
     // }
-    
+
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
@@ -1546,14 +1550,16 @@ fn define_border_radius_clip(
 
 // TODO: push_display_list_content function removed - used old LayoutRectContent API
 #[allow(dead_code)]
-fn push_display_list_content_stub() { unimplemented!("Reimplement with new DisplayList API") }
+fn push_display_list_content_stub() {
+    unimplemented!("Reimplement with new DisplayList API")
+}
 
 mod text {
 
     use azul_core::{
+        geom::LogicalSize,
         resources::{FontInstanceKey, GlyphOptions},
         ui_solver::GlyphInstance,
-        geom::LogicalSize,
     };
     use azul_css::props::basic::color::ColorU;
     use webrender::api::{
@@ -1590,16 +1596,16 @@ mod background {
     // Need to reimplement gradient backgrounds using the new DisplayList system
 
     use azul_core::{
-        resources::ImageKey,
         geom::{LogicalPosition, LogicalSize},
+        resources::ImageKey,
     };
     // use azul_layout::display_list::RectBackground; // Type removed
     use azul_css::{
         props::basic::color::ColorU,
         props::basic::geometry::{LayoutPoint, LayoutSize},
         props::style::background::{
-            ConicGradient, LinearGradient, RadialGradient,
-            StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize,
+            ConicGradient, LinearGradient, RadialGradient, StyleBackgroundPosition,
+            StyleBackgroundRepeat, StyleBackgroundSize,
         },
     };
     use webrender::api::{
@@ -1620,16 +1626,21 @@ mod background {
     #[inline]
     // TODO: All background gradient functions removed - reimplement with new DisplayList API
     #[allow(dead_code)]
-    pub(super) fn push_background_stub() { unimplemented!("Reimplement with new API") }
+    pub(super) fn push_background_stub() {
+        unimplemented!("Reimplement with new API")
+    }
 }
 mod image {
 
     use azul_core::{
         resources::ImageKey,
-        svg::{ImageRendering},
+        svg::ImageRendering,
         window::{LogicalPosition, LogicalSize},
     };
-    use azul_css::{props::basic::color::ColorU, props::basic::geometry::{LayoutPoint, LayoutSize}};
+    use azul_css::props::basic::{
+        color::ColorU,
+        geometry::{LayoutPoint, LayoutSize},
+    };
     use webrender::api::{
         CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
     };
@@ -1673,11 +1684,12 @@ mod image {
 
 mod box_shadow {
 
-    use azul_core::{
-        geom::{LogicalRect, LogicalSize},
+    use azul_core::geom::{LogicalRect, LogicalSize};
+    use azul_css::props::{
+        basic::{color::ColorF, geometry::LayoutRect},
+        style::box_shadow::{BoxShadowClipMode, StyleBoxShadow},
     };
     use azul_layout::solver3::display_list::BorderRadius;
-    use azul_css::{props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow}, props::basic::color::ColorF, props::basic::geometry::LayoutRect};
     use webrender::api::{
         ClipId as WrClipId, CommonItemProperties as WrCommonItemProperties,
         DisplayListBuilder as WrDisplayListBuilder, SpatialId as WrSpatialId,
@@ -2018,17 +2030,13 @@ mod box_shadow {
 
 mod border {
 
-    use azul_core::{
-        display_list::{
-            StyleBorderColors, StyleBorderRadius, StyleBorderStyles, StyleBorderWidths,
-        },
-        window::LogicalSize,
-    };
+    use azul_core::geom::LogicalSize;
     use azul_css::{
-        props::style::border::BorderStyle,
         css::CssPropertyValue,
-        props::basic::geometry::LayoutSize,
-        props::basic::pixel::PixelValue,
+        props::{
+            basic::{geometry::LayoutSize, pixel::PixelValue},
+            style::border::BorderStyle,
+        },
     };
     use webrender::api::{
         units::LayoutSideOffsets as WrLayoutSideOffsets, BorderDetails as WrBorderDetails,

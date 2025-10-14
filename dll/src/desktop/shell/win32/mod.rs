@@ -28,17 +28,17 @@ use azul_core::{
     },
     callbacks::{DocumentId, DomNodeId, RefAny},
     dom::NodeId,
+    events::NodesToCheck,
     gl::OptionGlContextPtr,
     styled_dom::DomId,
     task::{Thread, ThreadId, Timer, TimerId},
     ui_solver::LayoutResult,
     window::{
-        CallCallbacksResult, CursorPosition, FullWindowState, LogicalPosition, Menu, MenuCallback,
-        MenuItem, MonitorVec, MouseCursorType, PhysicalSize, ProcessEventResult, RawWindowHandle,
-        ScrollResult, WindowCreateOptions, WindowFrame, WindowId, LayoutWindow, WindowState,
+        CallCallbacksResult, CursorPosition, FullWindowState, LayoutWindow, LogicalPosition, Menu,
+        MenuCallback, MenuItem, MonitorVec, MouseCursorType, PhysicalSize, ProcessEventResult,
+        RawWindowHandle, ScrollResult, WindowCreateOptions, WindowFrame, WindowId, WindowState,
         WindowsHandle,
     },
-    events::NodesToCheck,
     FastBTreeSet, FastHashMap,
 };
 use azul_css::FloatValue;
@@ -566,8 +566,8 @@ impl Window {
             callbacks::PipelineId,
             gl::GlContextPtr,
             window::{
-                CursorPosition, FullHitTest, HwAcceleration, LogicalPosition, PhysicalSize,
-                RendererType, ScrollResult, WindowFrame, LayoutWindowInit,
+                CursorPosition, FullHitTest, HwAcceleration, LayoutWindowInit, LogicalPosition,
+                PhysicalSize, RendererType, ScrollResult, WindowFrame,
             },
         };
         use webrender::{api::ColorF as WrColorF, ProgramCache as WrProgramCache};
@@ -1815,9 +1815,9 @@ unsafe extern "system" fn WindowProc(
                             .mouse_down(),
                     );
 
-                    // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
-                    // let mut style_layout_changes = StyleAndLayoutChanges::new(
-                    //     &nodes_to_check,
+                    // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new
+                    // API let mut style_layout_changes =
+                    // StyleAndLayoutChanges::new(     &nodes_to_check,
                     //     &mut current_window.internal.layout_results,
                     //     &image_cache,
                     //     &mut current_window.internal.renderer_resources,

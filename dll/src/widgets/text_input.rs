@@ -3,7 +3,7 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
-    callbacks::{Callback, CallbackInfo, RefAny, Update},
+    callbacks::{CoreCallback, CoreCallbackData},
     dom::{
         Dom, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Focus, Hover, Normal},
@@ -13,6 +13,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::*;
+use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
 
 const BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
@@ -733,9 +734,9 @@ impl TextInput {
     }
 
     pub fn dom(mut self) -> Dom {
-        use azul_core::dom::{
-            CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class,
-            TabIndex,
+        use azul_core::{
+            callbacks::CoreCallbackData,
+            dom::{EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class, TabIndex},
         };
 
         self.state.inner.cursor_pos = self.state.inner.text.len();
