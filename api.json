@@ -916,7 +916,7 @@
           },
           "LogicalSize": {
             "doc": "A size in \"logical\" (non-HiDPI-adjusted) pixels in floating-point units",
-            "external": "azul_core::window::LogicalSize",
+            "external": "azul_core::geom::LogicalSize",
             "derive": [
               "Copy",
               "Serialize",
@@ -3996,7 +3996,7 @@
           },
           "DomId": {
             "doc": "ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)",
-            "external": "azul_core::styled_dom::DomId",
+            "external": "azul_core::dom::DomId",
             "derive": [
               "Copy"
             ],
@@ -4011,7 +4011,7 @@
           },
           "DomNodeId": {
             "doc": "Combination of node ID + DOM ID, both together can identify a node",
-            "external": "azul_core::callbacks::DomNodeId",
+            "external": "azul_core::dom::DomNodeId",
             "derive": [
               "Copy"
             ],
@@ -5091,7 +5091,7 @@
             }
           },
           "RefAny": {
-            "external": "azul_core::callbacks::RefAny",
+            "external": "azul_core::refany::RefAny",
             "doc": "RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)",
             "is_boxed_object": true,
             "struct_fields": [
@@ -6020,7 +6020,7 @@
             ]
           },
           "CallbackData": {
-            "external": "azul_core::dom::CoreCallbackData",
+            "external": "azul_core::callbacks::CoreCallbackData",
             "struct_fields": [
               {
                 "event": {
@@ -16167,7 +16167,7 @@
             ]
           },
           "CssPropertyCache": {
-            "external": "azul_core::styled_dom::CssPropertyCachePtr",
+            "external": "azul_core::prop_cache::CssPropertyCachePtr",
             "is_boxed_object": true,
             "struct_fields": [
               {
@@ -34107,7 +34107,7 @@
             ]
           },
           "ThreadId": {
-            "external": "azul_layout::thread::ThreadId",
+            "external": "azul_core::task::ThreadId",
             "derive": [
               "Copy"
             ],
@@ -34168,7 +34168,7 @@
             }
           },
           "ThreadReceiver": {
-            "external": "azul_layout::thread::ThreadReceiver",
+            "external": "azul_core::task::ThreadReceiver",
             "is_boxed_object": true,
             "struct_fields": [
               {
@@ -34197,7 +34197,7 @@
             }
           },
           "ThreadSendMsg": {
-            "external": "azul_layout::thread::ThreadSendMsg",
+            "external": "azul_core::task::ThreadSendMsg",
             "enum_fields": [
               {
                 "TerminateThread": {}
@@ -34384,7 +34384,7 @@
           },
           "ThreadRecvFn": {
             "doc": "Function that the running `Thread` can call to receive messages from the main UI thread",
-            "external": "azul_layout::thread::ThreadRecvCallback",
+            "external": "azul_core::task::ThreadRecvCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -34454,7 +34454,7 @@
           },
           "ThreadReceiverDestructorFn": {
             "doc": "Destructor of the `ThreadReceiver`",
-            "external": "azul_layout::thread::ThreadReceiverDestructorCallback",
+            "external": "azul_core::task::ThreadReceiverDestructorCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -36039,7 +36039,7 @@
           "CallbackDataVec": {
             "doc": "Wrapper over a Rust-allocated `CallbackData`",
             "custom_destructor": true,
-            "external": "azul_core::dom::CoreCallbackDataVec",
+            "external": "azul_core::callbacks::CoreCallbackDataVec",
             "struct_fields": [
               {
                 "ptr": {
@@ -39316,7 +39316,7 @@
             ]
           },
           "OptionLogicalSize": {
-            "external": "azul_core::window::OptionLogicalSize",
+            "external": "azul_core::geom::OptionLogicalSize",
             "derive": [
               "Copy",
               "Serialize",
