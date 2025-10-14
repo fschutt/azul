@@ -8,10 +8,12 @@ use std::{
 };
 
 use azul_core::{
-    callbacks::CallbackInfo,
     styled_dom::NodeHierarchyItemId,
-    window::{Menu, MenuCallback, MenuItem, ProcessEventResult},
-    window_state::NodesToCheck,
+    menu::{Menu, MenuItem},
+    events::{ProcessEventResult, NodesToCheck},
+};
+use azul_layout::{
+    callbacks::{CallbackInfo, MenuCallback},
 };
 use objc2::{
     declare::ClassDecl,

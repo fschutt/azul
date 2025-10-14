@@ -10,7 +10,7 @@ use core::mem;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use azul_core::resources::{FontHinting, FontLCDFilter};
 use azul_core::{
-    app_resources::{
+    resources::{
         AddFont, AddFontInstance, AddImage, Au, DpiScaleFactor, Epoch, ExternalImageData,
         ExternalImageId, ExternalImageType, FontInstanceFlags, FontInstanceKey,
         FontInstanceOptions, FontInstancePlatformOptions, FontKey, FontRenderMode, FontVariation,
@@ -19,27 +19,33 @@ use azul_core::{
         RawImageFormat as ImageFormat, ResourceUpdate, SyntheticItalics, TransformKey, UpdateImage,
         UpdateImageResult,
     },
-    callbacks::{DocumentId, DomNodeId, PipelineId},
-    display_list::{
-        AlphaType, BoxShadow, CachedDisplayList, DisplayListFrame, DisplayListImageMask,
-        DisplayListMsg, DisplayListScrollFrame, GlyphInstance, ImageRendering, LayoutRectContent,
-        StyleBorderRadius,
+    hit_test::{DocumentId, PipelineId, ExternalScrollId, ScrollStates},
+    dom::{DomNodeId, TagId},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    transform::ComputedTransform3D,
+    window::CursorPosition,
+    ui_solver::GlyphInstance,
+};
+use azul_layout::{
+    solver3::{
+        display_list::{DisplayList, DisplayListItem, BorderRadius},
+        LayoutResult,
     },
-    dom::TagId,
-    ui_solver::{
-        ComputedTransform3D, ExternalScrollId, LayoutResult, PositionInfo, QuickResizeResult,
-    },
-    window::{
-        CursorPosition, DebugState, FullHitTest, LogicalPosition, LogicalRect, LogicalSize,
-        ScrollStates, WindowInternal,
-    },
+    hit_test::FullHitTest,
+    window::LayoutWindow,
 };
 use azul_css::{
-    BorderSide as CssBorderSide, BorderStyle as CssBorderStyle,
-    BoxShadowClipMode as CssBoxShadowClipMode, ColorF as CssColorF, ColorU as CssColorU,
-    ExtendMode as CssExtendMode, LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
-    LayoutSideOffsets as CssLayoutSideOffsets, LayoutSize as CssLayoutSize,
-    StyleMixBlendMode as CssMixBlendMode, U8Vec,
+    props::basic::color::{ColorF as CssColorF, ColorU as CssColorU},
+    props::basic::geometry::{
+        LayoutPoint as CssLayoutPoint,
+        LayoutRect as CssLayoutRect,
+        LayoutSize as CssLayoutSize,
+    },
+    props::style::border::BorderStyle as CssBorderStyle,
+    props::style::box_shadow::BoxShadowClipMode as CssBoxShadowClipMode,
+    props::style::background::ExtendMode as CssExtendMode,
+    props::style::effects::StyleMixBlendMode as CssMixBlendMode,
+    U8Vec,
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use webrender::api::{FontHinting as WrFontHinting, FontLCDFilter as WrFontLCDFilter};
@@ -118,7 +124,7 @@ pub(crate) fn fullhittest_new_webrender(
     use alloc::collections::BTreeMap;
 
     use azul_core::{
-        callbacks::{HitTestItem, ScrollHitTestItem},
+        hit_test::{HitTestItem, ScrollHitTestItem},
         styled_dom::{DomId, NodeHierarchyItemId},
     };
     use webrender::api::units::WorldPoint as WrWorldPoint;
@@ -202,7 +208,7 @@ pub(crate) fn fullhittest_new_webrender(
                 .collect::<Vec<_>>();
 
             for (node_id, item) in hit_items.into_iter() {
-                use azul_core::ui_solver::HitTest;
+                use azul_core::hit_test::HitTest;
 
                 if let Some(i) = item.is_iframe_hit.as_ref() {
                     new_dom_ids.push(*i);
@@ -362,12 +368,13 @@ pub(crate) fn wr_synchronize_updated_images(
 /// Returns the size fo the built display list
 #[cfg(not(any(all(macos, test), all(windows, test))))]
 pub(crate) fn rebuild_display_list(
-    internal: &mut WindowInternal,
+    internal: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
     resources: Vec<ResourceUpdate>,
 ) {
-    use azul_core::{callbacks::PipelineId, styled_dom::DomId, ui_solver::LayoutResult};
+    use azul_core::{hit_test::PipelineId, styled_dom::DomId};
+    use azul_layout::solver3::LayoutResult;
 
     use crate::desktop::wr_translate::{
         wr_translate_display_list, wr_translate_document_id, wr_translate_epoch,
@@ -424,11 +431,11 @@ pub(crate) fn rebuild_display_list(
 /// Generates a new frame for webrender
 // #[cfg(not(test))]
 pub(crate) fn generate_frame(
-    internal: &mut WindowInternal,
+    internal: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     display_list_was_rebuilt: bool,
 ) {
-    use azul_core::callbacks::PipelineId;
+    use azul_core::hit_test::PipelineId;
 
     use crate::desktop::wr_translate::{wr_translate_document_id, wr_translate_pipeline_id};
 
@@ -1279,32 +1286,55 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
     WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
 }
 
+// TODO: This function needs to be completely rewritten for the new DisplayList API
+// The old API used CachedDisplayList with DisplayListMsg items
+// The new API (in layout/src/solver3/display_list.rs) uses DisplayList with DisplayListItem
+// 
+// New API structure:
+// - DisplayList { items: Vec<DisplayListItem> }
+// - DisplayListItem enum with variants like:
+//   - Rect { bounds, color, border_radius }
+//   - Border { bounds, color, width, border_radius }  
+//   - Text { glyphs, font, color, clip_rect }
+//   - Image { bounds, key }
+//   - PushClip / PopClip
+//   - PushScrollFrame / PopScrollFrame
+//   - HitTestArea { bounds, tag }
+//
+// The translation should iterate through display_list.items and convert each
+// DisplayListItem to the appropriate WebRender primitive (push_rect, push_border, etc.)
 pub(crate) fn wr_translate_display_list(
     document_id: DocumentId,
     render_api: &mut WrRenderApi,
-    input: CachedDisplayList,
+    input: DisplayList, // Changed from CachedDisplayList
     pipeline_id: PipelineId,
     current_hidpi_factor: f32,
 ) -> WrBuiltDisplayList {
     let root_space_and_clip =
         WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
-    let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
-    push_display_list_msg(
-        document_id,
-        render_api,
-        &mut builder,
-        input.root,
-        root_space_and_clip.spatial_id,
-        root_space_and_clip.clip_id,
-        &mut positioned_items,
-        current_hidpi_factor,
-    );
+    
+    // TODO: Implement new display list translation
+    // for item in input.items {
+    //     match item {
+    //         DisplayListItem::Rect { bounds, color, border_radius } => {
+    //             // builder.push_rect(...)
+    //         }
+    //         DisplayListItem::Border { .. } => { /* ... */ }
+    //         DisplayListItem::Text { .. } => { /* ... */ }
+    //         // etc.
+    //     }
+    // }
+    
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
 
+// TODO: This entire function uses the old DisplayListMsg API and needs to be rewritten
+// for the new DisplayList API (see layout/src/solver3/display_list.rs)
+// The new API has a flat list of DisplayListItem instead of hierarchical DisplayListMsg
 #[inline]
+#[allow(dead_code, unused_variables)]
 fn push_display_list_msg(
     document_id: DocumentId,
     render_api: &mut WrRenderApi,
@@ -1315,199 +1345,9 @@ fn push_display_list_msg(
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
     current_hidpi_factor: f32,
 ) {
-    use azul_core::{display_list::DisplayListMsg::*, ui_solver::PositionInfo::*};
-    use webrender::api::{FillRule as WrFillRule, PropertyBindingKey as WrPropertyBindingKey};
-
-    let msg_position = msg.get_position();
-
-    let relative_x;
-    let relative_y;
-
-    let (parent_spatial_id, parent_clip_id) = match msg_position {
-        Static(p) | Relative(p) => {
-            relative_x = p.x_offset;
-            relative_y = p.y_offset;
-            (parent_spatial_id, parent_clip_id)
-        }
-        Absolute(p) => {
-            let (last_positioned_spatial_id, last_positioned_clip_id) =
-                positioned_items.last().copied().unwrap_or((
-                    WrSpatialId::root_scroll_node(builder.pipeline_id),
-                    WrClipId::root(builder.pipeline_id),
-                ));
-            relative_x = p.x_offset;
-            relative_y = p.y_offset;
-            (last_positioned_spatial_id, last_positioned_clip_id)
-        }
-        Fixed(p) => {
-            relative_x = p.static_x_offset;
-            relative_y = p.static_y_offset;
-
-            (
-                WrSpatialId::root_scroll_node(builder.pipeline_id),
-                WrClipId::root(builder.pipeline_id),
-            )
-        }
-    };
-
-    // All rectangles are transformed in relation to the parent node,
-    // so we have to push the parent as a "reference frame", optionally
-    // adding an (animatable) transformation on top
-    let transform = msg.get_transform_key();
-    let opacity = msg.get_opacity_key();
-    let mix_blend_mode = msg.get_mix_blend_mode();
-    let has_mix_blend_mode_children = msg.has_mix_blend_mode_children();
-    let should_push_stacking_context = transform.is_some()
-        || opacity.is_some()
-        || mix_blend_mode.is_some()
-        || has_mix_blend_mode_children;
-
-    let property_binding = match transform {
-        Some(s) => WrPropertyBinding::Binding(
-            WrPropertyBindingKey::new(s.0.id as u64),
-            wr_translate_layout_transform(&s.1),
-        ),
-        None => WrPropertyBinding::Value(WrLayoutTransform::identity()),
-    };
-
-    let rect_spatial_id = builder.push_reference_frame(
-        WrLayoutPoint::new(relative_x, relative_y),
-        parent_spatial_id,
-        WrTransformStyle::Flat,
-        property_binding,
-        WrReferenceFrameKind::Transform {
-            is_2d_scale_translation: false,
-            should_snap: false,
-        },
-    );
-
-    if should_push_stacking_context {
-        use webrender::api::{
-            FilterOp as WrFilterOp, RasterSpace as WrRasterSpace,
-            StackingContextFlags as WrStackingContextFlags,
-        };
-
-        let opacity_filters = match opacity {
-            None => Vec::new(),
-            Some(s) => vec![WrFilterOp::Opacity(
-                WrPropertyBinding::Binding(WrPropertyBindingKey::new(s.0.id as u64), s.1),
-                s.1,
-            )],
-        };
-
-        // let filters = ...
-        // let backdrop_filters = ...
-
-        let mut stacking_context_flags = WrStackingContextFlags::empty();
-        if has_mix_blend_mode_children {
-            stacking_context_flags.set(WrStackingContextFlags::IS_BLEND_CONTAINER, true);
-        }
-
-        builder.push_stacking_context(
-            WrLayoutPoint::zero(),
-            rect_spatial_id,
-            WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-            None,
-            WrTransformStyle::Flat,
-            wr_translate_mix_blend_mode(mix_blend_mode.copied().unwrap_or_default()),
-            &opacity_filters,
-            &[],
-            &[],
-            WrRasterSpace::Screen,
-            stacking_context_flags,
-        );
-    }
-
-    if msg_position.is_positioned() {
-        positioned_items.push((rect_spatial_id, parent_clip_id));
-    }
-
-    // push the clip image mask before pushing the scroll frame
-    let clip_mask_id = msg.get_image_mask().map(|im| {
-        builder.define_clip_image_mask(
-            &WrSpaceAndClipInfo {
-                spatial_id: rect_spatial_id,
-                clip_id: parent_clip_id,
-            },
-            wr_translate_image_mask(im),
-            &Vec::new(),
-            WrFillRule::Nonzero,
-        )
-    });
-
-    let parent_clip_id = match clip_mask_id {
-        None => parent_clip_id,
-        Some(s) => s,
-    };
-
-    match msg {
-        IFrame(iframe_pipeline_id, iframe_clip_size, epoch, cached_display_list) => {
-            let iframe_root_size = cached_display_list.root_size;
-
-            let built_display_list = wr_translate_display_list(
-                document_id,
-                render_api,
-                *cached_display_list,
-                iframe_pipeline_id,
-                current_hidpi_factor,
-            );
-
-            let wr_pipeline_id = wr_translate_pipeline_id(iframe_pipeline_id);
-            let mut transaction = WrTransaction::new();
-            transaction.set_display_list(
-                wr_translate_epoch(epoch),
-                None,                                        // background
-                wr_translate_logical_size(iframe_clip_size), // viewport size
-                (wr_pipeline_id, built_display_list),
-                true, // preserve frame scroll state
-            );
-            render_api.send_transaction(wr_translate_document_id(document_id), transaction);
-
-            builder.push_iframe(
-                WrLayoutRect::from_size(wr_translate_logical_size(iframe_root_size)), // bounds
-                WrLayoutRect::from_size(wr_translate_logical_size(iframe_clip_size)), // clip_bounds
-                &WrSpaceAndClipInfo {
-                    clip_id: parent_clip_id,
-                    spatial_id: rect_spatial_id,
-                },
-                wr_translate_pipeline_id(iframe_pipeline_id),
-                false, // the iframe is already submitted into the render API
-            );
-        }
-        Frame(f) => push_frame(
-            document_id,
-            render_api,
-            builder,
-            f,
-            rect_spatial_id,
-            parent_clip_id,
-            positioned_items,
-            current_hidpi_factor,
-        ),
-        ScrollFrame(sf) => push_scroll_frame(
-            document_id,
-            render_api,
-            builder,
-            sf,
-            rect_spatial_id,
-            parent_clip_id,
-            positioned_items,
-            current_hidpi_factor,
-        ),
-    }
-
-    if msg_position.is_positioned() {
-        positioned_items.pop();
-    }
-
-    if should_push_stacking_context {
-        builder.pop_stacking_context();
-    }
-
-    builder.pop_reference_frame();
+    // Stub - old implementation removed
+    // TODO: Reimplement with new DisplayList API
 }
-
-#[inline]
 fn push_frame(
     document_id: DocumentId,
     render_api: &mut WrRenderApi,
@@ -1704,253 +1544,16 @@ fn define_border_radius_clip(
     clip
 }
 
-// returns the clip of the content (i.e. the current rect)
-#[inline]
-fn push_display_list_content(
-    builder: &mut WrDisplayListBuilder,
-    box_shadow: &Option<BoxShadow>,
-    content: &[LayoutRectContent],
-    rect_size: LogicalSize,
-    border_radius: StyleBorderRadius,
-    flags: PrimitiveFlags,
-    rect_spatial_id: WrSpatialId,
-    current_hidpi_factor: f32,
-    // clip of the parent item (if any) or None to use the root clip
-    // if frame.clip_children is set, this should be Some(clip_id)
-    parent_clip: Option<WrClipId>,
-) -> WrClipId {
-    use azul_layout::display_list::LayoutRectContent::*;
-
-    let clip_rect = LogicalRect::new(LogicalPosition::zero(), rect_size);
-    let parent_clip_id = parent_clip.unwrap_or_else(|| WrClipId::root(builder.pipeline_id));
-    let normal_info = WrCommonItemProperties {
-        clip_rect: wr_translate_logical_rect(clip_rect),
-        clip_id: parent_clip_id, // default: no clipping
-        spatial_id: rect_spatial_id,
-        flags: wr_translate_primitive_flags(flags),
-    };
-
-    let wr_border_radius = wr_translate_border_radius(border_radius, clip_rect.size);
-
-    if let Some(box_shadow) = box_shadow.as_ref() {
-        // push outset box shadow before the item clip is pushed
-        if box_shadow.clip_mode == CssBoxShadowClipMode::Outset {
-            // If the content is a shadow, it needs to be clipped by the root
-            box_shadow::push_box_shadow(
-                builder,
-                clip_rect,
-                CssBoxShadowClipMode::Outset,
-                box_shadow,
-                border_radius,
-                normal_info.spatial_id,
-                parent_clip_id,
-            );
-        }
-    }
-
-    let mut content_clip: Option<WrClipId> = None;
-
-    for content in content {
-        // Border and BoxShadow::Outset get a root clip, since they
-        // are outside of the rect contents
-        // All other content types get the regular clip
-        match content {
-            Text {
-                glyphs,
-                font_instance_key,
-                color,
-                glyph_options,
-                overflow,
-                text_shadow,
-            } => {
-                let mut text_info = normal_info.clone();
-                if overflow.0 || overflow.1 {
-                    text_info.clip_id = content_clip
-                        .get_or_insert_with(|| {
-                            define_border_radius_clip(
-                                builder,
-                                clip_rect,
-                                wr_border_radius,
-                                normal_info.spatial_id,
-                                parent_clip_id,
-                            )
-                        })
-                        .clone();
-                }
-
-                // push text shadow: push glyphs + blur filter
-                use azul_css::StyleBoxShadow;
-
-                if let Some(StyleBoxShadow {
-                    offset,
-                    color,
-                    blur_radius,
-                    spread_radius,
-                    clip_mode,
-                }) = text_shadow.as_ref()
-                {
-                    use webrender::api::{
-                        FilterOp as WrFilterOp, RasterSpace as WrRasterSpace, Shadow as WrShadow,
-                        StackingContextFlags as WrStackingContextFlags,
-                    };
-
-                    builder.push_stacking_context(
-                        WrLayoutPoint::zero(),
-                        normal_info.spatial_id,
-                        WrPrimitiveFlags::empty(),
-                        None,
-                        WrTransformStyle::Flat,
-                        WrMixBlendMode::Normal,
-                        &[WrFilterOp::DropShadow(WrShadow {
-                            offset: WrLayoutVector2D::new(
-                                offset[0].to_pixels(),
-                                offset[1].to_pixels(),
-                            ),
-                            color: wr_translate_color_f(color.clone().into()),
-                            blur_radius: blur_radius.to_pixels(),
-                        })],
-                        &[],
-                        &[],
-                        WrRasterSpace::Screen,
-                        WrStackingContextFlags::empty(),
-                    );
-                }
-
-                text::push_text(
-                    builder,
-                    &text_info,
-                    glyphs,
-                    *font_instance_key,
-                    *color,
-                    *glyph_options,
-                );
-
-                if text_shadow.is_some() {
-                    builder.pop_stacking_context();
-                }
-            }
-            Background {
-                content,
-                size,
-                offset,
-                repeat,
-            } => {
-                let mut background_info = normal_info.clone();
-                background_info.clip_id = content_clip
-                    .get_or_insert_with(|| {
-                        define_border_radius_clip(
-                            builder,
-                            clip_rect,
-                            wr_border_radius,
-                            normal_info.spatial_id,
-                            parent_clip_id,
-                        )
-                    })
-                    .clone();
-                background::push_background(
-                    builder,
-                    &background_info,
-                    content,
-                    *size,
-                    *offset,
-                    *repeat,
-                );
-            }
-            Image {
-                size,
-                offset,
-                image_rendering,
-                alpha_type,
-                image_key,
-                background_color,
-            } => {
-                let mut image_info = normal_info.clone();
-                image_info.clip_id = content_clip
-                    .get_or_insert_with(|| {
-                        define_border_radius_clip(
-                            builder,
-                            clip_rect,
-                            wr_border_radius,
-                            normal_info.spatial_id,
-                            parent_clip_id,
-                        )
-                    })
-                    .clone();
-                image::push_image(
-                    builder,
-                    &image_info,
-                    *size,
-                    *offset,
-                    *image_key,
-                    *alpha_type,
-                    *image_rendering,
-                    *background_color,
-                );
-            }
-            Border {
-                widths,
-                colors,
-                styles,
-            } => {
-                // no clip necessary because item will always be in parent bounds
-                border::push_border(
-                    builder,
-                    &normal_info,
-                    border_radius,
-                    *widths,
-                    *colors,
-                    *styles,
-                    current_hidpi_factor,
-                );
-            }
-        }
-    }
-
-    if let Some(box_shadow) = box_shadow.as_ref() {
-        // push outset box shadow before the item clip is pushed
-        if box_shadow.clip_mode == CssBoxShadowClipMode::Inset {
-            let inset_clip_id = content_clip
-                .get_or_insert_with(|| {
-                    define_border_radius_clip(
-                        builder,
-                        clip_rect,
-                        wr_border_radius,
-                        normal_info.spatial_id,
-                        parent_clip_id,
-                    )
-                })
-                .clone();
-            box_shadow::push_box_shadow(
-                builder,
-                clip_rect,
-                CssBoxShadowClipMode::Inset,
-                box_shadow,
-                border_radius,
-                normal_info.spatial_id,
-                inset_clip_id,
-            );
-        }
-    }
-
-    return content_clip
-        .get_or_insert_with(|| {
-            define_border_radius_clip(
-                builder,
-                clip_rect,
-                wr_border_radius,
-                normal_info.spatial_id,
-                parent_clip_id,
-            )
-        })
-        .clone();
-}
+// TODO: push_display_list_content function removed - used old LayoutRectContent API
+#[allow(dead_code)]
+fn push_display_list_content_stub() { unimplemented!("Reimplement with new DisplayList API") }
 
 mod text {
 
     use azul_core::{
-        app_resources::{FontInstanceKey, GlyphOptions},
-        display_list::GlyphInstance,
-        window::LogicalSize,
+        resources::{FontInstanceKey, GlyphOptions},
+        ui_solver::GlyphInstance,
+        geom::LogicalSize,
     };
     use azul_css::props::basic::color::ColorU;
     use webrender::api::{
@@ -1983,14 +1586,21 @@ mod text {
 
 mod background {
 
+    // TODO: This module uses RectBackground which no longer exists in the new API
+    // Need to reimplement gradient backgrounds using the new DisplayList system
+
     use azul_core::{
-        app_resources::ImageKey,
-        display_list::RectBackground,
-        window::{LogicalPosition, LogicalSize},
+        resources::ImageKey,
+        geom::{LogicalPosition, LogicalSize},
     };
+    // use azul_layout::display_list::RectBackground; // Type removed
     use azul_css::{
-        ColorU, ConicGradient, LayoutPoint, LayoutSize, LinearGradient, RadialGradient,
-        StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize,
+        props::basic::color::ColorU,
+        props::basic::geometry::{LayoutPoint, LayoutSize},
+        props::style::background::{
+            ConicGradient, LinearGradient, RadialGradient,
+            StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize,
+        },
     };
     use webrender::api::{
         units::{
@@ -2008,437 +1618,18 @@ mod background {
     }
 
     #[inline]
-    pub(super) fn push_background(
-        builder: &mut WrDisplayListBuilder,
-        info: &WrCommonItemProperties,
-        background: &RectBackground,
-        background_size: Option<StyleBackgroundSize>,
-        background_position: Option<StyleBackgroundPosition>,
-        background_repeat: Option<StyleBackgroundRepeat>,
-    ) {
-        use azul_layout::display_list::RectBackground::*;
-
-        let content_size = background.get_content_size();
-
-        match background {
-            LinearGradient(g) => push_linear_gradient_background(
-                builder,
-                &info,
-                g.clone(),
-                background_position,
-                background_size,
-                content_size,
-            ),
-            RadialGradient(rg) => push_radial_gradient_background(
-                builder,
-                &info,
-                rg.clone(),
-                background_position,
-                background_size,
-                content_size,
-            ),
-            ConicGradient(cg) => push_conic_gradient_background(
-                builder,
-                &info,
-                cg.clone(),
-                background_position,
-                background_size,
-                content_size,
-            ),
-            Image((key, _)) => push_image_background(
-                builder,
-                &info,
-                *key,
-                background_position,
-                background_size,
-                background_repeat,
-                content_size,
-            ),
-            Color(col) => push_color_background(
-                builder,
-                &info,
-                *col,
-                background_position,
-                background_size,
-                background_repeat,
-                content_size,
-            ),
-        }
-    }
-
-    fn push_conic_gradient_background(
-        builder: &mut WrDisplayListBuilder,
-        info: &WrCommonItemProperties,
-        conic_gradient: ConicGradient,
-        background_position: Option<StyleBackgroundPosition>,
-        background_size: Option<StyleBackgroundSize>,
-        content_size: Option<(f32, f32)>,
-    ) {
-        use webrender::api::units::LayoutPoint as WrLayoutPoint;
-
-        use super::{wr_translate_color_u, wr_translate_extend_mode, wr_translate_logical_size};
-
-        let clip_rect_size = info.clip_rect.size();
-        let width = clip_rect_size.width.round();
-        let height = clip_rect_size.height.round();
-        let background_position = background_position.unwrap_or_default();
-        let background_size = calculate_background_size(info, background_size, content_size);
-        let offset =
-            calculate_background_position(width, height, background_position, background_size);
-
-        let mut offset_info = *info;
-        offset_info.clip_rect.min.x += offset.x;
-        offset_info.clip_rect.min.y += offset.y;
-
-        let stops: Vec<WrGradientStop> = conic_gradient
-            .stops
-            .iter()
-            .map(|gradient_pre| WrGradientStop {
-                offset: gradient_pre.angle.to_degrees() / 360.0,
-                color: wr_translate_color_u(gradient_pre.color).into(),
-            })
-            .collect();
-
-        if stops.len() < 2 {
-            return;
-        }
-
-        let center =
-            calculate_background_position(width, height, conic_gradient.center, background_size);
-        let center = WrLayoutPoint::new(center.x, center.y);
-
-        let gradient = builder.create_conic_gradient(
-            center,
-            conic_gradient.angle.to_degrees() / 360.0,
-            stops,
-            wr_translate_extend_mode(conic_gradient.extend_mode),
-        );
-
-        builder.push_conic_gradient(
-            &offset_info,
-            offset_info.clip_rect,
-            gradient,
-            wr_translate_logical_size(background_size),
-            WrLayoutSize::zero(),
-        );
-    }
-
-    fn push_radial_gradient_background(
-        builder: &mut WrDisplayListBuilder,
-        info: &WrCommonItemProperties,
-        radial_gradient: RadialGradient,
-        background_position: Option<StyleBackgroundPosition>,
-        background_size: Option<StyleBackgroundSize>,
-        content_size: Option<(f32, f32)>,
-    ) {
-        use azul_css::Shape;
-        use webrender::api::units::LayoutPoint as WrLayoutPoint;
-
-        use super::{wr_translate_color_u, wr_translate_extend_mode, wr_translate_logical_size};
-
-        let clip_rect_size = info.clip_rect.size();
-        let width = clip_rect_size.width.round();
-        let height = clip_rect_size.height.round();
-        let background_position = background_position.unwrap_or_default();
-        let background_size = calculate_background_size(info, background_size, content_size);
-        let offset =
-            calculate_background_position(width, height, background_position, background_size);
-
-        let mut offset_info = *info;
-        offset_info.clip_rect.min.x += offset.x;
-        offset_info.clip_rect.min.y += offset.y;
-
-        let center =
-            calculate_background_position(width, height, radial_gradient.position, background_size);
-        let center = WrLayoutPoint::new(center.x, center.y);
-
-        let stops: Vec<WrGradientStop> = radial_gradient
-            .stops
-            .iter()
-            .map(|gradient_pre| WrGradientStop {
-                offset: gradient_pre.offset.normalized(),
-                color: wr_translate_color_u(gradient_pre.color).into(),
-            })
-            .collect();
-
-        if stops.len() < 2 {
-            return;
-        }
-
-        // Note: division by 2.0 because it's the radius, not the diameter
-        let radius = match radial_gradient.shape {
-            Shape::Ellipse => WrLayoutSize::new(background_size.width, background_size.height),
-            Shape::Circle => {
-                let largest_bound_size = background_size.width.max(background_size.height);
-                WrLayoutSize::new(largest_bound_size, largest_bound_size)
-            }
-        };
-
-        let gradient = builder.create_radial_gradient(
-            center,
-            radius,
-            stops,
-            wr_translate_extend_mode(radial_gradient.extend_mode),
-        );
-
-        builder.push_radial_gradient(
-            &offset_info,
-            offset_info.clip_rect,
-            gradient,
-            wr_translate_logical_size(background_size),
-            WrLayoutSize::zero(),
-        );
-    }
-
-    fn push_linear_gradient_background(
-        builder: &mut WrDisplayListBuilder,
-        info: &WrCommonItemProperties,
-        linear_gradient: LinearGradient,
-        background_position: Option<StyleBackgroundPosition>,
-        background_size: Option<StyleBackgroundSize>,
-        content_size: Option<(f32, f32)>,
-    ) {
-        use super::{
-            wr_translate_color_u, wr_translate_css_layout_rect, wr_translate_extend_mode,
-            wr_translate_layout_point, wr_translate_logical_size,
-        };
-
-        let background_position = background_position.unwrap_or_default();
-        let background_size = calculate_background_size(info, background_size, content_size);
-        let clip_rect_size = info.clip_rect.size();
-        let offset = calculate_background_position(
-            clip_rect_size.width.round(),
-            clip_rect_size.height.round(),
-            background_position,
-            background_size,
-        );
-
-        let mut offset_info = *info;
-        offset_info.clip_rect.min.x += offset.x;
-        offset_info.clip_rect.min.y += offset.y;
-
-        let stops: Vec<WrGradientStop> = linear_gradient
-            .stops
-            .iter()
-            .map(|gradient_pre| WrGradientStop {
-                offset: gradient_pre.offset.normalized(),
-                color: wr_translate_color_u(gradient_pre.color).into(),
-            })
-            .collect();
-
-        if stops.len() < 2 {
-            return;
-        }
-
-        let (begin_pt, end_pt) = linear_gradient
-            .direction
-            .to_points(&wr_translate_css_layout_rect(offset_info.clip_rect));
-        let gradient = builder.create_gradient(
-            wr_translate_layout_point(begin_pt),
-            wr_translate_layout_point(end_pt),
-            stops,
-            wr_translate_extend_mode(linear_gradient.extend_mode),
-        );
-
-        builder.push_gradient(
-            &offset_info,
-            offset_info.clip_rect,
-            gradient,
-            wr_translate_logical_size(background_size),
-            WrLayoutSize::zero(),
-        );
-    }
-
-    fn push_image_background(
-        builder: &mut WrDisplayListBuilder,
-        info: &WrCommonItemProperties,
-        image_key: ImageKey,
-        background_position: Option<StyleBackgroundPosition>,
-        background_size: Option<StyleBackgroundSize>,
-        background_repeat: Option<StyleBackgroundRepeat>,
-        content_size: Option<(f32, f32)>,
-    ) {
-        use azul_layout::display_list::{AlphaType, ImageRendering};
-
-        let background_position = background_position.unwrap_or_default();
-        let background_repeat = background_repeat.unwrap_or_default();
-        let background_size = calculate_background_size(info, background_size, content_size);
-        let clip_rect_size = info.clip_rect.size();
-        let background_position = calculate_background_position(
-            clip_rect_size.width.round(),
-            clip_rect_size.height.round(),
-            background_position,
-            background_size,
-        );
-        let background_repeat_info =
-            get_background_repeat_info(info, background_repeat, background_size);
-
-        // TODO: customize this for image backgrounds?
-        let alpha_type = AlphaType::PremultipliedAlpha;
-        let image_rendering = ImageRendering::Auto;
-        let background_color = ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        };
-
-        image::push_image(
-            builder,
-            &background_repeat_info,
-            background_size,
-            background_position,
-            image_key,
-            alpha_type,
-            image_rendering,
-            background_color,
-        );
-    }
-
-    fn push_color_background(
-        builder: &mut WrDisplayListBuilder,
-        info: &WrCommonItemProperties,
-        color: ColorU,
-        background_position: Option<StyleBackgroundPosition>,
-        background_size: Option<StyleBackgroundSize>,
-        background_repeat: Option<StyleBackgroundRepeat>,
-        content_size: Option<(f32, f32)>,
-    ) {
-        use super::wr_translate_color_u;
-
-        let background_position = background_position.unwrap_or_default();
-        let _background_repeat = background_repeat.unwrap_or_default();
-        let background_size = calculate_background_size(info, background_size, content_size);
-        let clip_rect_size = info.clip_rect.size();
-        let offset = calculate_background_position(
-            clip_rect_size.width.round(),
-            clip_rect_size.height.round(),
-            background_position,
-            background_size,
-        );
-
-        let mut offset_info = *info;
-        offset_info.clip_rect.min.x += offset.x;
-        offset_info.clip_rect.min.y += offset.y;
-        offset_info.clip_rect.max.x = offset_info.clip_rect.min.x + background_size.width;
-        offset_info.clip_rect.max.y = offset_info.clip_rect.min.y + background_size.height;
-
-        builder.push_rect(
-            &offset_info,
-            offset_info.clip_rect,
-            wr_translate_color_u(color).into(),
-        );
-    }
-
-    fn get_background_repeat_info(
-        info: &WrCommonItemProperties,
-        background_repeat: StyleBackgroundRepeat,
-        background_size: LogicalSize,
-    ) -> WrCommonItemProperties {
-        use azul_css::StyleBackgroundRepeat::*;
-
-        match background_repeat {
-            NoRepeat => WrCommonItemProperties {
-                clip_rect: WrLayoutRect::from_origin_and_size(
-                    WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
-                    WrLayoutSize::new(background_size.width, background_size.height),
-                ),
-                ..*info
-            },
-            Repeat => *info,
-            RepeatX => WrCommonItemProperties {
-                clip_rect: WrLayoutRect::from_origin_and_size(
-                    WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
-                    WrLayoutSize::new(info.clip_rect.size().width, background_size.height),
-                ),
-                ..*info
-            },
-            RepeatY => WrCommonItemProperties {
-                clip_rect: WrLayoutRect::from_origin_and_size(
-                    WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
-                    WrLayoutSize::new(background_size.width, info.clip_rect.size().height),
-                ),
-                ..*info
-            },
-        }
-    }
-
-    /// Transform a background size such as "cover" or "contain" into actual pixels
-    fn calculate_background_size(
-        info: &WrCommonItemProperties,
-        bg_size: Option<StyleBackgroundSize>,
-        content_size: Option<(f32, f32)>,
-    ) -> LogicalSize {
-        let default_content_size = info.clip_rect.size();
-        let content_size =
-            content_size.unwrap_or((default_content_size.width, default_content_size.height));
-
-        let bg_size = match bg_size {
-            None => return LogicalSize::new(content_size.0, content_size.1),
-            Some(s) => s,
-        };
-
-        let clip_rect_size = info.clip_rect.size();
-        let content_aspect_ratio = Ratio {
-            width: clip_rect_size.width / content_size.0,
-            height: clip_rect_size.height / content_size.1,
-        };
-
-        let ratio = match bg_size {
-            StyleBackgroundSize::ExactSize([w, h]) => {
-                let w = w.to_pixels(clip_rect_size.width);
-                let h = h.to_pixels(clip_rect_size.height);
-                w.min(h)
-            }
-            StyleBackgroundSize::Contain => {
-                content_aspect_ratio.width.min(content_aspect_ratio.height)
-            }
-            StyleBackgroundSize::Cover => {
-                content_aspect_ratio.width.max(content_aspect_ratio.height)
-            }
-        };
-
-        LogicalSize::new(content_size.0 * ratio, content_size.1 * ratio)
-    }
-
-    /// Transforma background-position attribute into pixel coordinates
-    fn calculate_background_position(
-        width: f32,
-        height: f32,
-        background_position: StyleBackgroundPosition,
-        background_size: LogicalSize,
-    ) -> LogicalPosition {
-        use azul_css::{BackgroundPositionHorizontal, BackgroundPositionVertical};
-
-        let horizontal_offset = match background_position.horizontal {
-            BackgroundPositionHorizontal::Right => 0.0,
-            BackgroundPositionHorizontal::Center => (width - background_size.width) / 2.0,
-            BackgroundPositionHorizontal::Left => (width - background_size.width),
-            BackgroundPositionHorizontal::Exact(e) => e.to_pixels(width),
-        };
-
-        let vertical_offset = match background_position.vertical {
-            BackgroundPositionVertical::Top => 0.0,
-            BackgroundPositionVertical::Center => (height - background_size.height) / 2.0,
-            BackgroundPositionVertical::Bottom => (height - background_size.height),
-            BackgroundPositionVertical::Exact(e) => e.to_pixels(height),
-        };
-
-        LogicalPosition {
-            x: horizontal_offset,
-            y: vertical_offset,
-        }
-    }
+    // TODO: All background gradient functions removed - reimplement with new DisplayList API
+    #[allow(dead_code)]
+    pub(super) fn push_background_stub() { unimplemented!("Reimplement with new API") }
 }
-
 mod image {
 
     use azul_core::{
-        app_resources::ImageKey,
-        display_list::{AlphaType, ImageRendering},
+        resources::ImageKey,
+        svg::{ImageRendering},
         window::{LogicalPosition, LogicalSize},
     };
-    use azul_css::{ColorU, LayoutPoint, LayoutSize};
+    use azul_css::{props::basic::color::ColorU, props::basic::geometry::{LayoutPoint, LayoutSize}};
     use webrender::api::{
         CommonItemProperties as WrCommonItemProperties, DisplayListBuilder as WrDisplayListBuilder,
     };
@@ -2483,10 +1674,10 @@ mod image {
 mod box_shadow {
 
     use azul_core::{
-        display_list::{BoxShadow, StyleBorderRadius},
-        window::{LogicalRect, LogicalSize},
+        geom::{LogicalRect, LogicalSize},
     };
-    use azul_css::{BoxShadowClipMode, ColorF, LayoutRect, StyleBoxShadow};
+    use azul_layout::solver3::display_list::BorderRadius;
+    use azul_css::{props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow}, props::basic::color::ColorF, props::basic::geometry::LayoutRect};
     use webrender::api::{
         ClipId as WrClipId, CommonItemProperties as WrCommonItemProperties,
         DisplayListBuilder as WrDisplayListBuilder, SpatialId as WrSpatialId,
@@ -2513,7 +1704,7 @@ mod box_shadow {
         parent_spatial_id: WrSpatialId,
         parent_clip_id: WrClipId,
     ) {
-        use azul_css::CssPropertyValue;
+        use azul_css::css::CssPropertyValue;
 
         use self::ShouldPushShadow::*;
 
@@ -2833,7 +2024,12 @@ mod border {
         },
         window::LogicalSize,
     };
-    use azul_css::{BorderStyle, BorderStyleNoNone, CssPropertyValue, LayoutSize, PixelValue};
+    use azul_css::{
+        props::style::border::BorderStyle,
+        css::CssPropertyValue,
+        props::basic::geometry::LayoutSize,
+        props::basic::pixel::PixelValue,
+    };
     use webrender::api::{
         units::LayoutSideOffsets as WrLayoutSideOffsets, BorderDetails as WrBorderDetails,
         BorderSide as WrBorderSide, BorderStyle as WrBorderStyle,

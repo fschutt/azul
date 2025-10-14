@@ -29,10 +29,10 @@ use azul_core::{
     ui_solver::LayoutResult,
     window::{
         CallCallbacksResult, FullWindowState, LogicalSize, Menu, MenuCallback, MenuItem,
-        MonitorVec, MouseCursorType, ScrollResult, WindowCreateOptions, WindowInternal,
+        MonitorVec, MouseCursorType, ScrollResult, WindowCreateOptions, LayoutWindow,
         WindowState,
     },
-    window_state::NodesToCheck,
+    events::NodesToCheck,
     FastBTreeSet, FastHashMap,
 };
 use gl_context_loader::{gl, GenericGlContext};
@@ -1250,7 +1250,7 @@ struct X11Window {
     // OpenGL functions, loaded from libEGL.so
     pub gl_functions: GlFunctions,
     /// See azul-core, stores the entire UI (DOM, CSS styles, layout results, etc.)
-    pub internal: WindowInternal,
+    pub internal: LayoutWindow,
     /// OpenGL context pointer with compiled SVG and FXAA shaders
     pub gl_context_ptr: OptionGlContextPtr,
     /// Main render API that can be used to register and un-register fonts and images
@@ -1894,10 +1894,10 @@ impl X11Window {
 
         let mut initial_resource_updates = Vec::new();
         let mut internal = fc_cache.apply_closure(|fc_cache| {
-            use azul_core::window::WindowInternalInit;
+            use azul_layout::window::LayoutWindowInit;
 
-            WindowInternal::new(
-                WindowInternalInit {
+            LayoutWindow::new(
+                LayoutWindowInit {
                     window_create_options: options.clone(),
                     document_id,
                     id_namespace,

@@ -14,19 +14,27 @@ use std::{
 };
 
 use azul_core::{
-    app_resources::ImageCache,
-    callbacks::{DomNodeId, HitTestItem},
+    resources::ImageCache,
+    dom::DomNodeId,
+    hit_test::HitTestItem,
     gl::OptionGlContextPtr,
-    task::{Thread, ThreadId, Timer, TimerId},
-    ui_solver::QuickResizeResult,
+    task::{ThreadId, TimerId},
+    events::NodesToCheck,
+    geom::{LogicalPosition, PhysicalPositionI32, PhysicalSize},
+    menu::Menu,
     window::{
-        CursorPosition, HwAcceleration, LogicalPosition, MacOSHandle, Menu, MenuCallback,
-        MonitorVec, MouseCursorType, PhysicalPositionI32, PhysicalSize, RawWindowHandle,
-        RendererType, ScrollResult, VirtualKeyCode, WindowCreateOptions, WindowFrame, WindowId,
-        WindowInternal, WindowInternalInit, WindowPosition, WindowsHandle,
+        CursorPosition, HwAcceleration, MacOSHandle, MonitorVec, MouseCursorType,
+        RawWindowHandle, RendererType, ScrollResult, VirtualKeyCode,
+        WindowFrame, WindowId, WindowPosition, WindowsHandle,
     },
-    window_state::NodesToCheck,
     FastBTreeSet, FastHashMap,
+};
+use azul_layout::{
+    thread::Thread,
+    timer::Timer,
+    callbacks::MenuCallback,
+    window::LayoutWindow,
+    window_state::WindowCreateOptions,
 };
 use gl_context_loader::GenericGlContext;
 use objc2::{
@@ -100,7 +108,7 @@ pub(crate) struct Window {
     /// Observer that fires a notification when the window is closed
     pub(crate) observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
     /// See azul-core, stores the entire UI (DOM, CSS styles, layout results, etc.)
-    pub(crate) internal: WindowInternal,
+    pub(crate) internal: LayoutWindow,
     /// Main render API that can be used to register and un-register fonts and images
     pub(crate) render_api: WrRenderApi,
     /// WebRender renderer implementation (software or hardware)
@@ -221,7 +229,7 @@ impl Window {
             WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
         let doc_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
-        let pipeline_id = azul_core::callbacks::PipelineId::new();
+        let pipeline_id = azul_core::hit_test::PipelineId::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
 
         // Force a flush on creation
@@ -241,8 +249,8 @@ impl Window {
 
         let mut initial_resource_updates = Vec::new();
         let mut internal = fcc.apply_closure(|fc_cache| {
-            WindowInternal::new(
-                WindowInternalInit {
+            LayoutWindow::new(
+                LayoutWindowInit {
                     window_create_options: options.clone(),
                     document_id: doc_id,
                     id_namespace,
@@ -283,7 +291,7 @@ impl Window {
             window.setFrame_display(resized_frame, true);
         }
 
-        // sync WindowInternal with reality
+        // sync LayoutWindow with reality
         let current_frame = window.frame();
         internal.current_window_state.size.dimensions.width =
             current_frame.size.width.round() as f32;

@@ -1,14 +1,16 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use azul_core::{
-    app_resources::ResourceUpdate,
+    resources::ResourceUpdate,
     callbacks::LayoutCallbackInfo,
-    window::{
-        CursorPosition, CursorTypeHitTest, FullHitTest, LogicalPosition, LogicalSize, MenuCallback,
-        MouseCursorType, OptionMouseCursorType, PhysicalSize, ProcessEventResult, RawWindowHandle,
-        VirtualKeyCode, WindowFrame, WindowId,
-    },
-    window_state::{NodesToCheck, StyleAndLayoutChanges},
+    geom::{LogicalPosition, LogicalSize, PhysicalSize},
+    hit_test::{CursorTypeHitTest, FullHitTest},
+    events::{ProcessEventResult, NodesToCheck},
+    window::{CursorPosition, MouseCursorType, OptionMouseCursorType, RawWindowHandle, VirtualKeyCode, WindowFrame, WindowId},
+};
+use azul_layout::{
+    callbacks::MenuCallback,
+    // window_state::StyleAndLayoutChanges, // TODO: This type needs to be ported from REFACTORING/portedfromcore.rs
 };
 use gl_context_loader::GenericGlContext;
 use webrender::{
@@ -130,22 +132,23 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
             .mouse_down(),
     );
 
-    let mut style_layout_changes = StyleAndLayoutChanges::new(
-        &nodes_to_check,
-        &mut current_window.internal.layout_results,
-        &image_cache,
-        &mut current_window.internal.renderer_resources,
-        current_window
-            .internal
-            .current_window_state
-            .size
-            .get_layout_size(),
-        &current_window.internal.document_id,
-        None,
-        None,
-        &None,
-        azul_layout::solver2::do_the_relayout,
-    );
+    // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
+    // let mut style_layout_changes = StyleAndLayoutChanges::new(
+    //     &nodes_to_check,
+    //     &mut current_window.internal.layout_results,
+    //     &image_cache,
+    //     &mut current_window.internal.renderer_resources,
+    //     current_window
+    //         .internal
+    //         .current_window_state
+    //         .size
+    //         .get_layout_size(),
+    //     &current_window.internal.document_id,
+    //     None,
+    //     None,
+    //     &None,
+    //     azul_layout::solver2::do_the_relayout,
+    // );
 
     az_regenerate_display_list(current_window, userdata, _guard);
 }

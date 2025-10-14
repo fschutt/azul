@@ -1,13 +1,15 @@
 use azul_core::{
-    app_resources::{AppConfig, ImageCache},
+    resources::{AppConfig, ImageCache},
     callbacks::{RefAny, Update},
     styled_dom::DomId,
-    ui_solver::LayoutResult,
-    window::{
-        CallCallbacksResult, FullWindowState, ProcessEventResult, RawWindowHandle,
-        WindowCreateOptions, WindowId,
-    },
-    window_state::{CallbacksOfHitTest, Events, NodesToCheck, StyleAndLayoutChanges},
+    events::{ProcessEventResult, NodesToCheck, Events},
+    window::{RawWindowHandle, WindowId},
+};
+use azul_layout::{
+    solver3::LayoutResult,
+    callbacks::CallCallbacksResult,
+    window_state::{FullWindowState, WindowCreateOptions},
+    // TODO: CallbacksOfHitTest, StyleAndLayoutChanges need to be ported from REFACTORING/portedfromcore.rs
 };
 use webrender::Transaction as WrTransaction;
 
@@ -44,29 +46,33 @@ pub(crate) fn process_event(
     let nodes_to_check =
         NodesToCheck::new(&window.internal.current_window_state.last_hit_test, &events);
 
+    // TODO: CallbacksOfHitTest no longer exists - need to reimplement with new API
     // Invoke callbacks on nodes
-    let callback_result = fc_cache.apply_closure(|fc_cache| {
-        // Get callbacks for nodes
-        let mut callbacks =
-            CallbacksOfHitTest::new(&nodes_to_check, &events, &window.internal.layout_results);
+    // let callback_result = fc_cache.apply_closure(|fc_cache| {
+    //     // Get callbacks for nodes
+    //     let mut callbacks =
+    //         CallbacksOfHitTest::new(&nodes_to_check, &events, &window.internal.layout_results);
+    //
+    //     let current_scroll_states = window.internal.get_current_scroll_states();
+    //
+    //     // Invoke user-defined callbacks in the UI
+    //     callbacks.call(
+    //         &window.internal.previous_window_state,
+    //         &window.internal.current_window_state,
+    //         &window_handle,
+    //         &current_scroll_states,
+    //         &window.gl_context_ptr,
+    //         &mut window.internal.layout_results,
+    //         &mut window.internal.scroll_states,
+    //         image_cache,
+    //         fc_cache,
+    //         &config.system_callbacks,
+    //         &window.internal.renderer_resources,
+    //     )
+    // });
 
-        let current_scroll_states = window.internal.get_current_scroll_states();
-
-        // Invoke user-defined callbacks in the UI
-        callbacks.call(
-            &window.internal.previous_window_state,
-            &window.internal.current_window_state,
-            &window_handle,
-            &current_scroll_states,
-            &window.gl_context_ptr,
-            &mut window.internal.layout_results,
-            &mut window.internal.scroll_states,
-            image_cache,
-            fc_cache,
-            &config.system_callbacks,
-            &window.internal.renderer_resources,
-        )
-    });
+    // Temporary: return empty callback result until reimplemented
+    let callback_result = CallCallbacksResult::default();
 
     return process_callback_results(
         callback_result,
@@ -184,10 +190,9 @@ pub(crate) fn process_callback_results(
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
-    use azul_core::{
-        callbacks::Update,
-        window_state::{NodesToCheck, StyleAndLayoutChanges},
-    };
+    use azul_core::callbacks::Update;
+    // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
+    // use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
     use crate::desktop::wr_translate::wr_translate_document_id;
 
@@ -277,20 +282,23 @@ pub(crate) fn process_callback_results(
         }
     }
 
+    // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
     // Re-layout and re-style the window.internal.layout_results
-    let mut style_layout_changes = StyleAndLayoutChanges::new(
-        &nodes_to_check,
-        &mut window.internal.layout_results,
-        &image_cache,
-        &mut window.internal.renderer_resources,
-        window.internal.current_window_state.size.get_layout_size(),
-        &window.internal.document_id,
-        callback_results.css_properties_changed.as_ref(),
-        callback_results.words_changed.as_ref(),
-        &callback_results.update_focused_node,
-        azul_layout::solver2::do_the_relayout,
-    );
+    // let mut style_layout_changes = StyleAndLayoutChanges::new(
+    //     &nodes_to_check,
+    //     &mut window.internal.layout_results,
+    //     &image_cache,
+    //     &mut window.internal.renderer_resources,
+    //     window.internal.current_window_state.size.get_layout_size(),
+    //     &window.internal.document_id,
+    //     callback_results.css_properties_changed.as_ref(),
+    //     callback_results.words_changed.as_ref(),
+    //     &callback_results.update_focused_node,
+    //     azul_layout::solver2::do_the_relayout,
+    // );
 
+    // Temporary: skip resize logic until reimplemented
+    /*
     if let Some(rsn) = style_layout_changes.nodes_that_changed_size.as_ref() {
         let updated_images = fc_cache.apply_closure(|fc_cache| {
             LayoutResult::resize_images(
@@ -320,11 +328,12 @@ pub(crate) fn process_callback_results(
                 .send_transaction(wr_translate_document_id(window.internal.document_id), txn);
         }
     }
+    */
 
-    // FOCUS CHANGE HAPPENS HERE!
-    if let Some(focus_change) = style_layout_changes.focus_change.clone() {
-        window.internal.current_window_state.focused_node = focus_change.new;
-    }
+    // TODO: FOCUS CHANGE HAPPENS HERE! - need to reimplement with new API
+    // if let Some(focus_change) = style_layout_changes.focus_change.clone() {
+    //     window.internal.current_window_state.focused_node = focus_change.new;
+    // }
 
     // Perform a system or user scroll event: only
     // scroll nodes that were not scrolled in the current frame

@@ -58,21 +58,13 @@ jobs:
           git update-index --refresh
           git diff-index --quiet HEAD -- || exit 1;
       - name: Check azul-css
-        run: cargo check --verbose --manifest-path azul-css/Cargo.toml
+        run: cargo check --verbose -p azul-css
       - name: Check azul-core
-        run: cargo check --verbose --manifest-path azul-core/Cargo.toml
-      - name: Check azul-css-parser
-        run: cargo check --verbose --manifest-path azul-css-parser/Cargo.toml
-      - name: Check azul-text-layout
-        run: cargo check --verbose --manifest-path azul-text-layout/Cargo.toml
+        run: cargo check --verbose -p azul-core
       - name: Check azul-layout
-        run: cargo check --verbose --manifest-path azul-layout/Cargo.toml
-      - name: Check azulc
-        run: cargo check --verbose --manifest-path azulc/Cargo.toml
-      - name: Check azul-desktop
-        run: cargo check --verbose --manifest-path azul-desktop/Cargo.toml
+        run: cargo check --verbose -p azul-layout
       - name: Check azul-dll
-        run: cargo check --verbose --manifest-path azul-dll/Cargo.toml
+        run: cargo check --verbose -p azul-dll
       - name: Install dependencies (Linux)
         if: matrix.build == 'linux-x64'
         run: sudo apt install clang

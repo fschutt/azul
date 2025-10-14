@@ -180,11 +180,6 @@ impl GlyphInstance {
         self.size.scale_for_dpi(scale_factor);
     }
 }
-pub struct QuickResizeResult {
-    pub gpu_event_changes: GpuEventChanges,
-    pub updated_images: Vec<UpdateImageResult>,
-    pub resized_nodes: BTreeMap<DomId, Vec<NodeId>>,
-}
 
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct OverflowInfo {

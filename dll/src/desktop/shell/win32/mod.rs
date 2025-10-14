@@ -26,8 +26,7 @@ use azul_core::{
         AppConfig, DpiScaleFactor, Epoch, GlTextureCache, ImageCache, ImageMask, ImageRef,
         RendererResources, ResourceUpdate,
     },
-    callbacks::{DocumentId, DomNodeId, RefAny, UpdateImageType},
-    display_list::RenderCallbacks,
+    callbacks::{DocumentId, DomNodeId, RefAny},
     dom::NodeId,
     gl::OptionGlContextPtr,
     styled_dom::DomId,
@@ -36,10 +35,10 @@ use azul_core::{
     window::{
         CallCallbacksResult, CursorPosition, FullWindowState, LogicalPosition, Menu, MenuCallback,
         MenuItem, MonitorVec, MouseCursorType, PhysicalSize, ProcessEventResult, RawWindowHandle,
-        ScrollResult, WindowCreateOptions, WindowFrame, WindowId, WindowInternal, WindowState,
+        ScrollResult, WindowCreateOptions, WindowFrame, WindowId, LayoutWindow, WindowState,
         WindowsHandle,
     },
-    window_state::NodesToCheck,
+    events::NodesToCheck,
     FastBTreeSet, FastHashMap,
 };
 use azul_css::FloatValue;
@@ -484,7 +483,7 @@ pub struct Window {
     /// HWND handle of the plaform window
     pub hwnd: HWND,
     /// See azul-core, stores the entire UI (DOM, CSS styles, layout results, etc.)
-    pub internal: WindowInternal,
+    pub internal: LayoutWindow,
     /// OpenGL context handle - None if running in software mode
     pub gl_context: Option<HGLRC>,
     /// OpenGL functions for faster rendering
@@ -568,7 +567,7 @@ impl Window {
             gl::GlContextPtr,
             window::{
                 CursorPosition, FullHitTest, HwAcceleration, LogicalPosition, PhysicalSize,
-                RendererType, ScrollResult, WindowFrame, WindowInternalInit,
+                RendererType, ScrollResult, WindowFrame, LayoutWindowInit,
             },
         };
         use webrender::{api::ColorF as WrColorF, ProgramCache as WrProgramCache};
@@ -725,7 +724,7 @@ impl Window {
             })
             .into();
 
-        // WindowInternal::new() may dispatch OpenGL calls,
+        // LayoutWindow::new() may dispatch OpenGL calls,
         // need to make context current before invoking
         let hdc = unsafe { GetDC(hwnd) };
         if let Some(hrc) = opengl_context.as_mut() {
@@ -809,8 +808,8 @@ impl Window {
             let data = &mut appdata_lock.userdata.data;
 
             fc_cache.apply_closure(|fc_cache| {
-                WindowInternal::new(
-                    WindowInternalInit {
+                LayoutWindow::new(
+                    LayoutWindowInit {
                         window_create_options: options.clone(),
                         document_id,
                         id_namespace,
@@ -1219,7 +1218,7 @@ impl Window {
     pub fn create_and_open_context_menu(
         &self,
         context_menu: &Menu,
-        hit: &azul_core::callbacks::HitTestItem,
+        hit: &azul_core::hit_test::HitTestItem,
         node_id: DomNodeId,
         active_menus: &mut BTreeMap<MenuTarget, CommandMap>,
     ) {
@@ -1680,7 +1679,9 @@ unsafe extern "system" fn WindowProc(
 
         let r = match msg {
             AZ_REGENERATE_DOM => {
-                use azul_layout::window_state::{NodesToCheck, StyleAndLayoutChanges};
+                use azul_core::events::NodesToCheck;
+                // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
+                // use azul_layout::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
                 let mut ret = ProcessEventResult::DoNothing;
 
@@ -1814,22 +1815,23 @@ unsafe extern "system" fn WindowProc(
                             .mouse_down(),
                     );
 
-                    let mut style_layout_changes = StyleAndLayoutChanges::new(
-                        &nodes_to_check,
-                        &mut current_window.internal.layout_results,
-                        &image_cache,
-                        &mut current_window.internal.renderer_resources,
-                        current_window
-                            .internal
-                            .current_window_state
-                            .size
-                            .get_layout_size(),
-                        &current_window.internal.document_id,
-                        None,
-                        None,
-                        &None,
-                        azul_layout::solver2::do_the_relayout,
-                    );
+                    // TODO: StyleAndLayoutChanges no longer exists - need to reimplement with new API
+                    // let mut style_layout_changes = StyleAndLayoutChanges::new(
+                    //     &nodes_to_check,
+                    //     &mut current_window.internal.layout_results,
+                    //     &image_cache,
+                    //     &mut current_window.internal.renderer_resources,
+                    //     current_window
+                    //         .internal
+                    //         .current_window_state
+                    //         .size
+                    //         .get_layout_size(),
+                    //     &current_window.internal.document_id,
+                    //     None,
+                    //     None,
+                    //     &None,
+                    //     azul_layout::solver2::do_the_relayout,
+                    // );
 
                     PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                 }

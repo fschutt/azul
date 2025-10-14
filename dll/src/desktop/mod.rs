@@ -27,12 +27,6 @@ pub mod resources {
     pub use azul_layout::{font::*, image::*};
 }
 
-pub mod ui_solver {
-    pub use azul_core::ui_solver::{
-        OptionPositionInfo, OptionResolvedTextLayoutOptions, PositionInfo, PositionInfoInner,
-        ResolvedTextLayoutOptions,
-    };
-}
 
 mod compositor;
 #[cfg(feature = "logging")]
@@ -46,8 +40,7 @@ pub mod traits {
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
-    pub use azul_core::callbacks::InlineText;
-    pub use azul_layout::text2::{layout::*, shaping::*, *};
+    pub use azul_layout::text3::*;
 }
 
 /// SVG parsing + rendering

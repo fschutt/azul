@@ -2,22 +2,20 @@ use alloc::sync::Arc;
 use std::{fmt, sync::Mutex, thread::JoinHandle};
 
 use azul_core::{
-    app_resources::{AppConfig, ImageCache, ImageRef},
-    callbacks::{Dummy, RefAny, Update},
-    display_list::RenderCallbacks,
-    task::{Timer, TimerId},
-    window::{MonitorVec, WindowCreateOptions},
+    resources::{AppConfig, ImageCache, ImageRef},
+    callbacks::{Dummy, Update},
+    refany::RefAny,
+    window::MonitorVec,
+    task::TimerId,
+};
+use azul_layout::{
+    timer::Timer,
+    window_state::WindowCreateOptions,
 };
 use azul_css::{impl_option, impl_option_inner, AzString};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use rust_fontconfig::FcFontCache;
 
-pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
-    insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
-    layout_fn: azul_layout::solver2::do_the_layout,
-    load_font_fn: azul_layout::font::loading::font_source_get_bytes,
-    parse_font_fn: azul_layout::parse_font_fn,
-};
 
 #[derive(Debug, Clone)]
 #[repr(C)]

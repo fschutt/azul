@@ -38,7 +38,6 @@ use crate::{
     selection::SelectionState,
     styled_dom::NodeHierarchyItemId,
     task::{Instant, ThreadId, TimerId},
-    ui_solver::QuickResizeResult,
     FastBTreeSet, FastHashMap,
 };
 

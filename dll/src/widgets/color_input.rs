@@ -1,7 +1,8 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
+use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
 use azul_core::{
-    callbacks::{CallbackInfo, RefAny, Update},
+    
     dom::{
         Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
         NodeDataInlineCssPropertyVec,
@@ -117,10 +118,8 @@ impl ColorInput {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::Callback,
-            dom::{CallbackData, EventFilter, HoverEventFilter, IdOrClass::Class},
-        };
+        use azul_layout::callbacks::{Callback, CallbackData};
+        use azul_core::dom::{EventFilter, HoverEventFilter, IdOrClass::Class};
 
         let mut style = self.style.into_library_owned_vec();
         style.push(Normal(CssProperty::const_background_content(

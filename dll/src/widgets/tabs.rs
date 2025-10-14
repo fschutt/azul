@@ -1237,7 +1237,7 @@ impl TabHeader {
     }
 
     pub fn dom(&mut self) -> Dom {
-        use azul_core::dom::CallbackDataVec;
+        use azul_core::callbacks::CoreCallbackDataVec;
 
         let on_click_is_some = self.on_click.is_some();
 

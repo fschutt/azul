@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicIsize, Ordering},
 };
 
-use azul_core::window::{MenuCallback, WindowCreateOptions};
+use azul_layout::{callbacks::MenuCallback, window_state::WindowCreateOptions};
 use webrender::{
     api::{DocumentId as WrDocumentId, RenderNotifier as WrRenderNotifier},
     ProgramCache as WrProgramCache, RendererOptions as WrRendererOptions,
