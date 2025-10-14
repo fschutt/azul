@@ -110,7 +110,7 @@
                 "doc": "`App` construction and configuration",
                 "classes": {
                     "App": {
-                        "external": "crate::azul_impl::app::AzAppPtr",
+                        "external": "azul_impl::app::AzAppPtr",
                         "is_boxed_object": true,
                         "doc": "Main application class",
                         "struct_fields": [
@@ -124,7 +124,7 @@
                                     {"data": "RefAny", "doc": "The initialized data model of the application, will be passed to the `LayoutCallback` of the active windows"},
                                     {"config": "AppConfig", "doc": "Additional configuration on how the global application should behave"}
                                 ],
-                                "fn_body": "crate::azul_impl::app::AzAppPtr::new(data, config)"
+                                "fn_body": "azul_impl::app::AzAppPtr::new(data, config)"
                             }
                         },
                         "functions": {
@@ -164,7 +164,7 @@
                         }
                     },
                     "AppConfig": {
-                        "external": "azul_core::app_resources::AppConfig",
+                        "external": "azul_core::resources::AppConfig",
                         "doc": "Configuration for optional features, such as whether to enable logging or panic hooks",
                         "struct_fields": [
                             {"layout_solver": {"type": "LayoutSolver", "doc": "Which layout solver version to use, necessary so that future upgrades don't break the layout of old programs"}},
@@ -186,7 +186,7 @@
                     },
                     "AppLogLevel": {
                         "doc": "Configuration to set which messages should be logged.",
-                        "external": "azul_core::app_resources::AppLogLevel",
+                        "external": "azul_core::resources::AppLogLevel",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Off": {"doc": "No logging"}},
@@ -198,7 +198,7 @@
                         ]
                     },
                     "LayoutSolver": {
-                        "external": "azul_core::app_resources::LayoutSolverVersion",
+                        "external": "azul_core::resources::LayoutSolverVersion",
                         "doc": "Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
@@ -206,7 +206,7 @@
                         ]
                     },
                     "SystemCallbacks": {
-                        "external": "azul_core::task::ExternalSystemCallbacks",
+                        "external": "azul_layout::callbacks::ExternalSystemCallbacks",
                         "doc": "External system callbacks to get the system time or create / manage threads",
                         "struct_fields": [
                             {"create_thread_fn": {"type": "CreateThreadFn"}},
@@ -227,7 +227,7 @@
                 "doc": "Window creation / startup configuration",
                 "classes": {
                     "WindowCreateOptions": {
-                        "external": "azul_core::window::WindowCreateOptions",
+                        "external": "azul_layout::window_state::WindowCreateOptions",
                         "doc": "Options on how to initially create the window",
                         "struct_fields": [
                             {"state": {"type": "WindowState", "doc": "Initial state of the window on the first frame"}},
@@ -289,7 +289,7 @@
                     },
                     "LayoutPoint": {
                         "doc": "Offset in physical pixels (integer units)",
-                        "external": "azul_css::LayoutPoint",
+                        "external": "azul_css::props::layout::dimensions::LayoutPoint",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"x": {"type": "isize", "doc": "**Note**: can be negative"}},
@@ -298,7 +298,7 @@
                     },
                     "LayoutSize": {
                         "doc": "Size in physical pixels (integer units)",
-                        "external": "azul_css::LayoutSize",
+                        "external": "azul_css::props::layout::dimensions::LayoutSize",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"width": {"type": "isize", "doc": "**Note**: can be negative"}},
@@ -306,7 +306,7 @@
                         ]
                     },
                     "LayoutRect": {
-                        "external": "azul_css::LayoutRect",
+                        "external": "azul_css::props::layout::dimensions::LayoutRect",
                         "doc": "Represents a rectangle in physical pixels (integer units)",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
@@ -416,7 +416,7 @@
                     },
                     "PhysicalPositionI32": {
                         "doc": "Same as `LayoutPoint`, but uses `i32` instead of `isize`",
-                        "external": "azul_core::window::PhysicalPositionI32",
+                        "external": "azul_core::geom::PhysicalPositionI32",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"x": {"type": "i32"}},
@@ -425,7 +425,7 @@
                     },
                     "PhysicalSizeU32": {
                         "doc": "Same as `LayoutPoint`, but uses `u32` instead of `isize`",
-                        "external": "azul_core::window::PhysicalSizeU32",
+                        "external": "azul_core::geom::PhysicalSizeU32",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"width": {"type": "u32"}},
@@ -434,7 +434,7 @@
                     },
                     "LogicalRect": {
                         "doc": "Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
-                        "external": "azul_core::window::LogicalRect",
+                        "external": "azul_core::geom::LogicalRect",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"origin": {"type": "LogicalPosition"}},
@@ -443,7 +443,7 @@
                     },
                     "LogicalPosition": {
                         "doc": "Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
-                        "external": "azul_core::window::LogicalPosition",
+                        "external": "azul_core::geom::LogicalPosition",
                         "derive": ["Default", "Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"x": {"type": "f32"}},
@@ -1105,7 +1105,7 @@
                         ]
                     },
                     "WindowState": {
-                        "external": "azul_core::window::WindowState",
+                        "external": "azul_layout::window_state::WindowState",
                         "struct_fields": [
                             {"title": {"type": "String", "doc": "Current title of the window"}},
                             {"theme": {"type": "WindowTheme", "doc": "Current theme of the window (dark or light mode). Will emit a `ThemeChanged` event if it is changed in a callback."}},
@@ -1198,7 +1198,7 @@
                     },
                     "Callback": {
                         "doc": "C-ABI stable wrapper over a `CallbackType`",
-                        "external": "azul_core::callbacks::Callback",
+                        "external": "azul_layout::callbacks::Callback",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"cb": {"type": "CallbackType"}}
@@ -1215,7 +1215,7 @@
                         }
                     },
                     "CallbackInfo": {
-                        "external": "azul_core::callbacks::CallbackInfo",
+                        "external": "azul_layout::callbacks::CallbackInfo",
                         "struct_fields": [
                             {"layout_results": {"type": "*const c_void"}},
                             {"layout_results_count": {"type": "usize"}},
@@ -3790,7 +3790,7 @@
                         ]
                     },
                     "ColorU": {
-                        "external": "azul_css::ColorU",
+                        "external": "azul_css::props::basic::color::ColorU",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"r": {"type": "u8"}},
@@ -11361,7 +11361,7 @@
                 "doc": "Struct definitions for image loading",
                 "classes": {
                     "ImageRef": {
-                        "external": "azul_core::app_resources::ImageRef",
+                        "external": "azul_core::resources::ImageRef",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"data": {"type": "*const c_void"}},
@@ -11463,7 +11463,7 @@
                         }
                     },
                     "RawImage": {
-                        "external": "azul_core::app_resources::RawImage",
+                        "external": "azul_core::resources::RawImage",
                         "struct_fields": [
                             {"pixels": {"type": "RawImageData", "doc": "Decoded image bytes"}},
                             {"width": {"type": "usize", "doc": "Width of the image"}},
@@ -11564,7 +11564,7 @@
                         }
                     },
                     "ImageMask": {
-                        "external": "azul_core::app_resources::ImageMask",
+                        "external": "azul_core::resources::ImageMask",
                         "struct_fields": [
                             {"image": {"type": "ImageRef"}},
                             {"rect": {"type": "LogicalRect"}},
@@ -11572,7 +11572,7 @@
                         ]
                     },
                     "RawImageFormat": {
-                        "external": "azul_core::app_resources::RawImageFormat",
+                        "external": "azul_core::resources::RawImageFormat",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"R8": {}},
@@ -11607,7 +11607,7 @@
                         ]
                     },
                     "RawImageData": {
-                        "external": "azul_core::app_resources::RawImageData",
+                        "external": "azul_core::resources::RawImageData",
                         "enum_fields": [
                             {"U8": {"type": "U8Vec", "doc": "8-bit image data"}},
                             {"U16": {"type": "U16Vec", "doc": "16-bit image data"}},
@@ -11881,7 +11881,7 @@
                     },
                     "FontSource": {
                         "doc": "Source data of a font file (bytes)",
-                        "external": "azul_core::app_resources::LoadedFontSource",
+                        "external": "azul_core::resources::LoadedFontSource",
                         "struct_fields": [
                             {"data": {"type": "U8Vec"}},
                             {"font_index": {"type": "u32"}},
@@ -11940,7 +11940,7 @@
                                     {"self": "ref"}
                                 ],
                                 "returns": {"type": "u64"},
-                                "fn_body": "azul_core::app_resources::font_ref_get_hash(fontref)"
+                                "fn_body": "azul_core::resources::font_ref_get_hash(fontref)"
                             }
                         }
                     }
@@ -13161,7 +13161,7 @@
                 "classes": {
                     "File": {
                         "doc": "**Reference-counted** file handle",
-                        "external": "crate::azul_impl::file::File",
+                        "external": "azul_impl::file::File",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"ptr": {"type": "*const c_void"}},
@@ -13236,7 +13236,7 @@
                 "doc": "Interface for system file selection dialogs / popup message boxes, etc.",
                 "classes": {
                     "MsgBox": {
-                        "external": "crate::azul_impl::dialogs::MsgBox",
+                        "external": "azul_impl::dialogs::MsgBox",
                         "struct_fields": [
                             {"_reserved": {"type": "usize"}}
                         ],
@@ -13249,7 +13249,7 @@
                                     {"message": "String"}
                                 ],
                                 "returns": {"type": "bool"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon.into()); true"
+                                "fn_body": "azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon.into()); true"
                             },
                             "info": {
                                 "doc": "Shorthand for `MsgBox::ok(\"Info\", $message, Icon::Info)`",
@@ -13257,7 +13257,7 @@
                                     {"message": "String"}
                                 ],
                                 "returns": {"type": "bool"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_ok(\"Info\", message.as_str(), AzMsgBoxIcon::Info.into()); true"
+                                "fn_body": "azul_impl::dialogs::msg_box_ok(\"Info\", message.as_str(), AzMsgBoxIcon::Info.into()); true"
                             },
                             "warning": {
                                 "doc": "Shorthand for `MsgBox::ok(\"Warning\", $message, Icon::Warning)`",
@@ -13265,7 +13265,7 @@
                                     {"message": "String"}
                                 ],
                                 "returns": {"type": "bool"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_ok(\"Warning\", message.as_str(), AzMsgBoxIcon::Warning.into()); true"
+                                "fn_body": "azul_impl::dialogs::msg_box_ok(\"Warning\", message.as_str(), AzMsgBoxIcon::Warning.into()); true"
                             },
                             "error": {
                                 "doc": "Shorthand for `MsgBox::ok(\"Error\", $message, Icon::Error)`",
@@ -13273,7 +13273,7 @@
                                     {"message": "String"}
                                 ],
                                 "returns": {"type": "bool"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_ok(\"Error\", message.as_str(), AzMsgBoxIcon::Error.into()); true"
+                                "fn_body": "azul_impl::dialogs::msg_box_ok(\"Error\", message.as_str(), AzMsgBoxIcon::Error.into()); true"
                             },
                             "question": {
                                 "doc": "Shorthand for `MsgBox::ok(\"Question\", $message, Icon::Question)`",
@@ -13281,7 +13281,7 @@
                                     {"message": "String"}
                                 ],
                                 "returns": {"type": "bool"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_ok(\"Question\", message.as_str(), AzMsgBoxIcon::Question.into()); true"
+                                "fn_body": "azul_impl::dialogs::msg_box_ok(\"Question\", message.as_str(), AzMsgBoxIcon::Question.into()); true"
                             },
                             "ok_cancel": {
                                 "doc": "Opens a ok / cancel message box. Blocks the current thread.",
@@ -13292,7 +13292,7 @@
                                     {"default_value": "MsgBoxOkCancel"}
                                 ],
                                 "returns": {"type": "MsgBoxOkCancel"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_ok_cancel(title.as_str(), message.as_str(), icon.into(), default_value)"
+                                "fn_body": "azul_impl::dialogs::msg_box_ok_cancel(title.as_str(), message.as_str(), icon.into(), default_value)"
                             },
                             "yes_no": {
                                 "doc": "Opens a yes / no message box. Blocks the current thread.",
@@ -13303,13 +13303,13 @@
                                     {"default_value": "MsgBoxYesNo"}
                                 ],
                                 "returns": {"type": "MsgBoxYesNo"},
-                                "fn_body": "crate::azul_impl::dialogs::msg_box_yes_no(title.as_str(), message.as_str(), icon.into(), default_value)"
+                                "fn_body": "azul_impl::dialogs::msg_box_yes_no(title.as_str(), message.as_str(), icon.into(), default_value)"
                             }
                         }
                     },
                     "MsgBoxIcon": {
                         "doc": "Type of message box icon",
-                        "external": "crate::azul_impl::dialogs::MsgBoxIcon",
+                        "external": "azul_impl::dialogs::MsgBoxIcon",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Info": {}},
@@ -13320,7 +13320,7 @@
                     },
                     "MsgBoxYesNo": {
                         "doc": "Value returned from a yes / no message box",
-                        "external": "crate::azul_impl::dialogs::YesNo",
+                        "external": "azul_impl::dialogs::YesNo",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Yes": {}},
@@ -13329,7 +13329,7 @@
                     },
                     "MsgBoxOkCancel": {
                         "doc": "Value returned from an ok / cancel message box",
-                        "external": "crate::azul_impl::dialogs::OkCancel",
+                        "external": "azul_impl::dialogs::OkCancel",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Ok": {}},
@@ -13338,7 +13338,7 @@
                     },
                     "FileDialog": {
                         "doc": "File picker dialog",
-                        "external": "crate::azul_impl::dialogs::FileDialog",
+                        "external": "azul_impl::dialogs::FileDialog",
                         "struct_fields": [
                             {"_reserved": {"type": "usize", "doc": "Non-existent field for ABI stability. Do not use."}}
                         ],
@@ -13351,7 +13351,7 @@
                                     {"filter_list": "OptionFileTypeList"}
                                 ],
                                 "returns": {"type": "OptionString", "doc": "The path that the user wants to open, `None` if the user has cancelled or closed the dialog" },
-                                "fn_body": "crate::azul_impl::dialogs::open_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into()"
+                                "fn_body": "azul_impl::dialogs::open_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into()"
                             },
                             "select_multiple_files": {
                                 "doc": "Select multiple files using the system-native file picker. Blocks the current thread.",
@@ -13361,7 +13361,7 @@
                                     {"filter_list": "OptionFileTypeList"}
                                 ],
                                 "returns": {"type": "OptionStringVec", "doc": "The path(s) that the user wants to open, `None` if the user has cancelled or closed the dialog" },
-                                "fn_body": "crate::azul_impl::dialogs::open_multiple_files_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into()"
+                                "fn_body": "azul_impl::dialogs::open_multiple_files_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into()"
                             },
                             "select_folder": {
                                 "doc": "Open a dialog prompting the user to select a directory to open. Blocks the current thread.",
@@ -13370,7 +13370,7 @@
                                     {"default_path": "OptionString"}
                                 ],
                                 "returns": {"type": "OptionString", "doc": "The folder that the user wants to open, `None` if the user has cancelled or closed the dialog" },
-                                "fn_body": "crate::azul_impl::dialogs::open_directory_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into()"
+                                "fn_body": "azul_impl::dialogs::open_directory_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into()"
                             },
                             "save_file": {
                                 "doc": "Open a dialog prompting the user to save a file. Blocks the current thread.",
@@ -13379,19 +13379,19 @@
                                     {"default_path": "OptionString"}
                                 ],
                                 "returns": {"type": "OptionString", "doc": "The path that the user wants to save the file to, `None` if the user has cancelled or closed the dialog"},
-                                "fn_body": "crate::azul_impl::dialogs::save_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into()"
+                                "fn_body": "azul_impl::dialogs::save_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into()"
                             }
                         }
                     },
                     "FileTypeList": {
-                        "external": "crate::azul_impl::dialogs::FileTypeList",
+                        "external": "azul_impl::dialogs::FileTypeList",
                         "struct_fields": [
                             {"document_types": {"type": "StringVec", "doc": "A list of document types, such as [\"doc\", \"docx\", \"png\"]"}},
                             {"document_descriptor": {"type": "String", "doc": ""}}
                         ]
                     },
                     "ColorPickerDialog": {
-                        "external": "crate::azul_impl::dialogs::ColorPickerDialog",
+                        "external": "azul_impl::dialogs::ColorPickerDialog",
                         "struct_fields": [
                             {"_reserved": {"type": "usize", "doc": "Non-existent ABI-compatibility field"}}
                         ],
@@ -13403,7 +13403,7 @@
                                     {"default_color": "OptionColorU"}
                                 ],
                                 "returns": {"type": "OptionColorU"},
-                                "fn_body": "crate::azul_impl::dialogs::color_picker_dialog(title.as_str(), default_color.into_option().map(|s| s.into())).into()"
+                                "fn_body": "azul_impl::dialogs::color_picker_dialog(title.as_str(), default_color.into_option().map(|s| s.into())).into()"
                             }
                         }
                     }
@@ -13414,7 +13414,7 @@
                 "classes": {
                     "SystemClipboard": {
                         "doc": "Connection to the system clipboard, on some systems this connection can be cached",
-                        "external": "crate::azul_impl::app::Clipboard",
+                        "external": "azul_impl::app::Clipboard",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}},
@@ -13563,14 +13563,14 @@
                 "doc": "Asyncronous timers / task / thread handlers for easy async loading",
                 "classes": {
                     "TimerId": {
-                        "external": "azul_core::task::TimerId",
+                        "external": "azul_layout::timer::TimerId",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"id": {"type": "usize"}}
                         ]
                     },
                     "Timer": {
-                        "external": "azul_core::task::Timer",
+                        "external": "azul_layout::timer::Timer",
                         "struct_fields": [
                             {"data": {"type": "RefAny", "doc": "Stores some timer-specific data (usually animation data)"}},
                             {"node_id": {"type": "OptionDomNodeId", "doc": "Whether to attach the timer to a specific DOM node. Timers attached to DOM nodes are removed when the UI is reconstructed."}},
@@ -13629,14 +13629,14 @@
                         ]
                     },
                     "ThreadId": {
-                        "external": "azul_core::task::ThreadId",
+                        "external": "azul_layout::thread::ThreadId",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"id": {"type": "usize"}}
                         ]
                     },
                     "Thread": {
-                        "external": "azul_core::task::Thread",
+                        "external": "azul_layout::thread::Thread",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"ptr": {"type": "*const c_void" }},
@@ -13644,7 +13644,7 @@
                         ]
                     },
                     "ThreadSender": {
-                        "external": "azul_core::task::ThreadSender",
+                        "external": "azul_layout::thread::ThreadSender",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"ptr": {"type": "*const c_void"}},
@@ -13662,7 +13662,7 @@
                         }
                     },
                     "ThreadReceiver": {
-                        "external": "azul_core::task::ThreadReceiver",
+                        "external": "azul_layout::thread::ThreadReceiver",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"ptr": {"type": "*const c_void"}},
@@ -13679,7 +13679,7 @@
                         }
                     },
                     "ThreadSendMsg": {
-                        "external": "azul_core::task::ThreadSendMsg",
+                        "external": "azul_layout::thread::ThreadSendMsg",
                         "enum_fields": [
                             {"TerminateThread": {}},
                             {"Tick": {}},
@@ -13687,14 +13687,14 @@
                         ]
                     },
                     "ThreadReceiveMsg": {
-                        "external": "azul_core::task::ThreadReceiveMsg",
+                        "external": "azul_layout::thread::ThreadReceiveMsg",
                         "enum_fields": [
                             {"WriteBack": {"type": "ThreadWriteBackMsg"}},
                             {"Update": {"type": "Update"}}
                         ]
                     },
                     "ThreadWriteBackMsg": {
-                        "external": "azul_core::task::ThreadWriteBackMsg",
+                        "external": "azul_layout::thread::ThreadWriteBackMsg",
                         "struct_fields": [
                             {"data": {"type": "RefAny"}},
                             {"callback": {"type": "WriteBackCallback"}}
@@ -13711,7 +13711,7 @@
                         }
                     },
                     "CreateThreadFn": {
-                        "external": "azul_core::task::CreateThreadCallback",
+                        "external": "azul_layout::thread::CreateThreadCallback",
                         "struct_fields": [
                             {"cb": {"type": "CreateThreadFnType"}}
                         ]
@@ -13771,7 +13771,7 @@
                     },
                     "LibraryReceiveThreadMsgFn": {
                         "doc": "Function to receive a message from the thread",
-                        "external": "azul_core::task::LibraryReceiveThreadMsgCallback",
+                        "external": "azul_layout::thread::LibraryReceiveThreadMsgCallback",
                         "struct_fields": [
                             {"cb": {"type": "LibraryReceiveThreadMsgFnType"}}
                         ]
@@ -13786,7 +13786,7 @@
                     },
                     "ThreadRecvFn": {
                         "doc": "Function that the running `Thread` can call to receive messages from the main UI thread",
-                        "external": "azul_core::task::ThreadRecvCallback",
+                        "external": "azul_layout::thread::ThreadRecvCallback",
                         "struct_fields": [
                             {"cb": {"type": "ThreadRecvFnType"}}
                         ]
@@ -13802,7 +13802,7 @@
                     },
                     "ThreadSendFn": {
                         "doc": "Function that the running `Thread` can call to receive messages from the main UI thread",
-                        "external": "azul_core::task::ThreadSendCallback",
+                        "external": "azul_layout::thread::ThreadSendCallback",
                         "struct_fields": [
                             {"cb": {"type": "ThreadSendFnType"}}
                         ]
@@ -13816,7 +13816,7 @@
                     },
                     "ThreadDestructorFn": {
                         "doc": "Destructor of the `Thread`",
-                        "external": "azul_core::task::ThreadDestructorCallback",
+                        "external": "azul_layout::thread::ThreadDestructorCallback",
                         "struct_fields": [
                             {"cb": {"type": "ThreadDestructorFnType"}}
                         ]
@@ -13830,7 +13830,7 @@
                     },
                     "ThreadReceiverDestructorFn": {
                         "doc": "Destructor of the `ThreadReceiver`",
-                        "external": "azul_core::task::ThreadReceiverDestructorCallback",
+                        "external": "azul_layout::thread::ThreadReceiverDestructorCallback",
                         "struct_fields": [
                             {"cb": {"type": "ThreadReceiverDestructorFnType"}}
                         ]
@@ -13844,7 +13844,7 @@
                     },
                     "ThreadSenderDestructorFn": {
                         "doc": "Destructor of the `ThreadSender`",
-                        "external": "azul_core::task::ThreadSenderDestructorCallback",
+                        "external": "azul_layout::thread::ThreadSenderDestructorCallback",
                         "struct_fields": [
                             {"cb": {"type": "ThreadSenderDestructorFnType"}}
                         ]
@@ -13954,7 +13954,7 @@
                     "LogicalRectVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<LogicalRect>`",
                         "custom_destructor": true,
-                        "external": "azul_core::window::LogicalRectVec",
+                        "external": "azul_core::geom::LogicalRectVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const LogicalRect" } },
                             { "len": { "type": "usize" } },
@@ -14756,7 +14756,7 @@
                         }
                     },
                     "LogicalRectVecDestructor": {
-                        "external": "azul_core::window::LogicalRectVecDestructor",
+                        "external": "azul_core::geom::LogicalRectVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -16051,7 +16051,7 @@
                         ]
                     },
                     "OptionImageRef": {
-                        "external": "azul_core::app_resources::OptionImageRef",
+                        "external": "azul_core::resources::OptionImageRef",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "ImageRef" }}
@@ -16065,14 +16065,14 @@
                         ]
                     },
                     "OptionSystemClipboard": {
-                        "external": "crate::azul_impl::app::OptionClipboard",
+                        "external": "azul_impl::app::OptionClipboard",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "SystemClipboard" }}
                         ]
                     },
                     "OptionFileTypeList": {
-                        "external": "crate::azul_impl::dialogs::OptionFileTypeList",
+                        "external": "azul_impl::dialogs::OptionFileTypeList",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "FileTypeList" }}
@@ -16107,7 +16107,7 @@
                         ]
                     },
                     "OptionFile": {
-                        "external": "crate::azul_impl::file::OptionFile",
+                        "external": "azul_impl::file::OptionFile",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "File" }}
@@ -16237,7 +16237,7 @@
                         ]
                     },
                     "OptionRawImage": {
-                        "external": "azul_core::app_resources::OptionRawImage",
+                        "external": "azul_core::resources::OptionRawImage",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "RawImage" }}
@@ -16376,7 +16376,7 @@
                         ]
                     },
                     "OptionImageMask": {
-                        "external": "azul_core::app_resources::OptionImageMask",
+                        "external": "azul_core::resources::OptionImageMask",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "ImageMask" }}

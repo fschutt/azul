@@ -60,9 +60,24 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     let lib_rs = generate_lib_rs(api_data)?;
     fs::write(memtest_dir.join("src").join("lib.rs"), lib_rs)?;
 
-    // Generate stub dialogs.rs for widgets that reference it
+    // Generate stub dialogs.rs for azul_impl (widgets reference azul_impl::dialogs)
+    let azul_impl_dir = memtest_dir.join("src").join("azul_impl");
+    fs::create_dir_all(&azul_impl_dir)?;
+    
     let dialogs_rs = generate_stub_dialogs_rs()?;
-    fs::write(memtest_dir.join("src").join("dialogs.rs"), dialogs_rs)?;
+    fs::write(azul_impl_dir.join("dialogs.rs"), dialogs_rs)?;
+    
+    // Generate app.rs stub
+    let app_rs = generate_stub_app_rs()?;
+    fs::write(azul_impl_dir.join("app.rs"), app_rs)?;
+    
+    // Generate file.rs stub
+    let file_rs = generate_stub_file_rs()?;
+    fs::write(azul_impl_dir.join("file.rs"), file_rs)?;
+    
+    // Update or create azul_impl mod.rs to declare submodules
+    let mod_rs = generate_azul_impl_mod_rs()?;
+    fs::write(azul_impl_dir.join("mod.rs"), mod_rs)?;
 
     println!(
         "✅ Generated memory test crate at: {}",
@@ -145,10 +160,6 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     // Include extra module if it exists
     output.push_str("// Extra utilities from dll/src/extra.rs\n");
     output.push_str("pub mod extra;\n\n");
-
-    // Include stub dialogs module
-    output.push_str("// Stub dialogs module (widgets reference this)\n");
-    output.push_str("pub mod dialogs;\n\n");
 
     // Include str module if it exists
     output.push_str("// String utilities from dll/src/str.rs\n");
@@ -427,6 +438,108 @@ pub fn open_file_dialog(
 pub fn color_picker_dialog(_title: &str, _default_value: Option<ColorU>) -> Option<ColorU> {
     None
 }
+
+pub fn open_directory_dialog(_title: &str, _default_path: Option<&str>) -> Option<AzString> {
+    None
+}
+
+pub fn open_multiple_files_dialog(
+    _title: &str,
+    _default_path: Option<&str>,
+    _filter_list: Option<FileTypeList>,
+) -> Vec<AzString> {
+    Vec::new()
+}
+
+pub fn save_file_dialog(_title: &str, _default_path: Option<&str>) -> Option<AzString> {
+    None
+}
+
+pub fn msg_box_ok(_title: &str, _message: &str, _icon: MsgBoxIcon) -> bool {
+    true
+}
+
+pub fn msg_box_ok_cancel(_title: &str, _message: &str, _icon: MsgBoxIcon, _default: OkCancel) -> OkCancel {
+    OkCancel::Ok
+}
+
+pub fn msg_box_yes_no(_title: &str, _message: &str, _icon: MsgBoxIcon, _default: YesNo) -> YesNo {
+    YesNo::Yes
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MsgBoxIcon {
+    Info,
+    Warning,
+    Error,
+    Question,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OkCancel {
+    Ok,
+    Cancel,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum YesNo {
+    Yes,
+    No,
+}
+
+pub type FileDialog = ();
+pub type ColorPickerDialog = ();
+pub type MsgBox = ();
+"#
+    .to_string())
+}
+
+fn generate_stub_app_rs() -> Result<String> {
+    Ok(r#"// Stub app module for memtest
+// Platform-specific types that are only used at runtime, not in memory layout tests
+
+use azul_core::resources::AppConfig;
+use azul_core::refany::RefAny;
+
+#[repr(C)]
+pub struct AzAppPtr {
+    pub data: RefAny,
+    pub config: AppConfig,
+}
+
+impl AzAppPtr {
+    pub fn new(data: RefAny, config: AppConfig) -> Self {
+        Self { data, config }
+    }
+}
+
+pub type OptionClipboard = Option<Clipboard>;
+
+#[repr(C)]
+pub struct Clipboard {
+    _dummy: u8,
+}
+"#
+    .to_string())
+}
+
+fn generate_stub_file_rs() -> Result<String> {
+    Ok(r#"// Stub file module for memtest
+// File operations are not used in memory layout tests
+
+pub type File = ();
+pub type OptionFile = Option<File>;
+"#
+    .to_string())
+}
+
+fn generate_azul_impl_mod_rs() -> Result<String> {
+    Ok(r#"// azul_impl module - platform abstraction layer
+// This contains stub implementations for memory layout testing
+
+pub mod app;
+pub mod file;
+pub mod dialogs;
 "#
     .to_string())
 }

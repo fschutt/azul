@@ -34,6 +34,50 @@ fn main() -> anyhow::Result<()> {
         return print_cmd::handle_print_command(&api_data, &args[2..]);
     }
 
+    // Check for "patch" subcommand
+    if args.len() > 1 && args[1] == "patch" {
+        println!("🔧 Applying patch to api.json...\n");
+
+        // Load API data
+        let mut api_data = api::ApiData::from_str(include_str!("../../api.json"))
+            .context("Failed to parse API definition")?;
+
+        // Read patch from stdin or file
+        let patch = if args.len() > 2 && args[2] != "-" {
+            // Read from file
+            let patch_path = PathBuf::from(&args[2]);
+            patch::ApiPatch::from_file(&patch_path)
+                .with_context(|| format!("Failed to load patch file: {}", patch_path.display()))?
+        } else {
+            // Read from stdin
+            use std::io::Read;
+            let mut stdin_content = String::new();
+            std::io::stdin().read_to_string(&mut stdin_content)
+                .context("Failed to read patch from stdin")?;
+            
+            serde_json::from_str(&stdin_content)
+                .context("Failed to parse patch JSON from stdin")?
+        };
+
+        // Apply the patch
+        match patch.apply(&mut api_data) {
+            Ok(count) => {
+                println!("✅ Applied {} patches\n", count);
+
+                // Save updated api.json
+                let api_json = serde_json::to_string_pretty(&api_data)?;
+                fs::write(PathBuf::from(manifest_dir).join("../api.json"), api_json)?;
+                println!("💾 Saved updated api.json\n");
+            }
+            Err(e) => {
+                eprintln!("❌ Error applying patches: {}", e);
+                return Err(e);
+            }
+        }
+
+        return Ok(());
+    }
+
     // Check for "reftest" subcommand
     if args.len() > 1 && args[1] == "reftest" {
         println!("üí† Running local reftests...");
