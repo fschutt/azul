@@ -1,0 +1,72 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>CSS Grid: Template Areas Layout</title>
+        <link rel="author" title="Azul Layout" href="https://azul.rs/" />
+        <meta name="flags" content="" />
+        <meta name="assert" content="CSS Grid should properly position items using grid-template-areas." />
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body {
+                width: 800px;
+                height: 600px;
+                padding: 20px;
+                background: #1a1a2e;
+            }
+            .container {
+                display: grid;
+                width: 100%;
+                height: 560px;
+                grid-template-columns: 200px 1fr 200px;
+                grid-template-rows: 80px 1fr 60px;
+                grid-template-areas:
+                    "header header header"
+                    "sidebar main aside"
+                    "footer footer footer";/* gap: 15px; */ margin-right: 15px; margin-bottom: 15px;
+            }
+            .header {
+                grid-area: header;
+                background: #f093fb;
+            }
+            .sidebar {
+                grid-area: sidebar;
+                background: #4facfe;
+            }
+            .main {
+                grid-area: main;
+                background: #43e97b;
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                grid-template-rows: repeat(2, 1fr);/* gap: 10px; */ margin-right: 10px; margin-bottom: 10px;
+                padding: 10px;
+            }
+            .card {
+                background: #ffffff;
+            }
+            .aside {
+                grid-area: aside;
+                background: #fa709a;
+            }
+            .footer {
+                grid-area: footer;
+                background: #30cfd0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header"></div>
+            <div class="sidebar"></div>
+            <div class="main">
+                <div class="card"></div>
+                <div class="card"></div>
+                <div class="card"></div>
+                <div class="card"></div>
+                <div class="card"></div>
+                <div class="card"></div>
+            </div>
+            <div class="aside"></div>
+            <div class="footer"></div>
+        </div>
+    </body>
+</html>

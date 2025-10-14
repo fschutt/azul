@@ -4,6 +4,7 @@ mod codegen;
 mod deploy;
 mod docgen;
 mod license;
+mod patch;
 mod reftest;
 mod utils;
 
@@ -21,11 +22,48 @@ fn main() -> anyhow::Result<()> {
     println!("Starting Azul Build and Deploy System...");
 
     // Parse the API definition
-    let api_data = api::ApiData::from_str(include_str!("../../api.json"))
+    let mut api_data = api::ApiData::from_str(include_str!("../../api.json"))
         .context("Failed to parse API definition")?;
 
     // Set up configuration
     let config = Config::from_args();
+
+    // Apply patch if specified
+    if config.apply_patch {
+        let patch_path = PathBuf::from("../../patch.json");
+        if patch_path.exists() {
+            println!("\n🔧 Applying patch from patch.json...");
+            match patch::ApiPatch::from_file(&patch_path) {
+                Ok(patch) => {
+                    match patch.apply(&mut api_data) {
+                        Ok(count) => {
+                            println!("✅ Applied {} patches\n", count);
+
+                            // Save updated api.json
+                            let api_json = serde_json::to_string_pretty(&api_data)?;
+                            fs::write("../../api.json", api_json)?;
+                            println!("💾 Saved updated api.json\n");
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Error applying patches: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Error loading patch file: {}", e);
+                    return Err(e);
+                }
+            }
+        } else {
+            println!("⚠️  No patch.json file found, skipping patch application\n");
+        }
+    }
+
+    // Print import paths if requested
+    if config.print_imports {
+        patch::print_import_paths(&api_data);
+    }
 
     println!("working dir = {manifest_dir}");
     println!("CONFIG={}", config.print());
@@ -66,17 +104,39 @@ fn main() -> anyhow::Result<()> {
 
         // Generate C API header
         let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
-        fs::write(version_dir.join("azul.h"), &c_api_code)?;
-        println!("  - Generated C API header");
+        let c_api_path = version_dir.join("azul.h");
+        fs::write(&c_api_path, &c_api_code)?;
+        println!("  - Generated C API header: {}", c_api_path.display());
 
         // Generate C++ API header
         let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
-        fs::write(version_dir.join("azul.hpp"), &cpp_api_code)?;
-        println!("  - Generated C++ API header");
+        let cpp_api_path = version_dir.join("azul.hpp");
+        fs::write(&cpp_api_path, &cpp_api_code)?;
+        println!("  - Generated C++ API header: {}", cpp_api_path.display());
+
+        // Generate Python bindings (PyO3 Rust code)
+        let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
+        let python_api_path = version_dir.join("azul_python.rs");
+        fs::write(&python_api_path, &python_api_code)?;
+        println!(
+            "  - Generated Python bindings: {}",
+            python_api_path.display()
+        );
+
+        // Generate Rust DLL
+        let rust_dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
+        let rust_dll_path = version_dir.join("azul_dll.rs");
+        fs::write(&rust_dll_path, &rust_dll_code)?;
+        println!("  - Generated Rust DLL code: {}", rust_dll_path.display());
 
         // Create Git repository for Rust bindings
         let lib_rs = codegen::rust_api::generate_rust_api(&api_data, version);
+        let rust_api_path = output_dir
+            .join(format!("azul-{version}"))
+            .join("src")
+            .join("lib.rs");
         deploy::create_git_repository(version, &output_dir, &lib_rs)?;
+        println!("  - Generated Rust API: {}", rust_api_path.display());
 
         // Export API.json
         let api_json = serde_json::to_string_pretty(api_data.get_version(version).unwrap())?;
@@ -139,6 +199,42 @@ fn main() -> anyhow::Result<()> {
 
     let _ = std::fs::write(output_dir.join("CNAME"), "azul.rs");
 
-    println!("Build and deployment preparation completed!");
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║         Build and Deployment Completed Successfully!          ║");
+    println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+    println!("📂 Output Directory: {}", output_dir.display());
+    println!("\n📋 Generated Files:");
+    println!("   ├─ Documentation:");
+    println!("   │  ├─ index.html");
+    println!("   │  ├─ releases.html");
+    println!("   │  ├─ donate.html");
+    if config.reftest {
+        println!("   │  └─ reftest.html");
+    }
+    println!("   │");
+    println!("   └─ API Releases:");
+    for version in &versions {
+        let version_dir = releases_dir.join(version);
+        println!("      ├─ {}/", version);
+        println!("      │  ├─ azul.h          (C API header)");
+        println!("      │  ├─ azul.hpp        (C++ API header)");
+        println!("      │  ├─ azul_python.rs   (Python/PyO3 bindings)");
+        println!("      │  ├─ azul_dll.rs     (Rust DLL code)");
+        println!("      │  ├─ api.json        (API definition)");
+        println!("      │  └─ azul-{}/      (Rust API crate)", version);
+    }
+
+    if config.open {
+        println!("\n🌐 Opening in browser...");
+    }
+
+    println!("\n✅ All API bindings generated successfully!");
+    println!("   C API:      {} versions", versions.len());
+    println!("   C++ API:    {} versions", versions.len());
+    println!("   Python API: {} versions", versions.len());
+    println!("   Rust API:   {} versions", versions.len());
+    println!("   Rust DLL:   {} versions", versions.len());
+
     Ok(())
 }

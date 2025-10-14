@@ -52,11 +52,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.84
-      - name: Check that build.py is up to date
-        run: |
-          python3 ./build.py
-          git update-index --refresh
-          git diff-index --quiet HEAD -- || exit 1;
+      # Build API documentation and bindings using Rust-based azul-doc
+      - name: Build API and documentation
+        run: cargo run --release --manifest-path doc/Cargo.toml
       - name: Check azul-css
         run: cargo check --verbose -p azul-css
       - name: Check azul-core

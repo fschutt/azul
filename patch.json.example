@@ -1,0 +1,23 @@
+{
+  "versions": {
+    "1.0.0-alpha1": {
+      "modules": {
+        "app": {
+          "classes": {
+            "AppConfig": {
+              "external": "azul_core::resources::AppConfig",
+              "doc": "Configuration for optional features - UPDATED VIA PATCH"
+            }
+          }
+        },
+        "window": {
+          "classes": {
+            "WindowCreateOptions": {
+              "external": "azul_layout::window::WindowCreateOptions"
+            }
+          }
+        }
+      }
+    }
+  }
+}

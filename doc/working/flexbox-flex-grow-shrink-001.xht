@@ -1,0 +1,91 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Flexbox: Flex-grow and Flex-shrink Test</title>
+        <link rel="author" title="Azul Layout" href="https://azul.rs/" />
+        <meta name="flags" content="" />
+        <meta name="assert" content="Flex items should grow and shrink according to flex-grow and flex-shrink values." />
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body {
+                width: 800px;
+                height: 600px;
+                padding: 20px;
+                background: #ecf0f1;
+            }
+            .container {
+                display: flex;
+                width: 100%;
+                height: 100px;
+                background: white;
+                margin-bottom: 20px;
+                border: 2px solid #34495e;
+            }
+            .grow-test .item:nth-child(1) {
+                flex-grow: 1;
+                background: #e74c3c;
+            }
+            .grow-test .item:nth-child(2) {
+                flex-grow: 2;
+                background: #3498db;
+            }
+            .grow-test .item:nth-child(3) {
+                flex-grow: 3;
+                background: #2ecc71;
+            }
+            .shrink-test {
+                width: 400px;
+            }
+            .shrink-test .item {
+                width: 200px;
+            }
+            .shrink-test .item:nth-child(1) {
+                flex-shrink: 1;
+                background: #9b59b6;
+            }
+            .shrink-test .item:nth-child(2) {
+                flex-shrink: 2;
+                background: #f39c12;
+            }
+            .shrink-test .item:nth-child(3) {
+                flex-shrink: 3;
+                background: #1abc9c;
+            }
+            .basis-test .item:nth-child(1) {
+                flex-basis: 100px;
+                flex-grow: 1;
+                background: #e67e22;
+            }
+            .basis-test .item:nth-child(2) {
+                flex-basis: 200px;
+                flex-grow: 1;
+                background: #16a085;
+            }
+            .basis-test .item:nth-child(3) {
+                flex-basis: 150px;
+                flex-grow: 1;
+                background: #8e44ad;
+            }
+            .item {
+                min-width: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container grow-test">
+            <div class="item"></div>
+            <div class="item"></div>
+            <div class="item"></div>
+        </div>
+        <div class="container shrink-test">
+            <div class="item"></div>
+            <div class="item"></div>
+            <div class="item"></div>
+        </div>
+        <div class="container basis-test">
+            <div class="item"></div>
+            <div class="item"></div>
+            <div class="item"></div>
+        </div>
+    </body>
+</html>

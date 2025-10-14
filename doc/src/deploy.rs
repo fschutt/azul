@@ -23,6 +23,8 @@ pub struct Config {
     pub build_python: bool,
     pub reftest: bool,
     pub open: bool,
+    pub apply_patch: bool,
+    pub print_imports: bool,
 }
 
 impl Config {
@@ -48,6 +50,12 @@ impl Config {
         if self.reftest {
             v.push("run-reftest=true".to_string());
         }
+        if self.apply_patch {
+            v.push("apply-patch=true".to_string());
+        }
+        if self.print_imports {
+            v.push("print-imports=true".to_string());
+        }
         v.join(" ")
     }
 
@@ -60,6 +68,8 @@ impl Config {
             build_python: false,
             reftest: false,
             open: false,
+            apply_patch: false,
+            print_imports: false,
         };
 
         for arg in &args[1..] {
@@ -75,6 +85,16 @@ impl Config {
 
             if arg == "--open" {
                 config.open = true;
+                continue;
+            }
+
+            if arg == "--apply-patch" {
+                config.apply_patch = true;
+                continue;
+            }
+
+            if arg == "--print-imports" {
+                config.print_imports = true;
             }
         }
 

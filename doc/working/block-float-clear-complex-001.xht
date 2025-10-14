@@ -1,0 +1,77 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Block Layout: Complex Float and Clear</title>
+        <link rel="author" title="Azul Layout" href="https://azul.rs/" />
+        <meta name="flags" content="" />
+        <meta name="assert" content="Block layout should handle complex float and clear scenarios with multiple elements." />
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body {
+                width: 800px;
+                height: 600px;
+                padding: 20px;
+                background: #232526;
+            }
+            .container {
+                width: 100%;
+                background: white;
+                padding: 20px;
+            }
+            .float-left {
+                float: left;
+                width: 200px;
+                height: 150px;
+                background: #ee0979;
+                margin: 10px;
+            }
+            .float-right {
+                float: right;
+                width: 200px;
+                height: 150px;
+                background: #667eea;
+                margin: 10px;
+            }
+            .content {
+                background: #f3f4f6;
+                padding: 15px;
+                margin: 10px 0;
+                min-height: 100px;
+            }
+            .clear-both {
+                clear: both;
+                height: 80px;
+                background: #10b981;
+                margin: 10px 0;
+            }
+            .clear-left {
+                clear: left;
+                height: 60px;
+                background: #f59e0b;
+                margin: 10px 0;
+            }
+            .clear-right {
+                clear: right;
+                height: 60px;
+                background: #8b5cf6;
+                margin: 10px 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="float-left"></div>
+            <div class="float-right"></div>
+            <div class="content"></div>
+            <div class="float-left"></div>
+            <div class="content"></div>
+            <div class="clear-left"></div>
+            <div class="float-right"></div>
+            <div class="content"></div>
+            <div class="clear-both"></div>
+            <div class="float-left"></div>
+            <div class="float-right"></div>
+            <div class="clear-right"></div>
+        </div>
+    </body>
+</html>

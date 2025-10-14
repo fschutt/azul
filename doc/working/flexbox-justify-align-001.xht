@@ -1,0 +1,85 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Flexbox: Justify-content and Align-items Combinations</title>
+        <link rel="author" title="Azul Layout" href="https://azul.rs/" />
+        <meta name="flags" content="" />
+        <meta name="assert" content="Flexbox should correctly position items with all combinations of justify-content and align-items." />
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body {
+                width: 800px;
+                height: 600px;
+                padding: 20px;
+                background: #2d3436;
+            }
+            .grid {
+                display: flex;
+                flex-wrap: wrap;/* gap: 15px; */ margin-right: 15px; margin-bottom: 15px;
+                width: 100%;
+            }
+            .container {
+                display: flex;
+                width: 240px;
+                height: 160px;
+                background: white;
+                border: 2px solid #0984e3;
+            }
+            .item {
+                width: 50px;
+                height: 50px;
+                background: #6c5ce7;
+                margin: 5px;
+            }
+            .jc-flex-start { justify-content: flex-start; }
+            .jc-center { justify-content: center; }
+            .jc-flex-end { justify-content: flex-end; }
+            .jc-space-between { justify-content: space-between; }
+            .jc-space-around { justify-content: space-around; }
+            .jc-space-evenly { justify-content: space-evenly; }
+            
+            .ai-flex-start { align-items: flex-start; }
+            .ai-center { align-items: center; }
+            .ai-flex-end { align-items: flex-end; }
+            .ai-stretch { align-items: stretch; }
+            
+            .ai-stretch .item { height: auto; }
+        </style>
+    </head>
+    <body>
+        <div class="grid">
+            <div class="container jc-flex-start ai-flex-start">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-center ai-center">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-flex-end ai-flex-end">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-space-between ai-center">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-space-around ai-flex-start">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-space-evenly ai-flex-end">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-center ai-stretch">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+            <div class="container jc-space-between ai-stretch">
+                <div class="item"></div>
+                <div class="item"></div>
+            </div>
+        </div>
+    </body>
+</html>

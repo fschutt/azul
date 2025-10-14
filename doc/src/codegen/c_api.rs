@@ -16,6 +16,82 @@ use crate::{
 
 const PREFIX: &str = "Az";
 
+/// Generate C function arguments for a function/constructor
+fn format_c_function_args(
+    api_data: &ApiData,
+    version: &str,
+    function_data: &crate::api::FunctionData,
+    class_name: &str,
+    class_ptr_name: &str,
+    self_as_first_arg: bool,
+) -> String {
+    let mut args = Vec::new();
+
+    // Handle self parameter if needed
+    if self_as_first_arg {
+        if let Some(first_arg) = function_data.fn_args.first() {
+            if let Some((arg_name, self_type)) = first_arg.iter().next() {
+                if arg_name == "self" {
+                    let class_lower = class_name.to_lowercase();
+
+                    match self_type.as_str() {
+                        "value" => {
+                            args.push(format!("const {} {}", class_ptr_name, class_lower));
+                        }
+                        "mut value" => {
+                            args.push(format!("{}* restrict {}", class_ptr_name, class_lower));
+                        }
+                        "refmut" => {
+                            args.push(format!("{}* restrict {}", class_ptr_name, class_lower));
+                        }
+                        "ref" => {
+                            args.push(format!("const {}* {}", class_ptr_name, class_lower));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle other arguments
+    for arg in &function_data.fn_args {
+        if let Some((arg_name, arg_type)) = arg.iter().next() {
+            if arg_name == "self" {
+                continue; // Skip self, already handled
+            }
+
+            let (prefix_ptr, base_type, _suffix) = analyze_type(arg_type);
+
+            if is_primitive_arg(&base_type) {
+                let c_type = replace_primitive_ctype(&base_type);
+
+                if prefix_ptr == "*const " || prefix_ptr == "&" {
+                    args.push(format!("const {}* {}", c_type, arg_name));
+                } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
+                    args.push(format!("{}* restrict {}", c_type, arg_name));
+                } else {
+                    args.push(format!("{} {}", c_type, arg_name));
+                }
+            } else {
+                // Non-primitive type - add PREFIX
+                let c_type = format!("{}{}", PREFIX, replace_primitive_ctype(&base_type));
+                let ptr_suffix = if prefix_ptr == "*const " || prefix_ptr == "&" {
+                    "* "
+                } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
+                    "* restrict "
+                } else {
+                    " "
+                };
+
+                args.push(format!("{}{}{}", c_type, ptr_suffix, arg_name));
+            }
+        }
+    }
+
+    args.join(", ")
+}
+
 /// Generate C API code from API data
 pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     let mut code = String::new();
@@ -312,10 +388,17 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     let c_fn_name =
                         format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
 
-                    // Generate simplified function arguments
-                    let fn_args = "/* function args */";
+                    // Generate function arguments
+                    let fn_args = format_c_function_args(
+                        api_data,
+                        version,
+                        constructor,
+                        class_name,
+                        &class_ptr_name,
+                        false, // Constructors don't have self as first arg
+                    );
 
-                    // Generate simplified return type
+                    // Return type is the class itself
                     let returns = class_ptr_name.clone();
 
                     code.push_str(&format!(
@@ -331,14 +414,42 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     let c_fn_name =
                         format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
 
-                    // Generate simplified function arguments
-                    let fn_args = "/* function args */";
+                    // Generate function arguments
+                    let fn_args = format_c_function_args(
+                        api_data,
+                        version,
+                        function,
+                        class_name,
+                        &class_ptr_name,
+                        true, // Methods have self as first arg
+                    );
 
-                    // Generate simplified return type
-                    let returns = if function.returns.is_some() {
-                        "/* return type */"
+                    // Generate return type
+                    let returns = if let Some(return_data) = &function.returns {
+                        let (prefix_ptr, base_type, _suffix) = analyze_type(&return_data.r#type);
+
+                        if is_primitive_arg(&base_type) {
+                            let c_type = replace_primitive_ctype(&base_type);
+                            if prefix_ptr == "*const " || prefix_ptr == "&" {
+                                format!("const {}*", c_type)
+                            } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
+                                format!("{}*", c_type)
+                            } else {
+                                c_type
+                            }
+                        } else {
+                            // Non-primitive type - add PREFIX
+                            let c_type = format!("{}{}", PREFIX, base_type);
+                            if prefix_ptr == "*const " || prefix_ptr == "&" {
+                                format!("const {}*", c_type)
+                            } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
+                                format!("{}*", c_type)
+                            } else {
+                                c_type
+                            }
+                        }
                     } else {
-                        "void"
+                        "void".to_string()
                     };
 
                     code.push_str(&format!(

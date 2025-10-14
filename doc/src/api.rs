@@ -272,16 +272,16 @@ pub struct EnumVariantData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")] // For fnArgs
 pub struct FunctionData {
     pub doc: Option<String>,
     // Arguments are a list where each item is a map like {"arg_name": "type"}
     // Using IndexMap here preserves argument order.
-    #[serde(default)]
+    #[serde(default, rename = "fn_args")]
     pub fn_args: Vec<IndexMap<String, String>>,
     pub returns: Option<ReturnTypeData>,
+    #[serde(rename = "fn_body")]
     pub fn_body: Option<String>, // Present in api.json for DLL generation
-    #[serde(default)]
+    #[serde(default, rename = "use_patches")]
     pub use_patches: Option<Vec<String>>, // Which languages this patch applies to
 }
 

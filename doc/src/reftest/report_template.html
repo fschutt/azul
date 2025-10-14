@@ -82,15 +82,15 @@
     /* Summary section */
     .summary {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 1rem;
-      margin-bottom: 2rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
     }
 
     .summary-box {
       background-color: var(--bg-card);
       border-radius: var(--border-radius);
-      padding: 1.5rem;
+      padding: 1rem;
       text-align: center;
       box-shadow: var(--shadow);
       transition: transform 0.2s;
@@ -130,6 +130,29 @@
       gap: 1rem;
       margin-bottom: 2rem;
       justify-content: space-between;
+      align-items: center;
+    }
+
+    .search-controls {
+      flex: 1;
+      min-width: 250px;
+      max-width: 500px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 0.95rem;
+      border: 1px solid var(--border-color-light);
+      border-radius: var(--border-radius);
+      background-color: var(--bg-card);
+      color: var(--text-main);
+      font-family: var(--font-main);
+    }
+
+    .search-input:focus {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 0px;
     }
 
     .sort-controls {
@@ -181,7 +204,22 @@
     .test-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 2rem;
+      gap: 1rem;
+    }
+
+    .category-header {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--color-primary);
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--color-primary);
+      grid-column: 1 / -1;
+    }
+
+    .category-header:first-child {
+      margin-top: 0;
     }
 
     .test-card {
@@ -217,7 +255,33 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .test-header:hover {
+      background-color: var(--bg-button-hover);
+    }
+
+    .test-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex: 1;
+    }
+
+    .collapse-icon {
+      font-size: 1.2rem;
+      transition: transform 0.2s;
+      min-width: 24px;
+    }
+
+    .test-card.collapsed .collapse-icon {
+      transform: rotate(-90deg);
+    }
+
+    .test-card.collapsed .test-body {
+      display: none;
     }
 
     .test-title {
@@ -418,8 +482,8 @@
     .report-header {
       background-color: var(--bg-card);
       border-radius: var(--border-radius);
-      padding: 1.5rem;
-      margin-bottom: 2rem;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
       box-shadow: var(--shadow);
     }
 
@@ -427,14 +491,17 @@
       display: flex;
       flex-wrap: wrap;
       gap: 1rem;
-      margin-bottom: 1rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid var(--border-color);
+      align-items: center;
     }
 
     .metadata-item {
       flex: 1;
       min-width: 200px;
+    }
+
+    .metadata-item p {
+      margin: 0.25rem 0;
+      font-size: 0.9rem;
     }
 
     .metadata-item.error {
@@ -446,21 +513,12 @@
     }
 
     .project-info {
-      margin-top: 1rem;
-    }
-
-    .project-info h2 {
-      margin-bottom: 0.5rem;
-      color: var(--color-primary);
-    }
-
-    .project-info p {
-      margin-bottom: 0.5rem;
+      margin-top: 0.5rem;
     }
 
     .links {
-      margin-top: 1rem;
       font-weight: 500;
+      font-size: 0.9rem;
     }
 
     .links a {
@@ -634,25 +692,11 @@
         <div class="header-metadata">
             <div class="metadata-item">
                 <strong>CURRENT_TIME (rev <a href="https://github.com/fschutt/azul/commit/GIT_HASH"><code>GIT_HASH</code></a>)</strong>
-                <p>tested against</p>
-                <strong class="metadata-item CHROME_CLASS">CHROME_VERSION</strong>
+                <p>tested against <strong class="metadata-item CHROME_CLASS">CHROME_VERSION</strong></p>
             </div>
         </div>
         
         <div class="project-info">
-            <p>
-                azul-layout is a performant, cross-platform layout engine for building graphical user interfaces.
-                It provides accurate CSS layout calculation, text shaping and rendering, and other features for creating
-                desktop applications.
-            </p>
-            <p>
-                <strong>Currently supports:</strong> 
-                <ul style="padding-inline-start: 40px;">
-                  <li>CSS flexbox layout, tested against Chrome</li>
-                  <li>Font decoding and rendering, incl. justification, RTL support, shaping, float using yeslogic/allsorts</li>
-                  <li>CSS 2.1 styling (backgrounds, images, box shadows, borders, positioning)</li>
-                </ul>
-            </p>
             <div class="links">
                 <a href="https://docs.rs/azul-layout" target="_blank">Documentation</a> |
                 <a href="https://azul.rs" target="_blank">Website</a> |
@@ -682,6 +726,10 @@
     </div>
     
     <div class="controls">
+      <div class="search-controls">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search tests (e.g., 'grid', 'status:failing', 'status:passing')">
+      </div>
+      
       <div class="sort-controls">
         <button class="button sort-button active" data-sort="name">Sort by Name</button>
         <button class="button sort-button" data-sort="status">Sort by Status</button>
@@ -735,11 +783,16 @@
     // Current filter and sort
     let currentFilter = 'all';
     let currentSort = 'name';
+    let currentSearch = '';
+    let groupedTests = {};
     
     // Initialize the page
     function initialize() {
       // Update summary
       updateSummary();
+      
+      // Group tests by category
+      groupTestsByCategory();
       
       // Create test cards
       createTestCards();
@@ -777,6 +830,50 @@
       warnPercentageEl.textContent = warnPercentage;
     }
     
+    // Group tests by category and subcategory
+    function groupTestsByCategory() {
+      groupedTests = {};
+      
+      testData.forEach(test => {
+        // Extract category from test name (assumes format like "category-subcategory-test")
+        const parts = test.test_name.split('-');
+        const category = parts.length > 2 ? parts[0] : 'uncategorized';
+        const subcategory = parts.length > 2 ? parts[1] : parts[0];
+        
+        if (!groupedTests[category]) {
+          groupedTests[category] = {};
+        }
+        if (!groupedTests[category][subcategory]) {
+          groupedTests[category][subcategory] = [];
+        }
+        groupedTests[category][subcategory].push(test);
+      });
+    }
+    
+    // Check if test matches search query (supports status: filter)
+    function testMatchesSearch(test, searchQuery) {
+      if (!searchQuery) return true;
+      
+      const query = searchQuery.toLowerCase();
+      
+      // Handle status: filter
+      if (query.startsWith('status:')) {
+        const status = query.substring(7);
+        const totalPixels = 800 * 600;
+        
+        if (status === 'passing' && test.passed) return true;
+        if (status === 'failing' && !test.passed && test.diff_count > totalPixels * 0.02) return true;
+        if (status === 'warning' && !test.passed && test.diff_count <= totalPixels * 0.02) return true;
+        
+        return false;
+      }
+      
+      // Regular text search
+      return test.test_name.toLowerCase().includes(query) || 
+             (test.title && test.title.toLowerCase().includes(query)) ||
+             (test.assert_content && test.assert_content.toLowerCase().includes(query));
+    }
+    
     // Create test cards
     function createTestCards() {
       testGrid.innerHTML = '';
@@ -792,38 +889,74 @@
         return;
       }
       
-      testData.forEach(test => {
-        // Determine status class
-        const totalPixels = 800 * 600; // Approximate based on default dimensions
-        let statusClass = 'pass';
-        let statusValue = 1;
-        let resultText = 'PASS';
+      // Sort categories: showcase first, then alphabetically
+      const categories = Object.keys(groupedTests).sort((a, b) => {
+        if (a === 'showcase') return -1;
+        if (b === 'showcase') return 1;
+        return a.localeCompare(b);
+      });
+      
+      categories.forEach(category => {
+        const subcategories = Object.keys(groupedTests[category]).sort();
         
-        if (!test.passed) {
-          if (test.diff_count <= totalPixels * 0.02) { // Less than 2% different
-            statusClass = 'warning';
-            statusValue = 2;
-            resultText = 'WARNING';
-          } else {
-            statusClass = 'fail';
-            statusValue = 3;
-            resultText = 'FAIL';
-          }
-        }
-        
-        const card = document.createElement('div');
-        card.className = `test-card ${statusClass}`;
-        card.dataset.name = test.test_name;
-        card.dataset.status = statusValue;
-        card.dataset.diff = test.diff_count;
-        card.dataset.filter = statusClass;
-        
-        card.innerHTML = `
-          <div class="test-header">
-            <h3 class="test-title">${test.test_name}</h3>
-            <span class="test-result ${statusClass}">${resultText} // ${test.diff_count} px diff</span>
-          </div>
+        subcategories.forEach(subcategory => {
+          const tests = groupedTests[category][subcategory];
+          const categoryTitle = category === subcategory ? category : `${category} / ${subcategory}`;
           
+          // Create category header
+          const categoryHeader = document.createElement('div');
+          categoryHeader.className = 'category-header';
+          categoryHeader.textContent = `${categoryTitle} (${tests.length} tests)`;
+          testGrid.appendChild(categoryHeader);
+          
+          tests.forEach(test => {
+            const card = createTestCard(test, category);
+            testGrid.appendChild(card);
+          });
+        });
+      });
+    }
+    
+    // Create individual test card
+    function createTestCard(test, category) {
+      // Determine status class
+      const totalPixels = 800 * 600;
+      let statusClass = 'pass';
+      let statusValue = 1;
+      let resultText = 'PASS';
+      
+      if (!test.passed) {
+        if (test.diff_count <= totalPixels * 0.02) {
+          statusClass = 'warning';
+          statusValue = 2;
+          resultText = 'WARNING';
+        } else {
+          statusClass = 'fail';
+          statusValue = 3;
+          resultText = 'FAIL';
+        }
+      }
+      
+      const card = document.createElement('div');
+      // Only expand showcase by default
+      const isCollapsed = category !== 'showcase';
+      card.className = `test-card ${statusClass}${isCollapsed ? ' collapsed' : ''}`;
+      card.dataset.name = test.test_name;
+      card.dataset.status = statusValue;
+      card.dataset.diff = test.diff_count;
+      card.dataset.filter = statusClass;
+      card.dataset.category = category;
+      
+      card.innerHTML = `
+        <div class="test-header" onclick="toggleTestCard(this)">
+          <div class="test-header-left">
+            <span class="collapse-icon">▼</span>
+            <h3 class="test-title">${test.test_name}</h3>
+          </div>
+          <span class="test-result ${statusClass}">${resultText} // ${test.diff_count} px diff</span>
+        </div>
+        
+        <div class="test-body">
           <div class="test-metadata">
             <div class="test-title-full">${escapeHtml(test.title || test.test_name)}</div>
             ${test.assert_content ? `<div class="test-assert">${escapeHtml(test.assert_content)}</div>` : ''}
@@ -832,12 +965,12 @@
           
           <div class="test-content">
             <div class="test-image-container">
-              <img class="test-image" src="./reftest_img/${test.test_name}_chrome.webp" alt="Chrome Reference">
+              <img class="test-image lazy" data-src="./reftest_img/${test.test_name}_chrome.webp" alt="Chrome Reference">
               <div class="test-image-label">Chrome Reference</div>
             </div>
             
             <div class="test-image-container">
-              <img class="test-image" src="./reftest_img/${test.test_name}_azul.webp" alt="Azul Rendering">
+              <img class="test-image lazy" data-src="./reftest_img/${test.test_name}_azul.webp" alt="Azul Rendering">
               <div class="test-image-label">Azul Rendering</div>
             </div>
           </div>
@@ -851,14 +984,43 @@
             <button class="data-button" data-test="${test.test_name}" data-type="display">Display List</button>
             <button class="data-button" data-test="${test.test_name}" data-type="copy" onclick="copyDebugData('${test.test_name}')">Copy Debug</button>
           </div>
-        `;
-        
-        testGrid.appendChild(card);
+        </div>
+      `;
+      
+      return card;
+    }
+    
+    // Toggle test card collapse state
+    function toggleTestCard(headerEl) {
+      const card = headerEl.closest('.test-card');
+      card.classList.toggle('collapsed');
+      
+      // Load images if not already loaded and card is expanded
+      if (!card.classList.contains('collapsed')) {
+        loadLazyImages(card);
+      }
+    }
+    
+    // Load lazy images for a card
+    function loadLazyImages(card) {
+      const lazyImages = card.querySelectorAll('img.lazy');
+      lazyImages.forEach(img => {
+        if (img.dataset.src && !img.src) {
+          img.src = img.dataset.src;
+          img.classList.remove('lazy');
+        }
       });
     }
     
     // Setup event listeners
     function setupEventListeners() {
+      // Search input
+      const searchInput = document.getElementById('searchInput');
+      searchInput.addEventListener('input', (e) => {
+        currentSearch = e.target.value;
+        filterTestCards(currentFilter, currentSearch);
+      });
+      
       // Sort buttons
       document.querySelectorAll('.sort-button').forEach(button => {
         button.addEventListener('click', () => {
@@ -877,7 +1039,7 @@
           button.classList.add('active');
           
           currentFilter = button.dataset.filter;
-          filterTestCards(currentFilter);
+          filterTestCards(currentFilter, currentSearch);
         });
       });
       
@@ -893,39 +1055,41 @@
     
     // Sort test cards
     function sortTestCards(sortBy) {
-      const cards = Array.from(testGrid.children);
-      
-      cards.sort((a, b) => {
-        if (sortBy === 'name') {
-          return a.dataset.name.localeCompare(b.dataset.name);
-        } else if (sortBy === 'status') {
-          return a.dataset.status - b.dataset.status;
-        } else if (sortBy === 'diff') {
-          return parseInt(a.dataset.diff) - parseInt(b.dataset.diff);
-        }
-        return 0;
-      });
-      
-      // Clear the grid and append sorted cards
-      testGrid.innerHTML = '';
-      cards.forEach(card => testGrid.appendChild(card));
-      
-      // Apply current filter
-      filterTestCards(currentFilter);
+      // Sorting is now handled by grouping, so we just recreate the cards
+      createTestCards();
+      filterTestCards(currentFilter, currentSearch);
     }
     
     // Filter test cards
-    function filterTestCards(filter) {
-      const cards = Array.from(testGrid.children);
+    function filterTestCards(filter, searchQuery = '') {
+      const cards = Array.from(testGrid.querySelectorAll('.test-card'));
+      const categoryHeaders = Array.from(testGrid.querySelectorAll('.category-header'));
       let visibleCount = 0;
       
+      // Track which categories have visible tests
+      const visibleCategories = new Set();
+      
       cards.forEach(card => {
-        if (filter === 'all' || card.dataset.filter === filter) {
+        const test = testData.find(t => t.test_name === card.dataset.name);
+        const matchesFilter = filter === 'all' || card.dataset.filter === filter;
+        const matchesSearch = testMatchesSearch(test, searchQuery);
+        
+        if (matchesFilter && matchesSearch) {
           card.style.display = '';
           visibleCount++;
+          visibleCategories.add(card.dataset.category);
         } else {
           card.style.display = 'none';
         }
+      });
+      
+      // Show/hide category headers based on visible tests
+      categoryHeaders.forEach(header => {
+        const categoryName = header.textContent.split(' (')[0];
+        const hasVisibleTests = Array.from(visibleCategories).some(cat => 
+          categoryName.includes(cat) || categoryName.includes('/')
+        );
+        header.style.display = hasVisibleTests ? '' : 'none';
       });
       
       // Show "no results" message if needed
