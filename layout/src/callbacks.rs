@@ -609,6 +609,19 @@ impl CallbackInfo {
         unsafe { (*self.current_window_handle).clone() }
     }
 
+    // ===== CSS Property Access =====
+
+    pub fn get_computed_css_property(
+        &self,
+        _node_id: DomNodeId,
+        _property_type: azul_css::props::property::CssPropertyType,
+    ) -> Option<azul_css::props::property::CssProperty> {
+        // TODO: Implement CSS property access from the new layout system
+        // The old system used positioned_rectangles.resolved_css_properties
+        // The new system uses layout_tree - needs proper implementation
+        None
+    }
+
     // ===== System Callbacks =====
 
     pub fn get_system_time_fn(&self) -> azul_core::task::GetSystemTimeCallback {

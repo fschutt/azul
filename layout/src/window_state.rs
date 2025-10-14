@@ -15,7 +15,7 @@ use azul_core::{
         RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, WindowTheme,
     },
 };
-use azul_css::{props::basic::color::ColorU, AzString};
+use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString};
 
 use crate::{callbacks::OptionCallback, hit_test::FullHitTest};
 
@@ -63,6 +63,13 @@ impl Default for WindowState {
         }
     }
 }
+
+impl_option!(
+    WindowState,
+    OptionWindowState,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Options for creating a new window
 #[derive(Debug, Clone, PartialEq)]

@@ -52,11 +52,11 @@ fn main() -> anyhow::Result<()> {
             // Read from stdin
             use std::io::Read;
             let mut stdin_content = String::new();
-            std::io::stdin().read_to_string(&mut stdin_content)
+            std::io::stdin()
+                .read_to_string(&mut stdin_content)
                 .context("Failed to read patch from stdin")?;
-            
-            serde_json::from_str(&stdin_content)
-                .context("Failed to parse patch JSON from stdin")?
+
+            serde_json::from_str(&stdin_content).context("Failed to parse patch JSON from stdin")?
         };
 
         // Apply the patch

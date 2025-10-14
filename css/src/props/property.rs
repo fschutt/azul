@@ -563,6 +563,13 @@ pub enum CssProperty {
     StringSet(StringSetValue),
 }
 
+impl_option!(
+    CssProperty,
+    OptionCssProperty,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
 /// Categorizes a CSS property by its effect on the layout pipeline.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPropertyCategory {

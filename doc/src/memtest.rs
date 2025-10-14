@@ -33,6 +33,23 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     if dll_widgets_dir.exists() {
         let memtest_widgets_dir = memtest_dir.join("src").join("widgets");
         copy_dir_recursive(&dll_widgets_dir, &memtest_widgets_dir)?;
+
+        // Fix imports in widgets: crate::dialogs → crate::azul_impl::dialogs
+        for entry in fs::read_dir(&memtest_widgets_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                let content = fs::read_to_string(&path)?;
+                let fixed_content = content
+                    .replace("use crate::dialogs", "use crate::azul_impl::dialogs")
+                    .replace("\n    dialogs::", "\n    azul_impl::dialogs::");
+                if content != fixed_content {
+                    println!("  - Fixed dialogs import in {:?}", path.file_name());
+                    fs::write(&path, fixed_content)?;
+                }
+            }
+        }
+
         println!("✅ Copied widgets from dll/src/widgets");
     }
 
@@ -63,18 +80,18 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     // Generate stub dialogs.rs for azul_impl (widgets reference azul_impl::dialogs)
     let azul_impl_dir = memtest_dir.join("src").join("azul_impl");
     fs::create_dir_all(&azul_impl_dir)?;
-    
+
     let dialogs_rs = generate_stub_dialogs_rs()?;
     fs::write(azul_impl_dir.join("dialogs.rs"), dialogs_rs)?;
-    
+
     // Generate app.rs stub
     let app_rs = generate_stub_app_rs()?;
     fs::write(azul_impl_dir.join("app.rs"), app_rs)?;
-    
+
     // Generate file.rs stub
     let file_rs = generate_stub_file_rs()?;
     fs::write(azul_impl_dir.join("file.rs"), file_rs)?;
-    
+
     // Update or create azul_impl mod.rs to declare submodules
     let mod_rs = generate_azul_impl_mod_rs()?;
     fs::write(azul_impl_dir.join("mod.rs"), mod_rs)?;
@@ -303,6 +320,11 @@ fn convert_external_path(external: &str) -> String {
 
     // Handle crate::desktop and crate::web paths
     if external.starts_with("crate::desktop::") || external.starts_with("crate::web::") {
+        return external.to_string();
+    }
+
+    // Handle crate::str - keep as-is since str.rs is copied to memtest
+    if external.starts_with("crate::str::") {
         return external.to_string();
     }
 
