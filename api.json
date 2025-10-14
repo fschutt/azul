@@ -289,7 +289,7 @@
                     },
                     "LayoutPoint": {
                         "doc": "Offset in physical pixels (integer units)",
-                        "external": "azul_css::props::layout::dimensions::LayoutPoint",
+                        "external": "azul_css::props::basic::LayoutPoint",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"x": {"type": "isize", "doc": "**Note**: can be negative"}},
@@ -298,7 +298,7 @@
                     },
                     "LayoutSize": {
                         "doc": "Size in physical pixels (integer units)",
-                        "external": "azul_css::props::layout::dimensions::LayoutSize",
+                        "external": "azul_css::props::basic::LayoutSize",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"width": {"type": "isize", "doc": "**Note**: can be negative"}},
@@ -306,7 +306,7 @@
                         ]
                     },
                     "LayoutRect": {
-                        "external": "azul_css::props::layout::dimensions::LayoutRect",
+                        "external": "azul_css::props::basic::LayoutRect",
                         "doc": "Represents a rectangle in physical pixels (integer units)",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
@@ -1672,7 +1672,7 @@
                     },
                     "UpdateImageType": {
                         "doc": "Which type of image should be updated: background image (the CSS background) or content image (the <img src=\"\"> content)",
-                        "external": "azul_core::callbacks::UpdateImageType",
+                        "external": "azul_core::animation::UpdateImageType",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Background": {"doc": "Update the background image"}},
@@ -1918,7 +1918,7 @@
                     },
                     "Animation": {
                         "doc": "Animation struct to start a new animation",
-                        "external": "azul_core::callbacks::Animation",
+                        "external": "azul_core::animation::Animation",
                         "struct_fields": [
                             {"from": {"type": "CssProperty"}},
                             {"to": {"type": "CssProperty"}},
@@ -1931,7 +1931,7 @@
                     },
                     "AnimationRepeat": {
                         "doc": "How should an animation repeat (loop, ping-pong, etc.)",
-                        "external": "azul_core::callbacks::AnimationRepeat",
+                        "external": "azul_core::animation::AnimationRepeat",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"NoRepeat": {"doc": "Terminate the animation after the first iteration"}},
@@ -1941,7 +1941,7 @@
                     },
                     "AnimationRepeatCount": {
                         "doc": "How many times should an animation repeat",
-                        "external": "azul_core::callbacks::AnimationRepeatCount",
+                        "external": "azul_core::animation::AnimationRepeatCount",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Times": {"type": "usize"}},
@@ -1950,7 +1950,7 @@
                     },
                     "AnimationEasing": {
                         "doc": "Easing function of the animation (ease-in, ease-out, ease-in-out, custom)",
-                        "external": "azul_css::AnimationInterpolationFunction",
+                        "external": "azul_css::props::basic::AnimationInterpolationFunction",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Ease": {}},
@@ -2006,7 +2006,7 @@
                         ]
                     },
                     "RenderImageCallback": {
-                        "external": "azul_core::callbacks::RenderImageCallback",
+                        "external": "azul_layout::callbacks::RenderImageCallback",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"cb": {"type": "RenderImageCallbackType"}}
@@ -2022,7 +2022,7 @@
                         }
                     },
                     "RenderImageCallbackInfo": {
-                        "external": "azul_core::callbacks::RenderImageCallbackInfo",
+                        "external": "azul_layout::callbacks::RenderImageCallbackInfo",
                         "struct_fields": [
                             {"callback_node_id": {"type": "DomNodeId"}},
                             {"bounds": {"type": "HidpiAdjustedBounds"}},
@@ -2128,7 +2128,7 @@
                         }
                     },
                     "TimerCallback": {
-                        "external": "azul_core::callbacks::TimerCallback",
+                        "external": "azul_layout::timer::TimerCallback",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"cb": {"type": "TimerCallbackType"}}
@@ -2144,7 +2144,7 @@
                         }
                     },
                     "TimerCallbackInfo": {
-                        "external": "azul_core::callbacks::TimerCallbackInfo",
+                        "external": "azul_layout::timer::TimerCallbackInfo",
                         "struct_fields": [
                             {"callback_info": {"type": "CallbackInfo"}},
                             {"node_id": {"type": "OptionDomNodeId", "doc": "If the timer is attached to a NodeId, stores the node ID"}},
@@ -2173,13 +2173,13 @@
                         }
                     },
                     "WriteBackCallback": {
-                        "external": "azul_core::callbacks::WriteBackCallback",
+                        "external": "azul_layout::thread::WriteBackCallback",
                         "struct_fields": [
                             {"cb": {"type": "WriteBackCallbackType"}}
                         ]
                     },
                     "ThreadCallback": {
-                        "external": "azul_core::callbacks::ThreadCallback",
+                        "external": "azul_layout::thread::ThreadCallback",
                         "struct_fields": [
                             {"cb": {"type": "ThreadCallbackType"}}
                         ]
@@ -2201,7 +2201,7 @@
                         }
                     },
                     "RefCount": {
-                        "external": "azul_core::callbacks::RefCount",
+                        "external": "azul_core::refany::RefCount",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"ptr": {"type": "*const c_void"}},
@@ -3386,7 +3386,7 @@
                 "classes": {
                     "Menu": {
                         "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
-                        "external": "azul_core::window::Menu",
+                        "external": "azul_core::menu::Menu",
                         "struct_fields": [
                             {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}},
                             {"position": {"type": "MenuPopupPosition", "doc": "Position of where the context menu should pop up. Ignored for application menus."}},
@@ -3433,7 +3433,7 @@
                     },
                     "MenuPopupPosition": {
                         "doc": "Position of where the context menu should pop up",
-                        "external": "azul_core::window::MenuPopupPosition",
+                        "external": "azul_core::menu::MenuPopupPosition",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"BottomLeftOfCursor": {}},
@@ -3450,7 +3450,7 @@
                     },
                     "MenuItem": {
                         "doc": "Item entry in a menu or menu bar",
-                        "external": "azul_core::window::MenuItem",
+                        "external": "azul_core::menu::MenuItem",
                         "enum_fields": [
                             {"String": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
                             {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
@@ -3459,7 +3459,7 @@
                     },
                     "StringMenuItem": {
                         "doc": "Regular labeled menu item",
-                        "external": "azul_core::window::StringMenuItem",
+                        "external": "azul_core::menu::StringMenuItem",
                         "struct_fields": [
                             {"label": {"type": "String", "doc": "Label of the menu entry"}},
                             {"accelerator": {"type": "OptionVirtualKeyCodeCombo", "doc": "Optional accelerator combination, (ex. \"CTRL + X\" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut"}},
@@ -3542,7 +3542,7 @@
                     },
                     "MenuCallback": {
                         "doc": "Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated",
-                        "external": "azul_core::window::MenuCallback",
+                        "external": "azul_layout::callbacks::MenuCallback",
                         "struct_fields": [
                             {"callback": {"type": "Callback", "doc": "Callback to be called when the menu item is clicked"}},
                             {"data": {"type": "RefAny", "doc": "Data of the callback to be called on"}}
@@ -3559,7 +3559,7 @@
                     },
                     "MenuItemIcon": {
                         "doc": "Icon of a menu entry",
-                        "external": "azul_core::window::MenuItemIcon",
+                        "external": "azul_core::menu::MenuItemIcon",
                         "enum_fields": [
                             {"Checkbox": {"type": "bool", "doc": "Menu item shows a checkbox (either checked or not)"}},
                             {"Image": {"type": "ImageRef", "doc": "Menu item shows a custom image, usually in 16x16 format"}}
@@ -3567,7 +3567,7 @@
                     },
                     "MenuItemState": {
                         "doc": "Describes the state of a menu item",
-                        "external": "azul_core::window::MenuItemState",
+                        "external": "azul_core::menu::MenuItemState",
                         "enum_fields": [
                             {"Normal": {"doc": "Normal menu item (default)"}},
                             {"Greyed": {"doc": "Menu item is greyed out and clicking it does nothing"}},
@@ -3580,20 +3580,20 @@
                 "doc": "`Css` parsing module",
                 "classes": {
                     "CssRuleBlock": {
-                        "external": "azul_css::CssRuleBlock",
+                        "external": "azul_css::css::CssRuleBlock",
                         "struct_fields": [
                             {"path": {"type": "CssPath"}},
                             {"declarations": {"type": "CssDeclarationVec"}}
                         ]
                     },
                     "CssPath": {
-                        "external": "azul_css::CssPath",
+                        "external": "azul_css::css::CssPath",
                         "struct_fields": [
                             {"selectors": {"type": "CssPathSelectorVec"}}
                         ]
                     },
                     "CssPathSelector": {
-                        "external": "azul_css::CssPathSelector",
+                        "external": "azul_css::css::CssPathSelector",
                         "enum_fields": [
                             {"Global": {}},
                             {"Type": {"type": "NodeTypeKey"}},
@@ -3605,7 +3605,7 @@
                         ]
                     },
                     "NodeTypeKey": {
-                        "external": "azul_css::NodeTypeTag",
+                        "external": "azul_css::css::NodeTypeTag",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Body": {}},
@@ -3617,7 +3617,7 @@
                         ]
                     },
                     "CssPathPseudoSelector": {
-                        "external": "azul_css::CssPathPseudoSelector",
+                        "external": "azul_css::css::CssPathPseudoSelector",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"First": {}},
@@ -3629,7 +3629,7 @@
                         ]
                     },
                     "CssNthChildSelector": {
-                        "external": "azul_css::CssNthChildSelector",
+                        "external": "azul_css::css::CssNthChildSelector",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Number": {"type": "u32"}},
@@ -3639,7 +3639,7 @@
                         ]
                     },
                     "CssNthChildPattern": {
-                        "external": "azul_css::CssNthChildPattern",
+                        "external": "azul_css::css::CssNthChildPattern",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"repeat": {"type": "u32"}},
@@ -3647,13 +3647,13 @@
                         ]
                     },
                     "Stylesheet": {
-                        "external": "azul_css::Stylesheet",
+                        "external": "azul_css::css::Stylesheet",
                         "struct_fields": [
                             {"rules": {"type": "CssRuleBlockVec"}}
                         ]
                     },
                     "Css": {
-                        "external": "azul_css::Css",
+                        "external": "azul_css::css::Css",
                         "struct_fields": [
                             {"stylesheets": {"type": "StylesheetVec"}}
                         ],
@@ -3673,21 +3673,21 @@
                         }
                     },
                     "CssDeclaration": {
-                        "external": "azul_css::CssDeclaration",
+                        "external": "azul_css::css::CssDeclaration",
                         "enum_fields": [
                             {"Static": {"type": "CssProperty"}},
                             {"Dynamic": {"type": "DynamicCssProperty"}}
                         ]
                     },
                     "DynamicCssProperty": {
-                        "external": "azul_css::DynamicCssProperty",
+                        "external": "azul_css::css::DynamicCssProperty",
                         "struct_fields": [
                             {"dynamic_id": {"type": "String"}},
                             {"default_value": {"type": "CssProperty"}}
                         ]
                     },
                     "CssPropertyType": {
-                        "external": "azul_css::CssPropertyType",
+                        "external": "azul_css::props::property::CssPropertyType",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"TextColor": {}},
@@ -3767,7 +3767,7 @@
                         ]
                     },
                     "AnimationInterpolationFunction": {
-                        "external": "azul_css::AnimationInterpolationFunction",
+                        "external": "azul_css::props::basic::AnimationInterpolationFunction",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Ease": {}},
@@ -3779,7 +3779,7 @@
                         ]
                     },
                     "InterpolateContext": {
-                        "external": "azul_css::InterpolateResolver",
+                        "external": "azul_css::props::basic::InterpolateResolver",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"animation_func": {"type": "AnimationInterpolationFunction"}},
@@ -3829,7 +3829,7 @@
                         }
                     },
                     "SizeMetric": {
-                        "external": "azul_css::SizeMetric",
+                        "external": "azul_css::props::basic::SizeMetric",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Px": {}},
@@ -3839,7 +3839,7 @@
                         ]
                     },
                     "PixelValue": {
-                        "external": "azul_css::PixelValue",
+                        "external": "azul_css::props::basic::PixelValue",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"metric": {"type": "SizeMetric"}},
@@ -3847,14 +3847,14 @@
                         ]
                     },
                     "PixelValueNoPercent": {
-                        "external": "azul_css::PixelValueNoPercent",
+                        "external": "azul_css::props::basic::PixelValueNoPercent",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "BoxShadowClipMode": {
-                        "external": "azul_css::BoxShadowClipMode",
+                        "external": "azul_css::props::style::BoxShadowClipMode",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Outset": {}},
@@ -3862,7 +3862,7 @@
                         ]
                     },
                     "StyleBoxShadow": {
-                        "external": "azul_css::StyleBoxShadow",
+                        "external": "azul_css::props::style::StyleBoxShadow",
                         "derive": ["Copy"],
                         "struct_fields": [
                             { "offset": {"type": "[PixelValueNoPercent;2]" }},
@@ -3873,7 +3873,7 @@
                         ]
                     },
                     "StyleMixBlendMode": {
-                        "external": "azul_css::StyleMixBlendMode",
+                        "external": "azul_css::props::style::StyleMixBlendMode",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Normal": {}},
@@ -3895,7 +3895,7 @@
                         ]
                     },
                     "StyleFilter": {
-                        "external": "azul_css::StyleFilter",
+                        "external": "azul_css::props::style::StyleFilter",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Blend": {"type": "StyleMixBlendMode"}},
@@ -3910,7 +3910,7 @@
                         ]
                     },
                     "StyleBlur": {
-                        "external": "azul_css::StyleBlur",
+                        "external": "azul_css::props::style::StyleBlur",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"width": {"type": "PixelValue"}},
@@ -3918,14 +3918,14 @@
                         ]
                     },
                     "StyleColorMatrix": {
-                        "external": "azul_css::StyleColorMatrix",
+                        "external": "azul_css::props::style::StyleColorMatrix",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"matrix": {"type": "[FloatValue;20]"}}
                         ]
                     },
                     "StyleFilterOffset": {
-                        "external": "azul_css::StyleFilterOffset",
+                        "external": "azul_css::props::style::StyleFilterOffset",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PixelValue"}},
@@ -3933,7 +3933,7 @@
                         ]
                     },
                     "StyleCompositeFilter": {
-                        "external": "azul_css::StyleCompositeFilter",
+                        "external": "azul_css::props::style::StyleCompositeFilter",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Over": {}},
@@ -3946,7 +3946,7 @@
                         ]
                     },
                     "LayoutAlignContent": {
-                        "external": "azul_css::LayoutAlignContent",
+                        "external": "azul_css::props::layout::LayoutAlignContent",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Stretch": {"doc": "Default value. Lines stretch to take up the remaining space"}},
@@ -3958,7 +3958,7 @@
                         ]
                     },
                     "LayoutAlignItems": {
-                        "external": "azul_css::LayoutAlignItems",
+                        "external": "azul_css::props::layout::LayoutAlignItems",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Stretch": {"doc": "Items are stretched to fit the container"}},
@@ -3968,14 +3968,14 @@
                         ]
                     },
                     "LayoutBottom": {
-                        "external": "azul_css::LayoutBottom",
+                        "external": "azul_css::props::layout::LayoutBottom",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "LayoutBoxSizing": {
-                        "external": "azul_css::LayoutBoxSizing",
+                        "external": "azul_css::props::layout::LayoutBoxSizing",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"ContentBox": {}},
@@ -3983,7 +3983,7 @@
                         ]
                     },
                     "LayoutFlexDirection": {
-                        "external": "azul_css::LayoutFlexDirection",
+                        "external": "azul_css::props::layout::LayoutFlexDirection",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Row": {}},
@@ -3993,7 +3993,7 @@
                         ]
                     },
                     "LayoutDisplay": {
-                        "external": "azul_css::LayoutDisplay",
+                        "external": "azul_css::props::layout::LayoutDisplay",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -4003,21 +4003,21 @@
                         ]
                     },
                     "LayoutFlexGrow": {
-                        "external": "azul_css::LayoutFlexGrow",
+                        "external": "azul_css::props::layout::LayoutFlexGrow",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "FloatValue" }}
                         ]
                     },
                     "LayoutFlexShrink": {
-                        "external": "azul_css::LayoutFlexShrink",
+                        "external": "azul_css::props::layout::LayoutFlexShrink",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "FloatValue" }}
                         ]
                     },
                     "LayoutFloat": {
-                        "external": "azul_css::LayoutFloat",
+                        "external": "azul_css::props::layout::LayoutFloat",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Left": {}},
@@ -4026,14 +4026,14 @@
                         ]
                     },
                     "LayoutHeight": {
-                        "external": "azul_css::LayoutHeight",
+                        "external": "azul_css::props::layout::LayoutHeight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutJustifyContent": {
-                        "external": "azul_css::LayoutJustifyContent",
+                        "external": "azul_css::props::layout::LayoutJustifyContent",
                         "derive": ["Copy"],
                         "enum_fields": [
                              {"Start": {"doc": "Default value. Items are positioned at the beginning of the container"}},
@@ -4045,98 +4045,98 @@
                         ]
                     },
                     "LayoutLeft": {
-                        "external": "azul_css::LayoutLeft",
+                        "external": "azul_css::props::layout::LayoutLeft",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMarginBottom": {
-                        "external": "azul_css::LayoutMarginBottom",
+                        "external": "azul_css::props::layout::LayoutMarginBottom",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMarginLeft": {
-                        "external": "azul_css::LayoutMarginLeft",
+                        "external": "azul_css::props::layout::LayoutMarginLeft",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMarginRight": {
-                        "external": "azul_css::LayoutMarginRight",
+                        "external": "azul_css::props::layout::LayoutMarginRight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMarginTop": {
-                        "external": "azul_css::LayoutMarginTop",
+                        "external": "azul_css::props::layout::LayoutMarginTop",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMaxHeight": {
-                        "external": "azul_css::LayoutMaxHeight",
+                        "external": "azul_css::props::layout::LayoutMaxHeight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMaxWidth": {
-                        "external": "azul_css::LayoutMaxWidth",
+                        "external": "azul_css::props::layout::LayoutMaxWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMinHeight": {
-                        "external": "azul_css::LayoutMinHeight",
+                        "external": "azul_css::props::layout::LayoutMinHeight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutMinWidth": {
-                        "external": "azul_css::LayoutMinWidth",
+                        "external": "azul_css::props::layout::LayoutMinWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutPaddingBottom": {
-                        "external": "azul_css::LayoutPaddingBottom",
+                        "external": "azul_css::props::layout::LayoutPaddingBottom",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutPaddingLeft": {
-                        "external": "azul_css::LayoutPaddingLeft",
+                        "external": "azul_css::props::layout::LayoutPaddingLeft",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutPaddingRight": {
-                        "external": "azul_css::LayoutPaddingRight",
+                        "external": "azul_css::props::layout::LayoutPaddingRight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutPaddingTop": {
-                        "external": "azul_css::LayoutPaddingTop",
+                        "external": "azul_css::props::layout::LayoutPaddingTop",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutPosition": {
-                        "external": "azul_css::LayoutPosition",
+                        "external": "azul_css::props::layout::LayoutPosition",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Static": {}},
@@ -4146,28 +4146,28 @@
                         ]
                     },
                     "LayoutRight": {
-                        "external": "azul_css::LayoutRight",
+                        "external": "azul_css::props::layout::LayoutRight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutTop": {
-                        "external": "azul_css::LayoutTop",
+                        "external": "azul_css::props::layout::LayoutTop",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutWidth": {
-                        "external": "azul_css::LayoutWidth",
+                        "external": "azul_css::props::layout::LayoutWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": { "type": "PixelValue" }}
                         ]
                     },
                     "LayoutFlexWrap": {
-                        "external": "azul_css::LayoutFlexWrap",
+                        "external": "azul_css::props::layout::LayoutFlexWrap",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Wrap": {}},
@@ -4175,7 +4175,7 @@
                         ]
                     },
                     "LayoutOverflow": {
-                        "external": "azul_css::LayoutOverflow",
+                        "external": "azul_css::props::layout::LayoutOverflow",
                         "derive": ["Copy"],
                         "enum_fields": [
                              {"Scroll": {"doc": "Always shows a scroll bar, overflows on scroll"}},
@@ -4185,21 +4185,21 @@
                         ]
                     },
                     "FloatValue": {
-                        "external": "azul_css::FloatValue",
+                        "external": "azul_css::props::basic::FloatValue",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             { "number": {"type": "isize" }}
                         ]
                     },
                     "PercentageValue": {
-                        "external": "azul_css::PercentageValue",
+                        "external": "azul_css::props::basic::PercentageValue",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             { "number": {"type": "FloatValue" }}
                         ]
                     },
                     "AngleMetric": {
-                        "external": "azul_css::AngleMetric",
+                        "external": "azul_css::props::basic::AngleMetric",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Degree": {}},
@@ -4210,7 +4210,7 @@
                         ]
                     },
                     "AngleValue": {
-                        "external": "azul_css::AngleValue",
+                        "external": "azul_css::props::basic::AngleValue",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             { "metric": {"type": "AngleMetric" }},
@@ -4227,7 +4227,7 @@
                         }
                     },
                     "NormalizedLinearColorStop": {
-                        "external": "azul_css::NormalizedLinearColorStop",
+                        "external": "azul_css::props::style::NormalizedLinearColorStop",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"offset": {"type": "PercentageValue"}},
@@ -4235,7 +4235,7 @@
                         ]
                     },
                     "NormalizedRadialColorStop": {
-                        "external": "azul_css::NormalizedRadialColorStop",
+                        "external": "azul_css::props::style::NormalizedRadialColorStop",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"offset": {"type": "AngleValue"}},
@@ -4243,7 +4243,7 @@
                         ]
                     },
                     "DirectionCorner": {
-                        "external": "azul_css::DirectionCorner",
+                        "external": "azul_css::props::basic::DirectionCorner",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Right": {}},
@@ -4257,7 +4257,7 @@
                         ]
                     },
                     "DirectionCorners": {
-                        "external": "azul_css::DirectionCorners",
+                        "external": "azul_css::props::basic::DirectionCorners",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"from": {"type": "DirectionCorner"}},
@@ -4265,7 +4265,7 @@
                         ]
                     },
                     "Direction": {
-                        "external": "azul_css::Direction",
+                        "external": "azul_css::props::basic::Direction",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Angle": {"type": "AngleValue"}},
@@ -4273,7 +4273,7 @@
                         ]
                     },
                     "ExtendMode": {
-                        "external": "azul_css::ExtendMode",
+                        "external": "azul_css::props::style::ExtendMode",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Clamp": {}},
@@ -4281,7 +4281,7 @@
                         ]
                     },
                     "LinearGradient": {
-                        "external": "azul_css::LinearGradient",
+                        "external": "azul_css::props::style::LinearGradient",
                         "struct_fields": [
                             {"direction": {"type": "Direction"}},
                             {"extend_mode": {"type": "ExtendMode"}},
@@ -4289,7 +4289,7 @@
                         ]
                     },
                     "Shape": {
-                        "external": "azul_css::Shape",
+                        "external": "azul_css::props::style::Shape",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Ellipse": {}},
@@ -4297,7 +4297,7 @@
                         ]
                     },
                     "RadialGradientSize": {
-                        "external": "azul_css::RadialGradientSize",
+                        "external": "azul_css::props::style::RadialGradientSize",
                         "enum_fields": [
                             {"ClosestSide": {"doc": "The gradients ending shape meets the side of the box closest to its center (for circles) or meets both the vertical and horizontal sides closest to the center (for ellipses)"}},
                             {"ClosestCorner": {"doc": "The gradients ending shape is sized so that it exactly meets the closest corner of the box from its center"}},
@@ -4306,7 +4306,7 @@
                         ]
                     },
                     "RadialGradient": {
-                        "external": "azul_css::RadialGradient",
+                        "external": "azul_css::props::style::RadialGradient",
                         "struct_fields": [
                             {"shape": {"type": "Shape"}},
                             {"size": {"type": "RadialGradientSize"}},
@@ -4316,7 +4316,7 @@
                         ]
                     },
                     "ConicGradient": {
-                        "external": "azul_css::ConicGradient",
+                        "external": "azul_css::props::style::ConicGradient",
                         "struct_fields": [
                             {"extend_mode": {"type": "ExtendMode"}},
                             {"center": {"type": "StyleBackgroundPosition"}},
@@ -4325,7 +4325,7 @@
                         ]
                     },
                     "StyleBackgroundContent": {
-                        "external": "azul_css::StyleBackgroundContent",
+                        "external": "azul_css::props::style::StyleBackgroundContent",
                         "enum_fields": [
                             {"LinearGradient": {"type": "LinearGradient"}},
                             {"RadialGradient": {"type": "RadialGradient"}},
@@ -4335,7 +4335,7 @@
                         ]
                     },
                     "BackgroundPositionHorizontal": {
-                        "external": "azul_css::BackgroundPositionHorizontal",
+                        "external": "azul_css::props::style::BackgroundPositionHorizontal",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Left": {}},
@@ -4345,7 +4345,7 @@
                         ]
                     },
                     "BackgroundPositionVertical": {
-                        "external": "azul_css::BackgroundPositionVertical",
+                        "external": "azul_css::props::style::BackgroundPositionVertical",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"Top": {}},
@@ -4355,7 +4355,7 @@
                         ]
                     },
                     "StyleBackgroundPosition": {
-                        "external": "azul_css::StyleBackgroundPosition",
+                        "external": "azul_css::props::style::StyleBackgroundPosition",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"horizontal": {"type": "BackgroundPositionHorizontal"}},
@@ -4363,7 +4363,7 @@
                         ]
                     },
                     "StyleBackgroundRepeat": {
-                        "external": "azul_css::StyleBackgroundRepeat",
+                        "external": "azul_css::props::style::StyleBackgroundRepeat",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"NoRepeat": {}},
@@ -4373,7 +4373,7 @@
                         ]
                     },
                     "StyleBackgroundSize": {
-                        "external": "azul_css::StyleBackgroundSize",
+                        "external": "azul_css::props::style::StyleBackgroundSize",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"ExactSize": {"type": "[PixelValue;2]"}},
@@ -4382,28 +4382,28 @@
                         ]
                     },
                     "StyleBorderBottomColor": {
-                        "external": "azul_css::StyleBorderBottomColor",
+                        "external": "azul_css::props::style::StyleBorderBottomColor",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"inner": {"type": "ColorU"}}
                         ]
                     },
                     "StyleBorderBottomLeftRadius": {
-                        "external": "azul_css::StyleBorderBottomLeftRadius",
+                        "external": "azul_css::props::style::StyleBorderBottomLeftRadius",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBorderBottomRightRadius": {
-                        "external": "azul_css::StyleBorderBottomRightRadius",
+                        "external": "azul_css::props::style::StyleBorderBottomRightRadius",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "BorderStyle": {
-                        "external": "azul_css::BorderStyle",
+                        "external": "azul_css::props::style::BorderStyle",
                         "derive": ["Copy", "Serialize", "Deserialize"],
                         "enum_fields": [
                             {"None": {}},
@@ -4419,98 +4419,98 @@
                         ]
                     },
                     "StyleBorderBottomStyle": {
-                        "external": "azul_css::StyleBorderBottomStyle",
+                        "external": "azul_css::props::style::StyleBorderBottomStyle",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "BorderStyle"}}
                         ]
                     },
                     "LayoutBorderBottomWidth": {
-                        "external": "azul_css::LayoutBorderBottomWidth",
+                        "external": "azul_css::props::style::LayoutBorderBottomWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBorderLeftColor": {
-                        "external": "azul_css::StyleBorderLeftColor",
+                        "external": "azul_css::props::style::StyleBorderLeftColor",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "ColorU"}}
                         ]
                     },
                     "StyleBorderLeftStyle": {
-                        "external": "azul_css::StyleBorderLeftStyle",
+                        "external": "azul_css::props::style::StyleBorderLeftStyle",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "BorderStyle"}}
                         ]
                     },
                     "LayoutBorderLeftWidth": {
-                        "external": "azul_css::LayoutBorderLeftWidth",
+                        "external": "azul_css::props::style::LayoutBorderLeftWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBorderRightColor": {
-                        "external": "azul_css::StyleBorderRightColor",
+                        "external": "azul_css::props::style::StyleBorderRightColor",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "ColorU"}}
                         ]
                     },
                     "StyleBorderRightStyle": {
-                        "external": "azul_css::StyleBorderRightStyle",
+                        "external": "azul_css::props::style::StyleBorderRightStyle",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "BorderStyle"}}
                         ]
                     },
                     "LayoutBorderRightWidth": {
-                        "external": "azul_css::LayoutBorderRightWidth",
+                        "external": "azul_css::props::style::LayoutBorderRightWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBorderTopColor": {
-                        "external": "azul_css::StyleBorderTopColor",
+                        "external": "azul_css::props::style::StyleBorderTopColor",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "ColorU"}}
                         ]
                     },
                     "StyleBorderTopLeftRadius": {
-                        "external": "azul_css::StyleBorderTopLeftRadius",
+                        "external": "azul_css::props::style::StyleBorderTopLeftRadius",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBorderTopRightRadius": {
-                        "external": "azul_css::StyleBorderTopRightRadius",
+                        "external": "azul_css::props::style::StyleBorderTopRightRadius",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBorderTopStyle": {
-                        "external": "azul_css::StyleBorderTopStyle",
+                        "external": "azul_css::props::style::StyleBorderTopStyle",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "BorderStyle"}}
                         ]
                     },
                     "LayoutBorderTopWidth": {
-                        "external": "azul_css::LayoutBorderTopWidth",
+                        "external": "azul_css::props::style::LayoutBorderTopWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "ScrollbarInfo": {
-                        "external": "azul_css::ScrollbarInfo",
+                        "external": "azul_css::props::style::ScrollbarInfo",
                         "struct_fields": [
                             {"width": {"type": "LayoutWidth"}},
                             {"padding_left": {"type": "LayoutPaddingLeft"}},
@@ -4523,14 +4523,14 @@
                         ]
                     },
                     "ScrollbarStyle": {
-                        "external": "azul_css::ScrollbarStyle",
+                        "external": "azul_css::props::style::ScrollbarStyle",
                         "struct_fields": [
                             {"horizontal": {"type": "ScrollbarInfo"}},
                             {"vertical": {"type": "ScrollbarInfo"}}
                         ]
                     },
                     "StyleCursor": {
-                        "external": "azul_css::StyleCursor",
+                        "external": "azul_css::props::style::StyleCursor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Alias": {}},
@@ -4566,7 +4566,7 @@
                         ]
                     },
                     "StyleFontFamily": {
-                        "external": "azul_css::StyleFontFamily",
+                        "external": "azul_css::props::basic::StyleFontFamily",
                         "enum_fields": [
                             {"System": {"type": "String", "doc": "Postscript identifier for a system-native font (for example \"Arial\"). Also supports HTML-native values such as `sans-serif`, `serif`, `monospace`, `fantasy` and `oblique`."}},
                             {"File": {"type": "String", "doc": "Path to a font loaded from a file"}},
@@ -4574,42 +4574,42 @@
                         ]
                     },
                     "StyleFontSize": {
-                        "external": "azul_css::StyleFontSize",
+                        "external": "azul_css::props::basic::StyleFontSize",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleLetterSpacing": {
-                        "external": "azul_css::StyleLetterSpacing",
+                        "external": "azul_css::props::style::StyleLetterSpacing",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleLineHeight": {
-                        "external": "azul_css::StyleLineHeight",
+                        "external": "azul_css::props::style::StyleLineHeight",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PercentageValue"}}
                         ]
                     },
                     "StyleTabWidth": {
-                        "external": "azul_css::StyleTabWidth",
+                        "external": "azul_css::props::style::StyleTabWidth",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PercentageValue"}}
                         ]
                     },
                     "StyleOpacity": {
-                        "external": "azul_css::StyleOpacity",
+                        "external": "azul_css::props::style::StyleOpacity",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PercentageValue"}}
                         ]
                     },
                     "StyleTransformOrigin": {
-                        "external": "azul_css::StyleTransformOrigin",
+                        "external": "azul_css::props::style::StyleTransformOrigin",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PixelValue"}},
@@ -4617,7 +4617,7 @@
                         ]
                     },
                     "StylePerspectiveOrigin": {
-                        "external": "azul_css::StyleTransformOrigin",
+                        "external": "azul_css::props::style::StyleTransformOrigin",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PixelValue"}},
@@ -4625,7 +4625,7 @@
                         ]
                     },
                     "StyleBackfaceVisibility": {
-                        "external": "azul_css::StyleBackfaceVisibility",
+                        "external": "azul_css::props::style::StyleBackfaceVisibility",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Hidden": {}},
@@ -4633,7 +4633,7 @@
                         ]
                     },
                     "StyleTransform": {
-                        "external": "azul_css::StyleTransform",
+                        "external": "azul_css::props::style::StyleTransform",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Matrix": {"type": "StyleTransformMatrix2D"}},
@@ -4660,7 +4660,7 @@
                         ]
                     },
                     "StyleTransformMatrix2D": {
-                        "external": "azul_css::StyleTransformMatrix2D",
+                        "external": "azul_css::props::style::StyleTransformMatrix2D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"a": {"type": "PixelValue" }},
@@ -4672,7 +4672,7 @@
                         ]
                     },
                     "StyleTransformMatrix3D": {
-                        "external": "azul_css::StyleTransformMatrix3D",
+                        "external": "azul_css::props::style::StyleTransformMatrix3D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"m11": {"type": "PixelValue"}},
@@ -4694,7 +4694,7 @@
                         ]
                     },
                     "StyleTransformTranslate2D": {
-                        "external": "azul_css::StyleTransformTranslate2D",
+                        "external": "azul_css::props::style::StyleTransformTranslate2D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PixelValue"}},
@@ -4702,7 +4702,7 @@
                         ]
                     },
                     "StyleTransformTranslate3D": {
-                        "external": "azul_css::StyleTransformTranslate3D",
+                        "external": "azul_css::props::style::StyleTransformTranslate3D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PixelValue"}},
@@ -4711,7 +4711,7 @@
                         ]
                     },
                     "StyleTransformRotate3D": {
-                        "external": "azul_css::StyleTransformRotate3D",
+                        "external": "azul_css::props::style::StyleTransformRotate3D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PercentageValue"}},
@@ -4721,7 +4721,7 @@
                         ]
                     },
                     "StyleTransformScale2D": {
-                        "external": "azul_css::StyleTransformScale2D",
+                        "external": "azul_css::props::style::StyleTransformScale2D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PercentageValue"}},
@@ -4729,7 +4729,7 @@
                         ]
                     },
                     "StyleTransformScale3D": {
-                        "external": "azul_css::StyleTransformScale3D",
+                        "external": "azul_css::props::style::StyleTransformScale3D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PercentageValue"}},
@@ -4738,7 +4738,7 @@
                         ]
                     },
                     "StyleTransformSkew2D": {
-                        "external": "azul_css::StyleTransformSkew2D",
+                        "external": "azul_css::props::style::StyleTransformSkew2D",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"x": {"type": "PercentageValue"}},
@@ -4746,7 +4746,7 @@
                         ]
                     },
                     "StyleTextAlign": {
-                        "external": "azul_css::StyleTextAlign",
+                        "external": "azul_css::props::style::StyleTextAlign",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"Left": {}},
@@ -4756,21 +4756,21 @@
                         ]
                     },
                     "StyleTextColor": {
-                        "external": "azul_css::StyleTextColor",
+                        "external": "azul_css::props::style::StyleTextColor",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "ColorU"}}
                         ]
                     },
                     "StyleWordSpacing": {
-                        "external": "azul_css::StyleWordSpacing",
+                        "external": "azul_css::props::style::StyleWordSpacing",
                         "derive": ["Copy"],
                         "struct_fields": [
                             {"inner": {"type": "PixelValue"}}
                         ]
                     },
                     "StyleBoxShadowValue": {
-                        "external": "azul_css::StyleBoxShadowValue",
+                        "external": "azul_css::props::property::StyleBoxShadowValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4781,7 +4781,7 @@
                         ]
                     },
                     "LayoutAlignContentValue": {
-                        "external": "azul_css::LayoutAlignContentValue",
+                        "external": "azul_css::props::property::LayoutAlignContentValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4792,7 +4792,7 @@
                         ]
                     },
                     "LayoutAlignItemsValue": {
-                        "external": "azul_css::LayoutAlignItemsValue",
+                        "external": "azul_css::props::property::LayoutAlignItemsValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4803,7 +4803,7 @@
                         ]
                     },
                     "LayoutBottomValue": {
-                        "external": "azul_css::LayoutBottomValue",
+                        "external": "azul_css::props::property::LayoutBottomValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4814,7 +4814,7 @@
                         ]
                     },
                     "LayoutBoxSizingValue": {
-                        "external": "azul_css::LayoutBoxSizingValue",
+                        "external": "azul_css::props::property::LayoutBoxSizingValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4825,7 +4825,7 @@
                         ]
                     },
                     "LayoutFlexDirectionValue": {
-                        "external": "azul_css::LayoutFlexDirectionValue",
+                        "external": "azul_css::props::property::LayoutFlexDirectionValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4836,7 +4836,7 @@
                         ]
                     },
                     "LayoutDisplayValue": {
-                        "external": "azul_css::LayoutDisplayValue",
+                        "external": "azul_css::props::property::LayoutDisplayValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4847,7 +4847,7 @@
                         ]
                     },
                     "LayoutFlexGrowValue": {
-                        "external": "azul_css::LayoutFlexGrowValue",
+                        "external": "azul_css::props::property::LayoutFlexGrowValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4858,7 +4858,7 @@
                         ]
                     },
                     "LayoutFlexShrinkValue": {
-                        "external": "azul_css::LayoutFlexShrinkValue",
+                        "external": "azul_css::props::property::LayoutFlexShrinkValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4869,7 +4869,7 @@
                         ]
                     },
                     "LayoutFloatValue": {
-                        "external": "azul_css::LayoutFloatValue",
+                        "external": "azul_css::props::property::LayoutFloatValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4880,7 +4880,7 @@
                         ]
                     },
                     "LayoutHeightValue": {
-                        "external": "azul_css::LayoutHeightValue",
+                        "external": "azul_css::props::property::LayoutHeightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4891,7 +4891,7 @@
                         ]
                     },
                     "LayoutJustifyContentValue": {
-                        "external": "azul_css::LayoutJustifyContentValue",
+                        "external": "azul_css::props::property::LayoutJustifyContentValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4902,7 +4902,7 @@
                         ]
                     },
                     "LayoutLeftValue": {
-                        "external": "azul_css::LayoutLeftValue",
+                        "external": "azul_css::props::property::LayoutLeftValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4913,7 +4913,7 @@
                         ]
                     },
                     "LayoutMarginBottomValue": {
-                        "external": "azul_css::LayoutMarginBottomValue",
+                        "external": "azul_css::props::property::LayoutMarginBottomValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4924,7 +4924,7 @@
                         ]
                     },
                     "LayoutMarginLeftValue": {
-                        "external": "azul_css::LayoutMarginLeftValue",
+                        "external": "azul_css::props::property::LayoutMarginLeftValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4935,7 +4935,7 @@
                         ]
                     },
                     "LayoutMarginRightValue": {
-                        "external": "azul_css::LayoutMarginRightValue",
+                        "external": "azul_css::props::property::LayoutMarginRightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4946,7 +4946,7 @@
                         ]
                     },
                     "LayoutMarginTopValue": {
-                        "external": "azul_css::LayoutMarginTopValue",
+                        "external": "azul_css::props::property::LayoutMarginTopValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4957,7 +4957,7 @@
                         ]
                     },
                     "LayoutMaxHeightValue": {
-                        "external": "azul_css::LayoutMaxHeightValue",
+                        "external": "azul_css::props::property::LayoutMaxHeightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4968,7 +4968,7 @@
                         ]
                     },
                     "LayoutMaxWidthValue": {
-                        "external": "azul_css::LayoutMaxWidthValue",
+                        "external": "azul_css::props::property::LayoutMaxWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4979,7 +4979,7 @@
                         ]
                     },
                     "LayoutMinHeightValue": {
-                        "external": "azul_css::LayoutMinHeightValue",
+                        "external": "azul_css::props::property::LayoutMinHeightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -4990,7 +4990,7 @@
                         ]
                     },
                     "LayoutMinWidthValue": {
-                        "external": "azul_css::LayoutMinWidthValue",
+                        "external": "azul_css::props::property::LayoutMinWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5001,7 +5001,7 @@
                         ]
                     },
                     "LayoutPaddingBottomValue": {
-                        "external": "azul_css::LayoutPaddingBottomValue",
+                        "external": "azul_css::props::property::LayoutPaddingBottomValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5012,7 +5012,7 @@
                         ]
                     },
                     "LayoutPaddingLeftValue": {
-                        "external": "azul_css::LayoutPaddingLeftValue",
+                        "external": "azul_css::props::property::LayoutPaddingLeftValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5023,7 +5023,7 @@
                         ]
                     },
                     "LayoutPaddingRightValue": {
-                        "external": "azul_css::LayoutPaddingRightValue",
+                        "external": "azul_css::props::property::LayoutPaddingRightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5034,7 +5034,7 @@
                         ]
                     },
                     "LayoutPaddingTopValue": {
-                        "external": "azul_css::LayoutPaddingTopValue",
+                        "external": "azul_css::props::property::LayoutPaddingTopValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5045,7 +5045,7 @@
                         ]
                     },
                     "LayoutPositionValue": {
-                        "external": "azul_css::LayoutPositionValue",
+                        "external": "azul_css::props::property::LayoutPositionValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5056,7 +5056,7 @@
                         ]
                     },
                     "LayoutRightValue": {
-                        "external": "azul_css::LayoutRightValue",
+                        "external": "azul_css::props::property::LayoutRightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5067,7 +5067,7 @@
                         ]
                     },
                     "LayoutTopValue": {
-                        "external": "azul_css::LayoutTopValue",
+                        "external": "azul_css::props::property::LayoutTopValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5078,7 +5078,7 @@
                         ]
                     },
                     "LayoutWidthValue": {
-                        "external": "azul_css::LayoutWidthValue",
+                        "external": "azul_css::props::property::LayoutWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5089,7 +5089,7 @@
                         ]
                     },
                     "LayoutFlexWrapValue": {
-                        "external": "azul_css::LayoutFlexWrapValue",
+                        "external": "azul_css::props::property::LayoutFlexWrapValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5100,7 +5100,7 @@
                         ]
                     },
                     "LayoutOverflowValue": {
-                        "external": "azul_css::LayoutOverflowValue",
+                        "external": "azul_css::props::property::LayoutOverflowValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5111,7 +5111,7 @@
                         ]
                     },
                     "ScrollbarStyleValue": {
-                        "external": "azul_css::ScrollbarStyleValue",
+                        "external": "azul_css::props::property::ScrollbarStyleValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5121,7 +5121,7 @@
                         ]
                     },
                     "StyleBackgroundContentVecValue": {
-                        "external": "azul_css::StyleBackgroundContentVecValue",
+                        "external": "azul_css::props::property::StyleBackgroundContentVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5131,7 +5131,7 @@
                         ]
                     },
                     "StyleBackgroundPositionVecValue": {
-                        "external": "azul_css::StyleBackgroundPositionVecValue",
+                        "external": "azul_css::props::property::StyleBackgroundPositionVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5141,7 +5141,7 @@
                         ]
                     },
                     "StyleBackgroundRepeatVecValue": {
-                        "external": "azul_css::StyleBackgroundRepeatVecValue",
+                        "external": "azul_css::props::property::StyleBackgroundRepeatVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5151,7 +5151,7 @@
                         ]
                     },
                     "StyleBackgroundSizeVecValue": {
-                        "external": "azul_css::StyleBackgroundSizeVecValue",
+                        "external": "azul_css::props::property::StyleBackgroundSizeVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5161,7 +5161,7 @@
                         ]
                     },
                     "StyleBorderBottomColorValue": {
-                        "external": "azul_css::StyleBorderBottomColorValue",
+                        "external": "azul_css::props::property::StyleBorderBottomColorValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5172,7 +5172,7 @@
                         ]
                     },
                     "StyleBorderBottomLeftRadiusValue": {
-                        "external": "azul_css::StyleBorderBottomLeftRadiusValue",
+                        "external": "azul_css::props::property::StyleBorderBottomLeftRadiusValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5183,7 +5183,7 @@
                         ]
                     },
                     "StyleBorderBottomRightRadiusValue": {
-                        "external": "azul_css::StyleBorderBottomRightRadiusValue",
+                        "external": "azul_css::props::property::StyleBorderBottomRightRadiusValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5194,7 +5194,7 @@
                         ]
                     },
                     "StyleBorderBottomStyleValue": {
-                        "external": "azul_css::StyleBorderBottomStyleValue",
+                        "external": "azul_css::props::property::StyleBorderBottomStyleValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5205,7 +5205,7 @@
                         ]
                     },
                     "LayoutBorderBottomWidthValue": {
-                        "external": "azul_css::LayoutBorderBottomWidthValue",
+                        "external": "azul_css::props::property::LayoutBorderBottomWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5216,7 +5216,7 @@
                         ]
                     },
                     "StyleBorderLeftColorValue": {
-                        "external": "azul_css::StyleBorderLeftColorValue",
+                        "external": "azul_css::props::property::StyleBorderLeftColorValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5227,7 +5227,7 @@
                         ]
                     },
                     "StyleBorderLeftStyleValue": {
-                        "external": "azul_css::StyleBorderLeftStyleValue",
+                        "external": "azul_css::props::property::StyleBorderLeftStyleValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5238,7 +5238,7 @@
                         ]
                     },
                     "LayoutBorderLeftWidthValue": {
-                        "external": "azul_css::LayoutBorderLeftWidthValue",
+                        "external": "azul_css::props::property::LayoutBorderLeftWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5249,7 +5249,7 @@
                         ]
                     },
                     "StyleBorderRightColorValue": {
-                        "external": "azul_css::StyleBorderRightColorValue",
+                        "external": "azul_css::props::property::StyleBorderRightColorValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5260,7 +5260,7 @@
                         ]
                     },
                     "StyleBorderRightStyleValue": {
-                        "external": "azul_css::StyleBorderRightStyleValue",
+                        "external": "azul_css::props::property::StyleBorderRightStyleValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5271,7 +5271,7 @@
                         ]
                     },
                     "LayoutBorderRightWidthValue": {
-                        "external": "azul_css::LayoutBorderRightWidthValue",
+                        "external": "azul_css::props::property::LayoutBorderRightWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5282,7 +5282,7 @@
                         ]
                     },
                     "StyleBorderTopColorValue": {
-                        "external": "azul_css::StyleBorderTopColorValue",
+                        "external": "azul_css::props::property::StyleBorderTopColorValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5293,7 +5293,7 @@
                         ]
                     },
                     "StyleBorderTopLeftRadiusValue": {
-                        "external": "azul_css::StyleBorderTopLeftRadiusValue",
+                        "external": "azul_css::props::property::StyleBorderTopLeftRadiusValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5304,7 +5304,7 @@
                         ]
                     },
                     "StyleBorderTopRightRadiusValue": {
-                        "external": "azul_css::StyleBorderTopRightRadiusValue",
+                        "external": "azul_css::props::property::StyleBorderTopRightRadiusValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5315,7 +5315,7 @@
                         ]
                     },
                     "StyleBorderTopStyleValue": {
-                        "external": "azul_css::StyleBorderTopStyleValue",
+                        "external": "azul_css::props::property::StyleBorderTopStyleValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5326,7 +5326,7 @@
                         ]
                     },
                     "LayoutBorderTopWidthValue": {
-                        "external": "azul_css::LayoutBorderTopWidthValue",
+                        "external": "azul_css::props::property::LayoutBorderTopWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5337,7 +5337,7 @@
                         ]
                     },
                     "StyleCursorValue": {
-                        "external": "azul_css::StyleCursorValue",
+                        "external": "azul_css::props::property::StyleCursorValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5348,7 +5348,7 @@
                         ]
                     },
                     "StyleFontFamilyVecValue": {
-                        "external": "azul_css::StyleFontFamilyVecValue",
+                        "external": "azul_css::props::property::StyleFontFamilyVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5358,7 +5358,7 @@
                         ]
                     },
                     "StyleFontSizeValue": {
-                        "external": "azul_css::StyleFontSizeValue",
+                        "external": "azul_css::props::property::StyleFontSizeValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5369,7 +5369,7 @@
                         ]
                     },
                     "StyleLetterSpacingValue": {
-                        "external": "azul_css::StyleLetterSpacingValue",
+                        "external": "azul_css::props::property::StyleLetterSpacingValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5380,7 +5380,7 @@
                         ]
                     },
                     "StyleLineHeightValue": {
-                        "external": "azul_css::StyleLineHeightValue",
+                        "external": "azul_css::props::property::StyleLineHeightValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5391,7 +5391,7 @@
                         ]
                     },
                     "StyleTabWidthValue": {
-                        "external": "azul_css::StyleTabWidthValue",
+                        "external": "azul_css::props::property::StyleTabWidthValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5402,7 +5402,7 @@
                         ]
                     },
                     "StyleTextAlignValue": {
-                        "external": "azul_css::StyleTextAlignValue",
+                        "external": "azul_css::props::property::StyleTextAlignValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5413,7 +5413,7 @@
                         ]
                     },
                     "StyleTextColorValue": {
-                        "external": "azul_css::StyleTextColorValue",
+                        "external": "azul_css::props::property::StyleTextColorValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5424,7 +5424,7 @@
                         ]
                     },
                     "StyleWordSpacingValue": {
-                        "external": "azul_css::StyleWordSpacingValue",
+                        "external": "azul_css::props::property::StyleWordSpacingValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5435,7 +5435,7 @@
                         ]
                     },
                     "StyleOpacityValue": {
-                        "external": "azul_css::StyleOpacityValue",
+                        "external": "azul_css::props::property::StyleOpacityValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5446,7 +5446,7 @@
                         ]
                     },
                     "StyleTransformVecValue": {
-                        "external": "azul_css::StyleTransformVecValue",
+                        "external": "azul_css::props::property::StyleTransformVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5456,7 +5456,7 @@
                         ]
                     },
                     "StyleTransformOriginValue": {
-                        "external": "azul_css::StyleTransformOriginValue",
+                        "external": "azul_css::props::property::StyleTransformOriginValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5467,7 +5467,7 @@
                         ]
                     },
                     "StylePerspectiveOriginValue": {
-                        "external": "azul_css::StylePerspectiveOriginValue",
+                        "external": "azul_css::props::property::StylePerspectiveOriginValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5478,7 +5478,7 @@
                         ]
                     },
                     "StyleBackfaceVisibilityValue": {
-                        "external": "azul_css::StyleBackfaceVisibilityValue",
+                        "external": "azul_css::props::property::StyleBackfaceVisibilityValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5489,7 +5489,7 @@
                         ]
                     },
                     "StyleMixBlendModeValue": {
-                        "external": "azul_css::StyleMixBlendModeValue",
+                        "external": "azul_css::props::property::StyleMixBlendModeValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             { "Auto": { }} ,
@@ -5500,7 +5500,7 @@
                         ]
                     },
                     "StyleFilterVecValue": {
-                        "external": "azul_css::StyleFilterVecValue",
+                        "external": "azul_css::props::property::StyleFilterVecValue",
                         "enum_fields": [
                             { "Auto": { }} ,
                             { "None": { }} ,
@@ -5511,7 +5511,7 @@
                     },
                     "CssProperty": {
                         "doc": "Parsed CSS key-value pair",
-                        "external": "azul_css::CssProperty",
+                        "external": "azul_css::props::property::CssProperty",
                         "enum_fields": [
                             {"TextColor": {"type": "StyleTextColorValue"}},
                             {"FontSize": {"type": "StyleFontSizeValue"}},
@@ -11627,7 +11627,7 @@
                         }
                     },
                     "FontMetrics": {
-                        "external": "azul_css::FontMetrics",
+                        "external": "azul_css::props::basic::FontMetrics",
                         "struct_fields": [
                             {"units_per_em": {"type": "u16"}},
                             {"font_flags": {"type": "u16"}},
@@ -11890,7 +11890,7 @@
                     },
                     "FontRef": {
                         "doc": "Atomically reference-counted parsed font data",
-                        "external": "azul_css::FontRef",
+                        "external": "azul_css::props::basic::FontRef",
                         "is_boxed_object": true,
                         "struct_fields": [
                             {"data": {"type": "*const c_void"}},
@@ -13943,7 +13943,7 @@
                     "StyleFilterVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleFilter>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleFilterVec",
+                        "external": "azul_css::props::style::StyleFilterVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleFilter" } },
                             { "len": { "type": "usize" } },
@@ -14075,7 +14075,7 @@
                     "MenuItemVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<MenuItem>`",
                         "custom_destructor": true,
-                        "external": "azul_core::window::MenuItemVec",
+                        "external": "azul_core::menu::MenuItemVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const MenuItem" } },
                             { "len": { "type": "usize" } },
@@ -14128,7 +14128,7 @@
                     "StyleFontFamilyVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleFontFamily>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleFontFamilyVec",
+                        "external": "azul_css::props::basic::StyleFontFamilyVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleFontFamily" } },
                             { "len": { "type": "usize" } },
@@ -14260,7 +14260,7 @@
                     "StyleBackgroundContentVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleBackgroundContentVec",
+                        "external": "azul_css::props::style::StyleBackgroundContentVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleBackgroundContent" } },
                             { "len": { "type": "usize" } },
@@ -14271,7 +14271,7 @@
                     "StyleBackgroundPositionVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleBackgroundPositionVec",
+                        "external": "azul_css::props::style::StyleBackgroundPositionVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleBackgroundPosition" } },
                             { "len": { "type": "usize" } },
@@ -14282,7 +14282,7 @@
                     "StyleBackgroundRepeatVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleBackgroundRepeatVec",
+                        "external": "azul_css::props::style::StyleBackgroundRepeatVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleBackgroundRepeat" } },
                             { "len": { "type": "usize" } },
@@ -14293,7 +14293,7 @@
                     "StyleBackgroundSizeVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleBackgroundSizeVec",
+                        "external": "azul_css::props::style::StyleBackgroundSizeVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleBackgroundSize" } },
                             { "len": { "type": "usize" } },
@@ -14304,7 +14304,7 @@
                     "StyleTransformVec": {
                         "doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
                         "custom_destructor": true,
-                        "external": "azul_css::StyleTransformVec",
+                        "external": "azul_css::props::style::StyleTransformVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const StyleTransform" } },
                             { "len": { "type": "usize" } },
@@ -14458,7 +14458,7 @@
                     "CssDeclarationVec": {
                         "doc": "Wrapper over a Rust-allocated `CssDeclaration`",
                         "custom_destructor": true,
-                        "external": "azul_css::CssDeclarationVec",
+                        "external": "azul_css::css::CssDeclarationVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const CssDeclaration" } },
                             { "len": { "type": "usize" } },
@@ -14469,7 +14469,7 @@
                     "CssPathSelectorVec": {
                         "doc": "Wrapper over a Rust-allocated `CssPathSelector`",
                         "custom_destructor": true,
-                        "external": "azul_css::CssPathSelectorVec",
+                        "external": "azul_css::css::CssPathSelectorVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const CssPathSelector" } },
                             { "len": { "type": "usize" } },
@@ -14480,7 +14480,7 @@
                     "StylesheetVec": {
                         "doc": "Wrapper over a Rust-allocated `Stylesheet`",
                         "custom_destructor": true,
-                        "external": "azul_css::StylesheetVec",
+                        "external": "azul_css::css::StylesheetVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const Stylesheet" } },
                             { "len": { "type": "usize" } },
@@ -14491,7 +14491,7 @@
                     "CssRuleBlockVec": {
                         "doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
                         "custom_destructor": true,
-                        "external": "azul_css::CssRuleBlockVec",
+                        "external": "azul_css::css::CssRuleBlockVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const CssRuleBlock" } },
                             { "len": { "type": "usize" } },
@@ -14622,7 +14622,7 @@
                     "NormalizedLinearColorStopVec": {
                         "doc": "Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`",
                         "custom_destructor": true,
-                        "external": "azul_css::NormalizedLinearColorStopVec",
+                        "external": "azul_css::props::style::NormalizedLinearColorStopVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const NormalizedLinearColorStop" } },
                             { "len": { "type": "usize" } },
@@ -14633,7 +14633,7 @@
                     "NormalizedRadialColorStopVec": {
                         "doc": "Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`",
                         "custom_destructor": true,
-                        "external": "azul_css::NormalizedRadialColorStopVec",
+                        "external": "azul_css::props::style::NormalizedRadialColorStopVec",
                         "struct_fields": [
                             { "ptr": { "type": "*const NormalizedRadialColorStop" } },
                             { "len": { "type": "usize" } },
@@ -14708,7 +14708,7 @@
                         ]
                     },
                     "StyleFontFamilyVecDestructor": {
-                        "external": "azul_css::StyleFontFamilyVecDestructor",
+                        "external": "azul_css::props::basic::StyleFontFamilyVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -14740,7 +14740,7 @@
                         }
                     },
                     "StyleFilterVecDestructor": {
-                        "external": "azul_css::StyleFilterVecDestructor",
+                        "external": "azul_css::props::style::StyleFilterVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -14932,7 +14932,7 @@
                         }
                     },
                     "MenuItemVecDestructor": {
-                        "external": "azul_core::window::MenuItemVecDestructor",
+                        "external": "azul_core::menu::MenuItemVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15156,7 +15156,7 @@
                         }
                     },
                     "StyleBackgroundContentVecDestructor": {
-                        "external": "azul_css::StyleBackgroundContentVecDestructor",
+                        "external": "azul_css::props::style::StyleBackgroundContentVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15172,7 +15172,7 @@
                         }
                     },
                     "StyleBackgroundPositionVecDestructor": {
-                        "external": "azul_css::StyleBackgroundPositionVecDestructor",
+                        "external": "azul_css::props::style::StyleBackgroundPositionVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15188,7 +15188,7 @@
                         }
                     },
                     "StyleBackgroundRepeatVecDestructor": {
-                        "external": "azul_css::StyleBackgroundRepeatVecDestructor",
+                        "external": "azul_css::props::style::StyleBackgroundRepeatVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15204,7 +15204,7 @@
                         }
                     },
                     "StyleBackgroundSizeVecDestructor": {
-                        "external": "azul_css::StyleBackgroundSizeVecDestructor",
+                        "external": "azul_css::props::style::StyleBackgroundSizeVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15220,7 +15220,7 @@
                         }
                     },
                     "StyleTransformVecDestructor": {
-                        "external": "azul_css::StyleTransformVecDestructor",
+                        "external": "azul_css::props::style::StyleTransformVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15444,7 +15444,7 @@
                         }
                     },
                     "CssDeclarationVecDestructor": {
-                        "external": "azul_css::CssDeclarationVecDestructor",
+                        "external": "azul_css::css::CssDeclarationVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15460,7 +15460,7 @@
                         }
                     },
                     "CssPathSelectorVecDestructor": {
-                        "external": "azul_css::CssPathSelectorVecDestructor",
+                        "external": "azul_css::css::CssPathSelectorVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15476,7 +15476,7 @@
                         }
                     },
                     "StylesheetVecDestructor": {
-                        "external": "azul_css::StylesheetVecDestructor",
+                        "external": "azul_css::css::StylesheetVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15492,7 +15492,7 @@
                         }
                     },
                     "CssRuleBlockVecDestructor": {
-                        "external": "azul_css::CssRuleBlockVecDestructor",
+                        "external": "azul_css::css::CssRuleBlockVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15652,7 +15652,7 @@
                         }
                     },
                     "NormalizedLinearColorStopVecDestructor": {
-                        "external": "azul_css::NormalizedLinearColorStopVecDestructor",
+                        "external": "azul_css::props::style::NormalizedLinearColorStopVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15668,7 +15668,7 @@
                         }
                     },
                     "NormalizedRadialColorStopVecDestructor": {
-                        "external": "azul_css::NormalizedRadialColorStopVecDestructor",
+                        "external": "azul_css::props::style::NormalizedRadialColorStopVecDestructor",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"DefaultRust": {}},
@@ -15785,14 +15785,14 @@
                 "doc": "Definition of azuls internal `Option<*>` wrappers",
                 "classes": {
                     "OptionSvgPoint": {
-                        "external": "azul_css::OptionSvgPoint",
+                        "external": "azul_css::props::basic::OptionSvgPoint",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": {"type": "SvgPoint"}}
                         ]
                     },
                     "OptionStyleTextAlign": {
-                        "external": "azul_css::OptionStyleTextAlign",
+                        "external": "azul_css::props::style::OptionStyleTextAlign",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": {"type": "StyleTextAlign"}}
@@ -15820,14 +15820,14 @@
                         ]
                     },
                     "OptionMenu": {
-                        "external": "azul_core::window::OptionMenu",
+                        "external": "azul_core::menu::OptionMenu",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": {"type": "Menu"}}
                         ]
                     },
                     "OptionPixelValueNoPercent": {
-                        "external": "azul_css::OptionPixelValueNoPercent",
+                        "external": "azul_css::props::basic::OptionPixelValueNoPercent",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": {"type": "PixelValueNoPercent"}}
@@ -15981,14 +15981,14 @@
                         ]
                     },
                     "OptionMenuItemIcon": {
-                        "external": "azul_core::window::OptionMenuItemIcon",
+                        "external": "azul_core::menu::OptionMenuItemIcon",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "MenuItemIcon" }}
                         ]
                     },
                     "OptionMenuCallback": {
-                        "external": "azul_core::window::OptionMenuCallback",
+                        "external": "azul_layout::callbacks::OptionMenuCallback",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "MenuCallback" }}
@@ -16058,7 +16058,7 @@
                         ]
                     },
                     "OptionFontRef": {
-                        "external": "azul_css::OptionFontRef",
+                        "external": "azul_css::props::basic::OptionFontRef",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "FontRef" }}
@@ -16121,14 +16121,14 @@
                         ]
                     },
                     "OptionThreadReceiveMsg": {
-                        "external": "azul_core::task::OptionThreadReceiveMsg",
+                        "external": "azul_layout::thread::OptionThreadReceiveMsg",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "ThreadReceiveMsg" }}
                         ]
                     },
                     "OptionPercentageValue": {
-                        "external": "azul_css::OptionPercentageValue",
+                        "external": "azul_css::props::basic::OptionPercentageValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16136,7 +16136,7 @@
                         ]
                     },
                     "OptionAngleValue": {
-                        "external": "azul_css::OptionAngleValue",
+                        "external": "azul_css::props::basic::OptionAngleValue",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16152,7 +16152,7 @@
                         ]
                     },
                     "OptionCallback": {
-                        "external": "azul_core::callbacks::OptionCallback",
+                        "external": "azul_layout::callbacks::OptionCallback",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16167,7 +16167,7 @@
                         ]
                     },
                     "OptionLayoutRect": {
-                        "external": "azul_css::OptionLayoutRect",
+                        "external": "azul_css::props::basic::OptionLayoutRect",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16175,7 +16175,7 @@
                         ]
                     },
                     "OptionRefAny": {
-                        "external": "azul_core::callbacks::OptionRefAny",
+                        "external": "azul_core::refany::OptionRefAny",
                         "enum_fields": [
                             {"None": {}},
                             {"Some": { "type": "RefAny" }}
@@ -16189,7 +16189,7 @@
                         ]
                     },
                     "OptionLayoutPoint": {
-                        "external": "azul_css::OptionLayoutPoint",
+                        "external": "azul_css::props::basic::OptionLayoutPoint",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16197,7 +16197,7 @@
                         ]
                     },
                     "OptionLayoutSize": {
-                        "external": "azul_css::OptionLayoutSize",
+                        "external": "azul_css::props::basic::OptionLayoutSize",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16221,7 +16221,7 @@
                         ]
                     },
                     "OptionDomNodeId": {
-                        "external": "azul_core::callbacks::OptionDomNodeId",
+                        "external": "azul_core::dom::OptionDomNodeId",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16229,7 +16229,7 @@
                         ]
                     },
                     "OptionColorU": {
-                        "external": "azul_css::OptionColorU",
+                        "external": "azul_css::props::basic::OptionColorU",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16274,7 +16274,7 @@
                         ]
                     },
                     "OptionLogicalPosition": {
-                        "external": "azul_core::window::OptionLogicalPosition",
+                        "external": "azul_core::geom::OptionLogicalPosition",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
@@ -16282,7 +16282,7 @@
                         ]
                     },
                     "OptionPhysicalPositionI32": {
-                        "external": "azul_core::window::OptionPhysicalPositionI32",
+                        "external": "azul_core::geom::OptionPhysicalPositionI32",
                         "derive": ["Copy"],
                         "enum_fields": [
                             {"None": {}},
