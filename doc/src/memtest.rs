@@ -17,8 +17,16 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     let dll_widgets_dir = project_root.join("dll").join("src").join("widgets");
     if dll_widgets_dir.exists() {
         let memtest_widgets_dir = memtest_dir.join("src").join("widgets");
-        copy_widgets_with_stubs(&dll_widgets_dir, &memtest_widgets_dir)?;
-        println!("✅ Copied widgets from dll/src/widgets (with dependency stubs)");
+        copy_dir_recursive(&dll_widgets_dir, &memtest_widgets_dir)?;
+        println!("✅ Copied widgets from dll/src/widgets");
+    }
+
+    // Copy extra.rs from dll/src/extra.rs if it exists
+    let dll_extra_file = project_root.join("dll").join("src").join("extra.rs");
+    if dll_extra_file.exists() {
+        let memtest_extra_file = memtest_dir.join("src").join("extra.rs");
+        fs::copy(&dll_extra_file, &memtest_extra_file)?;
+        println!("✅ Copied extra.rs from dll/src");
     }
 
     // Generate Cargo.toml
@@ -94,13 +102,20 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     output.push_str("#![allow(unused_imports)]\n");
     output.push_str("#![allow(dead_code)]\n");
     output.push_str("#![allow(unused_variables)]\n\n");
+
+    // External crates needed by widgets
+    output.push_str("extern crate alloc;\n");
+    output.push_str("extern crate core;\n\n");
+
     output.push_str("use std::mem;\n\n");
+
+    // Include extra module if it exists
+    output.push_str("// Extra utilities from dll/src/extra.rs\n");
+    output.push_str("pub mod extra;\n\n");
 
     // Include widgets module if it exists
     output.push_str("// Widget types from dll/src/widgets\n");
-    output.push_str("pub mod widgets;\n\n");
-
-    // Collect all classes with external paths
+    output.push_str("pub mod widgets;\n\n"); // Collect all classes with external paths
     let mut test_cases = Vec::new();
 
     for (version_name, version_data) in &api_data.0 {
