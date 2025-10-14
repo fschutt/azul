@@ -1,9 +1,17 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{Context, Result};
+use indexmap::IndexMap;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::api::{ApiData, ClassData, ModuleData, VersionData};
+use crate::api::{
+    ApiData, CallbackDefinition, ClassData, ConstantData, EnumVariantData, FieldData, FunctionData,
+    ModuleData, VersionData,
+};
+
+// Source code parsing and retrieval modules
+pub mod locatesource;
+pub mod parser;
 
 /// Patch file structure - allows selective updates to api.json
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -27,7 +35,7 @@ pub struct ModulePatch {
     pub classes: BTreeMap<String, ClassPatch>,
 }
 
-/// Patch for a single class - all fields optional
+/// Patch for a single class - all fields optional, allowing complete item modification
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ClassPatch {
     /// Update external import path
@@ -36,6 +44,31 @@ pub struct ClassPatch {
     pub doc: Option<String>,
     /// Update derive attributes
     pub derive: Option<Vec<String>>,
+    /// Update is_boxed_object flag
+    pub is_boxed_object: Option<bool>,
+    /// Update clone flag
+    pub clone: Option<bool>,
+    /// Update custom_destructor flag
+    pub custom_destructor: Option<bool>,
+    /// Update serde attribute
+    pub serde: Option<String>,
+    /// Update repr attribute
+    pub repr: Option<String>,
+    /// Update const value type
+    #[serde(rename = "const")]
+    pub const_value_type: Option<String>,
+    /// Patch or replace constants
+    pub constants: Option<Vec<IndexMap<String, ConstantData>>>,
+    /// Patch or replace struct fields
+    pub struct_fields: Option<Vec<IndexMap<String, FieldData>>>,
+    /// Patch or replace enum fields
+    pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
+    /// Patch or replace callback typedef
+    pub callback_typedef: Option<CallbackDefinition>,
+    /// Patch or replace constructors
+    pub constructors: Option<IndexMap<String, FunctionData>>,
+    /// Patch or replace functions
+    pub functions: Option<IndexMap<String, FunctionData>>,
     /// Add note about patch application
     #[serde(skip)]
     pub _patched: bool,
@@ -138,6 +171,105 @@ fn apply_class_patch(
         println!("     Old: {:?}", class_data.derive);
         println!("     New: {:?}", new_derive);
         class_data.derive = Some(new_derive.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_is_boxed) = patch.is_boxed_object {
+        println!(
+            "  📝 Patching {}.{}: is_boxed_object",
+            module_name, class_name
+        );
+        println!("     Old: {}", class_data.is_boxed_object);
+        println!("     New: {}", new_is_boxed);
+        class_data.is_boxed_object = new_is_boxed;
+        patches_applied += 1;
+    }
+
+    if let Some(new_clone) = patch.clone {
+        println!("  📝 Patching {}.{}: clone", module_name, class_name);
+        println!("     Old: {:?}", class_data.clone);
+        println!("     New: {}", new_clone);
+        class_data.clone = Some(new_clone);
+        patches_applied += 1;
+    }
+
+    if let Some(new_custom_destructor) = patch.custom_destructor {
+        println!(
+            "  📝 Patching {}.{}: custom_destructor",
+            module_name, class_name
+        );
+        println!("     Old: {:?}", class_data.custom_destructor);
+        println!("     New: {}", new_custom_destructor);
+        class_data.custom_destructor = Some(new_custom_destructor);
+        patches_applied += 1;
+    }
+
+    if let Some(new_serde) = &patch.serde {
+        println!("  📝 Patching {}.{}: serde", module_name, class_name);
+        println!("     Old: {:?}", class_data.serde);
+        println!("     New: {}", new_serde);
+        class_data.serde = Some(new_serde.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_repr) = &patch.repr {
+        println!("  📝 Patching {}.{}: repr", module_name, class_name);
+        println!("     Old: {:?}", class_data.repr);
+        println!("     New: {}", new_repr);
+        class_data.repr = Some(new_repr.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_const_value_type) = &patch.const_value_type {
+        println!(
+            "  📝 Patching {}.{}: const value type",
+            module_name, class_name
+        );
+        println!("     Old: {:?}", class_data.const_value_type);
+        println!("     New: {}", new_const_value_type);
+        class_data.const_value_type = Some(new_const_value_type.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_constants) = &patch.constants {
+        println!("  📝 Patching {}.{}: constants", module_name, class_name);
+        class_data.constants = Some(new_constants.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_struct_fields) = &patch.struct_fields {
+        println!(
+            "  📝 Patching {}.{}: struct_fields",
+            module_name, class_name
+        );
+        class_data.struct_fields = Some(new_struct_fields.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_enum_fields) = &patch.enum_fields {
+        println!("  📝 Patching {}.{}: enum_fields", module_name, class_name);
+        class_data.enum_fields = Some(new_enum_fields.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_callback_typedef) = &patch.callback_typedef {
+        println!(
+            "  📝 Patching {}.{}: callback_typedef",
+            module_name, class_name
+        );
+        class_data.callback_typedef = Some(new_callback_typedef.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_constructors) = &patch.constructors {
+        println!("  📝 Patching {}.{}: constructors", module_name, class_name);
+        class_data.constructors = Some(new_constructors.clone());
+        patches_applied += 1;
+    }
+
+    if let Some(new_functions) = &patch.functions {
+        println!("  📝 Patching {}.{}: functions", module_name, class_name);
+        class_data.functions = Some(new_functions.clone());
         patches_applied += 1;
     }
 

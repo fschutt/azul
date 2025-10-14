@@ -1,14 +1,14 @@
-use std::fmt;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    fmt, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use quote::ToTokens;
 use syn::File;
 
-// Assuming your parser module is at `crate::parser`
-// Ensure SymbolInfo and SymbolType from parser.rs are pub and Clone.
-use crate::parser::{self, SymbolInfo, SymbolType};
+// Import from the patch module
+use crate::patch::parser::{self, SymbolInfo, SymbolType};
 
 // --- Error Type ---
 #[derive(Debug)]
@@ -66,7 +66,12 @@ impl fmt::Display for SourceRetrieverError {
                 write!(f, "Dependency '{}' not found in cargo metadata.", dep_name)
             }
             SourceRetrieverError::MethodComponentParsingError(qname) => {
-                write!(f, "Could not parse components (type, method) from qualified name '{}' for method extraction.", qname)
+                write!(
+                    f,
+                    "Could not parse components (type, method) from qualified name '{}' for \
+                     method extraction.",
+                    qname
+                )
             }
         }
     }
@@ -446,8 +451,9 @@ fn find_method_in_ast(
 // --- Tests ---
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::tempdir;
+
+    use super::*;
 
     // Helper trait for tests to compare strings ignoring whitespace differences
     trait StringExt {

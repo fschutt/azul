@@ -13,7 +13,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-serde = { version = "1", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive"] }
 serde_derive = { version = "1", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 anyhow = "1.0"
@@ -31,3 +31,13 @@ chrono = "0.4.40"
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 base64 = "0.22.1"
 serde_yaml = "0.9"
+# For source code parsing and analysis (from gem project)
+syn = { version = "2.0.101", features = ["parsing", "full", "visit", "printing"] }
+quote = "1.0.40"
+ignore = "0.4.23"
+regex = "1.11.1"
+cargo_toml = "0.22.1"
+proc-macro2 = { version = "1.0.81", features = ["span-locations"] }
+toml = "0.8.22"
+walkdir = "2"
+thiserror = "1.0"

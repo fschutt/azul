@@ -5,6 +5,7 @@ mod deploy;
 mod docgen;
 mod license;
 mod patch;
+mod print_cmd;
 mod reftest;
 mod utils;
 
@@ -18,6 +19,19 @@ fn main() -> anyhow::Result<()> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
 
     let _ = std::env::set_current_dir(manifest_dir);
+
+    // Parse command line arguments
+    let args: Vec<String> = env::args().collect();
+
+    // Check for "print" subcommand
+    if args.len() > 1 && args[1] == "print" {
+        // Load API data
+        let api_data = api::ApiData::from_str(include_str!("../../api.json"))
+            .context("Failed to parse API definition")?;
+
+        // Handle print command with remaining args
+        return print_cmd::handle_print_command(&api_data, &args[2..]);
+    }
 
     println!("Starting Azul Build and Deploy System...");
 
