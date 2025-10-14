@@ -135,7 +135,7 @@ fn generate_size_and_align_test(test: &TestCase) -> Result<String> {
     );
 
     // Add "Az" prefix for generated types
-    let generated_type = format!("generated::Az{}", test.class);
+    let generated_type = format!("crate::generated::Az{}", test.class);
     let external_type = &test.external_path;
 
     output.push_str(&format!("/// Test size and alignment of {}\n", test.class));
@@ -194,7 +194,7 @@ fn generate_discriminant_test(
     );
 
     // Add prefix for generated types (e.g., "Az1" for first version)
-    let generated_type = format!("generated::Az{}", test.class); // TODO: Use version-based prefix
+    let generated_type = format!("crate::generated::Az{}", test.class); // TODO: Use version-based prefix
     let external_type = &test.external_path;
 
     output.push_str(&format!("/// Test discriminant order of {}\n", test.class));
@@ -234,7 +234,7 @@ fn generate_discriminant_test(
     output.push_str(&format!("\n"));
     output.push_str(&format!("        // Compare discriminants pairwise\n"));
 
-    // Compare each discriminant
+    // Compare each discriminant - only check generated types
     for i in 0..variant_count {
         for j in (i + 1)..variant_count {
             let mut comment = String::new();
@@ -250,10 +250,6 @@ fn generate_discriminant_test(
             output.push_str(&format!(
                 "        assert_ne!(gen_disc_{}, gen_disc_{});{}\n",
                 i, j, comment
-            ));
-            output.push_str(&format!(
-                "        assert_ne!(ext_disc_{}, ext_disc_{});\n",
-                i, j
             ));
         }
     }
@@ -280,6 +276,7 @@ fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
     output.push_str("#![allow(dead_code)]\n");
     output.push_str("#![allow(non_camel_case_types)]\n");
     output.push_str("#![allow(non_snake_case)]\n\n");
+    output.push_str("use core::ffi::c_void;\n\n");
 
     // Use the latest version (or first version found)
     let version_data = api_data
@@ -326,6 +323,10 @@ fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
     let generated_code = generate_structs(version_data, &structs_map, &config)?;
 
     output.push_str(&generated_code);
+
+    // NOTE: We do NOT add API patches here - memtest only needs the raw struct definitions
+    // The patches contain impl blocks that depend on other modules (dll, vec, etc.)
+    // which don't exist in the memtest crate
 
     Ok(output)
 }

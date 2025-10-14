@@ -57,7 +57,8 @@ pub fn analyze_type(arg_type: &str) -> (String, String, String) {
             .collect();
         if arg_type_parts.len() > 1 {
             arg_type_clean = arg_type_parts[0].trim().to_string();
-            ends = format!(";{}", arg_type_parts[1].trim());
+            starts.push('['); // Add opening bracket to prefix
+            ends = format!("; {}]", arg_type_parts[1].trim());
         }
     }
 
