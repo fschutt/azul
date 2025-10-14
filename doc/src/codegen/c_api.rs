@@ -1,12 +1,12 @@
-use std::collections::{BTreeMap, HashMap};
-
+use std::collections::HashMap;
 use indexmap::IndexMap;
+use anyhow::{Result, bail};
 
 use crate::{
     api::ApiData,
     utils::{
         analyze::{
-            analyze_type, class_is_small_enum, class_is_small_struct, class_is_stack_allocated,
+            analyze_type, class_is_stack_allocated,
             class_is_typedef, enum_is_union, get_class, has_recursive_destructor, is_primitive_arg,
             replace_primitive_ctype, search_for_class_by_class_name,
         },
@@ -143,10 +143,13 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("#endif\r\n");
     code.push_str("\r\n");
 
-    // Collect all structs to be sorted later
-    let structs = collect_structs(api_data);
+    // Sort structs by dependencies (topological sort)
+    // This ensures types are declared before they are used
+    let sorted = sort_structs_by_dependencies(api_data, version, PREFIX)
+        .expect("Failed to sort structs by dependencies");
+    let structs = sorted.structs;
 
-    // Generate struct definitions - simplified for brevity
+    // Generate struct definitions
     code.push_str("/* STRUCT DEFINITIONS */\r\n\r\n");
 
     for (struct_name, class_data) in &structs {
@@ -576,22 +579,256 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
 }
 
 /// Collect and sort struct definitions
-fn collect_structs(api_data: &ApiData) -> IndexMap<String, &crate::api::ClassData> {
-    let mut structs = IndexMap::new();
+/// Structs sorted by their dependencies (topological sort)
+/// This ensures that types are declared before they are used in C headers
+struct SortedStructs<'a> {
+    /// Structs in dependency order (types with no dependencies first)
+    structs: IndexMap<String, &'a crate::api::ClassData>,
+    /// Types that need forward declarations (recursive types like DomVec → Dom)
+    forward_declarations: HashMap<String, String>,
+}
 
-    // Get the latest version
-    let latest_version = api_data.get_latest_version_str().unwrap();
-    let version_data = api_data.get_version(latest_version).unwrap();
-
-    // Collect all classes from all modules
+/// Sort structs by their dependencies to avoid forward declarations
+/// Returns structs in topological order: types with no dependencies first
+fn sort_structs_by_dependencies<'a>(
+    api_data: &'a ApiData,
+    version: &str,
+    prefix: &str,
+) -> Result<SortedStructs<'a>> {
+    let version_data = api_data.get_version(version).unwrap();
+    
+    // Collect all structs first
+    let mut all_structs = IndexMap::new();
     for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
-            let struct_name = format!("{}{}", PREFIX, class_name);
-            structs.insert(struct_name, class_data);
+            let struct_name = format!("{}{}", prefix, class_name);
+            all_structs.insert(struct_name, class_data);
         }
     }
-
-    // This is a simplification - in the real implementation, we'd need to sort
-    // the structs based on dependencies to avoid forward declarations
-    structs
+    
+    // Forward declarations for recursive types
+    // These must be manually specified as they create cycles
+    let mut forward_declarations = HashMap::new();
+    forward_declarations.insert(format!("{}DomVec", prefix), "Dom".to_string());
+    forward_declarations.insert(format!("{}MenuItemVec", prefix), "MenuItem".to_string());
+    forward_declarations.insert(format!("{}XmlNodeVec", prefix), "XmlNode".to_string());
+    
+    let mut sorted_structs = IndexMap::new();
+    let mut remaining_structs = all_structs.clone();
+    
+    // First pass: Insert all types that only have primitive types as fields or are callbacks
+    let mut to_remove = Vec::new();
+    for (struct_name, class_data) in &remaining_structs {
+        let is_callback = class_data.callback_typedef.is_some();
+        let has_forward_decl = forward_declarations.contains_key(struct_name);
+        
+        let mut has_only_primitives = true;
+        
+        if !is_callback {
+            // Check struct fields
+            if let Some(struct_fields) = &class_data.struct_fields {
+                for field_map in struct_fields {
+                    for (field_name, field_data) in field_map {
+                        let (_, base_type, _) = analyze_type(&field_data.r#type);
+                        
+                        if !is_primitive_arg(&base_type) {
+                            // Check if this field references the forward-declared type
+                            if let Some(forward_type) = forward_declarations.get(struct_name) {
+                                if &base_type == forward_type {
+                                    continue; // Skip forward-declared recursive reference
+                                }
+                            }
+                            
+                            // Check if field is a function pointer (typedef)
+                            if let Some((mod_name, class_name)) = search_for_class_by_class_name(version_data, &base_type) {
+                                if let Some(field_class) = version_data.api.get(mod_name)
+                                    .and_then(|m| m.classes.get(class_name)) 
+                                {
+                                    if field_class.callback_typedef.is_some() {
+                                        continue; // Function pointers are OK
+                                    }
+                                }
+                            }
+                            
+                            has_only_primitives = false;
+                            break;
+                        }
+                    }
+                    if !has_only_primitives {
+                        break;
+                    }
+                }
+            }
+            // Check enum variants
+            else if let Some(enum_fields) = &class_data.enum_fields {
+                for variant_map in enum_fields {
+                    for (variant_name, variant_data) in variant_map {
+                        if let Some(variant_type) = &variant_data.r#type {
+                            let (_, base_type, _) = analyze_type(variant_type);
+                            
+                            if !is_primitive_arg(&base_type) {
+                                // Check forward declaration
+                                if let Some(forward_type) = forward_declarations.get(struct_name) {
+                                    if &base_type == forward_type {
+                                        continue;
+                                    }
+                                }
+                                
+                                // Check if it's a function pointer
+                                if let Some((mod_name, class_name)) = search_for_class_by_class_name(version_data, &base_type) {
+                                    if let Some(field_class) = version_data.api.get(mod_name)
+                                        .and_then(|m| m.classes.get(class_name)) 
+                                    {
+                                        if field_class.callback_typedef.is_some() {
+                                            continue;
+                                        }
+                                    }
+                                }
+                                
+                                has_only_primitives = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !has_only_primitives {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if is_callback || has_only_primitives {
+            to_remove.push(struct_name.clone());
+        }
+    }
+    
+    // Move primitives to sorted list
+    for name in &to_remove {
+        if let Some(data) = remaining_structs.remove(name) {
+            sorted_structs.insert(name.clone(), data);
+        }
+    }
+    
+    // Iterative resolution: Keep adding structs whose dependencies are already resolved
+    let mut iteration_count = 0;
+    while !remaining_structs.is_empty() {
+        let mut resolved_this_iteration = Vec::new();
+        
+        for (struct_name, class_data) in &remaining_structs {
+            let mut all_deps_resolved = true;
+            
+            // Check struct fields
+            if let Some(struct_fields) = &class_data.struct_fields {
+                for field_map in struct_fields {
+                    for (field_name, field_data) in field_map {
+                        let (_, base_type, _) = analyze_type(&field_data.r#type);
+                        
+                        if !is_primitive_arg(&base_type) {
+                            // Check forward declaration
+                            if let Some(forward_type) = forward_declarations.get(struct_name) {
+                                if &base_type == forward_type {
+                                    continue;
+                                }
+                            }
+                            
+                            // Check if it's a callback
+                            if let Some((mod_name, class_name)) = search_for_class_by_class_name(version_data, &base_type) {
+                                if let Some(field_class) = version_data.api.get(mod_name)
+                                    .and_then(|m| m.classes.get(class_name)) 
+                                {
+                                    if field_class.callback_typedef.is_some() {
+                                        continue;
+                                    }
+                                }
+                                
+                                // Check if dependency is already resolved
+                                let dep_name = format!("{}{}", prefix, class_name);
+                                if !sorted_structs.contains_key(&dep_name) {
+                                    all_deps_resolved = false;
+                                    break;
+                                }
+                            } else {
+                                // Type not found in API - this is an error unless it's a base type
+                                bail!("Type '{}' not found in API (referenced by field '{}' in struct '{}'). All non-primitive types must be defined in the API.", 
+                                      base_type, field_name, struct_name);
+                            }
+                        }
+                    }
+                    if !all_deps_resolved {
+                        break;
+                    }
+                }
+            }
+            // Check enum variants
+            else if let Some(enum_fields) = &class_data.enum_fields {
+                for variant_map in enum_fields {
+                    for (variant_name, variant_data) in variant_map {
+                        if let Some(variant_type) = &variant_data.r#type {
+                            let (_, base_type, _) = analyze_type(variant_type);
+                            
+                            if !is_primitive_arg(&base_type) {
+                                // Check forward declaration
+                                if let Some(forward_type) = forward_declarations.get(struct_name) {
+                                    if &base_type == forward_type {
+                                        continue;
+                                    }
+                                }
+                                
+                                // Check if it's a callback
+                                if let Some((mod_name, class_name)) = search_for_class_by_class_name(version_data, &base_type) {
+                                    if let Some(field_class) = version_data.api.get(mod_name)
+                                        .and_then(|m| m.classes.get(class_name)) 
+                                    {
+                                        if field_class.callback_typedef.is_some() {
+                                            continue;
+                                        }
+                                    }
+                                    
+                                    // Check if dependency is resolved
+                                    let dep_name = format!("{}{}", prefix, class_name);
+                                    if !sorted_structs.contains_key(&dep_name) {
+                                        all_deps_resolved = false;
+                                        break;
+                                    }
+                                } else {
+                                    bail!("Type '{}' not found in API (referenced by enum variant '{}' in enum '{}'). All non-primitive types must be defined in the API.", 
+                                          base_type, variant_name, struct_name);
+                                }
+                            }
+                        }
+                    }
+                    if !all_deps_resolved {
+                        break;
+                    }
+                }
+            }
+            
+            if all_deps_resolved {
+                resolved_this_iteration.push(struct_name.clone());
+            }
+        }
+        
+        // Check if we made progress
+        if resolved_this_iteration.is_empty() && !remaining_structs.is_empty() {
+            let unresolved: Vec<String> = remaining_structs.keys().cloned().collect();
+            bail!("Circular dependency detected! Unable to resolve types: {:?}\nConsider adding these types to forward_declarations if they are recursive.", unresolved);
+        }
+        
+        // Move resolved structs to sorted list
+        for name in &resolved_this_iteration {
+            if let Some(data) = remaining_structs.remove(name) {
+                sorted_structs.insert(name.clone(), data);
+            }
+        }
+        
+        iteration_count += 1;
+        if iteration_count > 500 {
+            bail!("Infinite loop detected in struct sorting (>500 iterations). This indicates a bug in the sorting algorithm.");
+        }
+    }
+    
+    Ok(SortedStructs {
+        structs: sorted_structs,
+        forward_declarations,
+    })
 }
