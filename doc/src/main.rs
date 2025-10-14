@@ -4,7 +4,6 @@ mod codegen;
 mod deploy;
 mod docgen;
 mod license;
-mod memtest;
 mod patch;
 mod print_cmd;
 mod reftest;
@@ -181,13 +180,12 @@ fn main() -> anyhow::Result<()> {
         if args.len() > 2 {
             match args[2].as_str() {
                 "reverse-copy" | "copy-back" | "backup" => {
-                    println!("🔄 Copying fixed modules from memtest back to dll...\n");
-                    memtest::reverse_copy_from_memtest(&project_root)?;
+                    println!("⚠️  reverse-copy is no longer needed - memtest is self-contained");
                     return Ok(());
                 }
                 "run" => {
                     println!("🧪 Generating memory layout test crate...\n");
-                    memtest::generate_memtest_crate(&api_data, &project_root)?;
+                    codegen::memtest::generate_memtest_crate(&api_data, &project_root)?;
                     println!("\n🏃 Running memory layout tests...\n");
                     let memtest_dir = project_root.join("target").join("memtest");
                     let status = std::process::Command::new("cargo")
@@ -211,7 +209,7 @@ fn main() -> anyhow::Result<()> {
 
         // Default: just generate
         println!("🧪 Generating memory layout test crate...\n");
-        memtest::generate_memtest_crate(&api_data, &project_root)?;
+        codegen::memtest::generate_memtest_crate(&api_data, &project_root)?;
         return Ok(());
     }
 

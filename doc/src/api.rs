@@ -30,6 +30,37 @@ impl ApiData {
         self.0.keys().last().map(|s| s.as_str())
     }
 
+    /// Get versions sorted by date (oldest first)
+    /// Returns list of (version_name, version_index) where index is 1-based
+    /// Oldest version gets index 1 (Az1), second oldest gets index 2 (Az2), etc.
+    pub fn get_versions_by_date(&self) -> Vec<(String, usize)> {
+        let mut versions: Vec<_> = self.0.iter().collect();
+
+        // Sort by date (oldest first)
+        versions.sort_by(|a, b| a.1.date.cmp(&b.1.date));
+
+        // Return with 1-based index
+        versions
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (name, _))| (name.clone(), idx + 1))
+            .collect()
+    }
+
+    /// Get the prefix for a specific version (e.g., "Az1", "Az2", etc.)
+    /// Based on the version's position when sorted by date
+    pub fn get_version_prefix(&self, version_name: &str) -> Option<String> {
+        self.get_versions_by_date()
+            .into_iter()
+            .find(|(name, _)| name == version_name)
+            .map(|(_, idx)| format!("Az{}", idx))
+    }
+
+    /// Get the default prefix (uses "Az" without version number)
+    pub fn get_default_prefix() -> &'static str {
+        "Az"
+    }
+
     // Search across all versions and modules for a class definition by name.
     // Returns Option<(version_str, module_name, class_name, &ClassData)>
     pub fn find_class_definition<'a>(
@@ -217,7 +248,6 @@ impl ModuleData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")] // Handles fields like isBoxedObject -> is_boxed_object
 pub struct ClassData {
     pub doc: Option<String>,
     pub external: Option<String>,

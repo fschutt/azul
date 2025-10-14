@@ -4,6 +4,10 @@ use indexmap::IndexMap;
 
 use crate::{
     api::ApiData,
+    codegen::{
+        func_gen::{build_functions_map, generate_rust_dll_bindings, FunctionsMap},
+        struct_gen::{GenerateConfig, StructMetadata},
+    },
     utils::{
         analyze::{
             analyze_type, class_is_small_enum, class_is_small_struct, class_is_stack_allocated,
@@ -13,8 +17,6 @@ use crate::{
         string::snake_case_to_lower_camel,
     },
 };
-
-const PREFIX: &str = "Az";
 
 // Patches that will be included in the Rust API
 static RUST_API_PATCHES: &[(&str, &str)] = &[
@@ -35,12 +37,39 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     // Get the latest version
     let version_data = api_data.get_version(version).unwrap();
 
+    // Compute version-based prefix
+    let prefix = api_data
+        .get_version_prefix(version)
+        .unwrap_or_else(|| "Az".to_string());
+
+    // Build structs map for DLL generation
+    let mut structs_map = std::collections::HashMap::new();
+    for (module_name, module_data) in &version_data.api {
+        for (class_name, class_data) in &module_data.classes {
+            let metadata = StructMetadata::from_class_data(class_name.clone(), class_data);
+            let prefixed_name = format!("{}{}", prefix, class_name);
+            structs_map.insert(prefixed_name, metadata);
+        }
+    }
+
+    // Build functions map
+    let functions_map = build_functions_map(version_data, &prefix).unwrap();
+
     // Generate Rust DLL bindings
-    // In a real implementation, you'd call generate_rust_dll_bindings here
-    module_file_map.insert(
-        "dll".to_string(),
-        "// DLL bindings would be generated here".to_string(),
-    );
+    let dll_config = GenerateConfig {
+        prefix: prefix.clone(),
+        indent: 8,
+        autoderive: true,
+        private_pointers: false,
+        no_derive: false,
+        wrapper_postfix: String::new(),
+    };
+
+    let dll_code =
+        generate_rust_dll_bindings(version_data, &structs_map, &functions_map, &dll_config)
+            .unwrap_or_else(|e| format!("// Error generating DLL bindings: {}\n", e));
+
+    module_file_map.insert("dll".to_string(), dll_code);
 
     // Process all modules
     for (module_name, module) in &version_data.api {
@@ -108,7 +137,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
             let class_can_be_cloned = class_data.clone.unwrap_or(true);
 
             let c_is_stack_allocated = !class_is_boxed_object;
-            let class_ptr_name = format!("{}{}", PREFIX, class_name);
+            let class_ptr_name = format!("{}{}", prefix, class_name);
 
             code.push_str("\r\n");
 

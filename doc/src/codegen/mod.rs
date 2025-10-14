@@ -1,6 +1,9 @@
 pub mod c_api;
 pub mod cpp_api;
+pub mod func_gen;
+pub mod memtest;
 pub mod python_api;
 pub mod rust_api;
 pub mod rust_dll;
+pub mod struct_gen;
 pub mod tests;

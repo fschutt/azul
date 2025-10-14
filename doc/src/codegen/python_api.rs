@@ -14,14 +14,17 @@ use crate::{
     },
 };
 
-const PREFIX: &str = "Az";
-
 /// Generate Python API code from API data
 pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     let mut code = String::new();
 
     // Get the latest version
     let version_data = api_data.get_version(version).unwrap();
+
+    // Compute version-based prefix
+    let prefix = api_data
+        .get_version_prefix(version)
+        .unwrap_or_else(|| "Az".to_string());
 
     // Add header comments and imports
     code.push_str("#![allow(non_snake_case)]\r\n");
@@ -60,7 +63,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("\r\n");
 
     // Collect struct and enum mappings
-    let (struct_map, enum_map) = collect_structs_and_enums(api_data);
+    let (struct_map, enum_map) = collect_structs_and_enums(api_data, version, &prefix);
 
     // Generate structure definitions
     for (struct_name, class_data) in &struct_map {
@@ -74,7 +77,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
         // Generate PyClass attribute
         code.push_str(&format!(
             "#[pyclass(name = \"{}\")]\r\n",
-            struct_name.strip_prefix(PREFIX).unwrap_or(struct_name)
+            struct_name.strip_prefix(&prefix).unwrap_or(struct_name)
         ));
 
         // Start struct definition
@@ -119,7 +122,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
         let wrapper_name = format!("{}EnumWrapper", enum_name);
         code.push_str(&format!(
             "#[pyclass(name = \"{}\")]\r\n",
-            enum_name.strip_prefix(PREFIX).unwrap_or(enum_name)
+            enum_name.strip_prefix(&prefix).unwrap_or(enum_name)
         ));
 
         // Define enum wrapper as transparent struct containing the inner enum
@@ -232,7 +235,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     // Generate Python methods
     for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
-            let class_name_with_prefix = format!("{}{}", PREFIX, class_name);
+            let class_name_with_prefix = format!("{}{}", prefix, class_name);
 
             // Skip callback typedefs
             if class_data.callback_typedef.is_some() {
@@ -399,7 +402,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
                                 {
                                     code.push_str(&format!(
                                         "    fn {}(v: {}{}) -> {} {{\r\n",
-                                        variant_name, PREFIX, type_class_name, wrapper_name
+                                        variant_name, prefix, type_class_name, wrapper_name
                                     ));
                                 } else {
                                     continue; // Skip if type not found
@@ -631,7 +634,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     // Add all classes to the module
     for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
-            let class_name_with_prefix = format!("{}{}", PREFIX, class_name);
+            let class_name_with_prefix = format!("{}{}", prefix, class_name);
 
             if class_data.struct_fields.is_some() {
                 code.push_str(&format!(
@@ -658,6 +661,8 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
 /// Collect struct and enum definitions
 fn collect_structs_and_enums<'a>(
     api_data: &'a ApiData,
+    version: &str,
+    prefix: &str,
 ) -> (
     IndexMap<String, &'a ClassData>,
     IndexMap<String, &'a ClassData>,
@@ -665,14 +670,13 @@ fn collect_structs_and_enums<'a>(
     let mut struct_map = IndexMap::new();
     let mut enum_map = IndexMap::new();
 
-    // Get the latest version
-    let latest_version = api_data.get_latest_version_str().unwrap();
-    let version_data = api_data.get_version(latest_version).unwrap();
+    // Get the version data
+    let version_data = api_data.get_version(version).unwrap();
 
     // Collect all classes from all modules
     for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
-            let class_name_with_prefix = format!("{}{}", PREFIX, class_name);
+            let class_name_with_prefix = format!("{}{}", prefix, class_name);
 
             if class_data.struct_fields.is_some() {
                 struct_map.insert(class_name_with_prefix.clone(), class_data);
