@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{
         Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssPropertyVec, TabIndex,
@@ -9,6 +9,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalSize},
     gl::OptionUsize,
     menu::{Menu, OptionMenu},
+    refany::RefAny,
 };
 use azul_css::{
     props::{
@@ -19,7 +20,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS: &[StyleBackgroundContent] =

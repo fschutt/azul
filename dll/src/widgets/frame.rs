@@ -1,9 +1,10 @@
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{
         Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssPropertyVec,
     },
+    refany::RefAny,
 };
 use azul_css::{
     props::{
@@ -14,7 +15,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, Update};
+use azul_layout::callbacks::Callback;
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
@@ -107,7 +108,7 @@ const CSS_MATCH_16739370686243728873_PROPERTIES: &[NodeDataInlineCssProperty] = 
         LayoutFlexDirection::Row,
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::FlexEnd,
+        LayoutAlignItems::End,
     ))),
 ];
 const CSS_MATCH_16739370686243728873: NodeDataInlineCssPropertyVec =
@@ -306,7 +307,9 @@ impl Frame {
                     .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
                         // .__azul-native-frame .__azul-native-frame-content
                         NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(
-                            LayoutFlexGrowValue::Exact(LayoutFlexGrow::new(self.flex_grow)),
+                            LayoutFlexGrowValue::Exact(LayoutFlexGrow::new(
+                                self.flex_grow as isize,
+                            )),
                         )),
                         NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(
                             LayoutPaddingRightValue::Exact(LayoutPaddingRight {

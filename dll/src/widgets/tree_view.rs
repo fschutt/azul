@@ -1,5 +1,5 @@
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{
         Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssPropertyVec, TabIndex,
@@ -14,7 +14,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, Update};
+use azul_layout::callbacks::Callback;
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundContent] =

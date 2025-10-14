@@ -76,6 +76,10 @@ impl LayoutWidth {
         LayoutWidth::Px(PixelValue::px(value))
     }
 
+    pub const fn const_px(value: isize) -> Self {
+        LayoutWidth::Px(PixelValue::const_px(value))
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
             (LayoutWidth::Px(a), LayoutWidth::Px(b)) => LayoutWidth::Px(a.interpolate(b, t)),
@@ -123,6 +127,10 @@ impl PrintAsCssValue for LayoutHeight {
 impl LayoutHeight {
     pub fn px(value: f32) -> Self {
         LayoutHeight::Px(PixelValue::px(value))
+    }
+
+    pub const fn const_px(value: isize) -> Self {
+        LayoutHeight::Px(PixelValue::const_px(value))
     }
 
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {

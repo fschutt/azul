@@ -3,12 +3,13 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
-    callbacks::{CoreCallback, CoreCallbackData},
+    callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
         Dom, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec,
     },
+    refany::RefAny,
     task::OptionTimerId,
     window::VirtualKeyCode,
 };
@@ -21,7 +22,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 const BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
@@ -777,36 +778,36 @@ impl TextInput {
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: state_ref.clone(),
-                        callback: Callback {
-                            cb: default_on_focus_received,
+                        callback: CoreCallback {
+                            cb: default_on_focus_received as usize,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusLost),
                         data: state_ref.clone(),
-                        callback: Callback {
-                            cb: default_on_focus_lost,
+                        callback: CoreCallback {
+                            cb: default_on_focus_lost as usize,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::TextInput),
                         data: state_ref.clone(),
-                        callback: Callback {
-                            cb: default_on_text_input,
+                        callback: CoreCallback {
+                            cb: default_on_text_input as usize,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
                         data: state_ref.clone(),
-                        callback: Callback {
-                            cb: default_on_virtual_key_down,
+                        callback: CoreCallback {
+                            cb: default_on_virtual_key_down as usize,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseOver),
                         data: state_ref.clone(),
-                        callback: Callback {
-                            cb: default_on_mouse_hover,
+                        callback: CoreCallback {
+                            cb: default_on_mouse_hover as usize,
                         },
                     },
                 ]

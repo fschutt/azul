@@ -2,7 +2,7 @@ use azul_core::styled_dom::StyledDom;
 use azul_css::props::basic::color::ColorU;
 
 pub fn coloru_from_str(s: &str) -> ColorU {
-    azul_css::parser2::parse_css_color(s)
+    azul_css::props::basic::color::parse_css_color(s)
         .ok()
         .unwrap_or(ColorU::BLACK)
 }

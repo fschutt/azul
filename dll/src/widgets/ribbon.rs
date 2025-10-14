@@ -1,9 +1,10 @@
 use azul_core::{
-    callbacks::{CoreCallback, CoreCallbackData},
+    callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
         Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
         NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
+    refany::RefAny,
 };
 use azul_css::{
     props::{
@@ -14,7 +15,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4878363956973295354_ITEMS: &[StyleBackgroundContent] =
@@ -2750,7 +2751,9 @@ fn render_tab_element(
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp), // onmouseup
-                callback: Callback { cb: my_callback },
+                callback: CoreCallback {
+                    cb: my_callback as usize,
+                },
                 data: RefAny::new(MyCustomStruct {
                     which_tab_to_activate_on_click,
                     on_tab_change_callback: callback,

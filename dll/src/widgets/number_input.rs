@@ -3,8 +3,9 @@
 use std::string::String;
 
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, NodeDataInlineCssPropertyVec},
+    refany::RefAny,
 };
 use azul_css::{
     props::{
@@ -15,7 +16,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 use crate::widgets::text_input::{
     OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,

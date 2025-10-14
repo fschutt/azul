@@ -13,6 +13,21 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     fs::create_dir_all(&memtest_dir)?;
     fs::create_dir_all(memtest_dir.join("src"))?;
 
+    // Remove old azul_impl.rs if it exists (we use azul_impl/ directory now)
+    let old_azul_impl_file = memtest_dir.join("src").join("azul_impl.rs");
+    if old_azul_impl_file.exists() {
+        fs::remove_file(&old_azul_impl_file)?;
+    }
+
+    // Copy web folder from dll/src/web to use as azul_impl
+    // Web module has no external dependencies but defines AzAppPtr and other needed types
+    let dll_web_dir = project_root.join("dll").join("src").join("web");
+    if dll_web_dir.exists() {
+        let memtest_azul_impl_dir = memtest_dir.join("src").join("azul_impl");
+        copy_dir_recursive(&dll_web_dir, &memtest_azul_impl_dir)?;
+        println!("✅ Copied web module to azul_impl (no dependencies)");
+    }
+
     // Copy widgets folder from dll/src/widgets if it exists
     let dll_widgets_dir = project_root.join("dll").join("src").join("widgets");
     if dll_widgets_dir.exists() {
@@ -29,6 +44,14 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
         println!("✅ Copied extra.rs from dll/src");
     }
 
+    // Copy str.rs from dll/src/str.rs if it exists
+    let dll_str_file = project_root.join("dll").join("src").join("str.rs");
+    if dll_str_file.exists() {
+        let memtest_str_file = memtest_dir.join("src").join("str.rs");
+        fs::copy(&dll_str_file, &memtest_str_file)?;
+        println!("✅ Copied str.rs from dll/src");
+    }
+
     // Generate Cargo.toml
     let cargo_toml = generate_cargo_toml()?;
     fs::write(memtest_dir.join("Cargo.toml"), cargo_toml)?;
@@ -36,6 +59,10 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     // Generate lib.rs with all tests
     let lib_rs = generate_lib_rs(api_data)?;
     fs::write(memtest_dir.join("src").join("lib.rs"), lib_rs)?;
+
+    // Generate stub dialogs.rs for widgets that reference it
+    let dialogs_rs = generate_stub_dialogs_rs()?;
+    fs::write(memtest_dir.join("src").join("dialogs.rs"), dialogs_rs)?;
 
     println!(
         "✅ Generated memory test crate at: {}",
@@ -86,6 +113,8 @@ edition = "2021"
 azul-core = { path = "../../core" }
 azul-layout = { path = "../../layout" }
 azul-css = { path = "../../css" }
+tfd = { version = "0.1.0", default-features = false }
+strfmt = { version = "0.1.6", default-features = false }
 
 [lib]
 name = "azul_memtest"
@@ -109,9 +138,21 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
 
     output.push_str("use std::mem;\n\n");
 
+    // azul_impl module contains web module (no dependencies)
+    output.push_str("// Platform abstraction module (using web implementation for testing)\n");
+    output.push_str("pub mod azul_impl;\n\n");
+
     // Include extra module if it exists
     output.push_str("// Extra utilities from dll/src/extra.rs\n");
     output.push_str("pub mod extra;\n\n");
+
+    // Include stub dialogs module
+    output.push_str("// Stub dialogs module (widgets reference this)\n");
+    output.push_str("pub mod dialogs;\n\n");
+
+    // Include str module if it exists
+    output.push_str("// String utilities from dll/src/str.rs\n");
+    output.push_str("pub mod str;\n\n");
 
     // Include widgets module if it exists
     output.push_str("// Widget types from dll/src/widgets\n");
@@ -243,15 +284,21 @@ fn convert_external_path(external: &str) -> String {
         return external.replace("crate::", "crate::");
     }
 
-    // Handle crate::azul_impl paths - these are in azul_core
+    // Handle crate::azul_impl paths - these map to our local azul_impl module
+    // which re-exports from either desktop or web
     if external.starts_with("crate::azul_impl::") {
-        return external.replace("crate::azul_impl::", "azul_core::");
+        return external.replace("crate::azul_impl::", "crate::azul_impl::");
+    }
+
+    // Handle crate::desktop and crate::web paths
+    if external.starts_with("crate::desktop::") || external.starts_with("crate::web::") {
+        return external.to_string();
     }
 
     // Handle other crate:: paths - try to map to azul_core
     if external.starts_with("crate::") {
         // Check for known module paths
-        if external.contains("::app_resources::") {
+        if external.contains("::resources::") {
             return external.replace("crate::", "azul_core::");
         }
         if external.contains("::task::") {
@@ -270,6 +317,12 @@ fn convert_external_path(external: &str) -> String {
             return external.replace("crate::", "azul_core::");
         }
         if external.contains("::ui_solver::") {
+            return external.replace("crate::", "azul_core::");
+        }
+        if external.contains("::geom::") {
+            return external.replace("crate::", "azul_core::");
+        }
+        if external.contains("::hit_test::") {
             return external.replace("crate::", "azul_core::");
         }
 
@@ -305,4 +358,75 @@ fn sanitize_name(name: &str) -> String {
         .replace("-", "_")
         .replace("::", "_")
         .to_lowercase()
+}
+
+/// Copy fixed modules back from memtest to dll/src
+/// This is useful when you've fixed compilation errors in the memtest crate
+/// and want to preserve those fixes in the main dll crate
+pub fn reverse_copy_from_memtest(project_root: &Path) -> Result<()> {
+    let memtest_dir = project_root.join("target").join("memtest").join("src");
+    let dll_dir = project_root.join("dll").join("src");
+
+    if !memtest_dir.exists() {
+        anyhow::bail!("Memtest directory not found at: {}", memtest_dir.display());
+    }
+
+    // Copy widgets back
+    let memtest_widgets = memtest_dir.join("widgets");
+    if memtest_widgets.exists() {
+        let dll_widgets = dll_dir.join("widgets");
+        copy_dir_recursive(&memtest_widgets, &dll_widgets)?;
+        println!("✅ Copied widgets back to dll/src/widgets");
+    }
+
+    // Copy extra.rs back
+    let memtest_extra = memtest_dir.join("extra.rs");
+    if memtest_extra.exists() {
+        let dll_extra = dll_dir.join("extra.rs");
+        fs::copy(&memtest_extra, &dll_extra)?;
+        println!("✅ Copied extra.rs back to dll/src");
+    }
+
+    // Copy str.rs back
+    let memtest_str = memtest_dir.join("str.rs");
+    if memtest_str.exists() {
+        let dll_str = dll_dir.join("str.rs");
+        fs::copy(&memtest_str, &dll_str)?;
+        println!("✅ Copied str.rs back to dll/src");
+    }
+
+    println!("\n✅ Reverse copy complete!");
+    println!("All fixed modules have been copied back to dll/src");
+
+    Ok(())
+}
+
+fn generate_stub_dialogs_rs() -> Result<String> {
+    Ok(r#"// Stub dialogs module for memtest
+// Widgets reference these types but they're not actually used in memory layout tests
+
+use azul_css::{AzString, StringVec};
+use azul_css::props::basic::color::ColorU;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FileTypeList {
+    pub document_descriptor: AzString,
+    pub document_types: StringVec,
+}
+
+pub type OptionFileTypeList = Option<FileTypeList>;
+
+pub fn open_file_dialog(
+    _title: &str,
+    _default_path: Option<&str>,
+    _filter_list: Option<FileTypeList>,
+) -> Option<AzString> {
+    None
+}
+
+pub fn color_picker_dialog(_title: &str, _default_value: Option<ColorU>) -> Option<ColorU> {
+    None
+}
+"#
+    .to_string())
 }

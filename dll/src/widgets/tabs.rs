@@ -1,9 +1,10 @@
 use azul_core::{
-    callbacks::{CoreCallback, CoreCallbackData},
+    callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
         Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
         NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
+    refany::RefAny,
 };
 use azul_css::{
     props::{
@@ -14,7 +15,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
@@ -1335,12 +1336,14 @@ impl TabHeader {
                             .with_callbacks(if on_click_is_some {
                                 vec![CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                                    callback: Callback { cb: on_tab_click },
+                                    callback: CoreCallback {
+                                        cb: on_tab_click as usize,
+                                    },
                                     data: dataset.clone(),
                                 }]
                                 .into()
                             } else {
-                                CallbackDataVec::from_const_slice(&[])
+                                CoreCallbackDataVec::from_const_slice(&[])
                             })
                             .with_dataset(Some(dataset).into())
                             .with_inline_css_props(css_props)

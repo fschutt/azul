@@ -1,7 +1,7 @@
 use std::vec::Vec;
 
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,
@@ -9,6 +9,7 @@ use azul_core::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
+    refany::RefAny,
     resources::{ImageRef, OptionImageRef},
 };
 use azul_css::{
@@ -24,7 +25,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -444,9 +445,11 @@ impl Button {
         };
 
         let callbacks = match self.on_click.into_option() {
-            Some(ButtonOnClick { data, callback }) => vec![CoreCoreCallbackData {
+            Some(ButtonOnClick { data, callback }) => vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                callback: CoreCallback { cb: callback.cb },
+                callback: CoreCallback {
+                    cb: callback.cb as usize,
+                },
                 data,
             }],
             None => Vec::new(),

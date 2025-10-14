@@ -1,9 +1,10 @@
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{
         Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec, TabIndex,
     },
+    refany::RefAny,
 };
 use azul_css::{
     props::{
@@ -14,7 +15,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-container",
@@ -223,10 +224,10 @@ impl CheckBox {
             .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
             .with_inline_css_props(self.container_style)
             .with_callbacks(
-                vec![CoreCoreCallbackData {
+                vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
-                        cb: self::input::default_on_checkbox_clicked,
+                        cb: self::input::default_on_checkbox_clicked as usize,
                     },
                     data: RefAny::new(self.state),
                 }]
@@ -245,8 +246,9 @@ impl CheckBox {
 // handle input events for the checkbox
 mod input {
 
+    use azul_core::{callbacks::Update, refany::RefAny};
     use azul_css::props::{property::CssProperty, style::effects::StyleOpacity};
-    use azul_layout::callbacks::{CallbackInfo, RefAny, Update};
+    use azul_layout::callbacks::CallbackInfo;
 
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
 

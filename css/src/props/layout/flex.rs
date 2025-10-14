@@ -43,6 +43,18 @@ impl PrintAsCssValue for LayoutFlexGrow {
 }
 
 impl LayoutFlexGrow {
+    pub fn new(value: isize) -> Self {
+        Self {
+            inner: FloatValue::new(value as f32),
+        }
+    }
+
+    pub const fn const_new(value: isize) -> Self {
+        Self {
+            inner: FloatValue::const_new(value),
+        }
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),

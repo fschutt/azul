@@ -249,7 +249,7 @@ pub enum StyleFontFamily {
 }
 
 impl StyleFontFamily {
-    pub(crate) fn as_string(&self) -> String {
+    pub fn as_string(&self) -> String {
         match &self {
             StyleFontFamily::System(s) => {
                 let owned = s.clone().into_library_owned_string();

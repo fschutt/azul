@@ -2,9 +2,9 @@
 //! opens a file dialog instead
 
 use azul_core::{
-    callbacks::CoreCallbackData,
-    dialogs::OptionFileTypeList,
+    callbacks::{CoreCallbackData, Update},
     dom::{Dom, NodeDataInlineCssPropertyVec},
+    refany::RefAny,
     resources::OptionImageRef,
 };
 use azul_css::{
@@ -16,9 +16,12 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
-use crate::widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback};
+use crate::{
+    dialogs::OptionFileTypeList,
+    widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -187,7 +190,7 @@ impl FileInput {
 }
 
 extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use azul_core::dialogs::open_file_dialog;
+    use crate::dialogs::open_file_dialog;
 
     let mut fileinputstatewrapper = match data.downcast_mut::<FileInputStateWrapper>() {
         Some(s) => s,
@@ -202,7 +205,7 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
             .default_dir
             .as_ref()
             .map(|s| s.as_str()),
-        fileinputstatewrapper.file_types.clone().into_option(),
+        fileinputstatewrapper.file_types.clone(),
     ) {
         Some(s) => OptionAzString::Some(s),
         None => return Update::DoNothing,

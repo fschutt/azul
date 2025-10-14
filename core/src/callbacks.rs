@@ -455,11 +455,23 @@ pub struct FocusTargetPath {
 //
 // Naming convention: "Core" prefix indicates these are the low-level types
 
-/// Core callback type - uses usize instead of function pointer
-/// Will be converted to real function pointer in azul-layout
+/// Core callback type - uses usize instead of function pointer to avoid circular dependencies.
+///
+/// **IMPORTANT**: This is NOT actually a usize at runtime - it's a function pointer that is
+/// cast to usize for storage in the data model. When invoking the callback, this usize is
+/// unsafely cast back to the actual function pointer type:
+/// `extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update`
+///
+/// This design allows azul-core to store callbacks without depending on azul-layout's CallbackInfo
+/// type. The actual function pointer type is defined in azul-layout as `CallbackType`.
 pub type CoreCallbackType = usize;
 
-/// Stores a callback as usize (will be function pointer in azul-layout)
+/// Stores a callback as usize (actually a function pointer cast to usize)
+///
+/// **IMPORTANT**: The `cb` field stores a function pointer disguised as usize to avoid
+/// circular dependencies between azul-core and azul-layout. When creating a CoreCallback,
+/// you can directly assign a function pointer - Rust will implicitly cast it to usize.
+/// When invoking, the usize must be unsafely cast back to the function pointer type.
 ///
 /// Must return an `Update` that denotes if the screen should be redrawn.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -475,6 +487,17 @@ impl_option!(
 );
 
 /// Data associated with a callback (event filter, callback, and user data)
+///
+/// **IMPORTANT**: The `callback` field contains a CoreCallback whose `cb` field is actually
+/// a function pointer stored as usize. You can directly assign function pointers when creating
+/// CoreCallbackData - Rust will implicitly cast them. Example:
+/// ```ignore
+/// CoreCallbackData {
+///     event: EventFilter::Hover(HoverEventFilter::MouseDown),
+///     callback: CoreCallback { cb: my_callback_function }, // function pointer auto-casts to usize
+///     data: RefAny::new(my_data),
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CoreCallbackData {

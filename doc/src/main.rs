@@ -133,28 +133,41 @@ fn main() -> anyhow::Result<()> {
         // Get project root (parent of doc/)
         let project_root = PathBuf::from(manifest_dir).parent().unwrap().to_path_buf();
 
-        println!("🧪 Generating memory layout test crate...\n");
-        memtest::generate_memtest_crate(&api_data, &project_root)?;
+        // Handle subcommands
+        if args.len() > 2 {
+            match args[2].as_str() {
+                "reverse-copy" | "copy-back" | "backup" => {
+                    println!("🔄 Copying fixed modules from memtest back to dll...\n");
+                    memtest::reverse_copy_from_memtest(&project_root)?;
+                    return Ok(());
+                }
+                "run" => {
+                    println!("🧪 Generating memory layout test crate...\n");
+                    memtest::generate_memtest_crate(&api_data, &project_root)?;
+                    println!("\n🏃 Running memory layout tests...\n");
+                    let memtest_dir = project_root.join("target").join("memtest");
+                    let status = std::process::Command::new("cargo")
+                        .arg("test")
+                        .arg("--")
+                        .arg("--nocapture")
+                        .current_dir(&memtest_dir)
+                        .status()?;
 
-        // Optionally run the tests if "run" is passed
-        if args.len() > 2 && args[2] == "run" {
-            println!("\n🏃 Running memory layout tests...\n");
-            let memtest_dir = project_root.join("target").join("memtest");
-            let status = std::process::Command::new("cargo")
-                .arg("test")
-                .arg("--")
-                .arg("--nocapture")
-                .current_dir(&memtest_dir)
-                .status()?;
-
-            if !status.success() {
-                eprintln!("\n❌ Memory layout tests failed!");
-                std::process::exit(1);
-            } else {
-                println!("\n✅ All memory layout tests passed!");
+                    if !status.success() {
+                        eprintln!("\n❌ Memory layout tests failed!");
+                        std::process::exit(1);
+                    } else {
+                        println!("\n✅ All memory layout tests passed!");
+                    }
+                    return Ok(());
+                }
+                _ => {}
             }
         }
 
+        // Default: just generate
+        println!("🧪 Generating memory layout test crate...\n");
+        memtest::generate_memtest_crate(&api_data, &project_root)?;
         return Ok(());
     }
 

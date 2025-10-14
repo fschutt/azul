@@ -1,5 +1,5 @@
 use azul_core::{
-    callbacks::CoreCallbackData,
+    callbacks::{CoreCallbackData, Update},
     dom::{
         Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssPropertyVec,
@@ -14,7 +14,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, Update};
+use azul_layout::callbacks::Callback;
 
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {

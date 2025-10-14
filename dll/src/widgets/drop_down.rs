@@ -1,12 +1,13 @@
 use azul_core::{
     callbacks::{
         CoreCallback, CoreCallbackData, LayoutCallback, LayoutCallbackInfo,
-        MarshaledLayoutCallback, MarshaledLayoutCallbackInner,
+        MarshaledLayoutCallback, MarshaledLayoutCallbackInner, Update,
     },
     dom::{
         Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
         NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex, WindowEventFilter,
     },
+    refany::RefAny,
     styled_dom::StyledDom,
 };
 use azul_css::{
@@ -18,7 +19,7 @@ use azul_css::{
     },
     *,
 };
-use azul_layout::callbacks::{Callback, CallbackInfo, RefAny, Update};
+use azul_layout::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
 const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
@@ -933,11 +934,11 @@ impl DropDown {
                 })
                 .with_tab_index(TabIndex::Auto)
                 .with_callbacks(
-                    vec![CoreCoreCallbackData {
+                    vec![CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: data.clone(),
                         callback: CoreCallback {
-                            cb: on_dropdown_click,
+                            cb: on_dropdown_click as usize,
                         },
                     }]
                     .into(),
@@ -1024,7 +1025,7 @@ extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> U
     let mut child_window_state = info.get_current_window_state();
 
     // align the child window to the bottom of the checkbox
-    let mut pos = position.get_static_offset();
+    let mut pos = position;
     pos.y += size.height;
 
     let window_pos = match child_window_state.position {
@@ -1113,14 +1114,14 @@ extern "C" fn dropdownWindowLayoutFn(
             Dom::text(choice.clone())
                 .with_tab_index(TabIndex::Auto)
                 .with_callbacks(
-                    vec![CoreCoreCallbackData {
+                    vec![CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                         data: RefAny::new(ChoiceChangeLocalDataset {
                             choice_id,
                             on_choice_change: dropdown_local_dataset.on_choice_change.clone(),
                         }),
                         callback: CoreCallback {
-                            cb: on_choice_change,
+                            cb: on_choice_change as usize,
                         },
                     }]
                     .into(),
@@ -1128,16 +1129,17 @@ extern "C" fn dropdownWindowLayoutFn(
         })
         .collect::<Dom>()
         .with_callbacks(
-            vec![CoreCoreCallbackData {
+            vec![CoreCallbackData {
                 event: EventFilter::Window(WindowEventFilter::WindowFocusLost),
                 data: data_clone,
                 callback: CoreCallback {
-                    cb: close_choice_window,
+                    cb: close_choice_window as usize,
                 },
             }]
             .into(),
         )
-        .style(CssApiWrapper::empty())
+        .style(Default::default())
+    // .style(CssApiWrapper::empty())
 }
 
 extern "C" fn on_choice_change(data: &mut RefAny, info: &mut CallbackInfo) -> Update {

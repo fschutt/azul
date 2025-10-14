@@ -753,3 +753,104 @@ impl From<OptionMenuCallback> for Option<MenuCallback> {
         o.into_option()
     }
 }
+
+// -- render image callback
+
+/// Callback type that renders an OpenGL texture
+///
+/// **IMPORTANT**: In azul-core, this is stored as `CoreRenderImageCallbackType = usize`
+/// to avoid circular dependencies. The actual function pointer is cast to usize for
+/// storage in the data model, then unsafely cast back to this type when invoked.
+pub type RenderImageCallbackType =
+    extern "C" fn(&mut RefAny, &mut RenderImageCallbackInfo) -> ImageRef;
+
+/// Callback that returns a rendered OpenGL texture
+///
+/// **IMPORTANT**: In azul-core, this is stored as `CoreRenderImageCallback` with
+/// a `cb: usize` field. When creating callbacks in the data model, function pointers
+/// are cast to usize. This type is used in azul-layout where we can safely work
+/// with the actual function pointer type.
+#[repr(C)]
+pub struct RenderImageCallback {
+    pub cb: RenderImageCallbackType,
+}
+
+impl_callback!(RenderImageCallback);
+
+/// Information passed to image rendering callbacks
+#[derive(Debug)]
+#[repr(C)]
+pub struct RenderImageCallbackInfo {
+    /// The ID of the DOM node that the ImageCallback was attached to
+    callback_node_id: DomNodeId,
+    /// Bounds of the laid-out node
+    bounds: azul_core::callbacks::HidpiAdjustedBounds,
+    /// Optional OpenGL context pointer
+    gl_context: *const OptionGlContextPtr,
+    /// Image cache for looking up images
+    image_cache: *const ImageCache,
+    /// System font cache
+    system_fonts: *const FcFontCache,
+    /// Extension for future ABI stability (referenced data)
+    _abi_ref: *const core::ffi::c_void,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut core::ffi::c_void,
+}
+
+impl Clone for RenderImageCallbackInfo {
+    fn clone(&self) -> Self {
+        Self {
+            callback_node_id: self.callback_node_id,
+            bounds: self.bounds,
+            gl_context: self.gl_context,
+            image_cache: self.image_cache,
+            system_fonts: self.system_fonts,
+            _abi_ref: self._abi_ref,
+            _abi_mut: self._abi_mut,
+        }
+    }
+}
+
+impl RenderImageCallbackInfo {
+    pub fn new<'a>(
+        callback_node_id: DomNodeId,
+        bounds: azul_core::callbacks::HidpiAdjustedBounds,
+        gl_context: &'a OptionGlContextPtr,
+        image_cache: &'a ImageCache,
+        system_fonts: &'a FcFontCache,
+    ) -> Self {
+        Self {
+            callback_node_id,
+            bounds,
+            gl_context: gl_context as *const OptionGlContextPtr,
+            image_cache: image_cache as *const ImageCache,
+            system_fonts: system_fonts as *const FcFontCache,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
+        }
+    }
+
+    pub fn get_callback_node_id(&self) -> DomNodeId {
+        self.callback_node_id
+    }
+
+    pub fn get_bounds(&self) -> azul_core::callbacks::HidpiAdjustedBounds {
+        self.bounds
+    }
+
+    fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr {
+        unsafe { &*self.gl_context }
+    }
+
+    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {
+        unsafe { &*self.image_cache }
+    }
+
+    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache {
+        unsafe { &*self.system_fonts }
+    }
+
+    pub fn get_gl_context(&self) -> OptionGlContextPtr {
+        self.internal_get_gl_context().clone()
+    }
+}

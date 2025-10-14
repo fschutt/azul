@@ -208,6 +208,18 @@ define_border_side_property!(LayoutBorderLeftWidth, PixelValue, MEDIUM_BORDER_TH
 
 // Interpolate implementations for border width types
 impl LayoutBorderTopWidth {
+    pub fn px(value: f32) -> Self {
+        Self {
+            inner: PixelValue::px(value),
+        }
+    }
+
+    pub const fn const_px(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_px(value),
+        }
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
@@ -216,6 +228,18 @@ impl LayoutBorderTopWidth {
 }
 
 impl LayoutBorderRightWidth {
+    pub fn px(value: f32) -> Self {
+        Self {
+            inner: PixelValue::px(value),
+        }
+    }
+
+    pub const fn const_px(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_px(value),
+        }
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
@@ -224,6 +248,18 @@ impl LayoutBorderRightWidth {
 }
 
 impl LayoutBorderLeftWidth {
+    pub fn px(value: f32) -> Self {
+        Self {
+            inner: PixelValue::px(value),
+        }
+    }
+
+    pub const fn const_px(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_px(value),
+        }
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
@@ -232,6 +268,18 @@ impl LayoutBorderLeftWidth {
 }
 
 impl LayoutBorderBottomWidth {
+    pub fn px(value: f32) -> Self {
+        Self {
+            inner: PixelValue::px(value),
+        }
+    }
+
+    pub const fn const_px(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_px(value),
+        }
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
