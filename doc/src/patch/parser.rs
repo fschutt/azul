@@ -605,7 +605,8 @@ fn get_crate_name(project_root: &Path) -> String {
                     .trim()
                     .trim_matches('"')
                     .trim_matches('\'');
-                return name.to_string();
+                // Convert hyphens to underscores for Rust crate naming
+                return name.replace('-', "_");
             }
         }
     }

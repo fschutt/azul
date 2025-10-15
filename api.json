@@ -12537,6 +12537,271 @@
                 "TextShadow": {
                   "type": "StyleBoxShadowValue"
                 }
+              },
+              {
+                "CaretColor": {
+                  "type": "CaretColorValue"
+                }
+              },
+              {
+                "CaretAnimationDuration": {
+                  "type": "CaretAnimationDurationValue"
+                }
+              },
+              {
+                "SelectionBackgroundColor": {
+                  "type": "SelectionBackgroundColorValue"
+                }
+              },
+              {
+                "SelectionColor": {
+                  "type": "SelectionColorValue"
+                }
+              },
+              {
+                "TextJustify": {
+                  "type": "LayoutTextJustifyValue"
+                }
+              },
+              {
+                "WhiteSpace": {
+                  "type": "StyleWhiteSpaceValue"
+                }
+              },
+              {
+                "Hyphens": {
+                  "type": "StyleHyphensValue"
+                }
+              },
+              {
+                "Direction": {
+                  "type": "StyleDirectionValue"
+                }
+              },
+              {
+                "ZIndex": {
+                  "type": "LayoutZIndexValue"
+                }
+              },
+              {
+                "FlexBasis": {
+                  "type": "LayoutFlexBasisValue"
+                }
+              },
+              {
+                "ColumnGap": {
+                  "type": "LayoutColumnGapValue"
+                }
+              },
+              {
+                "RowGap": {
+                  "type": "LayoutRowGapValue"
+                }
+              },
+              {
+                "GridTemplateColumns": {
+                  "type": "LayoutGridTemplateColumnsValue"
+                }
+              },
+              {
+                "GridTemplateRows": {
+                  "type": "LayoutGridTemplateRowsValue"
+                }
+              },
+              {
+                "GridAutoColumns": {
+                  "type": "LayoutGridAutoColumnsValue"
+                }
+              },
+              {
+                "GridAutoRows": {
+                  "type": "LayoutGridAutoRowsValue"
+                }
+              },
+              {
+                "GridColumn": {
+                  "type": "LayoutGridColumnValue"
+                }
+              },
+              {
+                "GridRow": {
+                  "type": "LayoutGridRowValue"
+                }
+              },
+              {
+                "WritingMode": {
+                  "type": "LayoutWritingModeValue"
+                }
+              },
+              {
+                "Clear": {
+                  "type": "LayoutClearValue"
+                }
+              },
+              {
+                "GridAutoFlow": {
+                  "type": "LayoutGridAutoFlowValue"
+                }
+              },
+              {
+                "JustifySelf": {
+                  "type": "LayoutJustifySelfValue"
+                }
+              },
+              {
+                "JustifyItems": {
+                  "type": "LayoutJustifyItemsValue"
+                }
+              },
+              {
+                "Gap": {
+                  "type": "LayoutGapValue"
+                }
+              },
+              {
+                "GridGap": {
+                  "type": "LayoutGapValue"
+                }
+              },
+              {
+                "AlignSelf": {
+                  "type": "LayoutAlignSelfValue"
+                }
+              },
+              {
+                "Font": {
+                  "type": "StyleFontValue"
+                }
+              },
+              {
+                "LayoutTextJustify": {
+                  "type": "LayoutTextJustifyValue"
+                }
+              },
+              {
+                "ScrollbarWidth": {
+                  "type": "LayoutScrollbarWidthValue"
+                }
+              },
+              {
+                "ScrollbarColor": {
+                  "type": "StyleScrollbarColorValue"
+                }
+              },
+              {
+                "Visibility": {
+                  "type": "StyleVisibilityValue"
+                }
+              },
+              {
+                "BreakBefore": {
+                  "type": "PageBreakValue"
+                }
+              },
+              {
+                "BreakAfter": {
+                  "type": "PageBreakValue"
+                }
+              },
+              {
+                "BreakInside": {
+                  "type": "BreakInsideValue"
+                }
+              },
+              {
+                "Orphans": {
+                  "type": "OrphansValue"
+                }
+              },
+              {
+                "Widows": {
+                  "type": "WidowsValue"
+                }
+              },
+              {
+                "BoxDecorationBreak": {
+                  "type": "BoxDecorationBreakValue"
+                }
+              },
+              {
+                "ColumnCount": {
+                  "type": "ColumnCountValue"
+                }
+              },
+              {
+                "ColumnWidth": {
+                  "type": "ColumnWidthValue"
+                }
+              },
+              {
+                "ColumnSpan": {
+                  "type": "ColumnSpanValue"
+                }
+              },
+              {
+                "ColumnFill": {
+                  "type": "ColumnFillValue"
+                }
+              },
+              {
+                "ColumnRuleWidth": {
+                  "type": "ColumnRuleWidthValue"
+                }
+              },
+              {
+                "ColumnRuleStyle": {
+                  "type": "ColumnRuleStyleValue"
+                }
+              },
+              {
+                "ColumnRuleColor": {
+                  "type": "ColumnRuleColorValue"
+                }
+              },
+              {
+                "FlowInto": {
+                  "type": "FlowIntoValue"
+                }
+              },
+              {
+                "FlowFrom": {
+                  "type": "FlowFromValue"
+                }
+              },
+              {
+                "ShapeOutside": {
+                  "type": "ShapeOutsideValue"
+                }
+              },
+              {
+                "ShapeMargin": {
+                  "type": "ShapeMarginValue"
+                }
+              },
+              {
+                "ShapeImageThreshold": {
+                  "type": "ShapeImageThresholdValue"
+                }
+              },
+              {
+                "Content": {
+                  "type": "ContentValue"
+                }
+              },
+              {
+                "CounterReset": {
+                  "type": "CounterResetValue"
+                }
+              },
+              {
+                "CounterIncrement": {
+                  "type": "CounterIncrementValue"
+                }
+              },
+              {
+                "StringSet": {
+                  "type": "StringSetValue"
+                }
               }
             ],
             "functions": {

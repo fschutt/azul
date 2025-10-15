@@ -127,14 +127,7 @@ fn get_cargo_metadata(project_root: &Path) -> Result<CargoMetadata> {
         }
     }
 
-    // Normal execution
-    let _check_status = Command::new("cargo")
-        .arg("check")
-        .arg("--quiet")
-        .current_dir(project_root)
-        .status()
-        .map_err(|e| SourceRetrieverError::Io(e, Some(PathBuf::from("cargo check command"))))?;
-
+    // Normal execution - no need for cargo check, metadata works fine without it
     let output = Command::new("cargo")
         .arg("metadata")
         .arg("--no-deps")
@@ -225,7 +218,7 @@ fn determine_effective_root_and_qname<'a>(
     if first_part == current_crate_name || first_part == "crate" {
         Ok((project_root.to_path_buf(), item_qname))
     } else {
-        // Dependency item
+        // Dependency item - first try workspace members
         let metadata = get_cargo_metadata(project_root)?;
 
         // Check specifically for test case dependencies
@@ -241,23 +234,107 @@ fn determine_effective_root_and_qname<'a>(
             }
         }
 
-        let dep_package = metadata
+        // First, try to find in workspace members by package name
+        // Try both with hyphens and underscores since Rust converts hyphens to underscores
+        let crate_name_hyphen = first_part.replace("_", "-");
+        let crate_name_underscore = first_part.to_string();
+
+        if let Some(dep_package) = metadata
             .packages
             .iter()
-            .find(|p| p.name == first_part)
-            .ok_or_else(|| {
-                SourceRetrieverError::DependencyNotFoundInMetadata(first_part.to_string())
+            .find(|p| p.name == crate_name_underscore || p.name == crate_name_hyphen)
+        {
+            let dep_manifest_path = &dep_package.manifest_path;
+            let dep_root = dep_manifest_path.parent().ok_or_else(|| {
+                SourceRetrieverError::CargoTomlError(format!(
+                    "Could not get parent directory of dependency manifest path: {:?}",
+                    dep_manifest_path
+                ))
             })?;
+            return Ok((dep_root.to_path_buf(), item_qname));
+        }
 
-        let dep_manifest_path = &dep_package.manifest_path;
-        let dep_root = dep_manifest_path.parent().ok_or_else(|| {
-            SourceRetrieverError::CargoTomlError(format!(
-                "Could not get parent directory of dependency manifest path: {:?}",
-                dep_manifest_path
-            ))
-        })?;
-        Ok((dep_root.to_path_buf(), item_qname))
+        // If not found in workspace, try searching workspace root for workspace members
+        // Look for workspace_root/Cargo.toml and parse workspace members
+        if let Ok(workspace_root) = find_workspace_root(project_root) {
+            if let Ok(member_root) = find_workspace_member(&workspace_root, first_part) {
+                return Ok((member_root, item_qname));
+            }
+        }
+
+        Err(SourceRetrieverError::DependencyNotFoundInMetadata(
+            first_part.to_string(),
+        ))
     }
+}
+
+/// Find the workspace root by walking up from the given path and looking for Cargo.toml with [workspace]
+fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
+    let mut current = start_path.to_path_buf();
+
+    loop {
+        let cargo_toml_path = current.join("Cargo.toml");
+        if cargo_toml_path.exists() {
+            if let Ok(content) = fs::read_to_string(&cargo_toml_path) {
+                // Check if this Cargo.toml contains [workspace]
+                if content.contains("[workspace]") {
+                    return Ok(current);
+                }
+            }
+        }
+
+        // Move to parent directory
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    Err(SourceRetrieverError::CargoTomlError(
+        "Could not find workspace root".to_string(),
+    ))
+}
+
+/// Find a workspace member directory by crate name
+fn find_workspace_member(workspace_root: &Path, crate_name: &str) -> Result<PathBuf> {
+    let cargo_toml_path = workspace_root.join("Cargo.toml");
+    let content = fs::read_to_string(&cargo_toml_path)
+        .map_err(|e| io_err(e, &cargo_toml_path))?;
+
+    let manifest = cargo_toml::Manifest::from_slice(content.as_bytes()).map_err(|e| {
+        SourceRetrieverError::CargoTomlError(format!(
+            "TOML parse error for workspace {:?}: {}",
+            cargo_toml_path, e
+        ))
+    })?;
+
+    if let Some(ws) = manifest.workspace {
+        let members = ws.members;
+        for member_path in members {
+            let member_dir = workspace_root.join(&member_path);
+            let member_cargo_toml = member_dir.join("Cargo.toml");
+
+            if member_cargo_toml.exists() {
+                if let Ok(member_content) = fs::read_to_string(&member_cargo_toml) {
+                    if let Ok(member_manifest) =
+                        cargo_toml::Manifest::from_slice(member_content.as_bytes())
+                    {
+                        if let Some(pkg) = member_manifest.package {
+                            if pkg.name == crate_name {
+                                return Ok(member_dir);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err(SourceRetrieverError::CargoTomlError(format!(
+        "Could not find workspace member '{}' in {:?}",
+        crate_name, workspace_root
+    )))
 }
 
 fn retrieve_qualified_item_source(project_root: &Path, item_qname: &str) -> Result<String> {

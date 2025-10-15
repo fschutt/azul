@@ -132,7 +132,7 @@ The LLM should:
 
 ### Step 3: Create a Patch
 
-Generate a patch file `fix_app_struct.patch`:
+Generate a patch file `fix_app_struct.patch` - this will REPLACE the ENTIRE struct / class / module field definitions that are specified, so always generate all fields of the struct in the correct order:
 
 ```json
 {
