@@ -4,10 +4,6 @@ use anyhow::Context;
 use indexmap::IndexMap; // Use IndexMap for ordered fields where necessary
 use serde_derive::{Deserialize, Serialize}; // Use BTreeMap for sorted keys (versions)
 
-// Renaming fields to be idiomatic Rust (snake_case)
-// Serde handles the mapping from potential camelCase/other cases in JSON
-// if you need specific renames use #[serde(rename = "...")]
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiData(
     // BTreeMap ensures versions are sorted alphabetically/numerically by key.
@@ -322,17 +318,16 @@ pub struct ReturnTypeData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct CallbackDefinition {
-    #[serde(default)]
+    #[serde(default, rename = "fn_args")]
     pub fn_args: Vec<CallbackArgData>,
     pub returns: Option<ReturnTypeData>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CallbackArgData {
+    #[serde(rename = "type")]
     pub r#type: String,
-    // Renamed from "ref" which is a keyword
     #[serde(rename = "ref")]
     pub ref_kind: String, // "ref", "refmut", "value"
     pub doc: Option<String>,

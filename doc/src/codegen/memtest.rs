@@ -322,11 +322,391 @@ fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
     // Generate all structs/enums using struct_gen module
     let generated_code = generate_structs(version_data, &structs_map, &config)?;
 
-    output.push_str(&generated_code);
+    // Wrap everything in a dll module (private, contains all versioned types)
+    output.push_str("mod dll {\n");
+    output.push_str("    // In std environment, alloc types are re-exported from std\n");
+    output.push_str("    use core::ffi::c_void;\n");
+    output.push_str("    use std::vec::Vec;\n");
+    output.push_str("    use std::string::String;\n\n");
 
-    // NOTE: We do NOT add API patches here - memtest only needs the raw struct definitions
-    // The patches contain impl blocks that depend on other modules (dll, vec, etc.)
-    // which don't exist in the memtest crate
+    // Indent all generated code
+    for line in generated_code.lines() {
+        if !line.is_empty() {
+            output.push_str("    ");
+        }
+        output.push_str(line);
+        output.push_str("\n");
+    }
+
+    output.push_str("}\n\n");
+
+    // Add public API modules with re-exports and patches
+    output.push_str(&generate_public_api_modules(&prefix)?);
+
+    Ok(output)
+}
+
+/// Generate public API modules with re-exports and patches
+fn generate_public_api_modules(prefix: &str) -> Result<String> {
+    let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
+
+    // Map patch files to their module names
+    let patches = vec![
+        ("string.rs", "str"),
+        ("vec.rs", "vec"),
+        ("option.rs", "option"),
+        ("dom.rs", "dom"),
+        ("gl.rs", "gl"),
+        ("css.rs", "css"),
+        ("window.rs", "window"),
+        ("callbacks.rs", "callbacks"),
+    ];
+
+    let mut output = String::new();
+    output.push_str("// ===== Public API Modules =====\n");
+    output.push_str("// Each module re-exports types from dll with friendly names\n\n");
+
+    for (patch_file, module_name) in patches {
+        output.push_str(&format!("pub mod {} {{\n", module_name));
+        output.push_str("    use core::ffi::c_void;\n");
+        output.push_str("    use super::dll::*;\n\n");
+
+        // Generate re-exports: pub use Az1Type as Type;
+        output.push_str(&generate_reexports(prefix, module_name)?);
+
+        // Add patches
+        let patch_path = format!("{}/{}", patch_dir, patch_file);
+        if let Ok(patch_content) = fs::read_to_string(&patch_path) {
+            output.push_str("\n    // ===== Trait Implementations =====\n\n");
+            output.push_str(&process_patch_content(&patch_content, prefix)?);
+        }
+
+        output.push_str("}\n\n");
+    }
+
+    Ok(output)
+}
+
+/// Generate re-exports for a module: pub use Az1Type as Type;
+fn generate_reexports(prefix: &str, _module_name: &str) -> Result<String> {
+    let mut output = String::new();
+    output.push_str("    // Re-export types with friendly names\n");
+
+    // For now, just add a placeholder comment
+    // The actual re-exports can be generated from api.json later
+    output.push_str(&format!(
+        "    // Example: pub use {}Type as Type;\n\n",
+        prefix
+    ));
+
+    Ok(output)
+}
+
+/// Process patch content: skip use statements, replace type names
+fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
+    let mut output = String::new();
+    let mut skip_until_end_brace = false;
+
+    for line in patch_content.lines() {
+        let trimmed = line.trim();
+
+        // Skip use statements that would conflict
+        if trimmed.starts_with("use alloc::vec")
+            || trimmed.starts_with("use std::vec")
+            || trimmed.starts_with("use alloc::string")
+            || trimmed.starts_with("use std::string")
+            || trimmed.starts_with("use crate::dll")
+            || trimmed.starts_with("use crate::gl")
+            || trimmed.starts_with("use crate::vec")
+            || trimmed.starts_with("use crate::option")
+            || trimmed.starts_with("use crate::prelude")
+        {
+            if trimmed.contains("{") && !trimmed.contains("};") {
+                skip_until_end_brace = true;
+            }
+            continue;
+        }
+
+        if skip_until_end_brace {
+            if trimmed.contains("};") {
+                skip_until_end_brace = false;
+            }
+            continue;
+        }
+
+        // Adjust content
+        let mut adjusted_line = line.replace("alloc::", "std::");
+
+        // Replace Az-prefixed types FIRST (before module path replacements)
+        // This ensures that crate::str::String becomes crate::str::Az1String
+        // before we change crate:: to super::
+        adjusted_line = adjusted_line.replace(" Az", &format!(" {}", prefix));
+        adjusted_line = adjusted_line.replace("(Az", &format!("({}", prefix));
+        adjusted_line = adjusted_line.replace("<Az", &format!("<{}", prefix));
+        adjusted_line = adjusted_line.replace(":Az", &format!(":{}", prefix));
+        adjusted_line = adjusted_line.replace(",Az", &format!(",{}", prefix));
+
+        // NOW replace crate:: paths that don't work in generated.rs
+        // In generated.rs, we have: mod dll { } and pub mod vec { }, pub mod str { }, etc.
+        // So crate::dll:: needs to be super::dll:: (when inside pub mod vec)
+        // At this point, types are already prefixed (e.g., crate::str::Az1String)
+        adjusted_line = adjusted_line.replace("crate::dll::", "super::dll::");
+        adjusted_line = adjusted_line.replace("crate::vec::", "super::vec::");
+        adjusted_line = adjusted_line.replace("crate::str::", "super::str::");
+        adjusted_line = adjusted_line.replace("crate::prelude::", "");
+
+        // Replace non-Az types that need prefix
+        adjusted_line = adjusted_line.replace(" Az", &format!(" {}", prefix));
+        adjusted_line = adjusted_line.replace("(Az", &format!("({}", prefix));
+        adjusted_line = adjusted_line.replace("<Az", &format!("<{}", prefix));
+        adjusted_line = adjusted_line.replace(":Az", &format!(":{}", prefix));
+        adjusted_line = adjusted_line.replace(",Az", &format!(",{}", prefix));
+
+        // Replace non-Az types that need prefix
+        adjusted_line = adjusted_line.replace(" CssProperty", &format!(" {}CssProperty", prefix));
+        adjusted_line = adjusted_line.replace("(CssProperty", &format!("({}CssProperty", prefix));
+        adjusted_line = adjusted_line.replace("<CssProperty", &format!("<{}CssProperty", prefix));
+        adjusted_line =
+            adjusted_line.replace(" CssPropertyType", &format!(" {}CssPropertyType", prefix));
+        adjusted_line = adjusted_line.replace(" PixelValue", &format!(" {}PixelValue", prefix));
+        adjusted_line = adjusted_line.replace("(PixelValue", &format!("({}PixelValue", prefix));
+        adjusted_line = adjusted_line.replace(" Dom", &format!(" {}Dom", prefix));
+        adjusted_line = adjusted_line.replace("(Dom", &format!("({}Dom", prefix));
+        adjusted_line = adjusted_line.replace("<Dom", &format!("<{}Dom", prefix));
+
+        // Add more type replacements as needed
+        for type_name in &[
+            // Original types
+            "StyleBoxShadowValue",
+            "FloatValue",
+            "SizeMetric",
+            "AngleMetric",
+            "LayoutOverflowValue",
+            "StyleFilterVecValue",
+            "NodeData",
+            "U8VecRef",
+            "StyleWordSpacingValue",
+            "StyleTransformVecValue",
+            "StyleTransformOriginValue",
+            "StyleTextColorValue",
+            "StyleTextAlignValue",
+            "StyleTabWidthValue",
+            "StylePerspectiveOriginValue",
+            "StyleOpacityValue",
+            // Style*Value types
+            "StyleMixBlendModeValue",
+            "StyleLineHeightValue",
+            "StyleLetterSpacingValue",
+            "StyleFontSizeValue",
+            "StyleFontFamilyVecValue",
+            "StyleCursorValue",
+            "StyleBorderTopStyleValue",
+            "StyleBorderTopRightRadiusValue",
+            "StyleBorderTopLeftRadiusValue",
+            "StyleBorderTopColorValue",
+            "StyleBorderRightStyleValue",
+            "StyleBorderRightColorValue",
+            "StyleBorderLeftStyleValue",
+            "StyleBorderLeftColorValue",
+            "StyleBorderBottomStyleValue",
+            "StyleBorderBottomRightRadiusValue",
+            "StyleBorderBottomLeftRadiusValue",
+            "StyleBorderBottomColorValue",
+            "StyleBackfaceVisibilityValue",
+            "StyleBackgroundContentVecValue",
+            "StyleBackgroundPositionVecValue",
+            "StyleBackgroundRepeatVecValue",
+            "StyleBackgroundSizeVecValue",
+            // Layout*Value types
+            "LayoutAlignContentValue",
+            "LayoutAlignItemsValue",
+            "LayoutBorderBottomWidthValue",
+            "LayoutBorderLeftWidthValue",
+            "LayoutBorderRightWidthValue",
+            "LayoutBorderTopWidthValue",
+            "LayoutBottomValue",
+            "LayoutBoxSizingValue",
+            "LayoutDisplayValue",
+            "LayoutFlexDirectionValue",
+            "LayoutFlexGrowValue",
+            "LayoutFlexShrinkValue",
+            "LayoutFlexWrapValue",
+            "LayoutFloatValue",
+            "LayoutHeightValue",
+            "LayoutJustifyContentValue",
+            "LayoutLeftValue",
+            "LayoutMarginBottomValue",
+            "LayoutMarginLeftValue",
+            "LayoutMarginRightValue",
+            "LayoutMarginTopValue",
+            "LayoutMaxHeightValue",
+            "LayoutMaxWidthValue",
+            "LayoutMinHeightValue",
+            "LayoutMinWidthValue",
+            "LayoutPaddingBottomValue",
+            "LayoutPaddingLeftValue",
+            "LayoutPaddingRightValue",
+            "LayoutPaddingTopValue",
+            "LayoutPositionValue",
+            "LayoutRightValue",
+            "LayoutTopValue",
+            "LayoutWidthValue",
+            // Other types
+            "LayoutPoint",
+            "LayoutSize",
+            "NodeType",
+            "OptionRefAny",
+            "OptionTabIndex",
+            "PercentageValue",
+            "ScrollbarStyleValue",
+            "TabIndex",
+            "AngleValue",
+            "CallbackDataVec",
+            "IdOrClassVec",
+            "IdOrClassVecDestructor",
+        ] {
+            adjusted_line = adjusted_line.replace(
+                &format!(" {}", type_name),
+                &format!(" {}{}", prefix, type_name),
+            );
+            adjusted_line = adjusted_line.replace(
+                &format!("({}", type_name),
+                &format!("({}{}", prefix, type_name),
+            );
+        }
+
+        if !adjusted_line.trim().is_empty() {
+            output.push_str("    ");
+        }
+        output.push_str(&adjusted_line);
+        output.push_str("\n");
+    }
+
+    Ok(output)
+}
+
+fn load_api_patches_inline(prefix: &str) -> Result<String> {
+    let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
+
+    let patches = vec![
+        "string.rs",
+        "vec.rs",
+        "option.rs",
+        "dom.rs",
+        "gl.rs",
+        "css.rs",
+        "window.rs",
+        "callbacks.rs",
+    ];
+
+    let mut output = String::new();
+
+    for patch_file in patches {
+        let patch_path = format!("{}/{}", patch_dir, patch_file);
+        if let Ok(patch_content) = fs::read_to_string(&patch_path) {
+            output.push_str(&format!("    // ===== From {} =====\n", patch_file));
+
+            // Adjust content for inline use in dll module:
+            // - alloc:: → std::
+            // - Az → Az1 (or whatever prefix)
+            // - Remove crate::dll:: imports (we're already in dll)
+            // - Remove crate::gl:: imports (GL types are here)
+            // - Skip wildcard imports
+            let mut skip_until_end_brace = false;
+
+            for line in patch_content.lines() {
+                let trimmed = line.trim();
+
+                // Skip use statements that would conflict with dll module's imports
+                if trimmed.starts_with("use alloc::vec::")
+                    || trimmed.starts_with("use std::vec::")
+                    || trimmed.starts_with("use alloc::string::")
+                    || trimmed.starts_with("use std::string::")
+                    || trimmed.starts_with("use crate::dll")
+                    || trimmed.starts_with("use crate::gl")
+                    || trimmed.starts_with("use crate::vec")
+                    || trimmed.starts_with("use crate::option")
+                    || trimmed.starts_with("use crate::prelude")
+                {
+                    // Check if it's a multi-line use statement
+                    if trimmed.contains("{") && !trimmed.contains("};") {
+                        skip_until_end_brace = true;
+                    }
+                    continue; // Skip this line
+                }
+
+                if skip_until_end_brace {
+                    if trimmed.contains("};") {
+                        skip_until_end_brace = false;
+                    }
+                    continue;
+                }
+
+                // Keep other use statements (core::fmt, core::cmp, alloc::slice, etc.)
+                // but adjust their content
+                let mut adjusted_line = line.replace("alloc::", "std::");
+
+                // First do the generic Az prefix replacement
+                adjusted_line = adjusted_line.replace(" Az", &format!(" {}", prefix));
+                adjusted_line = adjusted_line.replace("(Az", &format!("({}", prefix));
+                adjusted_line = adjusted_line.replace("<Az", &format!("<{}", prefix));
+                adjusted_line = adjusted_line.replace(":Az", &format!(":{}", prefix));
+                adjusted_line = adjusted_line.replace(",Az", &format!(",{}", prefix));
+
+                // Then replace type names that don't start with Az
+                // Using word boundaries to avoid replacing parts of words
+                adjusted_line =
+                    adjusted_line.replace(" CssProperty", &format!(" {}CssProperty", prefix));
+                adjusted_line =
+                    adjusted_line.replace("(CssProperty", &format!("({}CssProperty", prefix));
+                adjusted_line =
+                    adjusted_line.replace("<CssProperty", &format!("<{}CssProperty", prefix));
+                adjusted_line = adjusted_line
+                    .replace(" CssPropertyType", &format!(" {}CssPropertyType", prefix));
+                adjusted_line =
+                    adjusted_line.replace(" PixelValue", &format!(" {}PixelValue", prefix));
+                adjusted_line =
+                    adjusted_line.replace("(PixelValue", &format!("({}PixelValue", prefix));
+                adjusted_line = adjusted_line.replace(
+                    " StyleBoxShadowValue",
+                    &format!(" {}StyleBoxShadowValue", prefix),
+                );
+                adjusted_line =
+                    adjusted_line.replace(" FloatValue", &format!(" {}FloatValue", prefix));
+                adjusted_line =
+                    adjusted_line.replace(" SizeMetric", &format!(" {}SizeMetric", prefix));
+                adjusted_line =
+                    adjusted_line.replace(" AngleMetric", &format!(" {}AngleMetric", prefix));
+                adjusted_line = adjusted_line.replace(
+                    " LayoutOverflowValue",
+                    &format!(" {}LayoutOverflowValue", prefix),
+                );
+                adjusted_line = adjusted_line.replace(
+                    " StyleFilterVecValue",
+                    &format!(" {}StyleFilterVecValue", prefix),
+                );
+                adjusted_line = adjusted_line.replace(" NodeData", &format!(" {}NodeData", prefix));
+                adjusted_line = adjusted_line.replace(" Dom", &format!(" {}Dom", prefix));
+                adjusted_line = adjusted_line.replace("(Dom", &format!("({}Dom", prefix));
+                adjusted_line = adjusted_line.replace("<Dom", &format!("<{}Dom", prefix));
+                adjusted_line = adjusted_line.replace(" U8VecRef", &format!(" {}U8VecRef", prefix));
+
+                // In generated.rs we're inside dll module, so crate::dll:: is just self::
+                // But since all patches are inlined into dll, we can just remove the prefix
+                adjusted_line = adjusted_line.replace("crate::dll::", "");
+                adjusted_line = adjusted_line.replace("crate::prelude::", "");
+                adjusted_line = adjusted_line.replace("crate::vec::", "");
+                adjusted_line = adjusted_line.replace("crate::option::", "");
+
+                if !adjusted_line.trim().is_empty() {
+                    output.push_str("    ");
+                }
+                output.push_str(&adjusted_line);
+                output.push_str("\n");
+            }
+            output.push_str("\n");
+        }
+    }
 
     Ok(output)
 }

@@ -74,13 +74,7 @@ impl StructMetadata {
     pub fn from_class_data(name: String, class_data: &ClassData) -> Self {
         let derive = class_data.derive.clone().unwrap_or_default();
 
-        let is_callback_typedef = class_data.callback_typedef.is_some()
-            && !class_data
-                .callback_typedef
-                .as_ref()
-                .unwrap()
-                .fn_args
-                .is_empty();
+        let is_callback_typedef = class_data.callback_typedef.is_some();
         let can_be_copied = derive.contains(&"Copy".to_string());
         let can_be_serde_serialized = derive.contains(&"Serialize".to_string());
         let can_be_serde_deserialized = derive.contains(&"Deserialize".to_string());
@@ -161,7 +155,8 @@ fn generate_single_type(
     // Handle callback typedefs
     if struct_meta.is_callback_typedef {
         if let Some(callback_typedef) = &struct_meta.callback_typedef {
-            let fn_ptr = generate_rust_callback_fn_type(callback_typedef);
+            let fn_ptr =
+                generate_rust_callback_fn_type(version_data, callback_typedef, &config.prefix)?;
             code.push_str(&format!(
                 "{}pub type {} = {};\n\n",
                 indent_str, struct_name, fn_ptr
@@ -650,10 +645,95 @@ fn generate_enum_definition(
     Ok(code)
 }
 
-fn generate_rust_callback_fn_type(callback_typedef: &crate::api::CallbackDefinition) -> String {
-    // Simplified callback generation - in full implementation, parse callback_typedef properly
-    // For now, return a generic fn pointer
-    "extern \"C\" fn()".to_string()
+/// Generate a Rust callback function type definition
+/// Example: `extern "C" fn(&AzDom, AzEventFilter) -> AzCallbackReturn`
+fn generate_rust_callback_fn_type(
+    version_data: &VersionData,
+    callback_typedef: &crate::api::CallbackDefinition,
+    prefix: &str,
+) -> Result<String> {
+    let mut fn_string = String::from("extern \"C\" fn(");
+
+    // Generate function arguments
+    let fn_args = &callback_typedef.fn_args;
+    if !fn_args.is_empty() {
+        let mut args = Vec::new();
+
+        for fn_arg in fn_args {
+            let fn_arg_type = &fn_arg.r#type;
+            let fn_arg_ref = &fn_arg.ref_kind;
+
+            let (_, base_type, _) = analyze_type(fn_arg_type);
+
+            let mut arg_string = String::new();
+
+            if !is_primitive_arg(&base_type) {
+                // Complex type - need to find and prefix it
+                if let Some((_, class_name)) =
+                    search_for_class_by_class_name(version_data, &base_type)
+                {
+                    match fn_arg_ref.as_str() {
+                        "ref" => arg_string = format!("&{}{}", prefix, class_name),
+                        "refmut" => arg_string = format!("&mut {}{}", prefix, class_name),
+                        "value" => arg_string = format!("{}{}", prefix, class_name),
+                        _ => anyhow::bail!("Invalid fn_arg_ref: {}", fn_arg_ref),
+                    }
+                } else {
+                    // Type not found - use as-is with prefix
+                    eprintln!(
+                        "Warning: Type {} not found in callback fn_arg, using as-is",
+                        base_type
+                    );
+                    match fn_arg_ref.as_str() {
+                        "ref" => arg_string = format!("&{}{}", prefix, base_type),
+                        "refmut" => arg_string = format!("&mut {}{}", prefix, base_type),
+                        "value" => arg_string = format!("{}{}", prefix, base_type),
+                        _ => anyhow::bail!("Invalid fn_arg_ref: {}", fn_arg_ref),
+                    }
+                }
+            } else {
+                // Primitive type
+                match fn_arg_ref.as_str() {
+                    "ref" => arg_string = format!("&{}", fn_arg_type),
+                    "refmut" => arg_string = format!("&mut {}", fn_arg_type),
+                    "value" => arg_string = fn_arg_type.clone(),
+                    _ => anyhow::bail!("Invalid fn_arg_ref: {}", fn_arg_ref),
+                }
+            }
+
+            args.push(arg_string);
+        }
+
+        fn_string.push_str(&args.join(", "));
+    }
+
+    fn_string.push(')');
+
+    // Generate return type
+    if let Some(returns) = &callback_typedef.returns {
+        fn_string.push_str(" -> ");
+
+        let fn_ret_type = &returns.r#type;
+        let (_, base_type, _) = analyze_type(fn_ret_type);
+
+        if !is_primitive_arg(&base_type) {
+            if let Some((_, class_name)) = search_for_class_by_class_name(version_data, &base_type)
+            {
+                fn_string.push_str(&format!("{}{}", prefix, class_name));
+            } else {
+                // Type not found - use as-is with prefix
+                eprintln!(
+                    "Warning: Return type {} not found in callback, using as-is",
+                    base_type
+                );
+                fn_string.push_str(&format!("{}{}", prefix, base_type));
+            }
+        } else {
+            fn_string.push_str(fn_ret_type);
+        }
+    }
+
+    Ok(fn_string)
 }
 
 #[cfg(test)]
