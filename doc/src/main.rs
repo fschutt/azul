@@ -185,7 +185,8 @@ fn main() -> anyhow::Result<()> {
                 }
                 "run" => {
                     println!("🧪 Generating memory layout test crate...\n");
-                    codegen::memtest::generate_memtest_crate(&api_data, &project_root)?;
+                    codegen::memtest::generate_memtest_crate(&api_data, &project_root)
+                        .map_err(|e| anyhow::anyhow!(e))?;
                     println!("\n🏃 Running memory layout tests...\n");
                     let memtest_dir = project_root.join("target").join("memtest");
                     let status = std::process::Command::new("cargo")
@@ -209,7 +210,8 @@ fn main() -> anyhow::Result<()> {
 
         // Default: just generate
         println!("🧪 Generating memory layout test crate...\n");
-        codegen::memtest::generate_memtest_crate(&api_data, &project_root)?;
+        codegen::memtest::generate_memtest_crate(&api_data, &project_root)
+            .map_err(|e| anyhow::anyhow!(e))?;
         return Ok(());
     }
 

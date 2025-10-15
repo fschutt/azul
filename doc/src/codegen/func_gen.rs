@@ -221,6 +221,12 @@ fn build_fn_args_c_api(
     if let Some(fn_args_list) = fn_args {
         for arg_map in fn_args_list {
             for (arg_name, arg_type) in arg_map {
+                // Skip "self" argument - it's already handled above
+                // Skip "doc" field - it's documentation, not a parameter
+                if arg_name == "self" || arg_name == "doc" {
+                    continue;
+                }
+
                 let (prefix_str, base_type, suffix) = analyze_type(arg_type);
 
                 let resolved_type = if is_primitive_arg(&base_type) {

@@ -1,33 +1,42 @@
 // Code generation for memory layout tests
 // This module generates a complete test crate that validates memory layouts
 
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
-use anyhow::Result;
 use indexmap::IndexMap;
+use regex::Regex;
 
-use super::struct_gen::{generate_structs, GenerateConfig, StructMetadata};
+use super::{
+    func_gen::build_functions_map,
+    struct_gen::{generate_structs, GenerateConfig, StructMetadata},
+};
 use crate::api::*;
+
+pub type Result<T> = std::result::Result<T, String>;
 
 /// Generate a test crate that validates memory layouts
 pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result<()> {
     let memtest_dir = project_root.join("target").join("memtest");
 
     // Create directory structure
-    fs::create_dir_all(&memtest_dir)?;
-    fs::create_dir_all(memtest_dir.join("src"))?;
+    fs::create_dir_all(&memtest_dir).map_err(|e| format!("Failed to create memtest dir: {}", e))?;
+    fs::create_dir_all(memtest_dir.join("src"))
+        .map_err(|e| format!("Failed to create src dir: {}", e))?;
 
     // Generate Cargo.toml
     let cargo_toml = generate_cargo_toml()?;
-    fs::write(memtest_dir.join("Cargo.toml"), cargo_toml)?;
+    fs::write(memtest_dir.join("Cargo.toml"), cargo_toml)
+        .map_err(|e| format!("Failed to write Cargo.toml: {}", e))?;
 
     // Generate generated.rs with all API types
     let generated_rs = generate_generated_rs(api_data)?;
-    fs::write(memtest_dir.join("src").join("generated.rs"), generated_rs)?;
+    fs::write(memtest_dir.join("src").join("generated.rs"), generated_rs)
+        .map_err(|e| format!("Failed to write generated.rs: {}", e))?;
 
     // Generate lib.rs with all tests
     let lib_rs = generate_lib_rs(api_data)?;
-    fs::write(memtest_dir.join("src").join("lib.rs"), lib_rs)?;
+    fs::write(memtest_dir.join("src").join("lib.rs"), lib_rs)
+        .map_err(|e| format!("Failed to write lib.rs: {}", e))?;
 
     println!(
         "✅ Generated memory test crate at: {}",
@@ -270,80 +279,83 @@ fn sanitize_name(name: &str) -> String {
 fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
     let mut output = String::new();
 
-    output.push_str("// Auto-generated API definitions from api.json\n");
-    output
-        .push_str("// These types should match the memory layout of the actual implementation\n\n");
-    output.push_str("#![allow(dead_code)]\n");
-    output.push_str("#![allow(non_camel_case_types)]\n");
-    output.push_str("#![allow(non_snake_case)]\n\n");
+    output.push_str("// Auto-generated API definitions from api.json for memtest\n");
+    output.push_str(
+        "#![allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
+         clippy::all)]\n\n",
+    );
     output.push_str("use core::ffi::c_void;\n\n");
 
-    // Use the latest version (or first version found)
-    let version_data = api_data
-        .0
-        .values()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No API version found"))?;
-
-    // Determine version prefix based on date
     let version_name = api_data
         .0
         .keys()
         .next()
-        .ok_or_else(|| anyhow::anyhow!("No version name found"))?;
+        .ok_or_else(|| "No version name found".to_string())?;
+    let version_data = api_data
+        .get_version(version_name)
+        .ok_or_else(|| "No API version found".to_string())?;
     let prefix = api_data
         .get_version_prefix(version_name)
         .unwrap_or_else(|| "Az".to_string());
 
-    // Collect all classes to generate with StructMetadata
-    let mut structs_map = std::collections::HashMap::new();
+    // 1. Generate the `dll` module containing raw structs AND function stubs
+    output.push_str(&generate_dll_module(version_data, &prefix)?);
 
-    for (module_name, module_data) in &version_data.api {
+    // 2. Generate the public API modules (`pub mod str`, etc.)
+    output.push_str(&generate_public_api_modules(version_data, &prefix)?);
+
+    Ok(output)
+}
+
+fn generate_dll_module(version_data: &VersionData, prefix: &str) -> Result<String> {
+    let mut dll_code = String::new();
+    dll_code.push_str("pub mod dll {\n");
+    dll_code.push_str("    use super::c_void;\n");
+    dll_code.push_str("    use std::{string, vec, slice, mem, fmt, cmp, hash, iter};\n\n");
+
+    // Collect all structs for this version
+    let mut structs_map = HashMap::new();
+    for (_module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
-            // Extract metadata for this class
             let metadata = StructMetadata::from_class_data(class_name.clone(), class_data);
-
-            // Store with prefix (e.g., "Az1Point", "Az2Point", etc.)
             let prefixed_name = format!("{}{}", prefix, class_name);
             structs_map.insert(prefixed_name, metadata);
         }
     }
 
-    // Configure generation for generated.rs
-    let config = GenerateConfig {
-        prefix: prefix.clone(),
-        indent: 0,
+    // Generate all struct/enum/type definitions inside the dll module
+    let struct_config = GenerateConfig {
+        prefix: prefix.to_string(),
+        indent: 4,
         autoderive: true,
         private_pointers: false,
         no_derive: false,
-        wrapper_postfix: "".to_string(),
+        wrapper_postfix: String::new(),
     };
+    dll_code.push_str(
+        &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
+    );
 
-    // Generate all structs/enums using struct_gen module
-    let generated_code = generate_structs(version_data, &structs_map, &config)?;
+    // Generate unimplemented!() stubs for all exported C functions
+    let functions_map = build_functions_map(version_data, prefix).map_err(|e| e.to_string())?;
+    dll_code.push_str("\n    // --- C-ABI Function Stubs ---\n");
+    for (fn_name, (fn_args, fn_return)) in &functions_map {
+        let return_str = if fn_return.is_empty() {
+            "".to_string()
+        } else {
+            format!(" -> {}", fn_return)
+        };
 
-    // Wrap everything in a dll module (private, contains all versioned types)
-    output.push_str("mod dll {\n");
-    output.push_str("    // In std environment, alloc types are re-exported from std\n");
-    output.push_str("    use core::ffi::c_void;\n");
-    output.push_str("    use std::vec::Vec;\n");
-    output.push_str("    use std::string::String;\n\n");
-
-    // Indent all generated code
-    for line in generated_code.lines() {
-        if !line.is_empty() {
-            output.push_str("    ");
-        }
-        output.push_str(line);
-        output.push_str("\n");
+        dll_code.push_str(&format!(
+            "    #[allow(unused_variables)]\n    pub unsafe extern \"C\" fn {}({}){} {{ \
+             unimplemented!(\"{}\") }}\n",
+            fn_name, fn_args, return_str, fn_name
+        ));
     }
+    dll_code.push_str("    // --- End C-ABI Function Stubs ---\n\n");
 
-    output.push_str("}\n\n");
-
-    // Add public API modules with re-exports and patches
-    output.push_str(&generate_public_api_modules(version_data, &prefix)?);
-
-    Ok(output)
+    dll_code.push_str("}\n\n");
+    Ok(dll_code)
 }
 
 /// Generate public API modules with re-exports and patches
@@ -408,15 +420,21 @@ fn generate_reexports(
     Ok(output)
 }
 
-/// Process patch content: skip use statements, replace type names
+/// Process patch content: skip use statements, replace type names using regex
 fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
+    // Regex pattern matches "Az" followed by a capital letter (start of type name)
+    // Matches both types (AzString) and function names (AzString_delete)
+    // Word boundary at start, but allow _ after to catch function names
+    let type_pattern = Regex::new(r"\bAz([A-Z][a-zA-Z0-9_]*)")
+        .map_err(|e| format!("Failed to compile regex: {}", e))?;
+
     let mut output = String::new();
     let mut skip_until_end_brace = false;
 
     for line in patch_content.lines() {
         let trimmed = line.trim();
 
-        // Skip use statements that would conflict
+        // Skip use statements that would conflict in the memtest context
         if trimmed.starts_with("use alloc::vec")
             || trimmed.starts_with("use std::vec")
             || trimmed.starts_with("use alloc::string")
@@ -427,6 +445,7 @@ fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
             || trimmed.starts_with("use crate::option")
             || trimmed.starts_with("use crate::prelude")
         {
+            // Handle multi-line use statements
             if trimmed.contains("{") && !trimmed.contains("};") {
                 skip_until_end_brace = true;
             }
@@ -440,271 +459,34 @@ fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
             continue;
         }
 
-        // Adjust content
-        let mut adjusted_line = line.replace("alloc::", "std::");
+        // Start with the line as-is
+        let mut adjusted_line = line.to_string();
 
-        // Replace Az-prefixed types FIRST (before module path replacements)
-        // This ensures that crate::str::String becomes crate::str::Az1String
-        // before we change crate:: to super::
-        adjusted_line = adjusted_line.replace(" Az", &format!(" {}", prefix));
-        adjusted_line = adjusted_line.replace("(Az", &format!("({}", prefix));
-        adjusted_line = adjusted_line.replace("<Az", &format!("<{}", prefix));
-        adjusted_line = adjusted_line.replace(":Az", &format!(":{}", prefix));
-        adjusted_line = adjusted_line.replace(",Az", &format!(",{}", prefix));
+        // Replace alloc:: with std:: (memtest doesn't use no_std)
+        adjusted_line = adjusted_line.replace("alloc::", "std::");
 
-        // NOW replace crate:: paths that don't work in generated.rs
-        // In generated.rs, we have: mod dll { } and pub mod vec { }, pub mod str { }, etc.
-        // So crate::dll:: needs to be super::dll:: (when inside pub mod vec)
-        // At this point, types are already prefixed (e.g., crate::str::Az1String)
+        // Use regex to replace all Az-prefixed types with the versioned prefix
+        // This prevents double-prefixing: Az -> Az1 (not Az -> Az1 -> Az11)
+        adjusted_line = type_pattern
+            .replace_all(&adjusted_line, format!("{}$1", prefix))
+            .to_string();
+
+        // Transform paths from crate:: (final azul crate) to super:: (memtest module context)
+        // In generated.rs we have: mod dll { }, pub mod vec { }, etc.
+        // So crate::dll:: needs to become super::dll:: when inside pub mod vec
         adjusted_line = adjusted_line.replace("crate::dll::", "super::dll::");
         adjusted_line = adjusted_line.replace("crate::vec::", "super::vec::");
         adjusted_line = adjusted_line.replace("crate::str::", "super::str::");
+        adjusted_line = adjusted_line.replace("crate::option::", "super::option::");
+        adjusted_line = adjusted_line.replace("crate::dom::", "super::dom::");
+        adjusted_line = adjusted_line.replace("crate::gl::", "super::gl::");
+        adjusted_line = adjusted_line.replace("crate::css::", "super::css::");
+        adjusted_line = adjusted_line.replace("crate::window::", "super::window::");
+        adjusted_line = adjusted_line.replace("crate::callbacks::", "super::callbacks::");
         adjusted_line = adjusted_line.replace("crate::prelude::", "");
 
-        // Replace non-Az types that need prefix
-        adjusted_line = adjusted_line.replace(" CssProperty", &format!(" {}CssProperty", prefix));
-        adjusted_line = adjusted_line.replace("(CssProperty", &format!("({}CssProperty", prefix));
-        adjusted_line = adjusted_line.replace("<CssProperty", &format!("<{}CssProperty", prefix));
-        adjusted_line =
-            adjusted_line.replace(" CssPropertyType", &format!(" {}CssPropertyType", prefix));
-        adjusted_line = adjusted_line.replace(" PixelValue", &format!(" {}PixelValue", prefix));
-        adjusted_line = adjusted_line.replace("(PixelValue", &format!("({}PixelValue", prefix));
-        adjusted_line = adjusted_line.replace(" Dom", &format!(" {}Dom", prefix));
-        adjusted_line = adjusted_line.replace("(Dom", &format!("({}Dom", prefix));
-        adjusted_line = adjusted_line.replace("<Dom", &format!("<{}Dom", prefix));
-
-        // Add more type replacements as needed
-        for type_name in &[
-            // Original types
-            "StyleBoxShadowValue",
-            "FloatValue",
-            "SizeMetric",
-            "AngleMetric",
-            "LayoutOverflowValue",
-            "StyleFilterVecValue",
-            "NodeData",
-            "U8VecRef",
-            "StyleWordSpacingValue",
-            "StyleTransformVecValue",
-            "StyleTransformOriginValue",
-            "StyleTextColorValue",
-            "StyleTextAlignValue",
-            "StyleTabWidthValue",
-            "StylePerspectiveOriginValue",
-            "StyleOpacityValue",
-            // Style*Value types
-            "StyleMixBlendModeValue",
-            "StyleLineHeightValue",
-            "StyleLetterSpacingValue",
-            "StyleFontSizeValue",
-            "StyleFontFamilyVecValue",
-            "StyleCursorValue",
-            "StyleBorderTopStyleValue",
-            "StyleBorderTopRightRadiusValue",
-            "StyleBorderTopLeftRadiusValue",
-            "StyleBorderTopColorValue",
-            "StyleBorderRightStyleValue",
-            "StyleBorderRightColorValue",
-            "StyleBorderLeftStyleValue",
-            "StyleBorderLeftColorValue",
-            "StyleBorderBottomStyleValue",
-            "StyleBorderBottomRightRadiusValue",
-            "StyleBorderBottomLeftRadiusValue",
-            "StyleBorderBottomColorValue",
-            "StyleBackfaceVisibilityValue",
-            "StyleBackgroundContentVecValue",
-            "StyleBackgroundPositionVecValue",
-            "StyleBackgroundRepeatVecValue",
-            "StyleBackgroundSizeVecValue",
-            // Layout*Value types
-            "LayoutAlignContentValue",
-            "LayoutAlignItemsValue",
-            "LayoutBorderBottomWidthValue",
-            "LayoutBorderLeftWidthValue",
-            "LayoutBorderRightWidthValue",
-            "LayoutBorderTopWidthValue",
-            "LayoutBottomValue",
-            "LayoutBoxSizingValue",
-            "LayoutDisplayValue",
-            "LayoutFlexDirectionValue",
-            "LayoutFlexGrowValue",
-            "LayoutFlexShrinkValue",
-            "LayoutFlexWrapValue",
-            "LayoutFloatValue",
-            "LayoutHeightValue",
-            "LayoutJustifyContentValue",
-            "LayoutLeftValue",
-            "LayoutMarginBottomValue",
-            "LayoutMarginLeftValue",
-            "LayoutMarginRightValue",
-            "LayoutMarginTopValue",
-            "LayoutMaxHeightValue",
-            "LayoutMaxWidthValue",
-            "LayoutMinHeightValue",
-            "LayoutMinWidthValue",
-            "LayoutPaddingBottomValue",
-            "LayoutPaddingLeftValue",
-            "LayoutPaddingRightValue",
-            "LayoutPaddingTopValue",
-            "LayoutPositionValue",
-            "LayoutRightValue",
-            "LayoutTopValue",
-            "LayoutWidthValue",
-            // Other types
-            "LayoutPoint",
-            "LayoutSize",
-            "NodeType",
-            "OptionRefAny",
-            "OptionTabIndex",
-            "PercentageValue",
-            "ScrollbarStyleValue",
-            "TabIndex",
-            "AngleValue",
-            "CallbackDataVec",
-            "IdOrClassVec",
-            "IdOrClassVecDestructor",
-        ] {
-            adjusted_line = adjusted_line.replace(
-                &format!(" {}", type_name),
-                &format!(" {}{}", prefix, type_name),
-            );
-            adjusted_line = adjusted_line.replace(
-                &format!("({}", type_name),
-                &format!("({}{}", prefix, type_name),
-            );
-        }
-
-        if !adjusted_line.trim().is_empty() {
-            output.push_str("    ");
-        }
         output.push_str(&adjusted_line);
-        output.push_str("\n");
-    }
-
-    Ok(output)
-}
-
-fn load_api_patches_inline(prefix: &str) -> Result<String> {
-    let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
-
-    let patches = vec![
-        "string.rs",
-        "vec.rs",
-        "option.rs",
-        "dom.rs",
-        "gl.rs",
-        "css.rs",
-        "window.rs",
-        "callbacks.rs",
-    ];
-
-    let mut output = String::new();
-
-    for patch_file in patches {
-        let patch_path = format!("{}/{}", patch_dir, patch_file);
-        if let Ok(patch_content) = fs::read_to_string(&patch_path) {
-            output.push_str(&format!("    // ===== From {} =====\n", patch_file));
-
-            // Adjust content for inline use in dll module:
-            // - alloc:: → std::
-            // - Az → Az1 (or whatever prefix)
-            // - Remove crate::dll:: imports (we're already in dll)
-            // - Remove crate::gl:: imports (GL types are here)
-            // - Skip wildcard imports
-            let mut skip_until_end_brace = false;
-
-            for line in patch_content.lines() {
-                let trimmed = line.trim();
-
-                // Skip use statements that would conflict with dll module's imports
-                if trimmed.starts_with("use alloc::vec::")
-                    || trimmed.starts_with("use std::vec::")
-                    || trimmed.starts_with("use alloc::string::")
-                    || trimmed.starts_with("use std::string::")
-                    || trimmed.starts_with("use crate::dll")
-                    || trimmed.starts_with("use crate::gl")
-                    || trimmed.starts_with("use crate::vec")
-                    || trimmed.starts_with("use crate::option")
-                    || trimmed.starts_with("use crate::prelude")
-                {
-                    // Check if it's a multi-line use statement
-                    if trimmed.contains("{") && !trimmed.contains("};") {
-                        skip_until_end_brace = true;
-                    }
-                    continue; // Skip this line
-                }
-
-                if skip_until_end_brace {
-                    if trimmed.contains("};") {
-                        skip_until_end_brace = false;
-                    }
-                    continue;
-                }
-
-                // Keep other use statements (core::fmt, core::cmp, alloc::slice, etc.)
-                // but adjust their content
-                let mut adjusted_line = line.replace("alloc::", "std::");
-
-                // First do the generic Az prefix replacement
-                adjusted_line = adjusted_line.replace(" Az", &format!(" {}", prefix));
-                adjusted_line = adjusted_line.replace("(Az", &format!("({}", prefix));
-                adjusted_line = adjusted_line.replace("<Az", &format!("<{}", prefix));
-                adjusted_line = adjusted_line.replace(":Az", &format!(":{}", prefix));
-                adjusted_line = adjusted_line.replace(",Az", &format!(",{}", prefix));
-
-                // Then replace type names that don't start with Az
-                // Using word boundaries to avoid replacing parts of words
-                adjusted_line =
-                    adjusted_line.replace(" CssProperty", &format!(" {}CssProperty", prefix));
-                adjusted_line =
-                    adjusted_line.replace("(CssProperty", &format!("({}CssProperty", prefix));
-                adjusted_line =
-                    adjusted_line.replace("<CssProperty", &format!("<{}CssProperty", prefix));
-                adjusted_line = adjusted_line
-                    .replace(" CssPropertyType", &format!(" {}CssPropertyType", prefix));
-                adjusted_line =
-                    adjusted_line.replace(" PixelValue", &format!(" {}PixelValue", prefix));
-                adjusted_line =
-                    adjusted_line.replace("(PixelValue", &format!("({}PixelValue", prefix));
-                adjusted_line = adjusted_line.replace(
-                    " StyleBoxShadowValue",
-                    &format!(" {}StyleBoxShadowValue", prefix),
-                );
-                adjusted_line =
-                    adjusted_line.replace(" FloatValue", &format!(" {}FloatValue", prefix));
-                adjusted_line =
-                    adjusted_line.replace(" SizeMetric", &format!(" {}SizeMetric", prefix));
-                adjusted_line =
-                    adjusted_line.replace(" AngleMetric", &format!(" {}AngleMetric", prefix));
-                adjusted_line = adjusted_line.replace(
-                    " LayoutOverflowValue",
-                    &format!(" {}LayoutOverflowValue", prefix),
-                );
-                adjusted_line = adjusted_line.replace(
-                    " StyleFilterVecValue",
-                    &format!(" {}StyleFilterVecValue", prefix),
-                );
-                adjusted_line = adjusted_line.replace(" NodeData", &format!(" {}NodeData", prefix));
-                adjusted_line = adjusted_line.replace(" Dom", &format!(" {}Dom", prefix));
-                adjusted_line = adjusted_line.replace("(Dom", &format!("({}Dom", prefix));
-                adjusted_line = adjusted_line.replace("<Dom", &format!("<{}Dom", prefix));
-                adjusted_line = adjusted_line.replace(" U8VecRef", &format!(" {}U8VecRef", prefix));
-
-                // In generated.rs we're inside dll module, so crate::dll:: is just self::
-                // But since all patches are inlined into dll, we can just remove the prefix
-                adjusted_line = adjusted_line.replace("crate::dll::", "");
-                adjusted_line = adjusted_line.replace("crate::prelude::", "");
-                adjusted_line = adjusted_line.replace("crate::vec::", "");
-                adjusted_line = adjusted_line.replace("crate::option::", "");
-
-                if !adjusted_line.trim().is_empty() {
-                    output.push_str("    ");
-                }
-                output.push_str(&adjusted_line);
-                output.push_str("\n");
-            }
-            output.push_str("\n");
-        }
+        output.push('\n');
     }
 
     Ok(output)
