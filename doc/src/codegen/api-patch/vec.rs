@@ -267,16 +267,10 @@
     impl_vec_clone!(f32,  AzF32Vec,  AzF32VecDestructor);
     impl_vec!(AzXmlNode,  AzXmlNodeVec,  AzXmlNodeVecDestructor, az_xml_node_vec_destructor, AzXmlNodeVec_delete);
     impl_vec_clone!(AzXmlNode,  AzXmlNodeVec,  AzXmlNodeVecDestructor);
-    impl_vec!(AzInlineWord,  AzInlineWordVec,  AzInlineWordVecDestructor, az_inline_word_vec_destructor, AzInlineWordVec_delete);
-    impl_vec_clone!(AzInlineWord,  AzInlineWordVec,  AzInlineWordVecDestructor);
     impl_vec!(AzInlineGlyph,  AzInlineGlyphVec,  AzInlineGlyphVecDestructor, az_inline_glyph_vec_destructor, AzInlineGlyphVec_delete);
     impl_vec_clone!(AzInlineGlyph,  AzInlineGlyphVec,  AzInlineGlyphVecDestructor);
-    impl_vec!(AzInlineLine,  AzInlineLineVec,  AzInlineLineVecDestructor, az_inline_line_vec_destructor, AzInlineLineVec_delete);
-    impl_vec_clone!(AzInlineLine,  AzInlineLineVec,  AzInlineLineVecDestructor);
     impl_vec!(AzFmtArg,  AzFmtArgVec,  AzFmtArgVecDestructor, az_fmt_arg_vec_destructor, AzFmtArgVec_delete);
     impl_vec_clone!(AzFmtArg,  AzFmtArgVec,  AzFmtArgVecDestructor);
-    impl_vec!(AzInlineTextHit,  AzInlineTextHitVec,  AzInlineTextHitVecDestructor, az_inline_text_hit_vec_destructor, AzInlineTextHitVec_delete);
-    impl_vec_clone!(AzInlineTextHit,  AzInlineTextHitVec,  AzInlineTextHitVecDestructor);
     impl_vec!(AzTessellatedSvgNode,  AzTessellatedSvgNodeVec,  AzTessellatedSvgNodeVecDestructor, az_tesselated_svg_node_vec_destructor, AzTessellatedSvgNodeVec_delete);
     impl_vec_clone!(AzTessellatedSvgNode,  AzTessellatedSvgNodeVec,  AzTessellatedSvgNodeVecDestructor);
     impl_vec!(AzNodeDataInlineCssProperty, AzNodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor, az_node_data_inline_css_property_vec_destructor, AzNodeDataInlineCssPropertyVec_delete);

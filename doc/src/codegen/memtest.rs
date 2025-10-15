@@ -484,6 +484,12 @@ fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
         // Replace alloc:: with std:: (memtest doesn't use no_std)
         adjusted_line = adjusted_line.replace("alloc::", "std::");
 
+        // Fix bare module references that need std:: prefix
+        // Replace "string::String" with "std::string::String" (but not "super::str::String")
+        adjusted_line = adjusted_line.replace("string::String", "std::string::String");
+        // Replace "vec::Vec" with "std::vec::Vec" (but not "super::vec::")
+        adjusted_line = adjusted_line.replace("vec::Vec", "std::vec::Vec");
+
         // Use regex to replace all Az-prefixed types with the versioned prefix
         // This prevents double-prefixing: Az -> Az1 (not Az -> Az1 -> Az11)
         adjusted_line = type_pattern

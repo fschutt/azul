@@ -203,12 +203,6 @@
             "doc": "Configuration for optional features, such as whether to enable logging or panic hooks",
             "struct_fields": [
               {
-                "layout_solver": {
-                  "type": "LayoutSolver",
-                  "doc": "Which layout solver version to use, necessary so that future upgrades don't break the layout of old programs"
-                }
-              },
-              {
                 "log_level": {
                   "type": "AppLogLevel",
                   "doc": "If enabled, logs error and info messages"
@@ -242,11 +236,7 @@
             "constructors": {
               "new": {
                 "doc": "Constructs a default `AppConfig`, uses the layout solver currently available",
-                "fn_args": [
-                  {
-                    "layout_solver": "LayoutSolver"
-                  }
-                ],
+                "fn_args": [],
                 "fn_body": "AzAppConfig::new(layout_solver)"
               }
             }
@@ -3437,9 +3427,6 @@
                     "node_id": "DomNodeId"
                   }
                 ],
-                "returns": {
-                  "type": "OptionInlineText"
-                },
                 "fn_body": "callbackinfo.get_inline_text(node_id).into()"
               },
               "get_font_ref": {
@@ -3472,10 +3459,10 @@
                 "fn_body": "callbackinfo.get_text_layout_options(node_id).into()"
               },
               "get_computed_css_property": {
-                "doc": "Returns the computed CSS property value for a given node and property type. Returns `None` if the property is not set or cannot be accessed.",
+                "doc": "Returns the current computed CSS property of a given DOM node in the UI",
                 "fn_args": [
                   {
-                    "self": "ref"
+                    "self": "refmut"
                   },
                   {
                     "node_id": "DomNodeId"
@@ -3502,9 +3489,6 @@
                     "text": "String"
                   }
                 ],
-                "returns": {
-                  "type": "OptionInlineText"
-                },
                 "fn_body": "azul_layout::callback_info_shape_text(callbackinfo, node_id, text).into()"
               },
               "get_index_in_parent": {
@@ -3626,24 +3610,6 @@
                   "type": "OptionLogicalSize"
                 },
                 "fn_body": "callbackinfo.get_node_size(node_id).into()"
-              },
-              "get_computed_css_property": {
-                "doc": "Returns the current computed CSS property of a given DOM node in the UI",
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "node_id": "DomNodeId"
-                  },
-                  {
-                    "property_type": "CssPropertyType"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionCssProperty"
-                },
-                "fn_body": "callbackinfo.get_computed_css_property(node_id, property_type).into()"
               },
               "set_window_state": {
                 "doc": "Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.",
@@ -4761,9 +4727,6 @@
                     "node_id": "DomNodeId"
                   }
                 ],
-                "returns": {
-                  "type": "OptionInlineText"
-                },
                 "fn_body": "renderimagecallbackinfo.get_inline_text(node_id).into()"
               },
               "get_index_in_parent": {
@@ -30893,9 +30856,6 @@
                     "options": "ResolvedTextLayoutOptions"
                   }
                 ],
-                "returns": {
-                  "type": "InlineText"
-                },
                 "fn_body": "azul_layout::text2::layout::shape_text(fontref, text.as_str(), &options)"
               },
               "get_hash": {
@@ -36965,26 +36925,6 @@
               ]
             }
           },
-          "InlineLineVecDestructorType": {
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "InlineLineVec",
-                  "ref": "refmut"
-                }
-              ]
-            }
-          },
-          "InlineWordVecDestructorType": {
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "InlineWordVec",
-                  "ref": "refmut"
-                }
-              ]
-            }
-          },
           "InlineGlyphVecDestructor": {
             "external": "azul_core::callbacks::InlineGlyphVecDestructor",
             "derive": [
@@ -37009,16 +36949,6 @@
               "fn_args": [
                 {
                   "type": "InlineGlyphVec",
-                  "ref": "refmut"
-                }
-              ]
-            }
-          },
-          "InlineTextHitVecDestructorType": {
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "InlineTextHitVec",
                   "ref": "refmut"
                 }
               ]
