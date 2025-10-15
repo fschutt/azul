@@ -354,6 +354,25 @@ fn generate_dll_module(version_data: &VersionData, prefix: &str) -> Result<Strin
     }
     dll_code.push_str("    // --- End C-ABI Function Stubs ---\n\n");
 
+    // Add patches from api-patch/dll.rs
+    let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
+    let dll_patch_path = format!("{}/dll.rs", patch_dir);
+    if let Ok(patch_content) = fs::read_to_string(&dll_patch_path) {
+        dll_code.push_str("    // ===== Trait Implementations (from dll.rs patch) =====\n\n");
+        let processed = process_patch_content(&patch_content, prefix)?;
+        // Add 4-space indentation to match dll module
+        for line in processed.lines() {
+            if line.trim().is_empty() {
+                dll_code.push('\n');
+            } else {
+                dll_code.push_str("    ");
+                dll_code.push_str(line);
+                dll_code.push('\n');
+            }
+        }
+        dll_code.push('\n');
+    }
+
     dll_code.push_str("}\n\n");
     Ok(dll_code)
 }
