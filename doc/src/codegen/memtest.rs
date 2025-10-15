@@ -341,13 +341,13 @@ fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
     output.push_str("}\n\n");
 
     // Add public API modules with re-exports and patches
-    output.push_str(&generate_public_api_modules(&prefix)?);
+    output.push_str(&generate_public_api_modules(version_data, &prefix)?);
 
     Ok(output)
 }
 
 /// Generate public API modules with re-exports and patches
-fn generate_public_api_modules(prefix: &str) -> Result<String> {
+fn generate_public_api_modules(version_data: &VersionData, prefix: &str) -> Result<String> {
     let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
 
     // Map patch files to their module names
@@ -372,7 +372,7 @@ fn generate_public_api_modules(prefix: &str) -> Result<String> {
         output.push_str("    use super::dll::*;\n\n");
 
         // Generate re-exports: pub use Az1Type as Type;
-        output.push_str(&generate_reexports(prefix, module_name)?);
+        output.push_str(&generate_reexports(version_data, prefix, module_name)?);
 
         // Add patches
         let patch_path = format!("{}/{}", patch_dir, patch_file);
@@ -388,16 +388,22 @@ fn generate_public_api_modules(prefix: &str) -> Result<String> {
 }
 
 /// Generate re-exports for a module: pub use Az1Type as Type;
-fn generate_reexports(prefix: &str, _module_name: &str) -> Result<String> {
+fn generate_reexports(
+    version_data: &VersionData,
+    prefix: &str,
+    module_name: &str,
+) -> Result<String> {
     let mut output = String::new();
     output.push_str("    // Re-export types with friendly names\n");
 
-    // For now, just add a placeholder comment
-    // The actual re-exports can be generated from api.json later
-    output.push_str(&format!(
-        "    // Example: pub use {}Type as Type;\n\n",
-        prefix
-    ));
+    if let Some(module_data) = version_data.api.get(module_name) {
+        for class_name in module_data.classes.keys() {
+            output.push_str(&format!(
+                "    pub use super::dll::{}{} as {};\n",
+                prefix, class_name, class_name
+            ));
+        }
+    }
 
     Ok(output)
 }
@@ -454,13 +460,6 @@ fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
         adjusted_line = adjusted_line.replace("crate::vec::", "super::vec::");
         adjusted_line = adjusted_line.replace("crate::str::", "super::str::");
         adjusted_line = adjusted_line.replace("crate::prelude::", "");
-
-        // Replace non-Az types that need prefix
-        adjusted_line = adjusted_line.replace(" Az", &format!(" {}", prefix));
-        adjusted_line = adjusted_line.replace("(Az", &format!("({}", prefix));
-        adjusted_line = adjusted_line.replace("<Az", &format!("<{}", prefix));
-        adjusted_line = adjusted_line.replace(":Az", &format!(":{}", prefix));
-        adjusted_line = adjusted_line.replace(",Az", &format!(",{}", prefix));
 
         // Replace non-Az types that need prefix
         adjusted_line = adjusted_line.replace(" CssProperty", &format!(" {}CssProperty", prefix));
