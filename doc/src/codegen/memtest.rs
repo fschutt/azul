@@ -14,8 +14,27 @@ use crate::api::*;
 
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Configuration for memtest generation
+#[derive(Debug, Clone)]
+pub struct MemtestConfig {
+    /// Remove serde-support feature gates
+    pub remove_serde: bool,
+    /// Remove other optional features
+    pub remove_optional_features: Vec<String>,
+}
+
+impl Default for MemtestConfig {
+    fn default() -> Self {
+        Self {
+            remove_serde: false, // Keep serde lines, we add serde deps to Cargo.toml
+            remove_optional_features: vec![],
+        }
+    }
+}
+
 /// Generate a test crate that validates memory layouts
 pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result<()> {
+    let config = MemtestConfig::default();
     let memtest_dir = project_root.join("target").join("memtest");
 
     // Create directory structure
@@ -29,7 +48,7 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
         .map_err(|e| format!("Failed to write Cargo.toml: {}", e))?;
 
     // Generate generated.rs with all API types
-    let generated_rs = generate_generated_rs(api_data)?;
+    let generated_rs = generate_generated_rs(api_data, &config)?;
     fs::write(memtest_dir.join("src").join("generated.rs"), generated_rs)
         .map_err(|e| format!("Failed to write generated.rs: {}", e))?;
 
@@ -64,9 +83,16 @@ azul-core = { path = "../../core" }
 azul-layout = { path = "../../layout" }
 azul-css = { path = "../../css" }
 
+# Serde support (not enabled by default, but types need to be available for conditional compilation)
+serde = { version = "1.0", optional = true }
+serde_derive = { version = "1.0", optional = true }
+
 [lib]
 name = "azul_memtest"
 path = "src/lib.rs"
+
+[features]
+serde-support = ["serde", "serde_derive"]
 "#
     .to_string())
 }
@@ -276,7 +302,7 @@ fn sanitize_name(name: &str) -> String {
         .to_lowercase()
 }
 
-fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
+fn generate_generated_rs(api_data: &ApiData, config: &MemtestConfig) -> Result<String> {
     let mut output = String::new();
 
     output.push_str("// Auto-generated API definitions from api.json for memtest\n");
@@ -299,15 +325,19 @@ fn generate_generated_rs(api_data: &ApiData) -> Result<String> {
         .unwrap_or_else(|| "Az".to_string());
 
     // 1. Generate the `dll` module containing raw structs AND function stubs
-    output.push_str(&generate_dll_module(version_data, &prefix)?);
+    output.push_str(&generate_dll_module(version_data, &prefix, config)?);
 
     // 2. Generate the public API modules (`pub mod str`, etc.)
-    output.push_str(&generate_public_api_modules(version_data, &prefix)?);
+    output.push_str(&generate_public_api_modules(version_data, &prefix, config)?);
 
     Ok(output)
 }
 
-fn generate_dll_module(version_data: &VersionData, prefix: &str) -> Result<String> {
+fn generate_dll_module(
+    version_data: &VersionData,
+    prefix: &str,
+    config: &MemtestConfig,
+) -> Result<String> {
     let mut dll_code = String::new();
     dll_code.push_str("pub mod dll {\n");
     dll_code.push_str("    use super::c_void;\n");
@@ -359,7 +389,7 @@ fn generate_dll_module(version_data: &VersionData, prefix: &str) -> Result<Strin
     let dll_patch_path = format!("{}/dll.rs", patch_dir);
     if let Ok(patch_content) = fs::read_to_string(&dll_patch_path) {
         dll_code.push_str("    // ===== Trait Implementations (from dll.rs patch) =====\n\n");
-        let processed = process_patch_content(&patch_content, prefix)?;
+        let processed = process_patch_content(&patch_content, prefix, version_data, config)?;
         // Add 4-space indentation to match dll module
         for line in processed.lines() {
             if line.trim().is_empty() {
@@ -378,7 +408,11 @@ fn generate_dll_module(version_data: &VersionData, prefix: &str) -> Result<Strin
 }
 
 /// Generate public API modules with re-exports and patches
-fn generate_public_api_modules(version_data: &VersionData, prefix: &str) -> Result<String> {
+fn generate_public_api_modules(
+    version_data: &VersionData,
+    prefix: &str,
+    config: &MemtestConfig,
+) -> Result<String> {
     let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
 
     // Map patch files to their module names
@@ -409,7 +443,12 @@ fn generate_public_api_modules(version_data: &VersionData, prefix: &str) -> Resu
         let patch_path = format!("{}/{}", patch_dir, patch_file);
         if let Ok(patch_content) = fs::read_to_string(&patch_path) {
             output.push_str("\n    // ===== Trait Implementations =====\n\n");
-            output.push_str(&process_patch_content(&patch_content, prefix)?);
+            output.push_str(&process_patch_content(
+                &patch_content,
+                prefix,
+                version_data,
+                config,
+            )?);
         }
 
         output.push_str("}\n\n");
@@ -439,8 +478,21 @@ fn generate_reexports(
     Ok(output)
 }
 
-/// Process patch content: skip use statements, replace type names using regex
-fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
+/// Process patch content: skip use statements, replace type names, remove serde
+fn process_patch_content(
+    patch_content: &str,
+    prefix: &str,
+    version_data: &VersionData,
+    config: &MemtestConfig,
+) -> Result<String> {
+    // Collect all type names from api.json
+    let mut all_types = std::collections::HashSet::new();
+    for module_data in version_data.api.values() {
+        for class_name in module_data.classes.keys() {
+            all_types.insert(class_name.clone());
+        }
+    }
+
     // Regex pattern matches "Az" followed by a capital letter (start of type name)
     // Matches both types (AzString) and function names (AzString_delete)
     // Word boundary at start, but allow _ after to catch function names
@@ -452,6 +504,20 @@ fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
 
     for line in patch_content.lines() {
         let trimmed = line.trim();
+
+        // Skip lines with serde-support feature if configured
+        if config.remove_serde {
+            if trimmed.contains("serde-support") || trimmed.contains("serde_support") {
+                continue;
+            }
+        }
+
+        // Skip other optional features
+        for feature in &config.remove_optional_features {
+            if trimmed.contains(feature) {
+                continue;
+            }
+        }
 
         // Skip use statements that would conflict in the memtest context
         if trimmed.starts_with("use alloc::vec")
@@ -490,7 +556,29 @@ fn process_patch_content(patch_content: &str, prefix: &str) -> Result<String> {
         // Replace "vec::Vec" with "std::vec::Vec" (but not "super::vec::")
         adjusted_line = adjusted_line.replace("vec::Vec", "std::vec::Vec");
 
-        // Use regex to replace all Az-prefixed types with the versioned prefix
+        // FIRST: Fix unprefixed type names that exist in api.json
+        // For example: StyleFilterVec -> Az1StyleFilterVec, DomVec -> Az1DomVec
+        // Do this BEFORE the Az-> Az1 conversion to avoid double-prefixing
+        for type_name in &all_types {
+            // Skip "String" and "Vec" as these are special cases handled separately
+            // (they're in std::string::String and std::vec::Vec)
+            if type_name == "String" || type_name == "Vec" {
+                continue;
+            }
+
+            // Create a regex pattern for whole word matching
+            // \b at start to ensure word boundary
+            let pattern = format!(r"\b{}\b", regex::escape(type_name));
+            if let Ok(re) = Regex::new(&pattern) {
+                let prefixed = format!("{}{}", prefix, type_name);
+                // Replace all occurrences, the regex ensures we only match whole words
+                adjusted_line = re
+                    .replace_all(&adjusted_line, prefixed.as_str())
+                    .to_string();
+            }
+        }
+
+        // SECOND: Use regex to replace all remaining Az-prefixed types with the versioned prefix
         // This prevents double-prefixing: Az -> Az1 (not Az -> Az1 -> Az11)
         adjusted_line = type_pattern
             .replace_all(&adjusted_line, format!("{}$1", prefix))
