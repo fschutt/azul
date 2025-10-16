@@ -80,59 +80,40 @@ pub fn autofix_api(
     fs::create_dir_all(&work_dir)
         .with_context(|| format!("Failed to create work directory: {}", work_dir.display()))?;
 
-    // Step 0: Get cargo metadata once at the start
-    println!("  🔧 Loading cargo metadata...");
-    use crate::patch::locatesource;
-    let cargo_metadata =
-        locatesource::get_cargo_metadata(project_root).context("Failed to get cargo metadata")?;
-    let current_crate_name = get_current_crate_name(project_root)?;
-    println!(
-        "  Loaded metadata for workspace with {} packages\n",
-        cargo_metadata.packages.len()
-    );
+    // Step 0: Build workspace index once (parses all files into memory)
+    println!("  🏗️  Building workspace index...");
+    use crate::patch::workspace_index::WorkspaceIndex;
 
-    // Step 1: Collect all types that need to be checked
+    let workspace_index = WorkspaceIndex::build(project_root)?;
+    println!("  ✅ Workspace index ready\n");
+
+    // Step 1: Collect all types that need to be checked from API
     println!("  📋 Collecting all types from API...");
     let mut all_types = Vec::new();
     for (_version_name, version_data) in &api_data.0 {
         for (module_name, module_data) in &version_data.api {
-            for (class_name, _class_data) in &module_data.classes {
-                all_types.push((module_name.clone(), class_name.clone()));
+            for (class_name, class_data) in &module_data.classes {
+                // Get the external path if available, otherwise use class_name
+                let type_path = class_data
+                    .external
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or(class_name.as_str());
+
+                all_types.push((
+                    module_name.clone(),
+                    class_name.clone(),
+                    type_path.to_string(),
+                ));
             }
         }
     }
     println!("  Found {} types to analyze\n", all_types.len());
 
-    // Step 2: Use compiler as oracle to discover correct type paths
-    println!("  🔮 Using compiler as oracle to discover correct paths...");
-
-    // Check if we have cached results
-    let cache_file = work_dir.join("cache.json");
-    let discovered_infos = if cache_file.exists() {
-        println!("  📦 Loading cached discovered types...");
-        let cache_content = fs::read_to_string(&cache_file).context("Failed to read cache file")?;
-        serde_json::from_str(&cache_content).context("Failed to parse cache file")?
-    } else {
-        let infos = discover::discover_type_paths(project_root, &all_types)?;
-        // Save to cache
-        let cache_content = serde_json::to_string_pretty(&infos)?;
-        fs::write(&cache_file, cache_content)?;
-        println!("  💾 Saved discovered types to cache");
-        infos
-    };
-    println!("  Discovered {} type paths\n", discovered_infos.len());
-
-    // Step 3: Analyze source code for all types (existing + newly discovered)
-    println!("  📚 Analyzing source code for all types...");
-    let enriched_infos = enrich_with_source_analysis(
-        project_root,
-        &work_dir,
-        api_data,
-        &discovered_infos,
-        &current_crate_name,
-        &cargo_metadata,
-    )?;
-    println!("  Analyzed {} types from source\n", enriched_infos.len());
+    // Step 2: Analyze all types using the in-memory workspace index
+    println!("  📚 Analyzing types from workspace index...");
+    let enriched_infos = analyze_types_from_index(&workspace_index, &all_types)?;
+    println!("  Analyzed {} types from workspace\n", enriched_infos.len());
 
     // Step 4: Generate patches by comparing analyzed types with current API
     println!("  📝 Generating patches by comparing with current API...\n");
@@ -477,7 +458,7 @@ fn analyze_type_from_source(
 }
 
 /// Extract doc comments from attributes
-fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
+pub fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
     let doc_lines: Vec<String> = attrs
         .iter()
         .filter(|attr| attr.path().is_ident("doc"))
@@ -554,13 +535,10 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
         );
     }
 
-    // Check for Box<T> (special case - treat like Option)
-    if let Some(inner) = extract_generic_type(trimmed, "Box") {
-        // Recursively normalize the inner type
-        let (inner_normalized, _) = normalize_generic_type(&inner);
-        let inner_clean = inner_normalized.replace(" ", "");
-        let normalized = format!("Box{}", inner_clean);
-        return (normalized, None); // Don't track Box types for now
+    // Check for Box<T> - always convert to *const c_void (opaque in FFI)
+    // Box<T> types cannot be represented in C ABI, so we treat them as opaque pointers
+    if let Some(_inner) = extract_generic_type(trimmed, "Box") {
+        return ("*const c_void".to_string(), None);
     }
 
     // Check for Result<T, E>
@@ -705,7 +683,7 @@ enum GenericTypeInfo {
 
 /// Clean up type strings by removing unnecessary parentheses, extracting last path segment,
 /// and normalizing generic types
-fn clean_type_string(type_str: &str) -> String {
+pub fn clean_type_string(type_str: &str) -> String {
     // First, remove spaces around :: (syn's token stream adds these)
     let type_str = type_str.replace(" :: ", "::");
 
@@ -1443,4 +1421,106 @@ mod tests {
         assert_eq!(clean_type_string("* const Baz"), "*const c_void");
         assert_eq!(clean_type_string("* mut Qux"), "*mut c_void");
     }
+
+    #[test]
+    fn test_normalize_box_types() {
+        // Test that Box<T> is always normalized to *const c_void
+        let (normalized, _) = normalize_generic_type("Box<Arc<Mutex<T>>>");
+        assert_eq!(normalized, "*const c_void");
+
+        let (normalized, _) = normalize_generic_type("Box<Vec<u8>>");
+        assert_eq!(normalized, "*const c_void");
+
+        let (normalized, _) = normalize_generic_type("Box<String>");
+        assert_eq!(normalized, "*const c_void");
+
+        // Test with spaces
+        let (normalized, _) = normalize_generic_type("Box < Arc < T > >");
+        assert_eq!(normalized, "*const c_void");
+    }
+}
+
+/// Analyze types using the in-memory workspace index
+fn analyze_types_from_index(
+    workspace_index: &crate::patch::workspace_index::WorkspaceIndex,
+    all_types: &[(String, String, String)], // (module, class_name, type_path)
+) -> Result<HashMap<String, discover::OracleTypeInfo>> {
+    let mut results = HashMap::new();
+
+    println!("    Analyzing {} types from index...", all_types.len());
+
+    let mut found = 0;
+    let mut not_found = 0;
+
+    for (module_name, class_name, type_path) in all_types {
+        // Try to find by full path first
+        if let Some(parsed_type) = workspace_index.find_type_by_path(type_path) {
+            let oracle_info = workspace_index.to_oracle_info(parsed_type);
+            results.insert(class_name.clone(), oracle_info);
+            found += 1;
+        } else {
+            // Try to find by simple type name
+            let simple_name = type_path.split("::").last().unwrap_or(class_name.as_str());
+            if let Some(candidates) = workspace_index.find_type(simple_name) {
+                if candidates.len() == 1 {
+                    // Unambiguous match
+                    let oracle_info = workspace_index.to_oracle_info(&candidates[0]);
+                    results.insert(class_name.clone(), oracle_info);
+                    found += 1;
+                } else {
+                    // Multiple matches - need to pick the most likely one
+                    // Prefer types from the same module
+                    let matching_module = candidates
+                        .iter()
+                        .find(|c| c.full_path.starts_with(&format!("azul_{}::", module_name)));
+
+                    if let Some(matched) = matching_module {
+                        let oracle_info = workspace_index.to_oracle_info(matched);
+                        results.insert(class_name.clone(), oracle_info);
+                        found += 1;
+                    } else {
+                        // Just use the first one
+                        let oracle_info = workspace_index.to_oracle_info(&candidates[0]);
+                        results.insert(class_name.clone(), oracle_info);
+                        found += 1;
+                        eprintln!(
+                            "    ⚠️  Multiple matches for {}, using: {}",
+                            class_name, candidates[0].full_path
+                        );
+                    }
+                }
+            } else {
+                // Try string-based search (finds macro-defined types)
+                if let Some(type_info) = workspace_index.find_type_by_string_search(simple_name) {
+                    let oracle_info = workspace_index.to_oracle_info(&type_info);
+                    results.insert(class_name.clone(), oracle_info);
+                    found += 1;
+
+                    // Check if the found path differs from api.json path
+                    if type_info.full_path.as_str() != type_path {
+                        eprintln!(
+                            "    🔍 Found via string search: {} at {} (api.json has wrong path: \
+                             {})",
+                            class_name, type_info.full_path, type_path
+                        );
+                    } else {
+                        eprintln!(
+                            "    🔍 Found via string search: {} at {}",
+                            class_name, type_info.full_path
+                        );
+                    }
+                } else {
+                    eprintln!(
+                        "    ❌ Type not found in index: {} ({})",
+                        class_name, type_path
+                    );
+                    not_found += 1;
+                }
+            }
+        }
+    }
+
+    println!("    ✅ Found: {}, ❌ Not found: {}", found, not_found);
+
+    Ok(results)
 }

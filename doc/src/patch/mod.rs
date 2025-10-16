@@ -13,6 +13,7 @@ use crate::api::{
 pub mod fallback;
 pub mod locatesource;
 pub mod parser;
+pub mod workspace_index;
 
 /// Patch file structure - allows selective updates to api.json
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
