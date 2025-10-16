@@ -94,20 +94,20 @@ fn io_err(e: std::io::Error, path: &Path) -> SourceRetrieverError {
 
 type Result<T, E = SourceRetrieverError> = std::result::Result<T, E>;
 
-#[derive(serde::Deserialize, Debug)]
-struct CargoPackage {
-    name: String,
-    manifest_path: PathBuf,
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct CargoPackage {
+    pub name: String,
+    pub manifest_path: PathBuf,
 }
 
-#[derive(serde::Deserialize, Debug)]
-struct CargoMetadata {
-    packages: Vec<CargoPackage>,
-    workspace_root: PathBuf,
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct CargoMetadata {
+    pub packages: Vec<CargoPackage>,
+    pub workspace_root: PathBuf,
 }
 
 // Modify get_cargo_metadata to handle test cases
-fn get_cargo_metadata(project_root: &Path) -> Result<CargoMetadata> {
+pub fn get_cargo_metadata(project_root: &Path) -> Result<CargoMetadata> {
     // Special case for tests
     if cfg!(test) {
         // Check if this is a test for dependency resolution
@@ -148,7 +148,7 @@ fn get_cargo_metadata(project_root: &Path) -> Result<CargoMetadata> {
         .map_err(|e| SourceRetrieverError::CargoMetadataError(format!("JSON parse error: {}", e)))
 }
 
-fn get_current_crate_name(project_root: &Path) -> Result<String> {
+pub fn get_current_crate_name(project_root: &Path) -> Result<String> {
     let cargo_toml_path = project_root.join("Cargo.toml");
     if !cargo_toml_path.exists() {
         return Err(SourceRetrieverError::CargoTomlError(format!(
@@ -196,6 +196,45 @@ pub fn retrieve_item_source(project_root: &Path, item_qname_or_path: &str) -> Re
     retrieve_qualified_item_source(project_root, item_qname_or_path)
 }
 
+/// Retrieves the source code with pre-computed cargo metadata (more efficient for batch operations)
+pub fn retrieve_item_source_with_metadata(
+    project_root: &Path,
+    item_qname_or_path: &str,
+    current_crate_name: &str,
+    metadata: &CargoMetadata,
+) -> Result<String> {
+    if is_file_path(item_qname_or_path) {
+        return retrieve_direct_file_content(project_root, item_qname_or_path);
+    }
+
+    let (effective_project_root, qname_for_parser) =
+        determine_effective_root_and_qname_with_metadata(
+            project_root,
+            item_qname_or_path,
+            current_crate_name,
+            metadata,
+        )?;
+
+    let symbols = parser::parse_directory(&effective_project_root)
+        .map_err(SourceRetrieverError::SymbolError)?;
+
+    let symbol_info = symbols
+        .get(qname_for_parser)
+        .ok_or_else(|| SourceRetrieverError::ItemNotInSymbolMap(qname_for_parser.to_string()))?;
+
+    // Ensure source_vertex_id from parser is correctly resolved
+    let mut source_file_path = PathBuf::from(symbol_info.source_vertex_id.trim_matches('"'));
+    if !source_file_path.is_absolute() {
+        source_file_path = effective_project_root.join(&source_file_path);
+    }
+
+    if !source_file_path.exists() {
+        return Err(SourceRetrieverError::FileNotFound(source_file_path.clone()));
+    }
+
+    extract_source_from_symbol_info(&source_file_path, symbol_info, qname_for_parser)
+}
+
 fn is_file_path(path_str: &str) -> bool {
     path_str.ends_with(".rs") || path_str.contains('/') || path_str.contains('\\')
 }
@@ -213,13 +252,27 @@ fn determine_effective_root_and_qname<'a>(
     item_qname: &'a str,
     current_crate_name: &str,
 ) -> Result<(PathBuf, &'a str)> {
+    let metadata = get_cargo_metadata(project_root)?;
+    determine_effective_root_and_qname_with_metadata(
+        project_root,
+        item_qname,
+        current_crate_name,
+        &metadata,
+    )
+}
+
+pub fn determine_effective_root_and_qname_with_metadata<'a>(
+    project_root: &'a Path,
+    item_qname: &'a str,
+    current_crate_name: &str,
+    metadata: &CargoMetadata,
+) -> Result<(PathBuf, &'a str)> {
     let first_part = item_qname.split("::").next().unwrap_or("");
 
     if first_part == current_crate_name || first_part == "crate" {
         Ok((project_root.to_path_buf(), item_qname))
     } else {
         // Dependency item - first try workspace members
-        let metadata = get_cargo_metadata(project_root)?;
 
         // Check specifically for test case dependencies
         if cfg!(test) && first_part == "sample_dep" {
@@ -268,7 +321,8 @@ fn determine_effective_root_and_qname<'a>(
     }
 }
 
-/// Find the workspace root by walking up from the given path and looking for Cargo.toml with [workspace]
+/// Find the workspace root by walking up from the given path and looking for Cargo.toml with
+/// [workspace]
 fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
     let mut current = start_path.to_path_buf();
 
@@ -299,8 +353,7 @@ fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
 /// Find a workspace member directory by crate name
 fn find_workspace_member(workspace_root: &Path, crate_name: &str) -> Result<PathBuf> {
     let cargo_toml_path = workspace_root.join("Cargo.toml");
-    let content = fs::read_to_string(&cargo_toml_path)
-        .map_err(|e| io_err(e, &cargo_toml_path))?;
+    let content = fs::read_to_string(&cargo_toml_path).map_err(|e| io_err(e, &cargo_toml_path))?;
 
     let manifest = cargo_toml::Manifest::from_slice(content.as_bytes()).map_err(|e| {
         SourceRetrieverError::CargoTomlError(format!(

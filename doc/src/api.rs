@@ -245,34 +245,40 @@ impl ModuleData {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ClassData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
     #[serde(default)] // Assumes false if missing
     pub is_boxed_object: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clone: Option<bool>, // If missing, generation logic should assume true
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_destructor: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde: Option<String>, // Serde attributes like "transparent"
     // Renamed from "const" which is a keyword
-    #[serde(rename = "const")]
+    #[serde(rename = "const", default, skip_serializing_if = "Option::is_none")]
     pub const_value_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constants: Option<Vec<IndexMap<String, ConstantData>>>, /* Use IndexMap if field order
                                                                  * matters */
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub struct_fields: Option<Vec<IndexMap<String, FieldData>>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback_typedef: Option<CallbackDefinition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     // Using IndexMap to preserve function/constructor order
     pub constructors: Option<IndexMap<String, FunctionData>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub functions: Option<IndexMap<String, FunctionData>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_patches: Option<Vec<String>>, // For conditional patch application
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repr: Option<String>, // For things like #[repr(transparent)]
 }
 
@@ -282,18 +288,21 @@ pub struct ConstantData {
     pub value: String,  // Keep value as string, parsing depends on type context
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct FieldData {
     pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>, // For field-level derives like #[pyo3(get, set)]
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct EnumVariantData {
     // Variants might not have an associated type (e.g., simple enums like MsgBoxIcon)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
 }
 

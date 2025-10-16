@@ -39,35 +39,49 @@ pub struct ModulePatch {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ClassPatch {
     /// Update external import path
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
     /// Update documentation
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     /// Update derive attributes
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>,
     /// Update is_boxed_object flag
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_boxed_object: Option<bool>,
     /// Update clone flag
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub clone: Option<bool>,
     /// Update custom_destructor flag
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_destructor: Option<bool>,
     /// Update serde attribute
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub serde: Option<String>,
     /// Update repr attribute
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repr: Option<String>,
     /// Update const value type
-    #[serde(rename = "const")]
+    #[serde(rename = "const", skip_serializing_if = "Option::is_none")]
     pub const_value_type: Option<String>,
     /// Patch or replace constants
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub constants: Option<Vec<IndexMap<String, ConstantData>>>,
     /// Patch or replace struct fields
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub struct_fields: Option<Vec<IndexMap<String, FieldData>>>,
     /// Patch or replace enum fields
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
     /// Patch or replace callback typedef
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub callback_typedef: Option<CallbackDefinition>,
     /// Patch or replace constructors
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub constructors: Option<IndexMap<String, FunctionData>>,
     /// Patch or replace functions
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<IndexMap<String, FunctionData>>,
     /// Add note about patch application
     #[serde(skip)]
@@ -84,6 +98,40 @@ impl ApiPatch {
             .with_context(|| format!("Failed to parse patch file: {}", path.display()))
     }
 
+    /// Load all patches from a directory
+    pub fn from_directory(dir_path: &Path) -> Result<Vec<(String, Self)>> {
+        if !dir_path.is_dir() {
+            anyhow::bail!("Not a directory: {}", dir_path.display());
+        }
+
+        let mut patches = Vec::new();
+
+        for entry in fs::read_dir(dir_path)
+            .with_context(|| format!("Failed to read directory: {}", dir_path.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+
+            // Only process .patch files
+            if path.extension().and_then(|s| s.to_str()) == Some("patch") {
+                let filename = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                match Self::from_file(&path) {
+                    Ok(patch) => patches.push((filename, patch)),
+                    Err(e) => {
+                        eprintln!("⚠️  Failed to load {}: {}", filename, e);
+                    }
+                }
+            }
+        }
+
+        Ok(patches)
+    }
+
     /// Apply patch to API data
     pub fn apply(&self, api_data: &mut ApiData) -> Result<usize> {
         let mut patches_applied = 0;
@@ -98,6 +146,79 @@ impl ApiPatch {
 
         Ok(patches_applied)
     }
+}
+
+/// Statistics about patch application
+#[derive(Debug, Default)]
+pub struct PatchStats {
+    pub total_patches: usize,
+    pub successful: usize,
+    pub failed: usize,
+    pub total_changes: usize,
+    pub failed_patches: Vec<(String, String)>, // (filename, error)
+}
+
+impl PatchStats {
+    pub fn print_summary(&self) {
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║                    Patch Summary                               ║");
+        println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+        println!("📊 Statistics:");
+        println!("  Total patch files: {}", self.total_patches);
+        println!("  Successfully applied: {}", self.successful);
+        println!("  Failed: {}", self.failed);
+        println!("  Total changes made: {}", self.total_changes);
+
+        if !self.failed_patches.is_empty() {
+            println!("\n❌ Failed patches:");
+            for (filename, error) in &self.failed_patches {
+                println!("  • {}: {}", filename, error);
+            }
+        }
+
+        if self.failed == 0 {
+            println!("\n✅ All patches applied successfully!");
+        } else {
+            println!("\n⚠️  Some patches failed to apply");
+        }
+    }
+}
+
+/// Apply patches from a directory
+pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> Result<PatchStats> {
+    let patches = ApiPatch::from_directory(dir_path)?;
+
+    let mut stats = PatchStats {
+        total_patches: patches.len(),
+        ..Default::default()
+    };
+
+    if patches.is_empty() {
+        println!("ℹ️  No patch files found in {}", dir_path.display());
+        return Ok(stats);
+    }
+
+    println!("🔧 Applying {} patch files...\n", patches.len());
+
+    for (filename, patch) in patches {
+        print!("  Applying {}... ", filename);
+
+        match patch.apply(api_data) {
+            Ok(count) => {
+                println!("✅ ({} changes)", count);
+                stats.successful += 1;
+                stats.total_changes += count;
+            }
+            Err(e) => {
+                println!("❌");
+                stats.failed += 1;
+                stats.failed_patches.push((filename, e.to_string()));
+            }
+        }
+    }
+
+    Ok(stats)
 }
 
 fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> Result<usize> {

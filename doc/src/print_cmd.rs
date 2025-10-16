@@ -144,7 +144,6 @@ fn print_class(
     println!("📦 Class: {}.{}\n", module_name, class_name);
 
     let mut found = false;
-    let mut has_errors = false;
 
     for (version_name, version_data) in &api_data.0 {
         if let Some(module_data) = version_data.api.get(module_name) {
@@ -184,28 +183,10 @@ fn print_class(
                         }
                         Err(e) => {
                             println!("  ⚠️  Failed to retrieve source: {}", e);
-                            has_errors = true;
-                        }
-                    }
-
-                    // 4. Compare with actual source
-                    println!("\n🔍 Validation:");
-                    match validate_class_definition(project_root, external, class_data) {
-                        Ok(true) => {
-                            println!("  ✅ Definition matches source");
-                        }
-                        Ok(false) => {
-                            println!("  ⚠️  Definition differs from source");
-                            has_errors = true;
-                        }
-                        Err(e) => {
-                            println!("  ❌ Validation failed: {}", e);
-                            has_errors = true;
                         }
                     }
                 } else {
                     println!("  ⚠️  No external path defined");
-                    has_errors = true;
                 }
 
                 let separator2 = "─".repeat(60);
@@ -219,16 +200,7 @@ fn print_class(
         process::exit(1);
     }
 
-    if has_errors {
-        println!(
-            "\n❌ Found errors in class '{}.{}'",
-            module_name, class_name
-        );
-        process::exit(1);
-    } else {
-        println!("\n✅ Class '{}.{}' is valid", module_name, class_name);
-        Ok(())
-    }
+    Ok(())
 }
 
 fn print_function(

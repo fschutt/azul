@@ -39,5 +39,6 @@ regex = "1.11.1"
 cargo_toml = "0.22.1"
 proc-macro2 = { version = "1.0.81", features = ["span-locations"] }
 toml = "0.8.22"
+rayon = "1.10"
 walkdir = "2"
 thiserror = "1.0"

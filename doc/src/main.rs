@@ -1,7 +1,9 @@
 mod api;
+mod autofix;
 mod build;
 mod codegen;
 mod deploy;
+mod discover;
 mod docgen;
 mod license;
 mod patch;
@@ -35,43 +37,94 @@ fn main() -> anyhow::Result<()> {
 
     // Check for "patch" subcommand
     if args.len() > 1 && args[1] == "patch" {
-        println!("🔧 Applying patch to api.json...\n");
+        if args.len() < 3 {
+            eprintln!("❌ Usage: azul-docs patch <file_or_directory>");
+            eprintln!("  Examples:");
+            eprintln!("    azul-docs patch patches/fix_something.patch");
+            eprintln!("    azul-docs patch patches/");
+            std::process::exit(1);
+        }
+
+        println!("🔧 Applying patches to api.json...\n");
 
         // Load API data
         let mut api_data = api::ApiData::from_str(include_str!("../../api.json"))
             .context("Failed to parse API definition")?;
 
-        // Read patch from stdin or file
-        let patch = if args.len() > 2 && args[2] != "-" {
-            // Read from file
-            let patch_path = PathBuf::from(&args[2]);
-            patch::ApiPatch::from_file(&patch_path)
-                .with_context(|| format!("Failed to load patch file: {}", patch_path.display()))?
-        } else {
-            // Read from stdin
-            use std::io::Read;
-            let mut stdin_content = String::new();
-            std::io::stdin()
-                .read_to_string(&mut stdin_content)
-                .context("Failed to read patch from stdin")?;
+        let patch_path = PathBuf::from(&args[2]);
 
-            serde_json::from_str(&stdin_content).context("Failed to parse patch JSON from stdin")?
-        };
+        // Check if it's a directory or file
+        if patch_path.is_dir() {
+            // Apply all patches from directory
+            let stats = patch::apply_patches_from_directory(&mut api_data, &patch_path)?;
 
-        // Apply the patch
-        match patch.apply(&mut api_data) {
-            Ok(count) => {
-                println!("✅ Applied {} patches\n", count);
+            stats.print_summary();
 
+            if stats.successful > 0 {
                 // Save updated api.json
                 let api_json = serde_json::to_string_pretty(&api_data)?;
                 fs::write(PathBuf::from(manifest_dir).join("../api.json"), api_json)?;
-                println!("💾 Saved updated api.json\n");
+                println!("\n💾 Saved updated api.json");
             }
-            Err(e) => {
-                eprintln!("❌ Error applying patches: {}", e);
-                return Err(e);
+
+            if stats.failed > 0 {
+                std::process::exit(1);
             }
+        } else {
+            // Apply single patch file
+            let patch = patch::ApiPatch::from_file(&patch_path)
+                .with_context(|| format!("Failed to load patch file: {}", patch_path.display()))?;
+
+            match patch.apply(&mut api_data) {
+                Ok(count) => {
+                    println!("✅ Applied {} changes\n", count);
+
+                    // Save updated api.json
+                    let api_json = serde_json::to_string_pretty(&api_data)?;
+                    fs::write(PathBuf::from(manifest_dir).join("../api.json"), api_json)?;
+                    println!("💾 Saved updated api.json\n");
+                }
+                Err(e) => {
+                    eprintln!("❌ Error applying patch: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Check for "autofix" subcommand
+    if args.len() > 1 && args[1] == "autofix" {
+        // Get project root (parent of doc/)
+        let project_root = PathBuf::from(manifest_dir).parent().unwrap().to_path_buf();
+
+        // Default to target/autofix if no output directory specified
+        let output_dir = if args.len() >= 3 {
+            PathBuf::from(&args[2])
+        } else {
+            project_root.join("target").join("autofix")
+        };
+
+        println!("🔍 Analyzing API for issues...\n");
+
+        // Load API data
+        let api_data = api::ApiData::from_str(include_str!("../../api.json"))
+            .context("Failed to parse API definition")?;
+
+        // Run autofix
+        let stats = autofix::autofix_api(&api_data, &project_root, &output_dir)?;
+
+        stats.print_summary();
+
+        if stats.patches_generated > 0 {
+            println!("\n📁 Patches saved to: {}", output_dir.display());
+            println!("\n💡 Next steps:");
+            println!("  1. Review the generated patches");
+            println!(
+                "  2. Apply them with: azul-docs patch {}",
+                output_dir.display()
+            );
         }
 
         return Ok(());
