@@ -94,6 +94,30 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Check for "normalize" subcommand
+    if args.len() > 1 && args[1] == "normalize" {
+        println!("🔄 Normalizing api.json...\n");
+
+        // Load API data from file
+        let api_path = PathBuf::from(manifest_dir).join("../api.json");
+        let api_json_str = fs::read_to_string(&api_path)
+            .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
+        
+        let api_data = api::ApiData::from_str(&api_json_str)
+            .context("Failed to parse API definition")?;
+
+        println!("✅ JSON syntax is valid");
+        println!("📝 Normalizing formatting...");
+
+        // Save normalized api.json
+        let api_json = serde_json::to_string_pretty(&api_data)?;
+        fs::write(&api_path, api_json)?;
+        
+        println!("💾 Saved normalized api.json\n");
+
+        return Ok(());
+    }
+
     // Check for "autofix" subcommand
     if args.len() > 1 && args[1] == "autofix" {
         // Get project root (parent of doc/)
