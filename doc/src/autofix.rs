@@ -461,7 +461,7 @@ fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
     } else {
         // Join with newlines first, then normalize to spaces
         let joined = doc_lines.join("\n");
-        
+
         // Normalize newlines, tabs, and multiple spaces to single spaces
         let normalized = joined
             .replace("\n", " ")
@@ -469,7 +469,7 @@ fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        
+
         Some(normalized)
     }
 }
@@ -480,14 +480,14 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
     // Remove all spaces first (syn returns types with spaces like "Option < Box < T > >")
     let no_spaces = type_str.replace(" ", "");
     let trimmed = no_spaces.trim();
-    
+
     // Special case: Option<Box<T>> -> *const c_void (opaque Rust types in FFI)
     if let Some(inner) = extract_generic_type(trimmed, "Option") {
         if let Some(_box_inner) = extract_generic_type(&inner, "Box") {
             // Option<Box<T>> is opaque in the FFI API
             return ("*const c_void".to_string(), None);
         }
-        
+
         // Not Option<Box<T>>, so normalize normally
         // Recursively normalize the inner type
         let (inner_normalized, _) = normalize_generic_type(&inner);
@@ -501,7 +501,7 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
             }),
         );
     }
-    
+
     // Check for Vec<T>
     if let Some(inner) = extract_generic_type(trimmed, "Vec") {
         // Recursively normalize the inner type
@@ -516,7 +516,7 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
             }),
         );
     }
-    
+
     // Check for Box<T> (special case - treat like Option)
     if let Some(inner) = extract_generic_type(trimmed, "Box") {
         // Recursively normalize the inner type
@@ -525,7 +525,7 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
         let normalized = format!("Box{}", inner_clean);
         return (normalized, None); // Don't track Box types for now
     }
-    
+
     // Check for Result<T, E>
     if let Some(inner) = extract_generic_type(trimmed, "Result") {
         // Parse Result<T, E> - split by comma at top level
@@ -547,7 +547,7 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
             );
         }
     }
-    
+
     (type_str.to_string(), None)
 }
 
@@ -555,7 +555,7 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
 /// Assumes type_str has no spaces (call normalize_generic_type first)
 fn extract_generic_type(type_str: &str, generic_name: &str) -> Option<String> {
     let prefix = format!("{}<", generic_name);
-    
+
     if type_str.starts_with(&prefix) && type_str.ends_with('>') {
         let start = prefix.len();
         let end = type_str.len() - 1;
@@ -563,7 +563,7 @@ fn extract_generic_type(type_str: &str, generic_name: &str) -> Option<String> {
             return Some(type_str[start..end].to_string());
         }
     }
-    
+
     None
 }
 
@@ -572,7 +572,7 @@ fn split_generic_args(args: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
     let mut depth = 0;
-    
+
     for ch in args.chars() {
         match ch {
             '<' | '(' | '[' => {
@@ -592,20 +592,26 @@ fn split_generic_args(args: &str) -> Vec<String> {
             }
         }
     }
-    
+
     if !current.trim().is_empty() {
         result.push(current.trim().to_string());
     }
-    
+
     result
 }
 
 /// Get the normalized type name from GenericTypeInfo
 fn get_generic_type_name(info: &GenericTypeInfo) -> String {
     match info {
-        GenericTypeInfo::Vec { normalized_name, .. } => normalized_name.clone(),
-        GenericTypeInfo::Option { normalized_name, .. } => normalized_name.clone(),
-        GenericTypeInfo::Result { normalized_name, .. } => normalized_name.clone(),
+        GenericTypeInfo::Vec {
+            normalized_name, ..
+        } => normalized_name.clone(),
+        GenericTypeInfo::Option {
+            normalized_name, ..
+        } => normalized_name.clone(),
+        GenericTypeInfo::Result {
+            normalized_name, ..
+        } => normalized_name.clone(),
     }
 }
 
@@ -664,12 +670,12 @@ fn clean_type_string(type_str: &str) -> String {
     // Normalize generic types (Vec<T> -> TVec, Option<T> -> OptionT, Result<T,E> -> ResultTE)
     // Also handles Option<Box<T>> -> *const c_void
     let (normalized, generic_info) = normalize_generic_type(unwrapped);
-    
+
     // If normalization changed the type, return the normalized version
     if normalized != unwrapped {
         return normalized;
     }
-    
+
     // If it's a tracked generic type, we already normalized it
     if generic_info.is_some() {
         return normalized;
@@ -677,11 +683,74 @@ fn clean_type_string(type_str: &str) -> String {
 
     // Extract the last segment of the path (after the last ::)
     // e.g., "crate::thread::CreateThreadCallback" -> "CreateThreadCallback"
-    if let Some(last_segment_pos) = unwrapped.rfind("::") {
+    let result = if let Some(last_segment_pos) = unwrapped.rfind("::") {
         unwrapped[last_segment_pos + 2..].to_string()
     } else {
         unwrapped.to_string()
+    };
+
+    // Final cleanup: normalize spacing in arrays, pointers, and references
+    // [u8 ; 4] -> [u8; 4]
+    // * mut c_void -> *mut c_void
+    // * const c_void -> *const c_void
+    // & mut T -> &mut T
+    // & T -> &T
+    normalize_spacing(&result)
+}
+
+/// Normalize spacing in type strings
+fn normalize_spacing(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    let mut prev_was_space = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            // Remove spaces before semicolons in arrays: [u8 ; 4] -> [u8; 4]
+            ' ' if chars.peek() == Some(&';') => {
+                continue;
+            }
+            // Remove spaces after semicolons in arrays: [u8; 4] -> [u8; 4]
+            ';' => {
+                result.push(ch);
+                if chars.peek() == Some(&' ') {
+                    chars.next(); // skip the space
+                }
+                prev_was_space = false;
+            }
+            // Normalize pointer/reference spacing: * mut -> *mut, * const -> *const
+            '*' => {
+                result.push(ch);
+                // Skip spaces after *
+                while chars.peek() == Some(&' ') {
+                    chars.next();
+                }
+                prev_was_space = false;
+            }
+            '&' => {
+                result.push(ch);
+                // Skip spaces after &
+                while chars.peek() == Some(&' ') {
+                    chars.next();
+                }
+                prev_was_space = false;
+            }
+            // Remove multiple consecutive spaces
+            ' ' if prev_was_space => {
+                continue;
+            }
+            ' ' => {
+                result.push(ch);
+                prev_was_space = true;
+            }
+            _ => {
+                result.push(ch);
+                prev_was_space = false;
+            }
+        }
     }
+
+    result
 }
 
 /// Generate final patches by comparing analyzed types with current API
@@ -865,13 +934,11 @@ fn generate_patches_from_analysis(
 
     // Generate patches for missing generic wrapper types
     if !generic_types_needed.is_empty() {
-        println!("\n📦 Generating patches for {} generic wrapper types...", generic_types_needed.len());
-        generate_generic_type_patches(
-            api_data,
-            &generic_types_needed,
-            output_dir,
-            stats,
-        )?;
+        println!(
+            "\n📦 Generating patches for {} generic wrapper types...",
+            generic_types_needed.len()
+        );
+        generate_generic_type_patches(api_data, &generic_types_needed, output_dir, stats)?;
     }
 
     Ok(())
@@ -887,9 +954,10 @@ fn generate_generic_type_patches(
     for (type_name, generic_info) in generic_types {
         // Check if this type already exists in the API
         let type_exists = api_data.0.iter().any(|(_, version_data)| {
-            version_data.api.iter().any(|(_, module_data)| {
-                module_data.classes.contains_key(type_name)
-            })
+            version_data
+                .api
+                .iter()
+                .any(|(_, module_data)| module_data.classes.contains_key(type_name))
         });
 
         if type_exists {
@@ -900,7 +968,10 @@ fn generate_generic_type_patches(
         println!("  ⚙️  Generating wrapper type: {}", type_name);
 
         match generic_info {
-            GenericTypeInfo::Vec { inner_type, normalized_name } => {
+            GenericTypeInfo::Vec {
+                inner_type,
+                normalized_name,
+            } => {
                 // Generate Vec wrapper, VecDestructor, and VecDestructorType
                 generate_vec_wrapper_patches(
                     api_data,
@@ -910,7 +981,10 @@ fn generate_generic_type_patches(
                     stats,
                 )?;
             }
-            GenericTypeInfo::Option { inner_type, normalized_name } => {
+            GenericTypeInfo::Option {
+                inner_type,
+                normalized_name,
+            } => {
                 // Generate Option wrapper
                 generate_option_wrapper_patch(
                     api_data,
@@ -920,7 +994,11 @@ fn generate_generic_type_patches(
                     stats,
                 )?;
             }
-            GenericTypeInfo::Result { ok_type, err_type, normalized_name } => {
+            GenericTypeInfo::Result {
+                ok_type,
+                err_type,
+                normalized_name,
+            } => {
                 // Generate Result wrapper
                 generate_result_wrapper_patch(
                     api_data,
@@ -963,11 +1041,15 @@ fn generate_vec_wrapper_patches(
 
     // Generate TVecDestructorType
     let destructor_type_name = format!("{}DestructorType", normalized_name);
-    let destructor_type_patch = create_vec_destructor_type_patch(&destructor_type_name, normalized_name);
+    let destructor_type_patch =
+        create_vec_destructor_type_patch(&destructor_type_name, normalized_name);
     save_patch(&destructor_type_patch, &destructor_type_name, output_dir)?;
     stats.patches_generated += 1;
 
-    println!("    ✓ Generated {}, {}Destructor, {}DestructorType", normalized_name, normalized_name, normalized_name);
+    println!(
+        "    ✓ Generated {}, {}Destructor, {}DestructorType",
+        normalized_name, normalized_name, normalized_name
+    );
 
     Ok(())
 }
@@ -1034,7 +1116,7 @@ fn create_vec_patch(normalized_name: &str) -> ApiPatch {
 /// Create a patch for Vec destructor
 fn create_vec_destructor_patch(destructor_name: &str, vec_name: &str) -> ApiPatch {
     use indexmap::IndexMap;
-    
+
     let mut enum_fields = IndexMap::new();
     enum_fields.insert("DefaultRust".to_string(), EnumVariantData::default());
     enum_fields.insert("NoDestructor".to_string(), EnumVariantData::default());
@@ -1102,7 +1184,7 @@ fn create_vec_destructor_type_patch(destructor_type_name: &str, vec_name: &str) 
 /// Create a patch for Option<T> type
 fn create_option_patch(normalized_name: &str, inner_type: &str) -> ApiPatch {
     use indexmap::IndexMap;
-    
+
     let mut enum_fields = IndexMap::new();
     enum_fields.insert("None".to_string(), EnumVariantData::default());
     enum_fields.insert(
@@ -1138,7 +1220,7 @@ fn create_option_patch(normalized_name: &str, inner_type: &str) -> ApiPatch {
 /// Create a patch for Result<T, E> type
 fn create_result_patch(normalized_name: &str, ok_type: &str, err_type: &str) -> ApiPatch {
     use indexmap::IndexMap;
-    
+
     let mut enum_fields = IndexMap::new();
     enum_fields.insert(
         "Ok".to_string(),
@@ -1183,9 +1265,8 @@ fn save_patch(patch: &ApiPatch, type_name: &str, output_dir: &Path) -> Result<()
     let patch_path = output_dir.join(&patch_filename);
 
     let patch_json = serde_json::to_string_pretty(patch)?;
-    fs::write(&patch_path, patch_json).with_context(|| {
-        format!("Failed to write patch file: {}", patch_path.display())
-    })?;
+    fs::write(&patch_path, patch_json)
+        .with_context(|| format!("Failed to write patch file: {}", patch_path.display()))?;
 
     Ok(())
 }

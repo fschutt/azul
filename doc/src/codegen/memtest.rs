@@ -34,6 +34,7 @@ impl Default for MemtestConfig {
 
 /// Generate a test crate that validates memory layouts
 pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result<()> {
+    println!("  📁 Setting up directories...");
     let config = MemtestConfig::default();
     let memtest_dir = project_root.join("target").join("memtest");
 
@@ -42,16 +43,23 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
     fs::create_dir_all(memtest_dir.join("src"))
         .map_err(|e| format!("Failed to create src dir: {}", e))?;
 
+    println!("  📝 Generating Cargo.toml...");
     // Generate Cargo.toml
     let cargo_toml = generate_cargo_toml()?;
     fs::write(memtest_dir.join("Cargo.toml"), cargo_toml)
         .map_err(|e| format!("Failed to write Cargo.toml: {}", e))?;
 
+    println!("  🔧 Generating generated.rs (this may take a while)...");
     // Generate generated.rs with all API types
     let generated_rs = generate_generated_rs(api_data, &config)?;
+    println!(
+        "  💾 Writing generated.rs ({} bytes)...",
+        generated_rs.len()
+    );
     fs::write(memtest_dir.join("src").join("generated.rs"), generated_rs)
         .map_err(|e| format!("Failed to write generated.rs: {}", e))?;
 
+    println!("  🧪 Generating lib.rs with tests...");
     // Generate lib.rs with all tests
     let lib_rs = generate_lib_rs(api_data)?;
     fs::write(memtest_dir.join("src").join("lib.rs"), lib_rs)
@@ -303,6 +311,7 @@ fn sanitize_name(name: &str) -> String {
 }
 
 fn generate_generated_rs(api_data: &ApiData, config: &MemtestConfig) -> Result<String> {
+    println!("    ⏳ Starting generated.rs creation...");
     let mut output = String::new();
 
     output.push_str("// Auto-generated API definitions from api.json for memtest\n");
@@ -324,12 +333,15 @@ fn generate_generated_rs(api_data: &ApiData, config: &MemtestConfig) -> Result<S
         .get_version_prefix(version_name)
         .unwrap_or_else(|| "Az".to_string());
 
+    println!("    🔨 Generating dll module...");
     // 1. Generate the `dll` module containing raw structs AND function stubs
     output.push_str(&generate_dll_module(version_data, &prefix, config)?);
 
+    println!("    📦 Generating public API modules...");
     // 2. Generate the public API modules (`pub mod str`, etc.)
     output.push_str(&generate_public_api_modules(version_data, &prefix, config)?);
 
+    println!("    ✅ Generated.rs creation complete");
     Ok(output)
 }
 
@@ -338,11 +350,13 @@ fn generate_dll_module(
     prefix: &str,
     config: &MemtestConfig,
 ) -> Result<String> {
+    println!("      🏗️  Building dll module...");
     let mut dll_code = String::new();
     dll_code.push_str("pub mod dll {\n");
     dll_code.push_str("    use super::c_void;\n");
     dll_code.push_str("    use std::{string, vec, slice, mem, fmt, cmp, hash, iter};\n\n");
 
+    println!("      📊 Collecting structs...");
     // Collect all structs for this version
     let mut structs_map = HashMap::new();
     for (_module_name, module_data) in &version_data.api {
@@ -352,7 +366,9 @@ fn generate_dll_module(
             structs_map.insert(prefixed_name, metadata);
         }
     }
+    println!("      📚 Found {} types", structs_map.len());
 
+    println!("      🔧 Generating struct definitions...");
     // Generate all struct/enum/type definitions inside the dll module
     let struct_config = GenerateConfig {
         prefix: prefix.to_string(),
@@ -366,8 +382,10 @@ fn generate_dll_module(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
     );
 
+    println!("      🎯 Generating function stubs...");
     // Generate unimplemented!() stubs for all exported C functions
     let functions_map = build_functions_map(version_data, prefix).map_err(|e| e.to_string())?;
+    println!("      🔗 Found {} functions", functions_map.len());
     dll_code.push_str("\n    // --- C-ABI Function Stubs ---\n");
     for (fn_name, (fn_args, fn_return)) in &functions_map {
         let return_str = if fn_return.is_empty() {

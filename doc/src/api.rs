@@ -323,7 +323,11 @@ pub struct FunctionData {
     pub returns: Option<ReturnTypeData>,
     #[serde(rename = "fn_body", default, skip_serializing_if = "Option::is_none")]
     pub fn_body: Option<String>, // Present in api.json for DLL generation
-    #[serde(default, rename = "use_patches", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "use_patches",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub use_patches: Option<Vec<String>>, // Which languages this patch applies to
 }
 

@@ -551,25 +551,25 @@ mod tests {
 
         // Verify that doc and external were preserved
         let class_data = &api_data.0["1.0.0"].api["test_module"].classes["TestClass"];
-        
+
         assert_eq!(
             class_data.doc,
             Some("Original documentation".to_string()),
             "Documentation should be preserved when not in patch"
         );
-        
+
         assert_eq!(
             class_data.external,
             Some("original::path::TestClass".to_string()),
             "External path should be preserved when not in patch"
         );
-        
+
         assert_eq!(
             class_data.clone,
             Some(true),
             "Clone flag should be preserved when not in patch"
         );
-        
+
         assert_eq!(
             class_data.derive,
             Some(vec!["Debug".to_string()]),
@@ -577,15 +577,18 @@ mod tests {
         );
 
         // Verify that struct_fields were updated
-        assert!(class_data.struct_fields.is_some(), "Struct fields should be present");
+        assert!(
+            class_data.struct_fields.is_some(),
+            "Struct fields should be present"
+        );
         let fields = class_data.struct_fields.as_ref().unwrap().first().unwrap();
-        
+
         assert_eq!(
             fields.get("field1").map(|f| f.r#type.as_str()),
             Some("UpdatedType"),
             "Existing field should be updated"
         );
-        
+
         assert_eq!(
             fields.get("field2").map(|f| f.r#type.as_str()),
             Some("NewField"),
@@ -649,17 +652,168 @@ mod tests {
 
         // Verify that doc and external were updated
         let class_data = &api_data.0["1.0.0"].api["test_module"].classes["TestClass"];
-        
+
         assert_eq!(
             class_data.doc,
             Some("Updated documentation".to_string()),
             "Documentation should be updated when in patch"
         );
-        
+
         assert_eq!(
             class_data.external,
             Some("new::path::TestClass".to_string()),
             "External path should be updated when in patch"
         );
+    }
+}
+
+/// Rename classes where the external path's last segment differs from the API name
+/// This updates all references throughout the API
+pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
+    let mut renames = Vec::new();
+
+    // First pass: collect all renames needed
+    for (version_name, version_data) in &api_data.0 {
+        for (module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                if let Some(ref external) = class_data.external {
+                    // Extract last segment from external path
+                    let external_name = external.rsplit("::").next().unwrap_or(external.as_str());
+
+                    // If names don't match, schedule rename
+                    if external_name != class_name {
+                        renames.push((
+                            version_name.clone(),
+                            module_name.clone(),
+                            class_name.clone(),
+                            external_name.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let rename_count = renames.len();
+
+    if rename_count == 0 {
+        return Ok(0);
+    }
+
+    println!("\n🔄 Normalizing {} class names...", rename_count);
+
+    // Second pass: apply renames
+    for (version_name, module_name, old_name, new_name) in renames {
+        println!(
+            "  {} → {} (in {}.{})",
+            old_name, new_name, module_name, version_name
+        );
+
+        // Get mutable reference to the version
+        if let Some(version_data) = api_data.0.get_mut(&version_name) {
+            // Rename in the class map
+            if let Some(module_data) = version_data.api.get_mut(&module_name) {
+                if let Some(class_data) = module_data.classes.remove(&old_name) {
+                    module_data.classes.insert(new_name.clone(), class_data);
+                }
+            }
+
+            // Update all type references throughout the API
+            update_type_references(&mut version_data.api, &old_name, &new_name);
+        }
+    }
+
+    Ok(rename_count)
+}
+
+/// Update all type references in the API from old_name to new_name
+fn update_type_references(api: &mut IndexMap<String, ModuleData>, old_name: &str, new_name: &str) {
+    for module_data in api.values_mut() {
+        for class_data in module_data.classes.values_mut() {
+            // Update struct fields
+            if let Some(ref mut struct_fields) = class_data.struct_fields {
+                for field_map in struct_fields.iter_mut() {
+                    for field_data in field_map.values_mut() {
+                        if field_data.r#type == old_name {
+                            field_data.r#type = new_name.to_string();
+                        }
+                    }
+                }
+            }
+
+            // Update enum variants
+            if let Some(ref mut enum_fields) = class_data.enum_fields {
+                for variant_map in enum_fields.iter_mut() {
+                    for variant_data in variant_map.values_mut() {
+                        if let Some(ref mut variant_type) = variant_data.r#type {
+                            if variant_type == old_name {
+                                *variant_type = new_name.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update callback typedef
+            if let Some(ref mut callback_typedef) = class_data.callback_typedef {
+                // Update fn_args
+                for arg in &mut callback_typedef.fn_args {
+                    if arg.r#type == old_name {
+                        arg.r#type = new_name.to_string();
+                    }
+                }
+
+                // Update return type
+                if let Some(ref mut ret) = callback_typedef.returns {
+                    if ret.r#type == old_name {
+                        ret.r#type = new_name.to_string();
+                    }
+                }
+            }
+
+            // Update constructors
+            if let Some(ref mut constructors) = class_data.constructors {
+                for constructor in constructors.values_mut() {
+                    // Update fn_args (Vec<IndexMap<String, String>>)
+                    for arg_map in &mut constructor.fn_args {
+                        // Each arg_map is {"arg_name": "type"}
+                        for (_, arg_type) in arg_map.iter_mut() {
+                            if arg_type == old_name {
+                                *arg_type = new_name.to_string();
+                            }
+                        }
+                    }
+
+                    // Update return type
+                    if let Some(ref mut ret) = constructor.returns {
+                        if ret.r#type == old_name {
+                            ret.r#type = new_name.to_string();
+                        }
+                    }
+                }
+            }
+
+            // Update functions
+            if let Some(ref mut functions) = class_data.functions {
+                for function in functions.values_mut() {
+                    // Update fn_args (Vec<IndexMap<String, String>>)
+                    for arg_map in &mut function.fn_args {
+                        // Each arg_map is {"arg_name": "type"}
+                        for (_, arg_type) in arg_map.iter_mut() {
+                            if arg_type == old_name {
+                                *arg_type = new_name.to_string();
+                            }
+                        }
+                    }
+
+                    // Update return type
+                    if let Some(ref mut ret) = function.returns {
+                        if ret.r#type == old_name {
+                            ret.r#type = new_name.to_string();
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -19,20 +19,34 @@ use reftest::RunRefTestsConfig;
 
 fn main() -> anyhow::Result<()> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let manifest_path = PathBuf::from(manifest_dir);
+    let project_root = manifest_path.parent().unwrap().to_path_buf();
+    let api_path = project_root.join("api.json");
 
     let _ = std::env::set_current_dir(manifest_dir);
 
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
 
+    // Load api.json once at startup (for read-only commands)
+    let needs_api = args.len() > 1
+        && matches!(
+            args[1].as_str(),
+            "print" | "autofix" | "memtest" | "reftest"
+        );
+
+    let api_data = if needs_api {
+        let api_json_str = fs::read_to_string(&api_path)
+            .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
+        Some(api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?)
+    } else {
+        None
+    };
+
     // Check for "print" subcommand
     if args.len() > 1 && args[1] == "print" {
-        // Load API data
-        let api_data = api::ApiData::from_str(include_str!("../../api.json"))
-            .context("Failed to parse API definition")?;
-
         // Handle print command with remaining args
-        return print_cmd::handle_print_command(&api_data, &args[2..]);
+        return print_cmd::handle_print_command(api_data.as_ref().unwrap(), &args[2..]);
     }
 
     // Check for "patch" subcommand
@@ -47,11 +61,26 @@ fn main() -> anyhow::Result<()> {
 
         println!("🔧 Applying patches to api.json...\n");
 
-        // Load API data
-        let mut api_data = api::ApiData::from_str(include_str!("../../api.json"))
-            .context("Failed to parse API definition")?;
+        // Load API data (need mutable copy for patching)
+        let api_json_str = fs::read_to_string(&api_path)
+            .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
+        let mut api_data =
+            api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
 
+        // Get project root (parent of doc/) for resolving paths
         let patch_path = PathBuf::from(&args[2]);
+        let patch_path = if patch_path.is_absolute() {
+            patch_path
+        } else {
+            // Try relative to project root first
+            let project_relative = project_root.join(&patch_path);
+            if project_relative.exists() {
+                project_relative
+            } else {
+                // Fall back to current dir (doc/)
+                patch_path
+            }
+        };
 
         // Check if it's a directory or file
         if patch_path.is_dir() {
@@ -61,9 +90,20 @@ fn main() -> anyhow::Result<()> {
             stats.print_summary();
 
             if stats.successful > 0 {
+                // Normalize class names where external path differs from API name
+                match patch::normalize_class_names(&mut api_data) {
+                    Ok(count) if count > 0 => {
+                        println!("✅ Renamed {} classes to match external paths", count);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("⚠️  Warning: Failed to normalize class names: {}", e);
+                    }
+                }
+
                 // Save updated api.json
                 let api_json = serde_json::to_string_pretty(&api_data)?;
-                fs::write(PathBuf::from(manifest_dir).join("../api.json"), api_json)?;
+                fs::write(&api_path, api_json)?;
                 println!("\n💾 Saved updated api.json");
             }
 
@@ -79,9 +119,20 @@ fn main() -> anyhow::Result<()> {
                 Ok(count) => {
                     println!("✅ Applied {} changes\n", count);
 
+                    // Normalize class names where external path differs from API name
+                    match patch::normalize_class_names(&mut api_data) {
+                        Ok(count) if count > 0 => {
+                            println!("✅ Renamed {} classes to match external paths\n", count);
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("⚠️  Warning: Failed to normalize class names: {}\n", e);
+                        }
+                    }
+
                     // Save updated api.json
                     let api_json = serde_json::to_string_pretty(&api_data)?;
-                    fs::write(PathBuf::from(manifest_dir).join("../api.json"), api_json)?;
+                    fs::write(&api_path, api_json)?;
                     println!("💾 Saved updated api.json\n");
                 }
                 Err(e) => {
@@ -99,12 +150,11 @@ fn main() -> anyhow::Result<()> {
         println!("🔄 Normalizing api.json...\n");
 
         // Load API data from file
-        let api_path = PathBuf::from(manifest_dir).join("../api.json");
         let api_json_str = fs::read_to_string(&api_path)
             .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
-        
-        let api_data = api::ApiData::from_str(&api_json_str)
-            .context("Failed to parse API definition")?;
+
+        let api_data =
+            api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
 
         println!("✅ JSON syntax is valid");
         println!("📝 Normalizing formatting...");
@@ -112,7 +162,7 @@ fn main() -> anyhow::Result<()> {
         // Save normalized api.json
         let api_json = serde_json::to_string_pretty(&api_data)?;
         fs::write(&api_path, api_json)?;
-        
+
         println!("💾 Saved normalized api.json\n");
 
         return Ok(());
@@ -120,9 +170,6 @@ fn main() -> anyhow::Result<()> {
 
     // Check for "autofix" subcommand
     if args.len() > 1 && args[1] == "autofix" {
-        // Get project root (parent of doc/)
-        let project_root = PathBuf::from(manifest_dir).parent().unwrap().to_path_buf();
-
         // Default to target/autofix if no output directory specified
         let output_dir = if args.len() >= 3 {
             PathBuf::from(&args[2])
@@ -132,9 +179,8 @@ fn main() -> anyhow::Result<()> {
 
         println!("🔍 Analyzing API for issues...\n");
 
-        // Load API data
-        let api_data = api::ApiData::from_str(include_str!("../../api.json"))
-            .context("Failed to parse API definition")?;
+        // Use pre-loaded API data
+        let api_data = api_data.as_ref().unwrap();
 
         // Run autofix
         let stats = autofix::autofix_api(&api_data, &project_root, &output_dir)?;
@@ -246,12 +292,8 @@ fn main() -> anyhow::Result<()> {
 
     // Check for "memtest" subcommand
     if args.len() > 1 && args[1] == "memtest" {
-        // Load API data
-        let api_data = api::ApiData::from_str(include_str!("../../api.json"))
-            .context("Failed to parse API definition")?;
-
-        // Get project root (parent of doc/)
-        let project_root = PathBuf::from(manifest_dir).parent().unwrap().to_path_buf();
+        // Use pre-loaded API data
+        let api_data = api_data.as_ref().unwrap();
 
         // Handle subcommands
         if args.len() > 2 {
@@ -295,9 +337,11 @@ fn main() -> anyhow::Result<()> {
     if args.len() > 1 && args[1] == "deploy" {
         println!("Starting Azul Build and Deploy System...");
 
-        // Parse the API definition
-        let mut api_data = api::ApiData::from_str(include_str!("../../api.json"))
-            .context("Failed to parse API definition")?;
+        // Load API data (need mutable copy for potential patching)
+        let api_json_str = fs::read_to_string(&api_path)
+            .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
+        let mut api_data =
+            api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
 
         // Set up configuration
         let config = Config::from_args();
