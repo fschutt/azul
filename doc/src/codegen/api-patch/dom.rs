@@ -26,7 +26,7 @@
             use crate::vec::DomVec;
             let mut total_children = 0;
             let children = iter.into_iter().map(|c| {
-                total_children += c.total_children + 1;
+                total_children += c.estimated_total_children + 1;
                 c
             }).collect::<DomVec>();
 
