@@ -112,8 +112,14 @@ impl ApiPatch {
             let entry = entry?;
             let path = entry.path();
 
-            // Only process .patch files
-            if path.extension().and_then(|s| s.to_str()) == Some("patch") {
+            // Process both .patch and .patch.json files
+            let is_patch_file = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.ends_with(".patch") || s.ends_with(".patch.json"))
+                .unwrap_or(false);
+
+            if is_patch_file {
                 let filename = path
                     .file_name()
                     .and_then(|s| s.to_str())
@@ -444,4 +450,216 @@ pub fn generate_patch_template(
         )]),
     })
     .unwrap_or_else(|_| "{}".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_patch_preserves_existing_fields() {
+        // Create a test API with a class that has documentation and external path
+        let mut api_data = ApiData(BTreeMap::from([(
+            "1.0.0".to_string(),
+            VersionData {
+                apiversion: 1,
+                git: "test".to_string(),
+                date: "2025-01-01".to_string(),
+                examples: vec![],
+                notes: vec![],
+                api: IndexMap::from([(
+                    "test_module".to_string(),
+                    ModuleData {
+                        doc: Some("Test module".to_string()),
+                        classes: IndexMap::from([(
+                            "TestClass".to_string(),
+                            ClassData {
+                                doc: Some("Original documentation".to_string()),
+                                external: Some("original::path::TestClass".to_string()),
+                                is_boxed_object: false,
+                                clone: Some(true),
+                                custom_destructor: None,
+                                derive: Some(vec!["Debug".to_string()]),
+                                serde: None,
+                                const_value_type: None,
+                                constants: None,
+                                struct_fields: Some(vec![IndexMap::from([(
+                                    "field1".to_string(),
+                                    FieldData {
+                                        r#type: "String".to_string(),
+                                        doc: Some("Field documentation".to_string()),
+                                        derive: None,
+                                    },
+                                )])]),
+                                enum_fields: None,
+                                callback_typedef: None,
+                                constructors: None,
+                                functions: None,
+                                use_patches: None,
+                                repr: None,
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]));
+
+        // Create a patch that only updates struct_fields, leaving doc and external unchanged
+        let patch = ApiPatch {
+            versions: BTreeMap::from([(
+                "1.0.0".to_string(),
+                VersionPatch {
+                    modules: BTreeMap::from([(
+                        "test_module".to_string(),
+                        ModulePatch {
+                            classes: BTreeMap::from([(
+                                "TestClass".to_string(),
+                                ClassPatch {
+                                    // Only updating struct_fields, doc and external are None
+                                    doc: None,
+                                    external: None,
+                                    struct_fields: Some(vec![IndexMap::from([
+                                        (
+                                            "field1".to_string(),
+                                            FieldData {
+                                                r#type: "UpdatedType".to_string(),
+                                                doc: Some("Field documentation".to_string()),
+                                                derive: None,
+                                            },
+                                        ),
+                                        (
+                                            "field2".to_string(),
+                                            FieldData {
+                                                r#type: "NewField".to_string(),
+                                                doc: None,
+                                                derive: None,
+                                            },
+                                        ),
+                                    ])]),
+                                    ..Default::default()
+                                },
+                            )]),
+                        },
+                    )]),
+                },
+            )]),
+        };
+
+        // Apply the patch
+        let result = patch.apply(&mut api_data);
+        assert!(result.is_ok(), "Patch application should succeed");
+
+        // Verify that doc and external were preserved
+        let class_data = &api_data.0["1.0.0"].api["test_module"].classes["TestClass"];
+        
+        assert_eq!(
+            class_data.doc,
+            Some("Original documentation".to_string()),
+            "Documentation should be preserved when not in patch"
+        );
+        
+        assert_eq!(
+            class_data.external,
+            Some("original::path::TestClass".to_string()),
+            "External path should be preserved when not in patch"
+        );
+        
+        assert_eq!(
+            class_data.clone,
+            Some(true),
+            "Clone flag should be preserved when not in patch"
+        );
+        
+        assert_eq!(
+            class_data.derive,
+            Some(vec!["Debug".to_string()]),
+            "Derive attributes should be preserved when not in patch"
+        );
+
+        // Verify that struct_fields were updated
+        assert!(class_data.struct_fields.is_some(), "Struct fields should be present");
+        let fields = class_data.struct_fields.as_ref().unwrap().first().unwrap();
+        
+        assert_eq!(
+            fields.get("field1").map(|f| f.r#type.as_str()),
+            Some("UpdatedType"),
+            "Existing field should be updated"
+        );
+        
+        assert_eq!(
+            fields.get("field2").map(|f| f.r#type.as_str()),
+            Some("NewField"),
+            "New field should be added"
+        );
+    }
+
+    #[test]
+    fn test_patch_can_update_fields() {
+        // Create a test API with a class
+        let mut api_data = ApiData(BTreeMap::from([(
+            "1.0.0".to_string(),
+            VersionData {
+                apiversion: 1,
+                git: "test".to_string(),
+                date: "2025-01-01".to_string(),
+                examples: vec![],
+                notes: vec![],
+                api: IndexMap::from([(
+                    "test_module".to_string(),
+                    ModuleData {
+                        doc: Some("Test module".to_string()),
+                        classes: IndexMap::from([(
+                            "TestClass".to_string(),
+                            ClassData {
+                                doc: Some("Original documentation".to_string()),
+                                external: Some("original::path::TestClass".to_string()),
+                                ..Default::default()
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]));
+
+        // Create a patch that updates both doc and external
+        let patch = ApiPatch {
+            versions: BTreeMap::from([(
+                "1.0.0".to_string(),
+                VersionPatch {
+                    modules: BTreeMap::from([(
+                        "test_module".to_string(),
+                        ModulePatch {
+                            classes: BTreeMap::from([(
+                                "TestClass".to_string(),
+                                ClassPatch {
+                                    doc: Some("Updated documentation".to_string()),
+                                    external: Some("new::path::TestClass".to_string()),
+                                    ..Default::default()
+                                },
+                            )]),
+                        },
+                    )]),
+                },
+            )]),
+        };
+
+        // Apply the patch
+        let result = patch.apply(&mut api_data);
+        assert!(result.is_ok(), "Patch application should succeed");
+
+        // Verify that doc and external were updated
+        let class_data = &api_data.0["1.0.0"].api["test_module"].classes["TestClass"];
+        
+        assert_eq!(
+            class_data.doc,
+            Some("Updated documentation".to_string()),
+            "Documentation should be updated when in patch"
+        );
+        
+        assert_eq!(
+            class_data.external,
+            Some("new::path::TestClass".to_string()),
+            "External path should be updated when in patch"
+        );
+    }
 }

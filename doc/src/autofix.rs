@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use quote::ToTokens;
 
 use crate::{
-    api::{ApiData, EnumVariantData, FieldData},
+    api::{ApiData, CallbackArgData, CallbackDefinition, EnumVariantData, FieldData},
     discover,
     patch::{
         locatesource::{self, get_current_crate_name},
@@ -459,11 +459,176 @@ fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
     if doc_lines.is_empty() {
         None
     } else {
-        Some(doc_lines.join("\n"))
+        // Join with newlines first, then normalize to spaces
+        let joined = doc_lines.join("\n");
+        
+        // Normalize newlines, tabs, and multiple spaces to single spaces
+        let normalized = joined
+            .replace("\n", " ")
+            .replace("\t", " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        
+        Some(normalized)
     }
 }
 
-/// Clean up type strings by removing unnecessary parentheses and extracting last path segment
+/// Detect and normalize generic types (Vec<T>, Option<T>, Result<T,E>)
+/// Returns (normalized_type, optional_generic_info)
+fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
+    // Remove all spaces first (syn returns types with spaces like "Option < Box < T > >")
+    let no_spaces = type_str.replace(" ", "");
+    let trimmed = no_spaces.trim();
+    
+    // Special case: Option<Box<T>> -> *const c_void (opaque Rust types in FFI)
+    if let Some(inner) = extract_generic_type(trimmed, "Option") {
+        if let Some(_box_inner) = extract_generic_type(&inner, "Box") {
+            // Option<Box<T>> is opaque in the FFI API
+            return ("*const c_void".to_string(), None);
+        }
+        
+        // Not Option<Box<T>>, so normalize normally
+        // Recursively normalize the inner type
+        let (inner_normalized, _) = normalize_generic_type(&inner);
+        let inner_clean = inner_normalized.replace(" ", "");
+        let normalized = format!("Option{}", inner_clean);
+        return (
+            normalized.clone(),
+            Some(GenericTypeInfo::Option {
+                inner_type: inner_clean,
+                normalized_name: normalized,
+            }),
+        );
+    }
+    
+    // Check for Vec<T>
+    if let Some(inner) = extract_generic_type(trimmed, "Vec") {
+        // Recursively normalize the inner type
+        let (inner_normalized, _) = normalize_generic_type(&inner);
+        let inner_clean = inner_normalized.replace(" ", "");
+        let normalized = format!("{}Vec", inner_clean);
+        return (
+            normalized.clone(),
+            Some(GenericTypeInfo::Vec {
+                inner_type: inner_clean,
+                normalized_name: normalized,
+            }),
+        );
+    }
+    
+    // Check for Box<T> (special case - treat like Option)
+    if let Some(inner) = extract_generic_type(trimmed, "Box") {
+        // Recursively normalize the inner type
+        let (inner_normalized, _) = normalize_generic_type(&inner);
+        let inner_clean = inner_normalized.replace(" ", "");
+        let normalized = format!("Box{}", inner_clean);
+        return (normalized, None); // Don't track Box types for now
+    }
+    
+    // Check for Result<T, E>
+    if let Some(inner) = extract_generic_type(trimmed, "Result") {
+        // Parse Result<T, E> - split by comma at top level
+        let parts = split_generic_args(&inner);
+        if parts.len() == 2 {
+            // Recursively normalize both types
+            let (ok_normalized, _) = normalize_generic_type(&parts[0]);
+            let (err_normalized, _) = normalize_generic_type(&parts[1]);
+            let ok_type = ok_normalized.replace(" ", "");
+            let err_type = err_normalized.replace(" ", "");
+            let normalized = format!("Result{}{}", ok_type, err_type);
+            return (
+                normalized.clone(),
+                Some(GenericTypeInfo::Result {
+                    ok_type,
+                    err_type,
+                    normalized_name: normalized,
+                }),
+            );
+        }
+    }
+    
+    (type_str.to_string(), None)
+}
+
+/// Extract the inner type from a generic like Vec<T> or Option<T>
+/// Assumes type_str has no spaces (call normalize_generic_type first)
+fn extract_generic_type(type_str: &str, generic_name: &str) -> Option<String> {
+    let prefix = format!("{}<", generic_name);
+    
+    if type_str.starts_with(&prefix) && type_str.ends_with('>') {
+        let start = prefix.len();
+        let end = type_str.len() - 1;
+        if start < end {
+            return Some(type_str[start..end].to_string());
+        }
+    }
+    
+    None
+}
+
+/// Split generic arguments by comma at the top level
+fn split_generic_args(args: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0;
+    
+    for ch in args.chars() {
+        match ch {
+            '<' | '(' | '[' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '>' | ')' | ']' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                result.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+    
+    if !current.trim().is_empty() {
+        result.push(current.trim().to_string());
+    }
+    
+    result
+}
+
+/// Get the normalized type name from GenericTypeInfo
+fn get_generic_type_name(info: &GenericTypeInfo) -> String {
+    match info {
+        GenericTypeInfo::Vec { normalized_name, .. } => normalized_name.clone(),
+        GenericTypeInfo::Option { normalized_name, .. } => normalized_name.clone(),
+        GenericTypeInfo::Result { normalized_name, .. } => normalized_name.clone(),
+    }
+}
+
+/// Information about a detected generic type
+#[derive(Debug, Clone)]
+enum GenericTypeInfo {
+    Vec {
+        inner_type: String,
+        normalized_name: String,
+    },
+    Option {
+        inner_type: String,
+        normalized_name: String,
+    },
+    Result {
+        ok_type: String,
+        err_type: String,
+        normalized_name: String,
+    },
+}
+
+/// Clean up type strings by removing unnecessary parentheses, extracting last path segment,
+/// and normalizing generic types
 fn clean_type_string(type_str: &str) -> String {
     // First, remove spaces around :: (syn's token stream adds these)
     let type_str = type_str.replace(" :: ", "::");
@@ -496,6 +661,20 @@ fn clean_type_string(type_str: &str) -> String {
         trimmed
     };
 
+    // Normalize generic types (Vec<T> -> TVec, Option<T> -> OptionT, Result<T,E> -> ResultTE)
+    // Also handles Option<Box<T>> -> *const c_void
+    let (normalized, generic_info) = normalize_generic_type(unwrapped);
+    
+    // If normalization changed the type, return the normalized version
+    if normalized != unwrapped {
+        return normalized;
+    }
+    
+    // If it's a tracked generic type, we already normalized it
+    if generic_info.is_some() {
+        return normalized;
+    }
+
     // Extract the last segment of the path (after the last ::)
     // e.g., "crate::thread::CreateThreadCallback" -> "CreateThreadCallback"
     if let Some(last_segment_pos) = unwrapped.rfind("::") {
@@ -521,6 +700,9 @@ fn generate_patches_from_analysis(
         )
     })?;
 
+    // Track all generic types that need to be generated
+    let mut generic_types_needed: HashMap<String, GenericTypeInfo> = HashMap::new();
+
     for (version_name, version_data) in &api_data.0 {
         println!("📦 Generating patches for version: {}", version_name);
 
@@ -544,6 +726,27 @@ fn generate_patches_from_analysis(
                     },
                     Err(_) => continue,
                 };
+
+                // Scan struct fields for generic types
+                for (_, field_data) in &analyzed_info.fields {
+                    let type_str = &field_data.r#type;
+                    let (_, generic_info) = normalize_generic_type(type_str);
+                    if let Some(info) = generic_info {
+                        let name = get_generic_type_name(&info);
+                        generic_types_needed.insert(name, info);
+                    }
+                }
+
+                // Scan enum variants for generic types
+                for (_, variant_data) in &analyzed_info.variants {
+                    if let Some(ref type_str) = variant_data.r#type {
+                        let (_, generic_info) = normalize_generic_type(type_str);
+                        if let Some(info) = generic_info {
+                            let name = get_generic_type_name(&info);
+                            generic_types_needed.insert(name, info);
+                        }
+                    }
+                }
 
                 // Compare and generate patch if needed
                 let mut class_patch = ClassPatch::default();
@@ -659,6 +862,330 @@ fn generate_patches_from_analysis(
             }
         }
     }
+
+    // Generate patches for missing generic wrapper types
+    if !generic_types_needed.is_empty() {
+        println!("\n📦 Generating patches for {} generic wrapper types...", generic_types_needed.len());
+        generate_generic_type_patches(
+            api_data,
+            &generic_types_needed,
+            output_dir,
+            stats,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Generate patches for generic wrapper types (Vec, Option, Result)
+fn generate_generic_type_patches(
+    api_data: &ApiData,
+    generic_types: &HashMap<String, GenericTypeInfo>,
+    output_dir: &Path,
+    stats: &mut AutofixStats,
+) -> Result<()> {
+    for (type_name, generic_info) in generic_types {
+        // Check if this type already exists in the API
+        let type_exists = api_data.0.iter().any(|(_, version_data)| {
+            version_data.api.iter().any(|(_, module_data)| {
+                module_data.classes.contains_key(type_name)
+            })
+        });
+
+        if type_exists {
+            // Type already exists, skip
+            continue;
+        }
+
+        println!("  ⚙️  Generating wrapper type: {}", type_name);
+
+        match generic_info {
+            GenericTypeInfo::Vec { inner_type, normalized_name } => {
+                // Generate Vec wrapper, VecDestructor, and VecDestructorType
+                generate_vec_wrapper_patches(
+                    api_data,
+                    inner_type,
+                    normalized_name,
+                    output_dir,
+                    stats,
+                )?;
+            }
+            GenericTypeInfo::Option { inner_type, normalized_name } => {
+                // Generate Option wrapper
+                generate_option_wrapper_patch(
+                    api_data,
+                    inner_type,
+                    normalized_name,
+                    output_dir,
+                    stats,
+                )?;
+            }
+            GenericTypeInfo::Result { ok_type, err_type, normalized_name } => {
+                // Generate Result wrapper
+                generate_result_wrapper_patch(
+                    api_data,
+                    ok_type,
+                    err_type,
+                    normalized_name,
+                    output_dir,
+                    stats,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Generate patches for Vec<T> wrapper types
+fn generate_vec_wrapper_patches(
+    _api_data: &ApiData,
+    inner_type: &str,
+    normalized_name: &str,
+    output_dir: &Path,
+    stats: &mut AutofixStats,
+) -> Result<()> {
+    // For Vec<T>, we need to generate:
+    // 1. TVec (the vec itself)
+    // 2. TVecDestructor
+    // 3. TVecDestructorType
+
+    // Generate TVec
+    let vec_patch = create_vec_patch(normalized_name);
+    save_patch(&vec_patch, normalized_name, output_dir)?;
+    stats.patches_generated += 1;
+
+    // Generate TVecDestructor
+    let destructor_name = format!("{}Destructor", normalized_name);
+    let destructor_patch = create_vec_destructor_patch(&destructor_name, normalized_name);
+    save_patch(&destructor_patch, &destructor_name, output_dir)?;
+    stats.patches_generated += 1;
+
+    // Generate TVecDestructorType
+    let destructor_type_name = format!("{}DestructorType", normalized_name);
+    let destructor_type_patch = create_vec_destructor_type_patch(&destructor_type_name, normalized_name);
+    save_patch(&destructor_type_patch, &destructor_type_name, output_dir)?;
+    stats.patches_generated += 1;
+
+    println!("    ✓ Generated {}, {}Destructor, {}DestructorType", normalized_name, normalized_name, normalized_name);
+
+    Ok(())
+}
+
+/// Generate patch for Option<T> wrapper type
+fn generate_option_wrapper_patch(
+    _api_data: &ApiData,
+    inner_type: &str,
+    normalized_name: &str,
+    output_dir: &Path,
+    stats: &mut AutofixStats,
+) -> Result<()> {
+    let patch = create_option_patch(normalized_name, inner_type);
+    save_patch(&patch, normalized_name, output_dir)?;
+    stats.patches_generated += 1;
+
+    println!("    ✓ Generated {}", normalized_name);
+
+    Ok(())
+}
+
+/// Generate patch for Result<T, E> wrapper type
+fn generate_result_wrapper_patch(
+    _api_data: &ApiData,
+    ok_type: &str,
+    err_type: &str,
+    normalized_name: &str,
+    output_dir: &Path,
+    stats: &mut AutofixStats,
+) -> Result<()> {
+    let patch = create_result_patch(normalized_name, ok_type, err_type);
+    save_patch(&patch, normalized_name, output_dir)?;
+    stats.patches_generated += 1;
+
+    println!("    ✓ Generated {}", normalized_name);
+
+    Ok(())
+}
+
+/// Create a patch for Vec<T> type
+fn create_vec_patch(normalized_name: &str) -> ApiPatch {
+    // TVec will be created as an empty class that needs external path from compiler
+    ApiPatch {
+        versions: BTreeMap::from([(
+            "1.0.0-alpha1".to_string(),
+            VersionPatch {
+                modules: BTreeMap::from([(
+                    "vec".to_string(),
+                    ModulePatch {
+                        classes: BTreeMap::from([(
+                            normalized_name.to_string(),
+                            ClassPatch {
+                                external: Some(format!("azul_css::{}", normalized_name)),
+                                ..Default::default()
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]),
+    }
+}
+
+/// Create a patch for Vec destructor
+fn create_vec_destructor_patch(destructor_name: &str, vec_name: &str) -> ApiPatch {
+    use indexmap::IndexMap;
+    
+    let mut enum_fields = IndexMap::new();
+    enum_fields.insert("DefaultRust".to_string(), EnumVariantData::default());
+    enum_fields.insert("NoDestructor".to_string(), EnumVariantData::default());
+    enum_fields.insert(
+        "External".to_string(),
+        EnumVariantData {
+            r#type: Some(format!("{}Type", destructor_name)),
+            doc: None,
+        },
+    );
+
+    ApiPatch {
+        versions: BTreeMap::from([(
+            "1.0.0-alpha1".to_string(),
+            VersionPatch {
+                modules: BTreeMap::from([(
+                    "vec".to_string(),
+                    ModulePatch {
+                        classes: BTreeMap::from([(
+                            destructor_name.to_string(),
+                            ClassPatch {
+                                external: Some(format!("azul_css::{}", destructor_name)),
+                                derive: Some(vec!["Copy".to_string()]),
+                                enum_fields: Some(vec![enum_fields]),
+                                ..Default::default()
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]),
+    }
+}
+
+/// Create a patch for Vec destructor type (callback typedef)
+fn create_vec_destructor_type_patch(destructor_type_name: &str, vec_name: &str) -> ApiPatch {
+    ApiPatch {
+        versions: BTreeMap::from([(
+            "1.0.0-alpha1".to_string(),
+            VersionPatch {
+                modules: BTreeMap::from([(
+                    "vec".to_string(),
+                    ModulePatch {
+                        classes: BTreeMap::from([(
+                            destructor_type_name.to_string(),
+                            ClassPatch {
+                                callback_typedef: Some(CallbackDefinition {
+                                    fn_args: vec![CallbackArgData {
+                                        r#type: vec_name.to_string(),
+                                        ref_kind: "refmut".to_string(),
+                                        doc: None,
+                                    }],
+                                    returns: None,
+                                }),
+                                ..Default::default()
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]),
+    }
+}
+
+/// Create a patch for Option<T> type
+fn create_option_patch(normalized_name: &str, inner_type: &str) -> ApiPatch {
+    use indexmap::IndexMap;
+    
+    let mut enum_fields = IndexMap::new();
+    enum_fields.insert("None".to_string(), EnumVariantData::default());
+    enum_fields.insert(
+        "Some".to_string(),
+        EnumVariantData {
+            r#type: Some(inner_type.to_string()),
+            doc: None,
+        },
+    );
+
+    ApiPatch {
+        versions: BTreeMap::from([(
+            "1.0.0-alpha1".to_string(),
+            VersionPatch {
+                modules: BTreeMap::from([(
+                    "option".to_string(),
+                    ModulePatch {
+                        classes: BTreeMap::from([(
+                            normalized_name.to_string(),
+                            ClassPatch {
+                                external: Some(format!("azul_css::{}", normalized_name)),
+                                enum_fields: Some(vec![enum_fields]),
+                                ..Default::default()
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]),
+    }
+}
+
+/// Create a patch for Result<T, E> type
+fn create_result_patch(normalized_name: &str, ok_type: &str, err_type: &str) -> ApiPatch {
+    use indexmap::IndexMap;
+    
+    let mut enum_fields = IndexMap::new();
+    enum_fields.insert(
+        "Ok".to_string(),
+        EnumVariantData {
+            r#type: Some(ok_type.to_string()),
+            doc: None,
+        },
+    );
+    enum_fields.insert(
+        "Err".to_string(),
+        EnumVariantData {
+            r#type: Some(err_type.to_string()),
+            doc: None,
+        },
+    );
+
+    ApiPatch {
+        versions: BTreeMap::from([(
+            "1.0.0-alpha1".to_string(),
+            VersionPatch {
+                modules: BTreeMap::from([(
+                    "error".to_string(),
+                    ModulePatch {
+                        classes: BTreeMap::from([(
+                            normalized_name.to_string(),
+                            ClassPatch {
+                                external: Some(format!("azul_core::{}", normalized_name)),
+                                enum_fields: Some(vec![enum_fields]),
+                                ..Default::default()
+                            },
+                        )]),
+                    },
+                )]),
+            },
+        )]),
+    }
+}
+
+/// Save a patch to disk
+fn save_patch(patch: &ApiPatch, type_name: &str, output_dir: &Path) -> Result<()> {
+    let patch_filename = format!("{}.patch.json", type_name);
+    let patch_path = output_dir.join(&patch_filename);
+
+    let patch_json = serde_json::to_string_pretty(patch)?;
+    fs::write(&patch_path, patch_json).with_context(|| {
+        format!("Failed to write patch file: {}", patch_path.display())
+    })?;
 
     Ok(())
 }

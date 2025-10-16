@@ -4,6 +4,11 @@ use anyhow::Context;
 use indexmap::IndexMap; // Use IndexMap for ordered fields where necessary
 use serde_derive::{Deserialize, Serialize}; // Use BTreeMap for sorted keys (versions)
 
+// Helper function to check if a bool is false (for skip_serializing_if)
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiData(
     // BTreeMap ensures versions are sorted alphabetically/numerically by key.
@@ -249,7 +254,7 @@ pub struct ClassData {
     pub doc: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
-    #[serde(default)] // Assumes false if missing
+    #[serde(default, skip_serializing_if = "is_false")] // Skip if false
     pub is_boxed_object: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clone: Option<bool>, // If missing, generation logic should assume true
@@ -308,21 +313,24 @@ pub struct EnumVariantData {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FunctionData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     // Arguments are a list where each item is a map like {"arg_name": "type"}
     // Using IndexMap here preserves argument order.
     #[serde(default, rename = "fn_args")]
     pub fn_args: Vec<IndexMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub returns: Option<ReturnTypeData>,
-    #[serde(rename = "fn_body")]
+    #[serde(rename = "fn_body", default, skip_serializing_if = "Option::is_none")]
     pub fn_body: Option<String>, // Present in api.json for DLL generation
-    #[serde(default, rename = "use_patches")]
+    #[serde(default, rename = "use_patches", skip_serializing_if = "Option::is_none")]
     pub use_patches: Option<Vec<String>>, // Which languages this patch applies to
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReturnTypeData {
     pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
 }
 
