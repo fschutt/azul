@@ -10,6 +10,7 @@ use crate::api::{
 };
 
 // Source code parsing and retrieval modules
+pub mod fallback;
 pub mod locatesource;
 pub mod parser;
 

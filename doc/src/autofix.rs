@@ -318,20 +318,41 @@ fn analyze_type_from_source(
 ) -> Result<discover::OracleTypeInfo> {
     use syn::{File, Item};
 
-    use crate::patch::locatesource;
+    use crate::patch::{fallback, locatesource};
 
     // Extract the actual type name from the path (last segment)
     // e.g., "azul_core::id::NodeId" -> "NodeId"
     let actual_type_name = type_path.split("::").last().unwrap_or(type_name);
 
-    // Use retrieve_item_source_with_metadata with pre-computed metadata
-    let source_code = locatesource::retrieve_item_source_with_metadata(
+    // Try normal locate_source first
+    let source_code = match locatesource::retrieve_item_source_with_metadata(
         project_root,
         type_path,
         current_crate_name,
         cargo_metadata,
-    )
-    .with_context(|| format!("Failed to locate source for {}", type_path))?;
+    ) {
+        Ok(code) => code,
+        Err(e) => {
+            // Fallback: search workspace for the type
+            eprintln!("⚠️  locate_source failed for {}: {}", type_path, e);
+            eprintln!("   Trying workspace fallback search...");
+
+            match fallback::find_type_in_workspace(project_root, actual_type_name) {
+                Ok((code, discovered_path)) => {
+                    eprintln!("   ✅ Found via fallback at: {}", discovered_path);
+                    code
+                }
+                Err(fallback_err) => {
+                    anyhow::bail!(
+                        "Failed to locate source for {} (locate_source: {}, fallback: {})",
+                        type_path,
+                        e,
+                        fallback_err
+                    )
+                }
+            }
+        }
+    };
 
     // Parse the source code directly
     let syntax_tree: File = syn::parse_str(&source_code).context("Failed to parse source code")?;
@@ -426,6 +447,22 @@ fn analyze_type_from_source(
                     variants,
                     has_repr_c,
                     is_enum: true,
+                });
+            }
+            Item::Type(t) if t.ident == actual_type_name => {
+                // This is a type alias (like callback typedefs)
+                // e.g., pub type MarshaledLayoutCallbackType = extern "C" fn(...) -> ...;
+
+                eprintln!("✓ Found type alias {}", type_name);
+
+                // For type aliases, we just confirm they exist
+                // The actual typedef structure is already in api.json
+                return Ok(discover::OracleTypeInfo {
+                    correct_path: Some(type_path.to_string()),
+                    fields: IndexMap::new(),
+                    variants: IndexMap::new(),
+                    has_repr_c: false,
+                    is_enum: false,
                 });
             }
             _ => {}
@@ -551,6 +588,39 @@ fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
     (type_str.to_string(), None)
 }
 
+/// Normalize raw pointer types to c_void
+/// Only c_void can take raw pointers in the C ABI
+/// Examples:
+///   *const Foo -> *const c_void
+///   *mut Bar -> *mut c_void
+///   *const c_void -> *const c_void (unchanged)
+fn normalize_raw_pointers(type_str: &str) -> String {
+    let trimmed = type_str.trim();
+
+    // Normalize spacing in raw pointer syntax: "* const " or "* mut " -> "*const " or "*mut "
+    let normalized_spacing = trimmed
+        .replace("* const ", "*const ")
+        .replace("* mut ", "*mut ");
+
+    // Check for *const Type (but not *const c_void)
+    if normalized_spacing.starts_with("*const ") {
+        let rest = &normalized_spacing[7..]; // Skip "*const "
+        if rest.trim() != "c_void" {
+            return "*const c_void".to_string();
+        }
+    }
+
+    // Check for *mut Type (but not *mut c_void)
+    if normalized_spacing.starts_with("*mut ") {
+        let rest = &normalized_spacing[5..]; // Skip "*mut "
+        if rest.trim() != "c_void" {
+            return "*mut c_void".to_string();
+        }
+    }
+
+    normalized_spacing
+}
+
 /// Extract the inner type from a generic like Vec<T> or Option<T>
 /// Assumes type_str has no spaces (call normalize_generic_type first)
 fn extract_generic_type(type_str: &str, generic_name: &str) -> Option<String> {
@@ -667,12 +737,16 @@ fn clean_type_string(type_str: &str) -> String {
         trimmed
     };
 
+    // Normalize raw pointers: *const Foo -> *const c_void, *mut Foo -> *mut c_void
+    // Only c_void can take raw pointers in the C ABI
+    let normalized_pointers = normalize_raw_pointers(unwrapped);
+
     // Normalize generic types (Vec<T> -> TVec, Option<T> -> OptionT, Result<T,E> -> ResultTE)
     // Also handles Option<Box<T>> -> *const c_void
-    let (normalized, generic_info) = normalize_generic_type(unwrapped);
+    let (normalized, generic_info) = normalize_generic_type(&normalized_pointers);
 
     // If normalization changed the type, return the normalized version
-    if normalized != unwrapped {
+    if normalized != normalized_pointers {
         return normalized;
     }
 
@@ -683,10 +757,10 @@ fn clean_type_string(type_str: &str) -> String {
 
     // Extract the last segment of the path (after the last ::)
     // e.g., "crate::thread::CreateThreadCallback" -> "CreateThreadCallback"
-    let result = if let Some(last_segment_pos) = unwrapped.rfind("::") {
-        unwrapped[last_segment_pos + 2..].to_string()
+    let result = if let Some(last_segment_pos) = normalized_pointers.rfind("::") {
+        normalized_pointers[last_segment_pos + 2..].to_string()
     } else {
-        unwrapped.to_string()
+        normalized_pointers.to_string()
     };
 
     // Final cleanup: normalize spacing in arrays, pointers, and references
@@ -1269,4 +1343,104 @@ fn save_patch(patch: &ApiPatch, type_name: &str, output_dir: &Path) -> Result<()
         .with_context(|| format!("Failed to write patch file: {}", patch_path.display()))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use syn::File;
+
+    use super::*;
+
+    #[test]
+    fn test_extract_pub_type_with_doc_comments() {
+        let source_code = r#"
+            /// In order to interact with external VMs (Java, Python, etc.)
+            /// the callback is often stored as a "function object"
+            ///
+            /// In order to callback into external languages, the layout
+            /// callback has to be able to carry some extra data
+            /// (the first argument), which usually contains the function object
+            /// i.e. in the Python VM a PyCallable / PyAny
+            pub type MarshaledLayoutCallbackType = extern "C" fn(
+                /* marshal_data */ &mut RefAny,
+                /* app_data */ &mut RefAny,
+                &mut LayoutCallbackInfo,
+            ) -> StyledDom;
+        "#;
+
+        let syntax_tree: File = syn::parse_str(source_code).expect("Failed to parse");
+
+        // Find the type alias
+        let mut found_type_alias = false;
+        for item in syntax_tree.items {
+            if let syn::Item::Type(t) = item {
+                assert_eq!(t.ident.to_string(), "MarshaledLayoutCallbackType");
+                found_type_alias = true;
+
+                // Extract doc comments
+                let doc = extract_doc_comments(&t.attrs);
+                assert!(doc.is_some(), "Should have doc comments");
+                let doc_text = doc.unwrap();
+
+                // Check that doc comments were extracted correctly
+                assert!(doc_text.contains("interact with external VMs"));
+                assert!(doc_text.contains("Java, Python"));
+                assert!(doc_text.contains("function object"));
+                assert!(doc_text.contains("PyCallable / PyAny"));
+
+                // Check type alias
+                let type_str = t.ty.to_token_stream().to_string();
+                assert!(type_str.contains("extern \"C\" fn"));
+                assert!(type_str.contains("RefAny"));
+                assert!(type_str.contains("LayoutCallbackInfo"));
+                assert!(type_str.contains("StyledDom"));
+            }
+        }
+
+        assert!(found_type_alias, "Should find type alias");
+    }
+
+    #[test]
+    fn test_callback_typedef_detection() {
+        use crate::api::ClassData;
+
+        // Test that a class with callback_typedef is properly detected
+        let mut class_data = ClassData::default();
+        class_data.callback_typedef = Some(crate::api::CallbackDefinition {
+            fn_args: vec![],
+            returns: None,
+        });
+
+        assert!(class_data.callback_typedef.is_some());
+    }
+
+    #[test]
+    fn test_normalize_raw_pointers() {
+        // Test that raw pointers are normalized to c_void
+        assert_eq!(normalize_raw_pointers("*const Foo"), "*const c_void");
+        assert_eq!(normalize_raw_pointers("*mut Bar"), "*mut c_void");
+        assert_eq!(
+            normalize_raw_pointers("*const SomeComplexType"),
+            "*const c_void"
+        );
+        assert_eq!(normalize_raw_pointers("*mut AnotherType"), "*mut c_void");
+
+        // Test that c_void pointers are unchanged
+        assert_eq!(normalize_raw_pointers("*const c_void"), "*const c_void");
+        assert_eq!(normalize_raw_pointers("*mut c_void"), "*mut c_void");
+
+        // Test that non-pointer types are unchanged
+        assert_eq!(normalize_raw_pointers("usize"), "usize");
+        assert_eq!(normalize_raw_pointers("String"), "String");
+        assert_eq!(normalize_raw_pointers("Vec<u8>"), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_clean_type_string_with_pointers() {
+        // Test that clean_type_string normalizes pointers correctly
+        assert_eq!(clean_type_string("*const Foo"), "*const c_void");
+        assert_eq!(clean_type_string("*mut Bar"), "*mut c_void");
+        assert_eq!(clean_type_string("* const Baz"), "*const c_void");
+        assert_eq!(clean_type_string("* mut Qux"), "*mut c_void");
+    }
 }

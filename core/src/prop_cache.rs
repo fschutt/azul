@@ -1578,13 +1578,8 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a ScrollbarStyleValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ScrollbarStyle,
-        )
-        .and_then(|p| p.as_scrollbar_style())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Scrollbar)
+            .and_then(|p| p.as_scrollbar())
     }
 
     // Method for getting scrollbar-width property

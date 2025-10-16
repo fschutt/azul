@@ -96,51 +96,6 @@
     }
 
     
-    impl ::core::fmt::Debug for U8VecRef {
-        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-            self.as_slice().fmt(f)
-        }
-    }
-
-    
-    impl Clone for U8VecRef {
-        fn clone(&self) -> Self {
-            U8VecRef::from(self.as_slice())
-        }
-    }
-
-    
-    impl PartialOrd for U8VecRef {
-        fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
-            self.as_slice().partial_cmp(rhs.as_slice())
-        }
-    }
-
-    
-    impl Ord for U8VecRef {
-        fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
-            self.as_slice().cmp(rhs.as_slice())
-        }
-    }
-
-    
-    impl PartialEq for U8VecRef {
-        fn eq(&self, rhs: &Self) -> bool {
-            self.as_slice().eq(rhs.as_slice())
-        }
-    }
-
-    
-    impl Eq for U8VecRef { }
-
-    
-    impl core::hash::Hash for U8VecRef {
-        fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
-            self.as_slice().hash(state)
-        }
-    }
-
-    
     impl From<&[f32]> for F32VecRef {
         fn from(s: &[f32]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }

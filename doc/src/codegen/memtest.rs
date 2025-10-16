@@ -383,32 +383,7 @@ fn generate_generated_rs(
         "#![allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
          clippy::all)]\n\n",
     );
-    output.push_str("use core::ffi::c_void;\n");
-
-    // Add all necessary imports from azul crates
-    output.push_str("use std::sync::atomic::AtomicUsize;\n");
-    output.push_str("use azul_core::{\n");
-    output.push_str(
-        "    gl::{GlContextPtrInner, GLenum, GLuint, GLvoid, GLint, GLsizei, GLboolean},\n",
-    );
-    output.push_str("    id::NodeId,\n");
-    output.push_str(
-        "    task::{CheckThreadFinishedCallbackType, GetSystemTimeCallbackType, \
-         InstantPtrCloneCallbackType, InstantPtrDestructorCallbackType, \
-         LibraryReceiveThreadMsgFnType, LibrarySendThreadMsgFnType, \
-         ThreadReceiverDestructorCallbackType, ThreadRecvCallbackType},\n",
-    );
-    output.push_str("    window::{SystemCallbacks, UserAttentionType},\n");
-    output.push_str("    xml::{XmlAttributeMap, XmlTagName, XmlTextContent},\n");
-    output.push_str("    callbacks::RefAny as CoreRefAny,\n");
-    output.push_str("    app_resources::ImageCache,\n");
-    output.push_str("    menu::MenuItem,\n");
-    output.push_str("};\n");
-    output.push_str("use azul_css::AzString as CssString;\n");
-    output.push_str("use azul_layout::{\n");
-    output.push_str("    dom::NodeId as LayoutNodeId,\n");
-    output.push_str("    ui_solver::ImageRect as LayoutImageRect,\n");
-    output.push_str("};\n\n");
+    output.push_str("use core::ffi::c_void;\n\n");
 
     let version_name = api_data
         .0
@@ -544,7 +519,8 @@ fn generate_public_api_modules(
         ("gl.rs", "gl"),
         ("css.rs", "css"),
         ("window.rs", "window"),
-        ("callbacks.rs", "callbacks"),
+        // ("callbacks.rs", "callbacks"), // Excluded: callback types need workspace search
+        // fallback
     ];
 
     let mut output = String::new();

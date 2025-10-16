@@ -449,9 +449,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::BoxShadowBottom => {
                 CssProperty::BoxShadowBottom(CssPropertyValue::$content_type)
             }
-            CssPropertyType::ScrollbarStyle => {
-                CssProperty::ScrollbarStyle(CssPropertyValue::$content_type)
-            }
+            CssPropertyType::Scrollbar => CssProperty::Scrollbar(CssPropertyValue::$content_type),
             CssPropertyType::ScrollbarWidth => {
                 CssProperty::ScrollbarWidth(CssPropertyValue::$content_type)
             }

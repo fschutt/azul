@@ -175,6 +175,15 @@ fn generate_single_type(
             config,
             indent_str,
         )?);
+
+        // Generate callback trait implementations if this struct has a `cb` field
+        if is_callback_struct(struct_fields) {
+            code.push_str(&generate_callback_trait_impls(
+                struct_name,
+                config,
+                indent_str,
+            )?);
+        }
     }
     // Handle enums
     else if let Some(enum_fields) = &struct_meta.enum_fields {
@@ -187,6 +196,127 @@ fn generate_single_type(
             indent_str,
         )?);
     }
+
+    Ok(code)
+}
+
+/// Check if a struct is a callback struct (has a field named `cb`)
+fn is_callback_struct(struct_fields: &[IndexMap<String, FieldData>]) -> bool {
+    struct_fields
+        .iter()
+        .any(|field_map| field_map.keys().any(|field_name| field_name == "cb"))
+}
+
+/// Generate trait implementations for callback structs
+/// This replicates the behavior of the `impl_callback!` macro from core/src/macros.rs
+fn generate_callback_trait_impls(
+    struct_name: &str,
+    config: &GenerateConfig,
+    indent_str: &str,
+) -> Result<String> {
+    let mut code = String::new();
+
+    // Debug implementation - shows type name and pointer address
+    code.push_str(&format!(
+        "\n{}impl ::core::fmt::Debug for {} {{\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!(
+        "{}    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {{\n",
+        indent_str
+    ));
+    code.push_str(&format!(
+        "{}        write!(f, \"{} @ 0x{{:x}}\", self.cb as usize)\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!("{}    }}\n", indent_str));
+    code.push_str(&format!("{}}}\n", indent_str));
+
+    // Clone implementation
+    code.push_str(&format!(
+        "\n{}impl Clone for {} {{\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
+    code.push_str(&format!(
+        "{}        {} {{ cb: self.cb.clone() }}\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!("{}    }}\n", indent_str));
+    code.push_str(&format!("{}}}\n", indent_str));
+
+    // Hash implementation
+    code.push_str(&format!(
+        "\n{}impl ::core::hash::Hash for {} {{\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!(
+        "{}    fn hash<H>(&self, state: &mut H)\n",
+        indent_str
+    ));
+    code.push_str(&format!("{}    where\n", indent_str));
+    code.push_str(&format!("{}        H: ::core::hash::Hasher,\n", indent_str));
+    code.push_str(&format!("{}    {{\n", indent_str));
+    code.push_str(&format!(
+        "{}        state.write_usize(self.cb as usize);\n",
+        indent_str
+    ));
+    code.push_str(&format!("{}    }}\n", indent_str));
+    code.push_str(&format!("{}}}\n", indent_str));
+
+    // PartialEq implementation
+    code.push_str(&format!(
+        "\n{}impl PartialEq for {} {{\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!(
+        "{}    fn eq(&self, rhs: &Self) -> bool {{\n",
+        indent_str
+    ));
+    code.push_str(&format!(
+        "{}        self.cb as usize == rhs.cb as usize\n",
+        indent_str
+    ));
+    code.push_str(&format!("{}    }}\n", indent_str));
+    code.push_str(&format!("{}}}\n", indent_str));
+
+    // PartialOrd implementation
+    code.push_str(&format!(
+        "\n{}impl PartialOrd for {} {{\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!(
+        "{}    fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {{\n",
+        indent_str
+    ));
+    code.push_str(&format!(
+        "{}        Some((self.cb as usize).cmp(&(other.cb as usize)))\n",
+        indent_str
+    ));
+    code.push_str(&format!("{}    }}\n", indent_str));
+    code.push_str(&format!("{}}}\n", indent_str));
+
+    // Ord implementation
+    code.push_str(&format!(
+        "\n{}impl Ord for {} {{\n",
+        indent_str, struct_name
+    ));
+    code.push_str(&format!(
+        "{}    fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {{\n",
+        indent_str
+    ));
+    code.push_str(&format!(
+        "{}        (self.cb as usize).cmp(&(other.cb as usize))\n",
+        indent_str
+    ));
+    code.push_str(&format!("{}    }}\n", indent_str));
+    code.push_str(&format!("{}}}\n", indent_str));
+
+    // Eq implementation (marker trait)
+    code.push_str(&format!(
+        "\n{}impl Eq for {} {{}}\n",
+        indent_str, struct_name
+    ));
 
     Ok(code)
 }
@@ -225,6 +355,19 @@ fn generate_struct_definition(
     let mut opt_derive_eq = String::new();
     let mut opt_derive_ord = String::new();
     let mut opt_derive_hash = String::new();
+
+    // If this is a callback struct (has a `cb` field), don't derive any traits
+    // because we'll generate custom implementations later
+    let is_callback = is_callback_struct(struct_fields);
+    if is_callback {
+        opt_derive_copy.clear();
+        opt_derive_debug.clear();
+        opt_derive_clone.clear();
+        opt_derive_other.clear();
+        opt_derive_eq.clear();
+        opt_derive_ord.clear();
+        opt_derive_hash.clear();
+    }
 
     // Apply derive rules
     if !struct_meta.can_be_copied {
