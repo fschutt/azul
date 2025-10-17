@@ -110,17 +110,6 @@ fn new_id_namespace() -> IdNamespace {
     IdNamespace(id)
 }
 
-/// Tracks the state of an IFrame for conditional re-invocation
-#[derive(Debug, Clone)]
-struct IFrameState {
-    /// The bounds of the iframe node at last callback invocation
-    bounds: LogicalRect,
-    /// The scroll offset at last callback invocation  
-    scroll_offset: LogicalPosition,
-    /// The DomId assigned to this iframe's content
-    dom_id: DomId,
-}
-
 /// Result of a layout pass for a single DOM, before display list generation
 #[derive(Debug, Clone)]
 pub struct DomLayoutResult {
@@ -157,9 +146,6 @@ pub struct LayoutWindow {
     /// Selection states for all DOMs
     /// Maps DomId -> SelectionState
     pub selections: BTreeMap<DomId, SelectionState>,
-    /// IFrame states for conditional re-invocation
-    /// Maps (parent_dom_id, iframe_node_id) -> IFrameState
-    pub iframe_states: BTreeMap<(DomId, NodeId), IFrameState>,
     /// Counter for generating unique DomIds for iframes
     pub next_dom_id: u64,
     /// Timers associated with this window
@@ -207,7 +193,6 @@ impl LayoutWindow {
             layout_results: BTreeMap::new(),
             scroll_states: ScrollStates::new(),
             selections: BTreeMap::new(),
-            iframe_states: BTreeMap::new(),
             next_dom_id: 1, // Start at 1, 0 is reserved for ROOT_ID
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
@@ -265,7 +250,7 @@ impl LayoutWindow {
         let styled_dom_clone = styled_dom.clone();
 
         // Call the solver3 layout engine
-        let display_list = solver3::layout_document(
+        let mut display_list = solver3::layout_document(
             &mut self.layout_cache,
             &mut self.text_cache,
             styled_dom,
@@ -287,6 +272,42 @@ impl LayoutWindow {
                     viewport,
                 },
             );
+        }
+
+        // === IFrame handling ===
+        // Scan for IFrame nodes in the layout tree
+        let iframes = self.scan_for_iframes(dom_id);
+        eprintln!(
+            "DEBUG: Found {} IFrame nodes in DOM {:?}",
+            iframes.len(),
+            dom_id
+        );
+
+        // Invoke callbacks for each IFrame and insert IFrame items into display list
+        for (node_id, bounds) in iframes {
+            eprintln!(
+                "DEBUG: Processing IFrame node {:?} with bounds {:?}",
+                node_id, bounds
+            );
+            if let Some((child_dom_id, _child_display_list)) =
+                self.invoke_iframe_callback(dom_id, node_id, bounds, window_state, debug_messages)
+            {
+                eprintln!(
+                    "DEBUG: IFrame callback invoked successfully, child_dom_id = {:?}",
+                    child_dom_id
+                );
+                // Insert an IFrame display list item that references the child DOM
+                // The renderer will look up the child's display list by child_dom_id
+                display_list
+                    .items
+                    .push(crate::solver3::display_list::DisplayListItem::IFrame {
+                        child_dom_id,
+                        bounds,
+                        clip_rect: bounds, // For now, clip_rect = bounds
+                    });
+            } else {
+                eprintln!("DEBUG: IFrame callback invocation returned None");
+            }
         }
 
         Ok(display_list)
@@ -330,7 +351,6 @@ impl LayoutWindow {
         self.layout_results.clear();
         self.scroll_states.clear();
         self.selections.clear();
-        self.iframe_states.clear();
         self.next_dom_id = 1;
     }
 
@@ -341,7 +361,7 @@ impl LayoutWindow {
 
     /// Get scroll position for a node
     pub fn get_scroll_position(&self, dom_id: DomId, node_id: NodeId) -> Option<ScrollPosition> {
-        self.scroll_states.get(dom_id, node_id).cloned()
+        self.scroll_states.get(dom_id, node_id)
     }
 
     /// Set selection state for a DOM
@@ -359,6 +379,359 @@ impl LayoutWindow {
         let id = self.next_dom_id as usize;
         self.next_dom_id += 1;
         DomId { inner: id }
+    }
+
+    /// Scan the layout tree of a DOM for IFrame nodes and return their NodeIds with bounds.
+    ///
+    /// This method iterates through all nodes in the styled_dom and identifies IFrame nodes,
+    /// then looks up their layout bounds from the layout tree.
+    ///
+    /// Returns: Vec of (NodeId, LogicalRect) for each IFrame found
+    fn scan_for_iframes(&self, dom_id: DomId) -> Vec<(NodeId, LogicalRect)> {
+        use azul_core::dom::NodeType;
+
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(r) => r,
+            None => {
+                eprintln!(
+                    "DEBUG scan_for_iframes: No layout result for DOM {:?}",
+                    dom_id
+                );
+                return Vec::new();
+            }
+        };
+
+        eprintln!(
+            "DEBUG scan_for_iframes: Scanning {} nodes",
+            layout_result.styled_dom.node_data.len()
+        );
+
+        // Filter nodes that are IFrames, then map to (NodeId, LogicalRect)
+        (0..layout_result.styled_dom.node_data.len())
+            .filter(|&node_index| {
+                let node_data = &layout_result.styled_dom.node_data.as_ref()[node_index];
+                let node_type = node_data.get_node_type();
+                let is_iframe = matches!(node_type, NodeType::IFrame(_));
+                eprintln!(
+                    "DEBUG scan_for_iframes: Node {} type = {:?}, is_iframe = {}",
+                    node_index, node_type, is_iframe
+                );
+                is_iframe
+            })
+            .filter_map(|node_index| {
+                eprintln!(
+                    "DEBUG scan_for_iframes: Found IFrame at index {}",
+                    node_index
+                );
+                let node_id = NodeId::new(node_index);
+
+                let position = match layout_result.absolute_positions.get(&node_index) {
+                    Some(p) => {
+                        eprintln!(
+                            "DEBUG scan_for_iframes: IFrame {} has position {:?}",
+                            node_index, p
+                        );
+                        p
+                    }
+                    None => {
+                        eprintln!(
+                            "DEBUG scan_for_iframes: IFrame {} has NO position in \
+                             absolute_positions",
+                            node_index
+                        );
+                        return None;
+                    }
+                };
+
+                let layout_node = match layout_result.layout_tree.get(node_index) {
+                    Some(n) => {
+                        eprintln!(
+                            "DEBUG scan_for_iframes: IFrame {} has layout_node",
+                            node_index
+                        );
+                        n
+                    }
+                    None => {
+                        eprintln!(
+                            "DEBUG scan_for_iframes: IFrame {} has NO layout_node in layout_tree",
+                            node_index
+                        );
+                        return None;
+                    }
+                };
+
+                let size = match layout_node.used_size {
+                    Some(s) => {
+                        eprintln!(
+                            "DEBUG scan_for_iframes: IFrame {} has used_size {:?}",
+                            node_index, s
+                        );
+                        s
+                    }
+                    None => {
+                        eprintln!(
+                            "DEBUG scan_for_iframes: IFrame {} has NO used_size",
+                            node_index
+                        );
+                        return None;
+                    }
+                };
+
+                eprintln!(
+                    "DEBUG scan_for_iframes: IFrame at {} has bounds {:?}",
+                    node_index,
+                    LogicalRect {
+                        origin: *position,
+                        size,
+                    }
+                );
+
+                Some((
+                    node_id,
+                    LogicalRect {
+                        origin: *position,
+                        size,
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    /// Invoke an IFrame callback and perform layout on the returned DOM.
+    ///
+    /// This method:
+    /// 1. Extracts the IFrameNode from the given node
+    /// 2. Creates IFrameCallbackInfo with bounds and scroll state
+    /// 3. Invokes the callback to get the child DOM
+    /// 4. Assigns a unique child_dom_id
+    /// 5. Performs layout on the child DOM (recursive)
+    /// 6. Stores the IFrameState for future updates
+    ///
+    /// Returns: Option<(child_dom_id, DisplayList)> if successful
+    fn invoke_iframe_callback(
+        &mut self,
+        parent_dom_id: DomId,
+        node_id: NodeId,
+        bounds: LogicalRect,
+        window_state: &FullWindowState,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Option<(DomId, DisplayList)> {
+        eprintln!(
+            "DEBUG: invoke_iframe_callback called for node {:?}",
+            node_id
+        );
+
+        // Get the layout result for the parent DOM
+        let layout_result = self.layout_results.get(&parent_dom_id)?;
+        eprintln!(
+            "DEBUG: Got layout result for parent DOM {:?}",
+            parent_dom_id
+        );
+
+        // Get the node data
+        let node_data = layout_result
+            .styled_dom
+            .node_data
+            .as_ref()
+            .get(node_id.index())?;
+        eprintln!("DEBUG: Got node data at index {}", node_id.index());
+
+        // Extract the IFrame node
+        let iframe_node = match node_data.get_node_type() {
+            azul_core::dom::NodeType::IFrame(iframe) => {
+                eprintln!("DEBUG: Node is IFrame type");
+                iframe.clone() // Clone to avoid borrow checker issues
+            }
+            other => {
+                eprintln!("DEBUG: Node is NOT IFrame, type = {:?}", other);
+                return None;
+            }
+        };
+
+        // Call the actual implementation
+        self.invoke_iframe_callback_impl(
+            parent_dom_id,
+            node_id,
+            &iframe_node,
+            bounds,
+            window_state,
+            debug_messages,
+        )
+    }
+
+    /// Invoke an IFrame callback and perform layout on the child DOM.
+    ///
+    /// This method implements the 5 conditional re-invocation rules:
+    /// 1. Initial render (first time seeing this IFrame)
+    /// 2. Parent DOM recreated (cache invalidated)
+    /// 3. Window resize: ONLY if bounds expand beyond current scroll_size
+    /// 4. Scroll near edge: Within 200px of any edge
+    /// 5. Programmatic scroll: Scroll position beyond current scroll_size
+    ///
+    /// The ScrollManager now tracks IFrame state and determines when re-invocation is needed.
+    ///
+    /// # Arguments
+    /// - `parent_dom_id`: The DomId of the parent document
+    /// - `node_id`: The NodeId of the IFrame node in the parent
+    /// - `iframe_node`: The IFrame node data
+    /// - `bounds`: The layout bounds of the IFrame
+    /// - `window_state`: Current window state
+    /// - `debug_messages`: Optional debug message collector
+    ///
+    /// # Returns
+    /// Some((child_dom_id, child_display_list)) if callback was invoked and layout succeeded,
+    /// None if callback was not invoked or layout failed.
+    fn invoke_iframe_callback_impl(
+        &mut self,
+        parent_dom_id: DomId,
+        node_id: NodeId,
+        iframe_node: &azul_core::dom::IFrameNode,
+        bounds: LogicalRect,
+        window_state: &FullWindowState,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Option<(DomId, DisplayList)> {
+        use azul_core::task::Instant;
+
+        // Get current time for scroll manager
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        // Get current scroll offset for this IFrame node
+        let scroll_offset = self
+            .scroll_states
+            .get_current_offset(parent_dom_id, node_id)
+            .unwrap_or_default();
+
+        // Update node bounds in scroll manager (needed for edge detection)
+        self.scroll_states.update_node_bounds(
+            parent_dom_id,
+            node_id,
+            bounds,
+            LogicalRect::new(LogicalPosition::zero(), bounds.size), // content_rect (will be updated after callback)
+            now.clone(),
+        );
+
+        // Check with scroll manager's tick() to see if IFrame needs re-invocation
+        let tick_result = self.scroll_states.tick(now.clone());
+
+        // Find if this specific IFrame is in the update list
+        let reason = tick_result
+            .iframes_to_update
+            .iter()
+            .find(|(d, n, _)| *d == parent_dom_id && *n == node_id)
+            .map(|(_, _, r)| *r)
+            .unwrap_or(azul_core::callbacks::IFrameCallbackReason::InitialRender);
+
+        eprintln!(
+            "DEBUG: IFrame ({:?}, {:?}) - Reason: {:?}",
+            parent_dom_id, node_id, reason
+        );
+        eprintln!(
+            "DEBUG: Bounds = {:?}, scroll_offset = {:?}",
+            bounds, scroll_offset
+        );
+
+        // Get hidpi_factor from window state
+        let hidpi_factor = window_state.size.dpi as f32 / 96.0;
+
+        // Create IFrameCallbackInfo
+        let temp_image_cache = azul_core::resources::ImageCache::default();
+
+        let mut callback_info = azul_core::callbacks::IFrameCallbackInfo::new(
+            reason,
+            &self.font_manager.fc_cache,
+            &temp_image_cache,
+            window_state.theme,
+            azul_core::callbacks::HidpiAdjustedBounds {
+                logical_size: bounds.size,
+                hidpi_factor,
+            },
+            bounds.size, // Initial scroll_size (will be updated by callback)
+            scroll_offset,
+            bounds.size,   // Initial virtual_scroll_size (will be updated by callback)
+            scroll_offset, // virtual_scroll_offset
+        );
+
+        // Clone the callback data before invoking
+        let mut callback_data = iframe_node.data.clone();
+
+        // Invoke the callback
+        let callback_return = (iframe_node.callback.cb)(&mut callback_data, &mut callback_info);
+
+        // Handle the OptionStyledDom - if None, keep using cached DOM
+        let mut child_styled_dom = match callback_return.dom {
+            azul_core::styled_dom::OptionStyledDom::Some(dom) => dom,
+            azul_core::styled_dom::OptionStyledDom::None => {
+                // Callback said "no update needed"
+                // Mark as invoked to prevent repeated calls
+                self.scroll_states
+                    .mark_iframe_invoked(parent_dom_id, node_id, reason);
+                eprintln!("DEBUG: Callback returned None, keeping cached DOM");
+                return None;
+            }
+        };
+
+        // Allocate a new DomId for the child
+        let child_dom_id = self.allocate_dom_id();
+        child_styled_dom.dom_id = child_dom_id;
+
+        // Update scroll manager with the new IFrame sizes
+        self.scroll_states.update_iframe_scroll_info(
+            parent_dom_id,
+            node_id,
+            callback_return.scroll_size,
+            callback_return.virtual_scroll_size,
+            now.clone(),
+        );
+
+        // Mark the IFrame callback as invoked
+        self.scroll_states
+            .mark_iframe_invoked(parent_dom_id, node_id, reason);
+
+        // Create a viewport that matches the IFrame's bounds
+        let iframe_viewport = LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: bounds.size,
+        };
+
+        // Get scroll offsets for the child DOM (initially empty)
+        let child_scroll_offsets = self.scroll_states.get_scroll_states_for_dom(child_dom_id);
+
+        // Perform layout on the child DOM
+        let mut child_layout_cache = Solver3LayoutCache {
+            tree: None,
+            absolute_positions: BTreeMap::new(),
+            viewport: None,
+        };
+
+        let child_display_list = solver3::layout_document(
+            &mut child_layout_cache,
+            &mut self.text_cache,
+            child_styled_dom.clone(),
+            iframe_viewport,
+            &self.font_manager,
+            &child_scroll_offsets,
+            &self.selections,
+            debug_messages,
+        )
+        .ok()?;
+
+        // Store the child layout result
+        if let Some(tree) = child_layout_cache.tree.clone() {
+            self.layout_results.insert(
+                child_dom_id,
+                DomLayoutResult {
+                    styled_dom: child_styled_dom,
+                    layout_tree: tree,
+                    absolute_positions: child_layout_cache.absolute_positions.clone(),
+                    viewport: iframe_viewport,
+                },
+            );
+        }
+
+        Some((child_dom_id, child_display_list))
     }
 
     // Query methods for callbacks

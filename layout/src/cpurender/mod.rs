@@ -189,6 +189,32 @@ fn render_display_list(
             DisplayListItem::HitTestArea { bounds, tag } => {
                 // Hit test areas don't render anything
             }
+            DisplayListItem::IFrame {
+                child_dom_id,
+                bounds,
+                clip_rect,
+            } => {
+                // TODO: Implement IFrame rendering
+                // This would require looking up the child display list by child_dom_id
+                // and recursively rendering it within the bounds/clip_rect.
+                // For now, just render a placeholder rectangle to show where it would be
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                render_rect(
+                    pixmap,
+                    bounds,
+                    ColorU {
+                        r: 200,
+                        g: 200,
+                        b: 255,
+                        a: 128,
+                    }, // Light blue placeholder
+                    &BorderRadius::default(),
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
+            }
         }
     }
 

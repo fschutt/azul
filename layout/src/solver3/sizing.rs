@@ -118,6 +118,22 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
+        // IFrames are replaced elements with a default intrinsic size of 300x150px
+        // (same as HTML <iframe> elements)
+        if let Some(dom_id) = node.dom_node_id {
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            if node_data.is_iframe_node() {
+                return Ok(IntrinsicSizes {
+                    min_content_width: 300.0,
+                    max_content_width: 300.0,
+                    preferred_width: None, // Will be determined by CSS or flex-grow
+                    min_content_height: 150.0,
+                    max_content_height: 150.0,
+                    preferred_height: None, // Will be determined by CSS or flex-grow
+                });
+            }
+        }
+
         match node.formatting_context {
             FormattingContext::Block { .. } => {
                 self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)

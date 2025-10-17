@@ -1,14 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "api/rust",
-    "dll",
-    # "workbench",
-    # "tests",
-    "doc",
-    "css",
-    "core",
-    "layout",
-    "examples/rust",
-    "examples/rust/ios",
+    # "examples" # compiled in CI: depend on 
+    # "api" # generated in CI: Rust bindings to the "dll" module, depends on NOTHING
+    "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
+    "doc", # doc / test generator, depends on layout, core and css
+    "layout", # layout depends on core + css
+    "core", # core depends on css
+    "css", # CSS parser, does not depend on anything else
 ]

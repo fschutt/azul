@@ -401,7 +401,10 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                 }
             })
             .map(layout_display_to_taffy)
-            .unwrap_or(taffy::Display::Block);
+            .unwrap_or_else(|| {
+                // Use the node's default display type if no CSS display property is set
+                layout_display_to_taffy(node_data.get_default_display().into())
+            });
 
         // Position
         taffy_style.position = cache
@@ -465,8 +468,25 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         };
 
         // Size
-        let width = get_css_width(self.ctx.styled_dom, id, node_state);
-        let height = get_css_height(self.ctx.styled_dom, id, node_state);
+        let mut width = get_css_width(self.ctx.styled_dom, id, node_state);
+        let mut height = get_css_height(self.ctx.styled_dom, id, node_state);
+
+        // Apply default width/height for nodes that have them (Body, IFrame)
+        // This must happen BEFORE the 0px check, so we get the percentage defaults
+        if let (LayoutWidth::Px(px), Some(default_width)) = (&width, node_data.get_default_width())
+        {
+            if px.to_pixels_no_percent() == Some(0.0) {
+                width = default_width;
+            }
+        }
+        if let (LayoutHeight::Px(px), Some(default_height)) =
+            (&height, node_data.get_default_height())
+        {
+            if px.to_pixels_no_percent() == Some(0.0) {
+                height = default_height;
+            }
+        }
+
         taffy_style.size = taffy::Size {
             width: from_layout_width(width),
             height: from_layout_height(height),
@@ -951,11 +971,24 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
     fn get_core_container_style(&self, node_id: taffy::NodeId) -> Self::CoreContainerStyle<'_> {
         let node_idx: usize = node_id.into();
         let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
-        self.translate_style_to_taffy(dom_id)
+        let style = self.translate_style_to_taffy(dom_id);
+        println!(
+            "  -> Taffy get_core_container_style for node_idx={}, dom_id={:?}",
+            node_idx, dom_id
+        );
+        println!(
+            "     display={:?}, flex_grow={:?}, size={:?}",
+            style.display, style.flex_grow, style.size
+        );
+        style
     }
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
         let node_idx: usize = node_id.into();
+        println!(
+            "  -> Taffy set_unrounded_layout: node_idx={}, size={:?}, location={:?}",
+            node_idx, layout.size, layout.location
+        );
         if let Some(node) = self.tree.get_mut(node_idx) {
             node.used_size = Some(translate_taffy_size_back(layout.size));
             node.relative_position = Some(translate_taffy_point_back(layout.location));

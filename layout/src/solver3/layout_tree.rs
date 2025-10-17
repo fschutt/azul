@@ -260,8 +260,21 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         dom_id: NodeId,
         parent_idx: Option<usize>,
     ) -> Result<usize> {
+        let node_data = &styled_dom.node_data.as_container()[dom_id];
+        eprintln!(
+            "DEBUG process_node: dom_id={:?}, node_type={:?}, parent_idx={:?}",
+            dom_id,
+            node_data.get_node_type(),
+            parent_idx
+        );
+
         let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx)?;
         let display_type = get_display_type(styled_dom, dom_id);
+
+        eprintln!(
+            "DEBUG process_node: created layout_node at index={}, display_type={:?}",
+            node_idx, display_type
+        );
 
         match display_type {
             LayoutDisplay::Block | LayoutDisplay::InlineBlock | LayoutDisplay::FlowRoot => {
@@ -564,22 +577,7 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     }
 
     // Fallback to default HTML display types
-    match styled_dom.node_data.as_container()[node_id].get_node_type() {
-        NodeType::Text(_) => LayoutDisplay::Inline,
-        NodeType::Table => LayoutDisplay::Table,
-        NodeType::Tr => LayoutDisplay::TableRow,
-        NodeType::Td | NodeType::Th => LayoutDisplay::TableCell,
-        NodeType::TBody | NodeType::THead | NodeType::TFoot => LayoutDisplay::TableRowGroup,
-        NodeType::Div
-        | NodeType::P
-        | NodeType::H1
-        | NodeType::H2
-        | NodeType::H3
-        | NodeType::H4
-        | NodeType::H5
-        | NodeType::H6 => LayoutDisplay::Block,
-        _ => LayoutDisplay::Inline,
-    }
+    styled_dom.node_data.as_container()[node_id].get_default_display()
 }
 
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.

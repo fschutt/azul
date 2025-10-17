@@ -32,7 +32,10 @@ use crate::{
     prop_cache::CssPropertyCache,
     refany::RefAny,
     resources::{FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef, RendererResources},
-    styled_dom::{NodeHierarchyItemId, NodeHierarchyItemVec, StyledDom, StyledNode, StyledNodeVec},
+    styled_dom::{
+        NodeHierarchyItemId, NodeHierarchyItemVec, OptionStyledDom, StyledDom, StyledNode,
+        StyledNodeVec,
+    },
     task::{
         Duration as AzDuration, GetSystemTimeCallback, Instant as AzInstant, Instant,
         TerminateTimer, ThreadId, ThreadReceiver, ThreadSendMsg, TimerId,
@@ -181,9 +184,38 @@ pub struct IFrameCallback {
 }
 impl_callback!(IFrameCallback);
 
+/// Reason why an IFrame callback is being invoked.
+///
+/// This helps the callback optimize its behavior based on why it's being called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum IFrameCallbackReason {
+    /// Initial render - first time the IFrame appears
+    InitialRender,
+    /// Parent DOM was recreated (cache invalidated)
+    DomRecreated,
+    /// Window/IFrame bounds expanded beyond current scroll_size
+    BoundsExpanded,
+    /// Scroll position is near an edge (within 200px threshold)
+    EdgeScrolled(EdgeType),
+    /// Scroll position extends beyond current scroll_size
+    ScrollBeyondContent,
+}
+
+/// Which edge triggered a scroll-based re-invocation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum EdgeType {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct IFrameCallbackInfo {
+    pub reason: IFrameCallbackReason,
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_theme: WindowTheme,
@@ -201,6 +233,7 @@ pub struct IFrameCallbackInfo {
 impl Clone for IFrameCallbackInfo {
     fn clone(&self) -> Self {
         Self {
+            reason: self.reason,
             system_fonts: self.system_fonts,
             image_cache: self.image_cache,
             window_theme: self.window_theme,
@@ -217,6 +250,7 @@ impl Clone for IFrameCallbackInfo {
 
 impl IFrameCallbackInfo {
     pub fn new<'a>(
+        reason: IFrameCallbackReason,
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
         window_theme: WindowTheme,
@@ -227,6 +261,7 @@ impl IFrameCallbackInfo {
         virtual_scroll_offset: LogicalPosition,
     ) -> Self {
         Self {
+            reason,
             system_fonts: system_fonts as *const FcFontCache,
             image_cache: image_cache as *const ImageCache,
             window_theme,
@@ -255,25 +290,357 @@ impl IFrameCallbackInfo {
     }
 }
 
+/// Return value for an IFrame rendering callback.
+///
+/// # Dual Size Model
+///
+/// IFrame callbacks return two size/offset pairs that enable lazy loading and virtualization:
+///
+/// ## Actual Content (`scroll_size` + `scroll_offset`)
+///
+/// The size and position of content that has **actually been rendered**. This is
+/// the content currently present in the returned DOM.
+///
+/// **Example**: A table view might render only 20 visible rows out of 1000 total rows.
+///
+/// ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`)
+///
+/// The size and position of content that the IFrame **pretends to have**. This is
+/// used for scrollbar sizing and positioning, allowing the scrollbar to represent
+/// the full dataset even when only a subset is rendered.
+///
+/// **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing.
+///
+/// # Conditional Re-invocation
+///
+/// The IFrame callback will be re-invoked **only when necessary** to avoid performance overhead:
+///
+/// 1. **Initial render** - First time the IFrame appears in the layout
+/// 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out)
+/// 3. **Window resize (expansion only)** - Window grows and IFrame bounds exceed `scroll_size`
+///    - ✅ Only triggers **ONCE** per expansion (when bounds become uncovered)
+///    - ❌ Does **NOT** trigger when window shrinks (content is clipped, not re-rendered)
+///    - ❌ Does **NOT** trigger if expanded area is still within existing `scroll_size`
+/// 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge
+///    - ✅ Only triggers **ONCE** per edge approach (prevents repeated calls)
+///    - Flag resets when: scroll moves away from edge, or callback returns expanded content
+/// 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size`
+///    - Same constraints as rule #4 (threshold and once-per-edge)
+///
+/// ## Window Resize Example
+///
+/// ```text
+/// Frame 0: IFrame bounds = 800×600, scroll_size = 800×600 (perfectly covered)
+/// Frame 1: Window resizes to 1000×700 (larger)
+///   -> IFrame bounds = 1000×700
+///   -> Bounds no longer fully covered by scroll_size (800×600)
+///   -> ✅ RE-INVOKE callback once
+///   
+/// Frame 2: Window resizes to 1100×800 (even larger)
+///   -> If callback returned scroll_size = 1100×800, fully covered again
+///   -> ❌ Do NOT re-invoke (content covers new bounds)
+///   -> If callback returned scroll_size = 1000×700, not fully covered
+///   -> ✅ RE-INVOKE again (new uncovered area)
+///
+/// Frame 3: Window resizes to 900×650 (smaller)
+///   -> Bounds now smaller than scroll_size
+///   -> ❌ Do NOT re-invoke (content is just clipped by scrollbars)
+/// ```
+///
+/// ## Scroll Near Edge Example
+///
+/// ```text
+/// scroll_size = 1000×2000 (width × height)
+/// Container = 800×600
+/// Threshold = 200px
+/// Current scroll_offset = 0×0
+///
+/// User scrolls to scroll_offset = 0×1500:
+///   -> Bottom edge at 1500 + 600 = 2100
+///   -> Within 200px of scroll_size.height (2000)
+///   -> Distance from edge: 2100 - 2000 = 100px < 200px
+///   -> ✅ RE-INVOKE callback to load more content
+///
+/// Callback returns:
+///   -> New scroll_size = 1000×4000 (doubled)
+///   -> Flag reset (edge no longer near)
+///   -> User continues scrolling without re-invoke until near new edge
+/// ```
+///
+/// # Optimization: Returning None
+///
+/// If the callback determines that no new content is needed (e.g., sufficient content
+/// has already been rendered ahead of the scroll position), it can return
+/// `OptionStyledDom::None` for the `dom` field. This signals the layout engine to
+/// keep using the current DOM and only update the scroll bounds.
+///
+/// ```rust,ignore
+/// fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn {
+///     let current_scroll = info.scroll_offset;
+///     
+///     // Check if we've already rendered content that covers this scroll position
+///     if data.already_rendered_area_covers(current_scroll, info.bounds.size) {
+///         return IFrameCallbackReturn {
+///             dom: OptionStyledDom::None,  // Keep current DOM
+///             scroll_size: data.current_scroll_size,
+///             scroll_offset: data.current_scroll_offset,
+///             virtual_scroll_size: data.virtual_size,
+///             virtual_scroll_offset: LogicalPosition::zero(),
+///         };
+///     }
+///     
+///     // Otherwise, render new content
+///     let new_dom = data.render_more_content(...);
+///     IFrameCallbackReturn {
+///         dom: OptionStyledDom::Some(new_dom),
+///         ...
+///     }
+/// }
+/// ```
+///
+/// # Example: Basic IFrame
+///
+/// ```rust,ignore
+/// fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn {
+///     let dom = Dom::body()
+///         .with_child(Dom::text("Hello from IFrame!"));
+///     
+///     let styled_dom = dom.style(Css::empty());
+///     
+///     IFrameCallbackReturn {
+///         // The rendered content
+///         dom: OptionStyledDom::Some(styled_dom),
+///         
+///         // Size of actual rendered content (matches container)
+///         scroll_size: info.bounds.size,
+///         
+///         // Content starts at top-left
+///         scroll_offset: LogicalPosition::zero(),
+///         
+///         // Virtual size same as actual (no virtualization needed)
+///         virtual_scroll_size: info.bounds.size,
+///         virtual_scroll_offset: LogicalPosition::zero(),
+///     }
+/// }
+/// ```
+///
+/// # Example: Virtualized Table (Lazy Loading)
+///
+/// ```rust,ignore
+/// struct TableData {
+///     total_rows: usize,        // 1000 rows in full dataset
+///     row_height: f32,          // 30px per row
+///     visible_rows: Vec<Row>,   // Currently rendered rows (e.g., rows 0-29)
+///     first_visible_row: usize, // Index of first rendered row
+/// }
+///
+/// fn table_iframe_callback(data: &mut TableData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn {
+///     let container_height = info.bounds.size.height;
+///     let scroll_y = info.scroll_offset.y;
+///     
+///     // Calculate which rows should be visible based on scroll position
+///     let first_row = (scroll_y / data.row_height) as usize;
+///     let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer
+///     
+///     // Fetch and render only the visible rows
+///     data.visible_rows = data.fetch_rows(first_row, visible_count);
+///     data.first_visible_row = first_row;
+///     
+///     let dom = Dom::body()
+///         .with_children(
+///             data.visible_rows.iter().map(|row| {
+///                 Dom::div()
+///                     .with_child(Dom::text(row.text.clone()))
+///                     .with_inline_css_props(css_property_vec![
+///                         ("height", format!("{}px", data.row_height)),
+///                     ])
+///             }).collect()
+///         );
+///     
+///     IFrameCallbackReturn {
+///         dom: OptionStyledDom::Some(dom.style(Css::empty())),
+///         
+///         // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall)
+///         scroll_size: LogicalSize::new(
+///             info.bounds.size.width,
+///             data.visible_rows.len() as f32 * data.row_height,
+///         ),
+///         
+///         // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30)
+///         scroll_offset: LogicalPosition::new(
+///             0.0,
+///             first_row as f32 * data.row_height,
+///         ),
+///         
+///         // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall)
+///         virtual_scroll_size: LogicalSize::new(
+///             info.bounds.size.width,
+///             data.total_rows as f32 * data.row_height,
+///         ),
+///         
+///         // VIRTUAL: Usually starts at origin
+///         virtual_scroll_offset: LogicalPosition::zero(),
+///     }
+/// }
+/// ```
+///
+/// In this example:
+/// - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes)
+/// - The scrollbar represents all 1000 rows (30,000px virtual height)
+/// - When user scrolls near the bottom of rendered content, callback is re-invoked
+/// - New rows are rendered, and `scroll_size`/`scroll_offset` are updated
+/// - User experiences seamless scrolling through the full dataset
+///
+/// # How the Layout Engine Uses These Values
+///
+/// ## For Rendering
+/// - Uses `scroll_size` to determine the actual size of the IFrame's content box
+/// - Uses `scroll_offset` to position the content within the virtual space
+/// - Clips rendering to the visible viewport
+///
+/// ## For Scrollbars
+/// - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length
+/// - Uses `virtual_scroll_offset` as the base for scroll position calculations
+/// - User sees scrollbar representing full virtual size, not just rendered content
+///
+/// ## For Re-invocation Checks
+/// - Compares viewport bounds against `scroll_size` to detect edge proximity
+/// - Compares current scroll position against `scroll_offset + scroll_size` bounds
+/// - Triggers callback when user scrolls beyond the rendered content threshold
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct IFrameCallbackReturn {
-    pub dom: StyledDom,
+    /// The styled DOM with actual rendered content, or None to keep current DOM.
+    ///
+    /// - `OptionStyledDom::Some(dom)` - Replace current content with this new DOM
+    /// - `OptionStyledDom::None` - Keep using the previous DOM, only update scroll bounds
+    ///
+    /// Returning `None` is an optimization when the callback determines that the
+    /// current content is sufficient (e.g., already rendered ahead of scroll position).
+    pub dom: OptionStyledDom,
+
+    /// Size of the actual rendered content rectangle.
+    ///
+    /// This is the size of the content in the `dom` field (if Some). It may be smaller than
+    /// `virtual_scroll_size` if only a subset of content is rendered (virtualization).
+    ///
+    /// **Example**: For a table showing rows 10-30, this might be 600px tall
+    /// (20 rows × 30px each).
     pub scroll_size: LogicalSize,
+
+    /// Offset of the actual rendered content within the virtual coordinate space.
+    ///
+    /// This positions the rendered content within the larger virtual space. For
+    /// virtualized content, this will be non-zero to indicate where the rendered
+    /// "window" starts.
+    ///
+    /// **Example**: For a table showing rows 10-30, this might be y=300
+    /// (row 10 starts 300px from the top).
     pub scroll_offset: LogicalPosition,
+
+    /// Size of the virtual content rectangle (for scrollbar sizing).
+    ///
+    /// This is the size the scrollbar will represent. It can be much larger than
+    /// `scroll_size` to enable lazy loading and virtualization.
+    ///
+    /// **Example**: For a 1000-row table, this might be 30,000px tall
+    /// (1000 rows × 30px each), even though only 20 rows are actually rendered.
     pub virtual_scroll_size: LogicalSize,
+
+    /// Offset of the virtual content (usually zero).
+    ///
+    /// This is typically `(0, 0)` since the virtual space usually starts at the origin.
+    /// Advanced use cases might use this for complex virtualization scenarios.
     pub virtual_scroll_offset: LogicalPosition,
 }
 
 impl Default for IFrameCallbackReturn {
     fn default() -> IFrameCallbackReturn {
         IFrameCallbackReturn {
-            dom: StyledDom::default(),
+            dom: OptionStyledDom::None,
             scroll_size: LogicalSize::zero(),
             scroll_offset: LogicalPosition::zero(),
             virtual_scroll_size: LogicalSize::zero(),
             virtual_scroll_offset: LogicalPosition::zero(),
         }
+    }
+}
+
+impl IFrameCallbackReturn {
+    /// Creates a new IFrameCallbackReturn with updated DOM content.
+    ///
+    /// Use this when the callback has rendered new content to display.
+    ///
+    /// # Arguments
+    /// - `dom` - The new styled DOM to render
+    /// - `scroll_size` - Size of the actual rendered content
+    /// - `scroll_offset` - Position of rendered content in virtual space
+    /// - `virtual_scroll_size` - Size for scrollbar representation
+    /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
+    pub fn with_dom(
+        dom: StyledDom,
+        scroll_size: LogicalSize,
+        scroll_offset: LogicalPosition,
+        virtual_scroll_size: LogicalSize,
+        virtual_scroll_offset: LogicalPosition,
+    ) -> Self {
+        Self {
+            dom: OptionStyledDom::Some(dom),
+            scroll_size,
+            scroll_offset,
+            virtual_scroll_size,
+            virtual_scroll_offset,
+        }
+    }
+
+    /// Creates a return value that keeps the current DOM unchanged.
+    ///
+    /// Use this when the callback determines that the existing content
+    /// is sufficient (e.g., already rendered ahead of scroll position).
+    /// This is an optimization to avoid rebuilding the DOM unnecessarily.
+    ///
+    /// # Arguments
+    /// - `scroll_size` - Size of the current rendered content
+    /// - `scroll_offset` - Position of current content in virtual space
+    /// - `virtual_scroll_size` - Size for scrollbar representation
+    /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
+    pub fn keep_current(
+        scroll_size: LogicalSize,
+        scroll_offset: LogicalPosition,
+        virtual_scroll_size: LogicalSize,
+        virtual_scroll_offset: LogicalPosition,
+    ) -> Self {
+        Self {
+            dom: OptionStyledDom::None,
+            scroll_size,
+            scroll_offset,
+            virtual_scroll_size,
+            virtual_scroll_offset,
+        }
+    }
+
+    /// DEPRECATED: Use `with_dom()` instead for new content, or `keep_current()` to maintain
+    /// existing content.
+    ///
+    /// This method is kept for backward compatibility but will be removed in a future version.
+    #[deprecated(
+        since = "1.0.0",
+        note = "Use `with_dom()` for new content or `keep_current()` for no update"
+    )]
+    pub fn new(
+        dom: StyledDom,
+        scroll_size: LogicalSize,
+        scroll_offset: LogicalPosition,
+        virtual_scroll_size: LogicalSize,
+        virtual_scroll_offset: LogicalPosition,
+    ) -> Self {
+        Self::with_dom(
+            dom,
+            scroll_size,
+            scroll_offset,
+            virtual_scroll_size,
+            virtual_scroll_offset,
+        )
     }
 }
 
@@ -300,11 +667,11 @@ pub struct LayoutCallbackInfo {
     /// Registers whether the UI is dependent on the window theme
     pub theme: WindowTheme,
     /// Allows the layout() function to reference image IDs
-    image_cache: *const ImageCache,
+    pub image_cache: *const ImageCache,
     /// OpenGL context so that the layout() function can render textures
     pub gl_context: *const OptionGlContextPtr,
     /// Reference to the system font cache
-    system_fonts: *const FcFontCache,
+    pub system_fonts: *const FcFontCache,
     /// Extension for future ABI stability (referenced data)
     _abi_ref: *const c_void,
     /// Extension for future ABI stability (mutable data)

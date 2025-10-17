@@ -9474,14 +9474,44 @@ mod dll {
             ParsingFailed(AzXmlError),
         }
 
-        /// <img src="../images/scrollbounds.png"/>
+        /// Return value for an IFrame rendering callback.
+        ///
+        /// # Dual Size Model
+        ///
+        /// IFrame callbacks return two size/offset pairs to enable lazy loading and virtualization:
+        ///
+        /// ## Actual Content (`scroll_size` + `scroll_offset`)
+        /// 
+        /// The size and position of content that has **actually been rendered**.
+        ///
+        /// ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`)
+        ///
+        /// The size and position that the IFrame **pretends to have** for scrollbar sizing.
+        ///
+        /// # Conditional Re-invocation
+        ///
+        /// The callback will be re-invoked only when necessary:
+        ///
+        /// 1. **Initial render** - First appearance of IFrame
+        /// 2. **Parent DOM recreated** - Parent was rebuilt from scratch
+        /// 3. **Window resize (expansion)** - Window grows beyond `scroll_size` (ONCE per expansion)
+        /// 4. **Scroll near edge** - User scrolls within 200px of content edge (ONCE per edge)
+        /// 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond `scroll_size`
+        ///
+        /// See `IFrameCallbackReturn` documentation in `azul_core::callbacks` for detailed
+        /// examples and behavior specifications.
         #[repr(C)]
         #[derive(Debug, Clone, PartialEq, PartialOrd)]
         pub struct AzIFrameCallbackReturn {
+            /// The styled DOM with actual rendered content
             pub dom: AzStyledDom,
+            /// Size of actual rendered content
             pub scroll_size: AzLogicalSize,
+            /// Position of rendered content in virtual space
             pub scroll_offset: AzLogicalPosition,
+            /// Size of virtual content (for scrollbar)
             pub virtual_scroll_size: AzLogicalSize,
+            /// Position of virtual content (usually zero)
             pub virtual_scroll_offset: AzLogicalPosition,
         }
 

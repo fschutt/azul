@@ -361,6 +361,16 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     new_tree_builder: &mut LayoutTreeBuilder<T>,
     recon: &mut ReconciliationResult,
 ) -> Result<usize> {
+    let node_data = &ctx.styled_dom.node_data.as_container()[new_dom_id];
+    eprintln!(
+        "DEBUG reconcile_recursive: new_dom_id={:?}, node_type={:?}, old_tree_idx={:?}, \
+         new_parent_idx={:?}",
+        new_dom_id,
+        node_data.get_node_type(),
+        old_tree_idx,
+        new_parent_idx
+    );
+
     let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
     let new_node_data_hash = hash_styled_node_data(&ctx.styled_dom, new_dom_id);
 
@@ -369,10 +379,17 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let is_dirty = old_node.map_or(true, |n| new_node_data_hash != n.node_data_hash);
 
     let new_node_idx = if is_dirty {
+        eprintln!("DEBUG reconcile_recursive: Node is DIRTY, creating new node");
         new_tree_builder.create_node_from_dom(ctx.styled_dom, new_dom_id, new_parent_idx)?
     } else {
+        eprintln!("DEBUG reconcile_recursive: Node is CLEAN, cloning from old");
         new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx)
     };
+
+    eprintln!(
+        "DEBUG reconcile_recursive: Created layout node at index {}",
+        new_node_idx
+    );
 
     // Reconcile children to check for structural changes and build the new tree structure.
     let hierarchy_container = ctx.styled_dom.node_hierarchy.as_container();
@@ -493,6 +510,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             },
         };
 
+        eprintln!(
+            "DEBUG calculate_layout_for_subtree: node_index={}, final_used_size={:?}, \
+             constraints.available_size={:?}",
+            node_index, final_used_size, constraints.available_size
+        );
+
         (
             constraints,
             dom_id,
@@ -559,6 +582,16 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         containing_block_pos.y + current_node.box_props.padding.top,
     );
 
+    // Check if this node is a Flex or Grid container
+    let is_flex_or_grid = {
+        let node = tree.get(node_index).unwrap();
+        matches!(
+            node.formatting_context,
+            azul_core::ui_solver::FormattingContext::Flex
+                | azul_core::ui_solver::FormattingContext::Grid
+        )
+    };
+
     for (&child_index, &child_relative_pos) in &layout_output.positions {
         let child_node = tree.get_mut(child_index).ok_or(LayoutError::InvalidTree)?;
         child_node.relative_position = Some(child_relative_pos);
@@ -569,16 +602,25 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         );
         absolute_positions.insert(child_index, child_absolute_pos);
 
-        calculate_layout_for_subtree(
-            ctx,
-            tree,
-            text_cache,
-            child_index,
-            self_content_box_pos,
-            inner_size_after_scrollbars,
-            absolute_positions,
-            reflow_needed_for_scrollbars,
-        )?;
+        // For Flex/Grid containers, Taffy has already laid out the children completely
+        // (including their used_size and relative_position). We should NOT call
+        // calculate_layout_for_subtree recursively because that would overwrite
+        // Taffy's calculations with incorrect values.
+        //
+        // For other formatting contexts (Block, Inline, Table), we need to recurse
+        // to lay out the children's subtrees.
+        if !is_flex_or_grid {
+            calculate_layout_for_subtree(
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                self_content_box_pos,
+                inner_size_after_scrollbars,
+                absolute_positions,
+                reflow_needed_for_scrollbars,
+            )?;
+        }
     }
     Ok(())
 }

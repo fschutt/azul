@@ -1,3 +1,9 @@
+//! Defines the core Document Object Model (DOM) structures.
+//!
+//! This module is responsible for representing the UI as a tree of nodes,
+//! similar to the HTML DOM. It includes definitions for node types, event handling,
+//! accessibility, and the main `Dom` and `CompactDom` structures.
+
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
@@ -38,7 +44,8 @@ use crate::{
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
-/// Unique tag that is used to annotate which rectangles are relevant for hit-testing
+/// Unique tag that is used to annotate which rectangles are relevant for hit-testing.
+/// These tags are generated per-frame to identify interactable areas.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TagId(pub u64);
 
@@ -55,19 +62,20 @@ impl ::core::fmt::Debug for TagId {
 }
 
 impl TagId {
-    /// Creates a new, unique hit-testing tag ID
+    /// Creates a new, unique hit-testing tag ID.
     pub fn unique() -> Self {
         TagId(TAG_ID.fetch_add(1, Ordering::SeqCst) as u64)
     }
 
     /// Resets the counter (usually done after each frame) so that we can
-    /// track hit-testing Tag IDs of subsequent frames
+    /// track hit-testing Tag IDs of subsequent frames.
     pub fn reset() {
         TAG_ID.swap(1, Ordering::SeqCst);
     }
 }
 
-/// Same as the `TagId`, but only for scrollable nodes
+/// Same as the `TagId`, but only for scrollable nodes.
+/// This provides a typed distinction for tags associated with scrolling containers.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ScrollTagId(pub TagId);
 
@@ -92,7 +100,7 @@ impl ScrollTagId {
 }
 
 /// Calculated hash of a DOM node, used for identifying identical DOM
-/// nodes across frames
+/// nodes across frames for efficient diffing and state preservation.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomNodeHash(pub u64);
 
@@ -102,153 +110,153 @@ impl ::core::fmt::Debug for DomNodeHash {
     }
 }
 
-/// List of core DOM node types built-into by `azul`.
 /// List of core DOM node types built into `azul`.
+/// This enum defines the building blocks of the UI, similar to HTML tags.
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeType {
     // Root and container elements
-    /// Root element of the document
+    /// Root element of the document.
     Body,
-    /// Generic block-level container
+    /// Generic block-level container.
     Div,
-    /// Paragraph
+    /// Paragraph.
     P,
-    /// Headings
+    /// Headings.
     H1,
     H2,
     H3,
     H4,
     H5,
     H6,
-    /// Line break
+    /// Line break.
     Br,
-    /// Horizontal rule
+    /// Horizontal rule.
     Hr,
-    /// Preformatted text
+    /// Preformatted text.
     Pre,
-    /// Block quote
+    /// Block quote.
     BlockQuote,
-    /// Address
+    /// Address.
     Address,
 
     // List elements
-    /// Unordered list
+    /// Unordered list.
     Ul,
-    /// Ordered list
+    /// Ordered list.
     Ol,
-    /// List item
+    /// List item.
     Li,
-    /// Definition list
+    /// Definition list.
     Dl,
-    /// Definition term
+    /// Definition term.
     Dt,
-    /// Definition description
+    /// Definition description.
     Dd,
 
     // Table elements
-    /// Table container
+    /// Table container.
     Table,
-    /// Table caption
+    /// Table caption.
     Caption,
-    /// Table header
+    /// Table header.
     THead,
-    /// Table body
+    /// Table body.
     TBody,
-    /// Table footer
+    /// Table footer.
     TFoot,
-    /// Table row
+    /// Table row.
     Tr,
-    /// Table header cell
+    /// Table header cell.
     Th,
-    /// Table data cell
+    /// Table data cell.
     Td,
-    /// Table column group
+    /// Table column group.
     ColGroup,
-    /// Table column
+    /// Table column.
     Col,
 
     // Form elements
-    /// Form container
+    /// Form container.
     Form,
-    /// Form fieldset
+    /// Form fieldset.
     FieldSet,
-    /// Fieldset legend
+    /// Fieldset legend.
     Legend,
-    /// Label for form controls
+    /// Label for form controls.
     Label,
-    /// Input control
+    /// Input control.
     Input,
-    /// Button control
+    /// Button control.
     Button,
-    /// Select dropdown
+    /// Select dropdown.
     Select,
-    /// Option group
+    /// Option group.
     OptGroup,
-    /// Select option
+    /// Select option.
     SelectOption,
-    /// Multiline text input
+    /// Multiline text input.
     TextArea,
 
     // Inline elements
-    /// Generic inline container
+    /// Generic inline container.
     Span,
-    /// Anchor/hyperlink
+    /// Anchor/hyperlink.
     A,
-    /// Emphasized text
+    /// Emphasized text.
     Em,
-    /// Strongly emphasized text
+    /// Strongly emphasized text.
     Strong,
-    /// Bold text
+    /// Bold text.
     B,
-    /// Italic text
+    /// Italic text.
     I,
-    /// Code
+    /// Code.
     Code,
-    /// Sample output
+    /// Sample output.
     Samp,
-    /// Keyboard input
+    /// Keyboard input.
     Kbd,
-    /// Variable
+    /// Variable.
     Var,
-    /// Citation
+    /// Citation.
     Cite,
-    /// Abbreviation
+    /// Abbreviation.
     Abbr,
-    /// Acronym
+    /// Acronym.
     Acronym,
-    /// Quotation
+    /// Quotation.
     Q,
-    /// Subscript
+    /// Subscript.
     Sub,
-    /// Superscript
+    /// Superscript.
     Sup,
-    /// Small text
+    /// Small text.
     Small,
-    /// Big text
+    /// Big text.
     Big,
 
     // Pseudo-elements (transformed into real elements)
-    /// ::before pseudo-element
+    /// ::before pseudo-element.
     Before,
-    /// ::after pseudo-element
+    /// ::after pseudo-element.
     After,
-    /// ::marker pseudo-element
+    /// ::marker pseudo-element.
     Marker,
-    /// ::placeholder pseudo-element
+    /// ::placeholder pseudo-element.
     Placeholder,
 
     // Special content types
-    /// Text content
+    /// Text content.
     Text(AzString),
-    /// Image element
+    /// Image element.
     Image(ImageRef),
-    /// IFrame (embedded content)
+    /// IFrame (embedded content).
     IFrame(IFrameNode),
 }
 
 impl NodeType {
-    /// Determines the default display value for a node type according to HTML standards
+    /// Determines the default display value for a node type according to HTML standards.
     pub fn get_default_display(&self) -> LayoutDisplay {
         match self {
             // Block-level elements
@@ -444,7 +452,7 @@ impl NodeType {
         }
     }
 
-    /// Returns the NodeTypeTag for CSS selector matching
+    /// Returns the NodeTypeTag for CSS selector matching.
     pub fn get_path(&self) -> NodeTypeTag {
         match self {
             Self::Body => NodeTypeTag::Body,
@@ -516,40 +524,40 @@ impl NodeType {
     }
 }
 
-/// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
+/// Defines the type of event that can trigger a callback action.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum On {
-    /// Mouse cursor is hovering over the element
+    /// Mouse cursor is hovering over the element.
     MouseOver,
     /// Mouse cursor has is over element and is pressed
-    /// (not good for "click" events - use `MouseUp` instead)
+    /// (not good for "click" events - use `MouseUp` instead).
     MouseDown,
     /// (Specialization of `MouseDown`). Fires only if the left mouse button
-    /// has been pressed while cursor was over the element
+    /// has been pressed while cursor was over the element.
     LeftMouseDown,
     /// (Specialization of `MouseDown`). Fires only if the middle mouse button
-    /// has been pressed while cursor was over the element
+    /// has been pressed while cursor was over the element.
     MiddleMouseDown,
     /// (Specialization of `MouseDown`). Fires only if the right mouse button
-    /// has been pressed while cursor was over the element
+    /// has been pressed while cursor was over the element.
     RightMouseDown,
-    /// Mouse button has been released while cursor was over the element
+    /// Mouse button has been released while cursor was over the element.
     MouseUp,
     /// (Specialization of `MouseUp`). Fires only if the left mouse button has
-    /// been released while cursor was over the element
+    /// been released while cursor was over the element.
     LeftMouseUp,
     /// (Specialization of `MouseUp`). Fires only if the middle mouse button has
-    /// been released while cursor was over the element
+    /// been released while cursor was over the element.
     MiddleMouseUp,
     /// (Specialization of `MouseUp`). Fires only if the right mouse button has
-    /// been released while cursor was over the element
+    /// been released while cursor was over the element.
     RightMouseUp,
-    /// Mouse cursor has entered the element
+    /// Mouse cursor has entered the element.
     MouseEnter,
-    /// Mouse cursor has left the element
+    /// Mouse cursor has left the element.
     MouseLeave,
-    /// Mousewheel / touchpad scrolling
+    /// Mousewheel / touchpad scrolling.
     Scroll,
     /// The window received a unicode character (also respects the system locale).
     /// Check `keyboard_state.current_char` to get the current pressed character.
@@ -564,28 +572,22 @@ pub enum On {
     VirtualKeyDown,
     /// A **virtual keycode** was release. See `VirtualKeyDown` for more info.
     VirtualKeyUp,
-    /// A file has been dropped on the element
+    /// A file has been dropped on the element.
     HoveredFile,
-    /// A file is being hovered on the element
+    /// A file is being hovered on the element.
     DroppedFile,
-    /// A file was hovered, but has exited the window
+    /// A file was hovered, but has exited the window.
     HoveredFileCancelled,
-    /// Equivalent to `onfocus`
+    /// Equivalent to `onfocus`.
     FocusReceived,
-    /// Equivalent to `onblur`
+    /// Equivalent to `onblur`.
     FocusLost,
 }
 
 /// Sets the target for what events can reach the callbacks specifically.
 ///
-/// Filtering events can happen on several layers, depending on
-/// if a DOM node is hovered over or actively focused. For example,
-/// for text input, you wouldn't want to use hovering, because that
-/// would mean that the user needs to hold the mouse over the text input
-/// in order to enter text. To solve this, the DOM needs to fire events
-/// for elements that are currently not part of the hit-test.
-/// `EventFilter` implements `From<On>` as a shorthand (so that you can opt-in
-/// to a more specific event) and use
+/// This determines the condition under which an event is fired, such as whether
+/// the node is hovered, focused, or if the event is window-global.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum EventFilter {
@@ -609,9 +611,9 @@ pub enum EventFilter {
     /// (i.e. global gestures that aren't attached to any component, but rather
     /// the "window" itself).
     Window(WindowEventFilter),
-    /// API stub: Something happened with the node itself (node resized, created or removed)
+    /// API stub: Something happened with the node itself (node resized, created or removed).
     Component(ComponentEventFilter),
-    /// Something happened with the application (started, shutdown, device plugged in)
+    /// Something happened with the application (started, shutdown, device plugged in).
     Application(ApplicationEventFilter),
 }
 
@@ -697,7 +699,7 @@ impl From<On> for EventFilter {
     }
 }
 
-/// Event filter that only fires when an element is hovered over
+/// Event filter that only fires when an element is hovered over.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum HoverEventFilter {
@@ -777,7 +779,7 @@ impl NotEventFilter {
     }
 }
 
-/// Event filter similar to `HoverEventFilter` that only fires when the element is focused
+/// Event filter similar to `HoverEventFilter` that only fires when the element is focused.
 ///
 /// **Important**: In order for this to fire, the item must have a `tabindex` attribute
 /// (to indicate that the item is focus-able).
@@ -885,31 +887,44 @@ impl WindowEventFilter {
     }
 }
 
+/// Defines events related to the lifecycle of a DOM node itself.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum ComponentEventFilter {
+    /// Fired after the component is first mounted into the DOM.
     AfterMount,
+    /// Fired just before the component is removed from the DOM.
     BeforeUnmount,
+    /// Fired when the node's layout rectangle has been resized.
     NodeResized,
+    /// Fired to trigger the default action for an accessibility component.
     DefaultAction,
+    /// Fired when the component becomes selected.
     Selected,
 }
 
+/// Defines application-level events not tied to a specific window or node.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum ApplicationEventFilter {
+    /// Fired when a new hardware device is connected.
     DeviceConnected,
+    /// Fired when a hardware device is disconnected.
     DeviceDisconnected,
     // ... TODO: more events
 }
 
+/// Contains the necessary information to render an embedded `IFrame` node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct IFrameNode {
+    /// The callback function that returns the DOM for the iframe's content.
     pub callback: IFrameCallback,
+    /// The application data passed to the iframe's layout callback.
     pub data: RefAny,
 }
 
+/// An enum that holds either a CSS ID or a class name as a string.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IdOrClass {
@@ -943,13 +958,44 @@ impl IdOrClass {
 
 // memory optimization: store all inline-normal / inline-hover / inline-* attributes
 // as one Vec instad of 4 separate Vecs
+
+/// Represents an inline CSS property attached to a node for a specific interaction state.
+/// This allows defining styles for `:hover`, `:focus`, etc., directly on a DOM node.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeDataInlineCssProperty {
+    /// A standard, non-interactive style property.
+    /// - **CSS Equivalent**: ` ` (no pseudo-class)
     Normal(CssProperty),
+
+    /// A style property that applies when the element is active (e.g., being clicked).
+    /// - **CSS Equivalent**: `:active`
     Active(CssProperty),
+
+    /// A style property that applies when the element has focus.
+    /// - **CSS Equivalent**: `:focus`
     Focus(CssProperty),
+
+    /// A style property that applies when the element is being hovered by the mouse.
+    /// - **CSS Equivalent**: `:hover`
     Hover(CssProperty),
+
+    /// A style property that applies when the element is disabled and cannot be interacted with.
+    /// - **CSS Equivalent**: `:disabled`
+    Disabled(CssProperty),
+
+    /// A style property that applies when the element is checked (e.g., a checkbox or radio
+    /// button).
+    /// - **CSS Equivalent**: `:checked`
+    Checked(CssProperty),
+
+    /// A style property that applies when the element or one of its descendants has focus.
+    /// - **CSS Equivalent**: `:focus-within`
+    FocusWithin(CssProperty),
+
+    /// A style property that applies to a link that has been visited.
+    /// - **CSS Equivalent**: `:visited`
+    Visited(CssProperty),
 }
 
 macro_rules! parse_from_str {
@@ -1044,6 +1090,10 @@ impl fmt::Debug for NodeDataInlineCssProperty {
             Active(p) => write!(f, "Active({}: {})", p.key(), p.value()),
             Focus(p) => write!(f, "Focus({}: {})", p.key(), p.value()),
             Hover(p) => write!(f, "Hover({}: {})", p.key(), p.value()),
+            Disabled(p) => write!(f, "Disabled({}: {})", p.key(), p.value()),
+            Checked(p) => write!(f, "Checked({}: {})", p.key(), p.value()),
+            FocusWithin(p) => write!(f, "FocusWithin({}: {})", p.key(), p.value()),
+            Visited(p) => write!(f, "Visited({}: {})", p.key(), p.value()),
         }
     }
 }
@@ -1065,30 +1115,31 @@ impl_vec_partialeq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_eq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 
-/// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
+/// Represents all data associated with a single DOM node, such as its type,
+/// classes, IDs, callbacks, and inline styles.
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeData {
-    /// `div`
+    /// `div`, `p`, `img`, etc.
     pub(crate) node_type: NodeType,
-    /// data-* attributes for this node, useful to store UI-related data on the node itself
+    /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
     pub(crate) dataset: OptionRefAny,
     /// Stores all ids and classes as one vec - size optimization since
-    /// most nodes don't have any classes or IDs
+    /// most nodes don't have any classes or IDs.
     pub(crate) ids_and_classes: IdOrClassVec,
     /// Callbacks attached to this node:
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     pub(crate) callbacks: CoreCallbackDataVec,
-    /// Stores the inline CSS properties, same as in HTML
+    /// Stores the inline CSS properties, same as in HTML.
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
-    /// Tab index (commonly used property)
+    /// Tab index (commonly used property).
     pub(crate) tab_index: OptionTabIndex,
     /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
     /// etc.
     ///
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
-    /// to the node without breaking the ABI
+    /// to the node without breaking the ABI.
     extra: Option<Box<NodeDataExt>>,
 }
 
@@ -1126,28 +1177,30 @@ impl Hash for NodeData {
 
 /// NOTE: NOT EXPOSED IN THE API! Stores extra,
 /// not commonly used information for the NodeData.
+/// This helps keep the primary `NodeData` struct smaller for common cases.
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
-    /// Optional clip mask for this DOM node
+    /// Optional clip mask for this DOM node.
     pub(crate) clip_mask: Option<ImageMask>,
-    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA)
+    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
     pub(crate) accessibility: Option<Box<AccessibilityInfo>>,
-    /// Menu bar that should be displayed at the top of this nodes rect
+    /// Menu bar that should be displayed at the top of this nodes rect.
     pub(crate) menu_bar: Option<Box<Menu>>,
-    /// Context menu that should be opened when the item is left-clicked
+    /// Context menu that should be opened when the item is left-clicked.
     pub(crate) context_menu: Option<Box<Menu>>,
     // ... insert further API extensions here...
 }
 
-/// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+/// Holds information about a UI element for accessibility purposes (e.g., screen readers).
+/// This is a wrapper for platform-specific accessibility APIs like MSAA.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct AccessibilityInfo {
     /// Get the "name" of the `IAccessible`, for example the
     /// name of a button, checkbox or menu item. Try to use unique names
     /// for each item in a dialog so that voice dictation software doesn't
-    /// have to deal with extra ambiguity
+    /// have to deal with extra ambiguity.
     pub name: OptionAzString,
     /// Get the "value" of the `IAccessible`, for example a number in a slider,
     /// a URL for a link, the text a user entered in a field.
@@ -1158,106 +1211,588 @@ pub struct AccessibilityInfo {
     /// Possible on/off states, such as focused, focusable, selected, selectable,
     /// visible, protected (for passwords), checked, etc.
     pub states: AccessibilityStateVec,
-    /// Optional keyboard accelerator
+    /// Optional keyboard accelerator.
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional "default action" description. Only used when there is at least
-    /// one `ComponentEventFilter::DefaultAction` callback present on this node
+    /// one `ComponentEventFilter::DefaultAction` callback present on this node.
     pub default_action: OptionAzString,
 }
 
-/// MSAA Accessibility role constants. For information on what each role does,
-/// see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles).
+/// Defines the element's purpose for accessibility APIs, informing assistive technologies
+/// like screen readers about the function of a UI element. Each variant corresponds to a
+/// standard control type or UI structure.
+///
+/// For more details, see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/winauto/object-roles).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum AccessibilityRole {
-    /// Inserted by operating system
+    /// Represents the title or caption bar of a window.
+    /// - **Purpose**: To identify the title bar containing the window title and system commands.
+    /// - **When to use**: This role is typically inserted by the operating system for standard
+    ///   windows.
+    /// - **Example**: The bar at the top of an application window displaying its name and the
+    ///   minimize, maximize, and close buttons.
     TitleBar,
+
+    /// Represents a menu bar at the top of a window.
+    /// - **Purpose**: To contain a set of top-level menus for an application.
+    /// - **When to use**: For the main menu bar of an application, such as one containing "File,"
+    ///   "Edit," and "View."
+    /// - **Example**: The "File", "Edit", "View" menu bar at the top of a text editor.
     MenuBar,
+
+    /// Represents a vertical or horizontal scroll bar.
+    /// - **Purpose**: To enable scrolling through content that is larger than the visible area.
+    /// - **When to use**: For any scrollable region of content.
+    /// - **Example**: The bar on the side of a web page that allows the user to scroll up and
+    ///   down.
     ScrollBar,
+
+    /// Represents a handle or grip used for moving or resizing.
+    /// - **Purpose**: To provide a user interface element for manipulating another element's size
+    ///   or position.
+    /// - **When to use**: For handles that allow resizing of windows, panes, or other objects.
+    /// - **Example**: The small textured area in the bottom-right corner of a window that can be
+    ///   dragged to resize it.
     Grip,
+
+    /// Represents a system sound indicating an event.
+    /// - **Purpose**: To associate a sound with a UI event, providing an auditory cue.
+    /// - **When to use**: When a sound is the primary representation of an event.
+    /// - **Example**: A system notification sound that plays when a new message arrives.
     Sound,
+
+    /// Represents the system's mouse pointer or other pointing device.
+    /// - **Purpose**: To indicate the screen position of the user's pointing device.
+    /// - **When to use**: This role is managed by the operating system.
+    /// - **Example**: The arrow that moves on the screen as you move the mouse.
     Cursor,
+
+    /// Represents the text insertion point indicator.
+    /// - **Purpose**: To show the current text entry or editing position.
+    /// - **When to use**: This role is typically managed by the operating system for text input
+    ///   fields.
+    /// - **Example**: The blinking vertical line in a text box that shows where the next character
+    ///   will be typed.
     Caret,
+
+    /// Represents an alert or notification.
+    /// - **Purpose**: To convey an important, non-modal message to the user.
+    /// - **When to use**: For non-intrusive notifications that do not require immediate user
+    ///   interaction.
+    /// - **Example**: A small, temporary "toast" notification that appears to confirm an action,
+    ///   like "Email sent."
     Alert,
-    /// Inserted by operating system
+
+    /// Represents a window frame.
+    /// - **Purpose**: To serve as the container for other objects like a title bar and client
+    ///   area.
+    /// - **When to use**: This is a fundamental role, typically managed by the windowing system.
+    /// - **Example**: The main window of any application, which contains all other UI elements.
     Window,
+
+    /// Represents a window's client area, where the main content is displayed.
+    /// - **Purpose**: To define the primary content area of a window.
+    /// - **When to use**: For the main content region of a window. It's often the default role for
+    ///   a custom control container.
+    /// - **Example**: The area of a web browser where the web page content is rendered.
     Client,
+
+    /// Represents a pop-up menu.
+    /// - **Purpose**: To display a list of `MenuItem` objects that appears when a user performs an
+    ///   action.
+    /// - **When to use**: For context menus (right-click menus) or drop-down menus.
+    /// - **Example**: The menu that appears when you right-click on a file in a file explorer.
     MenuPopup,
+
+    /// Represents an individual item within a menu.
+    /// - **Purpose**: To represent a single command, option, or separator within a menu.
+    /// - **When to use**: For individual options inside a `MenuBar` or `MenuPopup`.
+    /// - **Example**: The "Save" option within the "File" menu.
     MenuItem,
+
+    /// Represents a small pop-up window that provides information.
+    /// - **Purpose**: To offer brief, contextual help or information about a UI element.
+    /// - **When to use**: For informational pop-ups that appear on mouse hover.
+    /// - **Example**: The small box of text that appears when you hover over a button in a
+    ///   toolbar.
     Tooltip,
+
+    /// Represents the main window of an application.
+    /// - **Purpose**: To identify the top-level window of an application.
+    /// - **When to use**: For the primary window that represents the application itself.
+    /// - **Example**: The main window of a calculator or notepad application.
     Application,
+
+    /// Represents a document window within an application.
+    /// - **Purpose**: To represent a contained document, typically in a Multiple Document
+    ///   Interface (MDI) application.
+    /// - **When to use**: For individual document windows inside a larger application shell.
+    /// - **Example**: In a photo editor that allows multiple images to be open in separate
+    ///   windows, each image window would be a `Document`.
     Document,
+
+    /// Represents a pane or a distinct section of a window.
+    /// - **Purpose**: To divide a window into visually and functionally distinct areas.
+    /// - **When to use**: For sub-regions of a window, like a navigation pane, preview pane, or
+    ///   sidebar.
+    /// - **Example**: The preview pane in an email client that shows the content of the selected
+    ///   email.
     Pane,
+
+    /// Represents a graphical chart or graph.
+    /// - **Purpose**: To display data visually in a chart format.
+    /// - **When to use**: For any type of chart, such as a bar chart, line chart, or pie chart.
+    /// - **Example**: A bar chart displaying monthly sales figures.
     Chart,
+
+    /// Represents a dialog box or message box.
+    /// - **Purpose**: To create a secondary window that requires user interaction before returning
+    ///   to the main application.
+    /// - **When to use**: For modal or non-modal windows that prompt the user for information or a
+    ///   response.
+    /// - **Example**: The "Open File" or "Print" dialog in most applications.
     Dialog,
+
+    /// Represents a window's border.
+    /// - **Purpose**: To identify the border of a window, which is often used for resizing.
+    /// - **When to use**: This role is typically managed by the windowing system.
+    /// - **Example**: The decorative and functional frame around a window.
     Border,
+
+    /// Represents a group of related controls.
+    /// - **Purpose**: To logically group other objects that share a common purpose.
+    /// - **When to use**: For grouping controls like a set of radio buttons or a fieldset with a
+    ///   legend.
+    /// - **Example**: A "Settings" group box in a dialog that contains several related checkboxes.
     Grouping,
+
+    /// Represents a visual separator.
+    /// - **Purpose**: To visually divide a space or a group of controls.
+    /// - **When to use**: For visual separators in menus, toolbars, or between panes.
+    /// - **Example**: The horizontal line in a menu that separates groups of related menu items.
     Separator,
+
+    /// Represents a toolbar containing a group of controls.
+    /// - **Purpose**: To group controls, typically buttons, for quick access to frequently used
+    ///   functions.
+    /// - **When to use**: For a bar of buttons or other controls, usually at the top of a window
+    ///   or pane.
+    /// - **Example**: The toolbar at the top of a word processor with buttons for "Bold,"
+    ///   "Italic," and "Underline."
     Toolbar,
+
+    /// Represents a status bar for displaying information.
+    /// - **Purpose**: To display status information about the current state of the application.
+    /// - **When to use**: For a bar, typically at the bottom of a window, that displays messages.
+    /// - **Example**: The bar at the bottom of a web browser that shows the loading status of a
+    ///   page.
     StatusBar,
+
+    /// Represents a data table.
+    /// - **Purpose**: To present data in a two-dimensional grid of rows and columns.
+    /// - **When to use**: For grid-like data presentation.
+    /// - **Example**: A spreadsheet or a table of data in a database application.
     Table,
+
+    /// Represents a column header in a table.
+    /// - **Purpose**: To provide a label for a column of data.
+    /// - **When to use**: For the headers of columns in a `Table`.
+    /// - **Example**: The header row in a spreadsheet with labels like "Name," "Date," and
+    ///   "Amount."
     ColumnHeader,
+
+    /// Represents a row header in a table.
+    /// - **Purpose**: To provide a label for a row of data.
+    /// - **When to use**: For the headers of rows in a `Table`.
+    /// - **Example**: The numbered rows on the left side of a spreadsheet.
     RowHeader,
+
+    /// Represents a full column of cells in a table.
+    /// - **Purpose**: To represent an entire column as a single accessible object.
+    /// - **When to use**: When it is useful to interact with a column as a whole.
+    /// - **Example**: The "Amount" column in a financial data table.
     Column,
+
+    /// Represents a full row of cells in a table.
+    /// - **Purpose**: To represent an entire row as a single accessible object.
+    /// - **When to use**: When it is useful to interact with a row as a whole.
+    /// - **Example**: A row representing a single customer's information in a customer list.
     Row,
+
+    /// Represents a single cell within a table.
+    /// - **Purpose**: To represent a single data point or control within a `Table`.
+    /// - **When to use**: For individual cells in a grid or table.
+    /// - **Example**: A single cell in a spreadsheet containing a specific value.
     Cell,
+
+    /// Represents a hyperlink to a resource.
+    /// - **Purpose**: To provide a navigational link to another document or location.
+    /// - **When to use**: For text or images that, when clicked, navigate to another resource.
+    /// - **Example**: A clickable link on a web page.
     Link,
+
+    /// Represents a help balloon or pop-up.
+    /// - **Purpose**: To provide more detailed help information than a standard tooltip.
+    /// - **When to use**: For a pop-up that offers extended help text, often initiated by a help
+    ///   button.
+    /// - **Example**: A pop-up balloon with a paragraph of help text that appears when a user
+    ///   clicks a help icon.
     HelpBalloon,
+
+    /// Represents an animated, character-like graphic object.
+    /// - **Purpose**: To provide an animated agent for user assistance or entertainment.
+    /// - **When to use**: For animated characters or avatars that provide help or guidance.
+    /// - **Example**: An animated paperclip that offers tips in a word processor (e.g.,
+    ///   Microsoft's Clippy).
     Character,
+
+    /// Represents a list of items.
+    /// - **Purpose**: To contain a set of `ListItem` objects.
+    /// - **When to use**: For list boxes or similar controls that present a list of selectable
+    ///   items.
+    /// - **Example**: The list of files in a file selection dialog.
     List,
+
+    /// Represents an individual item within a list.
+    /// - **Purpose**: To represent a single, selectable item within a `List`.
+    /// - **When to use**: For each individual item in a list box or combo box.
+    /// - **Example**: A single file name in a list of files.
     ListItem,
+
+    /// Represents an outline or tree structure.
+    /// - **Purpose**: To display a hierarchical view of data.
+    /// - **When to use**: For tree-view controls that show nested items.
+    /// - **Example**: A file explorer's folder tree view.
     Outline,
+
+    /// Represents an individual item within an outline or tree.
+    /// - **Purpose**: To represent a single node (which can be a leaf or a branch) in an
+    ///   `Outline`.
+    /// - **When to use**: For each node in a tree view.
+    /// - **Example**: A single folder in a file explorer's tree view.
     OutlineItem,
-    Pagetab,
+
+    /// Represents a single tab in a tabbed interface.
+    /// - **Purpose**: To provide a control for switching between different `PropertyPage` views.
+    /// - **When to use**: For the individual tabs that the user can click to switch pages.
+    /// - **Example**: The "General" and "Security" tabs in a file properties dialog.
+    PageTab,
+
+    /// Represents the content of a page in a property sheet.
+    /// - **Purpose**: To serve as a container for the controls displayed when a `PageTab` is
+    ///   selected.
+    /// - **When to use**: For the content area associated with a specific tab.
+    /// - **Example**: The set of options displayed when the "Security" tab is active.
     PropertyPage,
+
+    /// Represents a visual indicator, like a slider thumb.
+    /// - **Purpose**: To visually indicate the current value or position of another control.
+    /// - **When to use**: For a sub-element that indicates status, like the thumb of a scrollbar.
+    /// - **Example**: The draggable thumb of a scrollbar that indicates the current scroll
+    ///   position.
     Indicator,
+
+    /// Represents a picture or graphical image.
+    /// - **Purpose**: To display a non-interactive image.
+    /// - **When to use**: For images and icons that are purely decorative or informational.
+    /// - **Example**: A company logo displayed in an application's "About" dialog.
     Graphic,
+
+    /// Represents read-only text.
+    /// - **Purpose**: To provide a non-editable text label for another control or for displaying
+    ///   information.
+    /// - **When to use**: For text that the user cannot edit.
+    /// - **Example**: The label "Username:" next to a text input field.
     StaticText,
+
+    /// Represents editable text or a text area.
+    /// - **Purpose**: To allow for user text input or selection.
+    /// - **When to use**: For text input fields where the user can type.
+    /// - **Example**: A text box for entering a username or password.
     Text,
+
+    /// Represents a standard push button.
+    /// - **Purpose**: To initiate an immediate action.
+    /// - **When to use**: For standard buttons that perform an action when clicked.
+    /// - **Example**: An "OK" or "Cancel" button in a dialog.
     PushButton,
+
+    /// Represents a check box control.
+    /// - **Purpose**: To allow the user to make a binary choice (checked or unchecked).
+    /// - **When to use**: For options that can be toggled on or off independently.
+    /// - **Example**: A "Remember me" checkbox on a login form.
     CheckButton,
+
+    /// Represents a radio button.
+    /// - **Purpose**: To allow the user to select one option from a mutually exclusive group.
+    /// - **When to use**: For a choice where only one option from a `Grouping` can be selected.
+    /// - **Example**: "Male" and "Female" radio buttons for selecting gender.
     RadioButton,
+
+    /// Represents a combination of a text field and a drop-down list.
+    /// - **Purpose**: To allow the user to either type a value or select one from a list.
+    /// - **When to use**: For controls that offer a list of suggestions but also allow custom
+    ///   input.
+    /// - **Example**: A font selector that allows you to type a font name or choose one from a
+    ///   list.
     ComboBox,
+
+    /// Represents a drop-down list box.
+    /// - **Purpose**: To allow the user to select an item from a non-editable list that drops
+    ///   down.
+    /// - **When to use**: For selecting a single item from a predefined list of options.
+    /// - **Example**: A country selection drop-down menu.
     DropList,
+
+    /// Represents a progress bar.
+    /// - **Purpose**: To indicate the progress of a lengthy operation.
+    /// - **When to use**: To provide feedback for tasks like file downloads or installations.
+    /// - **Example**: The bar that fills up to show the progress of a file copy operation.
     ProgressBar,
+
+    /// Represents a dial or knob.
+    /// - **Purpose**: To allow selecting a value from a continuous or discrete range, often
+    ///   circularly.
+    /// - **When to use**: For controls that resemble real-world dials, like a volume knob.
+    /// - **Example**: A volume control knob in a media player application.
     Dial,
+
+    /// Represents a control for entering a keyboard shortcut.
+    /// - **Purpose**: To capture a key combination from the user.
+    /// - **When to use**: In settings where users can define their own keyboard shortcuts.
+    /// - **Example**: A text field in a settings dialog where a user can press a key combination
+    ///   to assign it to a command.
     HotkeyField,
+
+    /// Represents a slider for selecting a value within a range.
+    /// - **Purpose**: To allow the user to adjust a setting along a continuous or discrete range.
+    /// - **When to use**: For adjusting values like volume, brightness, or zoom level.
+    /// - **Example**: A slider to control the volume of a video.
     Slider,
+
+    /// Represents a spin button (up/down arrows) for incrementing or decrementing a value.
+    /// - **Purpose**: To provide fine-tuned adjustment of a value, typically numeric.
+    /// - **When to use**: For controls that allow stepping through a range of values.
+    /// - **Example**: The up and down arrows next to a number input for setting the font size.
     SpinButton,
+
+    /// Represents a diagram or flowchart.
+    /// - **Purpose**: To represent data or relationships in a schematic form.
+    /// - **When to use**: For visual representations of structures that are not charts, like a
+    ///   database schema diagram.
+    /// - **Example**: A flowchart illustrating a business process.
     Diagram,
+
+    /// Represents an animation control.
+    /// - **Purpose**: To display a sequence of images or indicate an ongoing process.
+    /// - **When to use**: For animations that show that an operation is in progress.
+    /// - **Example**: The animation that plays while files are being copied.
     Animation,
+
+    /// Represents a mathematical equation.
+    /// - **Purpose**: To display a mathematical formula in the correct format.
+    /// - **When to use**: For displaying mathematical equations.
+    /// - **Example**: A rendered mathematical equation in a scientific document editor.
     Equation,
+
+    /// Represents a button that drops down a list of items.
+    /// - **Purpose**: To combine a default action button with a list of alternative actions.
+    /// - **When to use**: For buttons that have a primary action and a secondary list of options.
+    /// - **Example**: A "Send" button with a dropdown arrow that reveals "Send and Archive."
     ButtonDropdown,
+
+    /// Represents a button that drops down a full menu.
+    /// - **Purpose**: To provide a button that opens a menu of choices rather than performing a
+    ///   single action.
+    /// - **When to use**: When a button's primary purpose is to reveal a menu.
+    /// - **Example**: A "Tools" button that opens a menu with various tool options.
     ButtonMenu,
+
+    /// Represents a button that drops down a grid for selection.
+    /// - **Purpose**: To allow selection from a two-dimensional grid of options.
+    /// - **When to use**: For buttons that open a grid-based selection UI.
+    /// - **Example**: A color picker button that opens a grid of color swatches.
     ButtonDropdownGrid,
+
+    /// Represents blank space between other objects.
+    /// - **Purpose**: To represent significant empty areas in a UI that are part of the layout.
+    /// - **When to use**: Sparingly, to signify that a large area is intentionally blank.
+    /// - **Example**: A large empty panel in a complex layout might use this role.
     Whitespace,
+
+    /// Represents the container for a set of tabs.
+    /// - **Purpose**: To group a set of `PageTab` elements.
+    /// - **When to use**: To act as the parent container for a row or column of tabs.
+    /// - **Example**: The entire row of tabs at the top of a properties dialog.
     PageTabList,
+
+    /// Represents a clock control.
+    /// - **Purpose**: To display the current time.
+    /// - **When to use**: For any UI element that displays time.
+    /// - **Example**: The clock in the system tray of the operating system.
     Clock,
+
+    /// Represents a button with two parts: a default action and a dropdown.
+    /// - **Purpose**: To combine a frequently used action with a set of related, less-used
+    ///   actions.
+    /// - **When to use**: When a button has a default action and other related actions available
+    ///   in a dropdown.
+    /// - **Example**: A "Save" split button where the primary part saves, and the dropdown offers
+    ///   "Save As."
     SplitButton,
+
+    /// Represents a control for entering an IP address.
+    /// - **Purpose**: To provide a specialized input field for IP addresses, often with formatting
+    ///   and validation.
+    /// - **When to use**: For dedicated IP address input fields.
+    /// - **Example**: A network configuration dialog with a field for entering a static IP
+    ///   address.
     IpAddress,
+
+    /// Represents an element with no specific role.
+    /// - **Purpose**: To indicate an element that has no semantic meaning for accessibility.
+    /// - **When to use**: Should be used sparingly for purely decorative elements that should be
+    ///   ignored by assistive technologies.
+    /// - **Example**: A decorative graphical flourish that has no function or information to
+    ///   convey.
     Nothing,
 }
 
-/// MSAA accessibility state. For information on what each state does, see the
-/// [MSDN State Constants](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants\) page.
+/// Defines the current state of an element for accessibility APIs (e.g., focused, checked).
+/// These states provide dynamic information to assistive technologies about the element's
+/// condition.
+///
+/// See the [MSDN State Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants) for more details.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum AccessibilityState {
+    /// The element is unavailable and cannot be interacted with.
+    /// - **Purpose**: To indicate that a control is disabled or grayed out.
+    /// - **When to use**: For disabled buttons, non-interactive menu items, or any control that is
+    ///   temporarily non-functional.
+    /// - **Example**: A "Save" button that is disabled until the user makes changes to a document.
     Unavailable,
+
+    /// The element is selected.
+    /// - **Purpose**: To indicate that an item is currently chosen or highlighted. This is
+    ///   distinct from having focus.
+    /// - **When to use**: For selected items in a list, highlighted text, or the currently active
+    ///   tab in a tab list.
+    /// - **Example**: A file highlighted in a file explorer, or multiple selected emails in an
+    ///   inbox.
     Selected,
+
+    /// The element has the keyboard focus.
+    /// - **Purpose**: To identify the single element that will receive keyboard input.
+    /// - **When to use**: For the control that is currently active and ready to be manipulated by
+    ///   the keyboard.
+    /// - **Example**: A text box with a blinking cursor, or a button with a dotted outline around
+    ///   it.
     Focused,
+
+    /// The element is checked, toggled, or in a mixed state.
+    /// - **Purpose**: To represent the state of controls like checkboxes, radio buttons, and
+    ///   toggle buttons.
+    /// - **When to use**: For checkboxes that are ticked, selected radio buttons, or toggle
+    ///   buttons that are "on."
+    /// - **Example**: A checked "I agree" checkbox, a selected "Yes" radio button, or an active
+    ///   "Bold" button in a toolbar.
     Checked,
+
+    /// The element's content cannot be edited by the user.
+    /// - **Purpose**: To indicate that the element's value can be viewed and copied, but not
+    ///   modified.
+    /// - **When to use**: For display-only text fields or documents.
+    /// - **Example**: A text box displaying a license agreement that the user can scroll through
+    ///   but cannot edit.
     Readonly,
+
+    /// The element is the default action in a dialog or form.
+    /// - **Purpose**: To identify the button that will be activated if the user presses the Enter
+    ///   key.
+    /// - **When to use**: For the primary confirmation button in a dialog.
+    /// - **Example**: The "OK" button in a dialog box, which often has a thicker or colored
+    ///   border.
     Default,
+
+    /// The element is expanded, showing its child items.
+    /// - **Purpose**: To indicate that a collapsible element is currently open and its contents
+    ///   are visible.
+    /// - **When to use**: For tree view nodes, combo boxes with their lists open, or expanded
+    ///   accordion panels.
+    /// - **Example**: A folder in a file explorer's tree view that has been clicked to show its
+    ///   subfolders.
     Expanded,
+
+    /// The element is collapsed, hiding its child items.
+    /// - **Purpose**: To indicate that a collapsible element is closed and its contents are
+    ///   hidden.
+    /// - **When to use**: The counterpart to `Expanded` for any collapsible UI element.
+    /// - **Example**: A closed folder in a file explorer's tree view, hiding its contents.
     Collapsed,
+
+    /// The element is busy and cannot respond to user interaction.
+    /// - **Purpose**: To indicate that the element or application is performing an operation and
+    ///   is temporarily unresponsive.
+    /// - **When to use**: When an application is loading, processing data, or otherwise occupied.
+    /// - **Example**: A window that is grayed out and shows a spinning cursor while saving a large
+    ///   file.
     Busy,
+
+    /// The element is not currently visible on the screen.
+    /// - **Purpose**: To indicate that an element exists but is currently scrolled out of the
+    ///   visible area.
+    /// - **When to use**: For items in a long list or a large document that are not within the
+    ///   current viewport.
+    /// - **Example**: A list item in a long dropdown that you would have to scroll down to see.
     Offscreen,
+
+    /// The element can accept keyboard focus.
+    /// - **Purpose**: To indicate that the user can navigate to this element using the keyboard
+    ///   (e.g., with the Tab key).
+    /// - **When to use**: On all interactive elements like buttons, links, and input fields,
+    ///   whether they currently have focus or not.
+    /// - **Example**: A button that can receive focus, even if it is not the currently focused
+    ///   element.
     Focusable,
+
+    /// The element is a container whose children can be selected.
+    /// - **Purpose**: To indicate that the element contains items that can be chosen.
+    /// - **When to use**: On container controls like list boxes, tree views, or text spans where
+    ///   text can be highlighted.
+    /// - **Example**: A list box control is `Selectable`, while its individual list items have the
+    ///   `Selected` state when chosen.
     Selectable,
+
+    /// The element is a hyperlink.
+    /// - **Purpose**: To identify an object that navigates to another resource or location when
+    ///   activated.
+    /// - **When to use**: On any object that functions as a hyperlink.
+    /// - **Example**: Text or an image that, when clicked, opens a web page.
     Linked,
+
+    /// The element is a hyperlink that has been visited.
+    /// - **Purpose**: To indicate that a hyperlink has already been followed by the user.
+    /// - **When to use**: On a `Linked` object that the user has previously activated.
+    /// - **Example**: A hyperlink on a web page that has changed color to show it has been
+    ///   visited.
     Traversed,
+
+    /// The element allows multiple of its children to be selected at once.
+    /// - **Purpose**: To indicate that a container control supports multi-selection.
+    /// - **When to use**: On container controls like list boxes or file explorers that support
+    ///   multiple selections (e.g., with Ctrl-click).
+    /// - **Example**: A file list that allows the user to select several files at once for a copy
+    ///   operation.
     Multiselectable,
+
+    /// The element contains protected content that should not be read aloud.
+    /// - **Purpose**: To prevent assistive technologies from speaking the content of a sensitive
+    ///   field.
+    /// - **When to use**: Primarily for password input fields.
+    /// - **Example**: A password text box where typed characters are masked with asterisks or
+    ///   dots.
     Protected,
 }
 
@@ -1326,6 +1861,8 @@ impl NodeDataVec {
 
 unsafe impl Send for NodeData {}
 
+/// Determines the behavior of an element in sequential focus navigation
+// (e.g., using the Tab key).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C, u8)]
 pub enum TabIndex {
@@ -1353,7 +1890,7 @@ pub enum TabIndex {
     /// take precedence among global order.
     OverrideInParent(u32),
     /// Elements can be focused in callbacks, but are not accessible via
-    /// keyboard / tab navigation (-1)
+    /// keyboard / tab navigation (-1).
     NoKeyboardFocus,
 }
 
@@ -1364,7 +1901,7 @@ impl_option!(
 );
 
 impl TabIndex {
-    /// Returns the HTML-compatible number of the `tabindex` element
+    /// Returns the HTML-compatible number of the `tabindex` element.
     pub fn get_index(&self) -> isize {
         use self::TabIndex::*;
         match self {
@@ -1447,7 +1984,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 }
 
 impl NodeData {
-    /// Creates a new `NodeData` instance from a given `NodeType`
+    /// Creates a new `NodeData` instance from a given `NodeType`.
     #[inline]
     pub const fn new(node_type: NodeType) -> Self {
         Self {
@@ -1479,13 +2016,13 @@ impl NodeData {
         Self::new(NodeType::Br)
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`
+    /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`.
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
         Self::new(NodeType::Text(value.into()))
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
+    /// Shorthand for `NodeData::new(NodeType::Image(image_id))`.
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self {
         Self::new(NodeType::Image(image))
@@ -1499,20 +2036,20 @@ impl NodeData {
         }))
     }
 
-    /// Checks whether this node is of the given node type (div, image, text)
+    /// Checks whether this node is of the given node type (div, image, text).
     #[inline]
     pub fn is_node_type(&self, searched_type: NodeType) -> bool {
         self.node_type == searched_type
     }
 
-    /// Checks whether this node has the searched ID attached
+    /// Checks whether this node has the searched ID attached.
     pub fn has_id(&self, id: &str) -> bool {
         self.ids_and_classes
             .iter()
             .any(|id_or_class| id_or_class.as_id() == Some(id))
     }
 
-    /// Checks whether this node has the searched class attached
+    /// Checks whether this node has the searched class attached.
     pub fn has_class(&self, class: &str) -> bool {
         self.ids_and_classes
             .iter()
@@ -1530,6 +2067,66 @@ impl NodeData {
         match self.node_type {
             NodeType::Text(_) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_iframe_node(&self) -> bool {
+        match self.node_type {
+            NodeType::IFrame(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns the default CSS display value for this node type.
+    /// This is used by the layout engine to determine the initial display mode
+    /// before CSS rules are applied.
+    pub fn get_default_display(&self) -> azul_css::props::layout::LayoutDisplay {
+        use azul_css::props::layout::LayoutDisplay;
+        match self.node_type {
+            NodeType::Text(_) => LayoutDisplay::Inline,
+            NodeType::Body => LayoutDisplay::Block,
+            NodeType::Table => LayoutDisplay::Table,
+            NodeType::Tr => LayoutDisplay::TableRow,
+            NodeType::Td | NodeType::Th => LayoutDisplay::TableCell,
+            NodeType::TBody | NodeType::THead | NodeType::TFoot => LayoutDisplay::TableRowGroup,
+            // IFrame nodes are replaced elements - display: block by default
+            // They fill available space with width/height: 100% (see get_default_width/height)
+            NodeType::IFrame(_) => LayoutDisplay::Block,
+            NodeType::Div
+            | NodeType::P
+            | NodeType::H1
+            | NodeType::H2
+            | NodeType::H3
+            | NodeType::H4
+            | NodeType::H5
+            | NodeType::H6 => LayoutDisplay::Block,
+            _ => LayoutDisplay::Inline,
+        }
+    }
+
+    /// Returns the default CSS width value for this node type.
+    /// This is used when no explicit width is set via CSS.
+    pub fn get_default_width(&self) -> Option<azul_css::props::layout::LayoutWidth> {
+        use azul_css::props::{basic::PixelValue, layout::LayoutWidth};
+        match self.node_type {
+            // Body and IFrame fill their parent container by default
+            NodeType::Body | NodeType::IFrame(_) => {
+                Some(LayoutWidth::Px(PixelValue::const_percent(100)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the default CSS height value for this node type.
+    /// This is used when no explicit height is set via CSS.
+    pub fn get_default_height(&self) -> Option<azul_css::props::layout::LayoutHeight> {
+        use azul_css::props::{basic::PixelValue, layout::LayoutHeight};
+        match self.node_type {
+            // Body and IFrame fill their parent container by default
+            NodeType::Body | NodeType::IFrame(_) => {
+                Some(LayoutHeight::Px(PixelValue::const_percent(100)))
+            }
+            _ => None,
         }
     }
 
@@ -1698,7 +2295,7 @@ impl NodeData {
         self.inline_css_props = v.into();
     }
 
-    /// Calculates a deterministic node hash for this node
+    /// Calculates a deterministic node hash for this node.
     pub fn calculate_node_data_hash(&self) -> DomNodeHash {
         use highway::{HighwayHash, HighwayHasher, Key};
         let mut hasher = HighwayHasher::new(Key([0; 4]));
@@ -1814,6 +2411,7 @@ impl NodeData {
     }
 }
 
+/// A unique, runtime-generated identifier for a single `Dom` instance.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct DomId {
@@ -1842,10 +2440,13 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
+/// A UUID for a DOM node within a `LayoutWindow`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct DomNodeId {
+    /// The ID of the `Dom` this node belongs to.
     pub dom: DomId,
+    /// The hierarchical ID of the node within its `Dom`.
     pub node: NodeHierarchyItemId,
 }
 
@@ -1863,14 +2464,16 @@ impl DomNodeId {
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read
-/// anything back
+/// anything back from it. It's designed for ease of construction.
 #[repr(C)]
 #[derive(PartialEq, Clone, Eq, Hash, PartialOrd, Ord)]
 pub struct Dom {
+    /// The data for the root node of this DOM (or sub-DOM).
     pub root: NodeData,
+    /// The children of this DOM node.
     pub children: DomVec,
     // Tracks the number of sub-children of the current children, so that
-    // the `Dom` can be converted into a `CompactDom`
+    // the `Dom` can be converted into a `CompactDom`.
     estimated_total_children: usize,
 }
 
@@ -2098,16 +2701,19 @@ impl fmt::Debug for Dom {
     }
 }
 
-/// Same as `Dom`, but arena-based for more efficient memory layout
+/// Same as `Dom`, but arena-based for more efficient memory layout and faster traversal.
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub struct CompactDom {
+    /// The arena containing the hierarchical relationships (parent, child, sibling) of all nodes.
     pub node_hierarchy: NodeHierarchy,
+    /// The arena containing the actual data (`NodeData`) for each node.
     pub node_data: NodeDataContainer<NodeData>,
+    /// The ID of the root node of the DOM tree.
     pub root: NodeId,
 }
 
 impl CompactDom {
-    /// Returns the number of nodes in this DOM
+    /// Returns the number of nodes in this DOM.
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.node_hierarchy.as_ref().len()

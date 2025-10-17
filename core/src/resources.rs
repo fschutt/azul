@@ -695,9 +695,9 @@ impl RendererResourcesTrait for RendererResources {
 /// (signified by start_frame_gc and end_frame_gc)
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
-    currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
+    pub currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
     /// All font keys currently active in the RenderApi
-    currently_registered_fonts:
+    pub currently_registered_fonts:
         FastHashMap<FontKey, (FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
     /// Fonts registered on the last frame
     ///
@@ -705,15 +705,15 @@ pub struct RendererResources {
     /// delete them on a new frame, instead we have to delete them on "current frame + 1"
     /// This is because when the frame is being built, we do not know
     /// whether the font will actually be successfully loaded
-    last_frame_registered_fonts:
+    pub last_frame_registered_fonts:
         FastHashMap<FontKey, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>>,
     /// Map from the calculated families vec (["Arial", "Helvectia"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
     /// because the fonts are loaded in fallback-order)
-    font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
+    pub font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
     /// Same as AzString -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
+    pub font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
 }
 
 impl fmt::Debug for RendererResources {

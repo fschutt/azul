@@ -521,6 +521,12 @@ pub struct StyledDom {
     /// The ID of this DOM in the layout tree (for multi-DOM support with IFrames)
     pub dom_id: DomId,
 }
+impl_option!(
+    StyledDom,
+    OptionStyledDom,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 impl Default for StyledDom {
     fn default() -> Self {

@@ -58,12 +58,12 @@ pub trait FontProviderTrait<T: ParsedFontTrait> {
 
 #[derive(Debug)]
 pub struct FontManager<T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
-    fc_cache: FcFontCache,
-    parsed_fonts: Mutex<HashMap<FontId, Arc<T>>>,
-    font_ref_to_id_cache: Mutex<HashMap<FontRef, FontId>>,
+    pub fc_cache: FcFontCache,
+    pub parsed_fonts: Mutex<HashMap<FontId, Arc<T>>>,
+    pub font_ref_to_id_cache: Mutex<HashMap<FontRef, FontId>>,
     // Default: System font loader
     // (loads fonts from file - can be intercepted for mocking in tests)
-    font_loader: Arc<Q>,
+    pub font_loader: Arc<Q>,
 }
 
 impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {

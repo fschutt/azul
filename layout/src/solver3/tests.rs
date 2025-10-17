@@ -471,12 +471,34 @@ impl IFrameCallbackTracker {
     fn bounds_history(&self) -> Vec<LogicalRect> {
         self.bounds_history.lock().unwrap().clone()
     }
+
+    fn record_invocation(&self) {
+        *self.invocation_count.lock().unwrap() += 1;
+    }
+
+    fn record_bounds(&self, bounds: azul_core::callbacks::HidpiAdjustedBounds) {
+        // Convert HidpiAdjustedBounds to LogicalRect (position unknown, use zero)
+        let rect = LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: bounds.get_logical_size(),
+        };
+        self.bounds_history.lock().unwrap().push(rect);
+    }
 }
 
 extern "C" fn test_iframe_callback(
-    _data: &mut RefAny,
+    data: &mut RefAny,
     info: &mut IFrameCallbackInfo,
 ) -> IFrameCallbackReturn {
+    // Increment the invocation counter in the tracker
+    if let Some(tracker) = data.downcast_ref::<IFrameCallbackTracker>() {
+        tracker.record_invocation();
+        tracker.record_bounds(info.bounds);
+
+        // Log the reason for this invocation
+        eprintln!("IFrame callback invoked with reason: {:?}", info.reason);
+    }
+
     // Create a simple DOM for the iframe content
     let mut iframe_dom = Dom::body();
     iframe_dom.add_child(Dom::text("IFrame Content"));
@@ -485,7 +507,7 @@ extern "C" fn test_iframe_callback(
     let styled_dom = StyledDom::new(&mut iframe_dom, css);
 
     IFrameCallbackReturn {
-        dom: styled_dom,
+        dom: azul_core::styled_dom::OptionStyledDom::Some(styled_dom),
         scroll_size: info.bounds.get_logical_size(),
         scroll_offset: LogicalPosition::zero(),
         virtual_scroll_size: info.bounds.get_logical_size(),
@@ -494,54 +516,49 @@ extern "C" fn test_iframe_callback(
 }
 
 #[test]
-fn test_iframe_callback_invocation() {
-    // This test verifies that IFrame callbacks are invoked during layout
-    // and that the returned DOM is integrated into the layout tree
-    //
-    // NOTE: IFrame callbacks are handled by LayoutWindow, not by layout_document directly.
-    // layout_document only handles a single StyledDom, while LayoutWindow manages
-    // multiple DOMs (root + iframe children) and invokes callbacks.
+fn test_iframe_initial_render() {
+    // Test Rule 1: Initial render - callback should be invoked with InitialRender reason
 
-    use azul_core::dom::IFrameNode;
+    use azul_core::callbacks::IFrameCallbackReason;
     use rust_fontconfig::FcFontCache;
 
     let mut window =
         LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
 
-    let mut dom = Dom::body();
-
-    // Create an IFrame node
     let tracker = IFrameCallbackTracker::new();
     let iframe_data = RefAny::new(tracker.clone());
 
-    dom.add_child(Dom::iframe(iframe_data, test_iframe_callback));
+    let mut dom = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom.add_child(
+        Dom::iframe(iframe_data, test_iframe_callback)
+            .with_inline_style("width: 300px; height: 200px;".into()),
+    );
 
     let css = CssApiWrapper::empty();
+    let styled_dom = StyledDom::new(&mut dom, css);
 
-    // Perform layout using LayoutWindow which handles IFrame callbacks
-    let viewport = LogicalRect {
-        origin: LogicalPosition::zero(),
-        size: LogicalSize::new(800.0, 600.0),
-    };
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
-    let result = window.layout(DomId::ROOT_ID, dom, css, viewport);
+    let result = window.layout_and_generate_display_list(
+        styled_dom,
+        &window_state,
+        &azul_core::resources::RendererResources::default(),
+        &mut None,
+    );
 
     assert!(result.is_ok(), "Layout with IFrame should succeed");
-
-    // Verify callback was invoked
     assert_eq!(
         tracker.invocation_count(),
         1,
-        "IFrame callback should be invoked once"
+        "Initial render should invoke callback once"
     );
 }
 
 #[test]
-fn test_iframe_conditional_reinvocation() {
-    // This test verifies that IFrame callbacks are only re-invoked when
-    // the iframe's bounds or scroll position changes
+fn test_iframe_no_reinvoke_same_bounds() {
+    // Test that same bounds and no scroll don't trigger re-invocation
 
-    use azul_core::dom::IFrameNode;
     use rust_fontconfig::FcFontCache;
 
     let mut window =
@@ -550,9 +567,12 @@ fn test_iframe_conditional_reinvocation() {
     let tracker = IFrameCallbackTracker::new();
     let iframe_data = RefAny::new(tracker.clone());
 
-    // First layout - callback should be invoked
-    let mut dom1 = Dom::body();
-    dom1.add_child(Dom::iframe(iframe_data.clone(), test_iframe_callback));
+    // First layout
+    let mut dom1 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom1.add_child(
+        Dom::iframe(iframe_data.clone(), test_iframe_callback)
+            .with_inline_style("width: 300px; height: 200px;".into()),
+    );
 
     let css1 = CssApiWrapper::empty();
     let styled_dom1 = StyledDom::new(&mut dom1, css1);
@@ -567,15 +587,14 @@ fn test_iframe_conditional_reinvocation() {
         &mut None,
     );
 
-    assert_eq!(
-        tracker.invocation_count(),
-        1,
-        "First layout should invoke callback"
-    );
+    assert_eq!(tracker.invocation_count(), 1, "First layout should invoke");
 
-    // Second layout with same bounds - callback should NOT be re-invoked
-    let mut dom2 = Dom::body();
-    dom2.add_child(Dom::iframe(iframe_data.clone(), test_iframe_callback));
+    // Second layout with same bounds - should NOT re-invoke
+    let mut dom2 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom2.add_child(
+        Dom::iframe(iframe_data.clone(), test_iframe_callback)
+            .with_inline_style("width: 300px; height: 200px;".into()),
+    );
 
     let css2 = CssApiWrapper::empty();
     let styled_dom2 = StyledDom::new(&mut dom2, css2);
@@ -592,23 +611,55 @@ fn test_iframe_conditional_reinvocation() {
         1,
         "Same bounds should not re-invoke callback"
     );
+}
 
-    // Third layout with different window size - callback SHOULD be re-invoked
-    let mut dom3 = Dom::body();
-    let iframe_node3 = IFrameNode {
-        callback: IFrameCallback {
-            cb: test_iframe_callback,
-        },
-        data: iframe_data.clone(),
-    };
-    dom3.add_child(Dom::iframe(iframe_node3.data, iframe_node3.callback.cb));
+#[test]
+fn test_iframe_reinvoke_on_bounds_expansion() {
+    // Test Rule 3: Bounds expansion should trigger re-invocation with BoundsExpanded reason
 
-    let css3 = CssApiWrapper::empty();
-    let styled_dom3 = StyledDom::new(&mut dom3, css3);
+    use rust_fontconfig::FcFontCache;
 
-    let _ = window.resize_window(
-        styled_dom3,
-        LogicalSize::new(1024.0, 768.0),
+    let mut window =
+        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+
+    let tracker = IFrameCallbackTracker::new();
+    let iframe_data = RefAny::new(tracker.clone());
+
+    // First layout with small IFrame
+    let mut dom1 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom1.add_child(
+        Dom::iframe(iframe_data.clone(), test_iframe_callback)
+            .with_inline_style("width: 300px; height: 200px;".into()),
+    );
+
+    let css1 = CssApiWrapper::empty();
+    let styled_dom1 = StyledDom::new(&mut dom1, css1);
+
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+
+    let _ = window.layout_and_generate_display_list(
+        styled_dom1,
+        &window_state,
+        &azul_core::resources::RendererResources::default(),
+        &mut None,
+    );
+
+    assert_eq!(tracker.invocation_count(), 1);
+
+    // Second layout with expanded IFrame bounds
+    let mut dom2 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom2.add_child(
+        Dom::iframe(iframe_data.clone(), test_iframe_callback)
+            .with_inline_style("width: 500px; height: 400px;".into()),
+    );
+
+    let css2 = CssApiWrapper::empty();
+    let styled_dom2 = StyledDom::new(&mut dom2, css2);
+
+    let _ = window.layout_and_generate_display_list(
+        styled_dom2,
+        &window_state,
         &azul_core::resources::RendererResources::default(),
         &mut None,
     );
@@ -616,13 +667,70 @@ fn test_iframe_conditional_reinvocation() {
     assert_eq!(
         tracker.invocation_count(),
         2,
-        "Changed bounds should re-invoke callback"
+        "Expanded bounds should trigger re-invocation"
+    );
+}
+
+#[test]
+fn test_iframe_no_reinvoke_on_bounds_shrink() {
+    // Test that bounds shrinking does NOT trigger re-invocation
+
+    use rust_fontconfig::FcFontCache;
+
+    let mut window =
+        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+
+    let tracker = IFrameCallbackTracker::new();
+    let iframe_data = RefAny::new(tracker.clone());
+
+    // First layout with large IFrame
+    let mut dom1 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom1.add_child(
+        Dom::iframe(iframe_data.clone(), test_iframe_callback)
+            .with_inline_style("width: 500px; height: 400px;".into()),
     );
 
-    // Verify bounds history
-    let bounds = tracker.bounds_history();
-    assert_eq!(bounds.len(), 2, "Should have recorded 2 different bounds");
+    let css1 = CssApiWrapper::empty();
+    let styled_dom1 = StyledDom::new(&mut dom1, css1);
+
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+
+    let _ = window.layout_and_generate_display_list(
+        styled_dom1,
+        &window_state,
+        &azul_core::resources::RendererResources::default(),
+        &mut None,
+    );
+
+    assert_eq!(tracker.invocation_count(), 1);
+
+    // Second layout with shrunk IFrame bounds - should NOT re-invoke
+    let mut dom2 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
+    dom2.add_child(
+        Dom::iframe(iframe_data.clone(), test_iframe_callback)
+            .with_inline_style("width: 300px; height: 200px;".into()),
+    );
+
+    let css2 = CssApiWrapper::empty();
+    let styled_dom2 = StyledDom::new(&mut dom2, css2);
+
+    let _ = window.layout_and_generate_display_list(
+        styled_dom2,
+        &window_state,
+        &azul_core::resources::RendererResources::default(),
+        &mut None,
+    );
+
+    assert_eq!(
+        tracker.invocation_count(),
+        1,
+        "Shrunk bounds should NOT trigger re-invocation"
+    );
 }
+
+// Note: Tests for Rule 4 (scroll near edge) and Rule 5 (scroll beyond content)
+// will be added once scroll tracking is properly implemented in invoke_iframe_callback
 
 // ============================================================================
 // IMAGE CALLBACK TESTS

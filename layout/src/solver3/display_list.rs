@@ -125,6 +125,18 @@ pub enum DisplayListItem {
         orientation: ScrollbarOrientation,
     },
 
+    /// An embedded IFrame that references a child DOM with its own display list.
+    /// This mirrors webrender's IframeDisplayItem. The renderer will look up
+    /// the child display list by child_dom_id and render it within the bounds.
+    IFrame {
+        /// The DomId of the child DOM (similar to webrender's pipeline_id)
+        child_dom_id: azul_core::dom::DomId,
+        /// The bounds where the IFrame should be rendered
+        bounds: LogicalRect,
+        /// The clip rect for the IFrame content
+        clip_rect: LogicalRect,
+    },
+
     // --- State-Management Commands ---
     /// Pushes a new clipping rectangle onto the renderer's clip stack.
     /// All subsequent primitives will be clipped by this rect until a PopClip.

@@ -137,6 +137,13 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 &mut absolute_positions,
                 &mut reflow_needed_for_scrollbars,
             )?;
+
+            // CRITICAL: Insert the root node's own position into absolute_positions
+            // This is necessary because calculate_layout_for_subtree only inserts
+            // positions for children, not for the root itself.
+            if !absolute_positions.contains_key(&root_idx) {
+                absolute_positions.insert(root_idx, cb_pos);
+            }
         }
 
         cache::reposition_clean_subtrees(
