@@ -21,6 +21,10 @@ pub mod font;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
 pub mod image;
+#[cfg(feature = "pdf")]
+pub mod paged;
+#[cfg(feature = "pdf")]
+pub mod pdf;
 #[cfg(feature = "text_layout")]
 pub mod scroll;
 pub mod solver3;
@@ -40,6 +44,13 @@ pub mod xml;
 // Export the main layout function and window management
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
+#[cfg(feature = "pdf")]
+pub use paged::{generate_display_lists_from_paged_layout, layout_to_pages, Page};
+#[cfg(feature = "pdf")]
+pub use pdf::{
+    display_list_to_pdf_ops, FontId, PdfColor, PdfOp, PdfPageRender, PdfPoint, PdfRenderResources,
+    XObjectId,
+};
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]

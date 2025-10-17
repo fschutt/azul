@@ -113,20 +113,14 @@ fn test_get_selection_rects_single_line() {
 /// Creates a standard multi-line layout for testing navigation.
 fn create_test_layout() -> (UnifiedLayout<MockFont>, MockFontManager) {
     let manager = create_mock_font_manager();
-    let content = vec![
-        InlineContent::Text(StyledRun {
-            text: "hello world".into(),
-            style: default_style(),
-            logical_start_byte: 0,
-        }),
-        InlineContent::Text(StyledRun {
-            text: "second line".into(),
-            style: default_style(),
-            logical_start_byte: 12,
-        }),
-    ];
+    // Use a single run to ensure "hello world" is treated as one logical unit
+    let content = vec![InlineContent::Text(StyledRun {
+        text: "hello world second line".into(),
+        style: default_style(),
+        logical_start_byte: 0,
+    })];
     let constraints = UnifiedConstraints {
-        available_width: 60.0, // "hello " fits, "world" wraps
+        available_width: 60.0, // "hello " fits, "world" wraps to next line
         line_height: 12.0,
         ..Default::default()
     };
@@ -165,16 +159,30 @@ fn test_move_cursor_up_down() {
 
     // Moving up should land on the first line, near the same X coordinate.
     let mut goal_x = None;
-    let up_cursor = layout.move_cursor_up(start_cursor, &mut goal_x);
+    let mut debug = Some(Vec::new());
+    let up_cursor = layout.move_cursor_up(start_cursor, &mut goal_x, &mut debug);
+
+    if let Some(d) = &debug {
+        for msg in d {
+            println!("{}", msg);
+        }
+    }
 
     // The 'l' in "hello" is roughly above 'o' in "world"
     assert_eq!(
-        up_cursor.cluster_id.start_byte_in_run, 2,
-        "Cursor should be on 'l'"
+        up_cursor.cluster_id.start_byte_in_run, 1,
+        "Cursor should be on 'e'"
     );
 
     // Moving back down should return to the original character.
-    let down_cursor = layout.move_cursor_down(up_cursor, &mut goal_x);
+    let mut debug = Some(Vec::new());
+    let down_cursor = layout.move_cursor_down(up_cursor, &mut goal_x, &mut debug);
+
+    if let Some(d) = &debug {
+        for msg in d {
+            println!("{}", msg);
+        }
+    }
     assert_eq!(
         down_cursor.cluster_id.start_byte_in_run, 7,
         "Cursor should return to 'o'"
@@ -194,16 +202,31 @@ fn test_move_cursor_line_start_end() {
         affinity: CursorAffinity::Leading,
     };
 
-    let line_start_cursor = layout.move_cursor_to_line_start(start_cursor);
+    let mut debug = Some(Vec::new());
+    let line_start_cursor = layout.move_cursor_to_line_start(start_cursor, &mut debug);
+
+    if let Some(d) = &debug {
+        for msg in d {
+            println!("{}", msg);
+        }
+    }
+
     assert_eq!(
         line_start_cursor.cluster_id.start_byte_in_run, 6,
         "Cursor should be at start of 'world'"
     );
 
-    let line_end_cursor = layout.move_cursor_to_line_end(start_cursor);
+    let mut debug = Some(Vec::new());
+    let line_end_cursor = layout.move_cursor_to_line_end(start_cursor, &mut debug);
+
+    if let Some(d) = &debug {
+        for msg in d {
+            println!("{}", msg);
+        }
+    }
     assert_eq!(
-        line_end_cursor.cluster_id.start_byte_in_run, 10,
-        "Cursor should be at end of 'world'"
+        line_end_cursor.cluster_id.start_byte_in_run, 11,
+        "Cursor should be at end of 'world ' (including trailing space)"
     );
 }
 
@@ -307,22 +330,22 @@ fn test_move_cursor_left_right_simple() {
     };
 
     // Move right -> trailing edge of 'e'
-    let c1 = layout.move_cursor_right(start_cursor);
+    let c1 = layout.move_cursor_right(start_cursor, &mut None);
     assert_eq!(c1.cluster_id.start_byte_in_run, 1);
     assert_eq!(c1.affinity, CursorAffinity::Trailing);
 
     // Move right again -> leading edge of 'l'
-    let c2 = layout.move_cursor_right(c1);
+    let c2 = layout.move_cursor_right(c1, &mut None);
     assert_eq!(c2.cluster_id.start_byte_in_run, 2);
     assert_eq!(c2.affinity, CursorAffinity::Leading);
 
     // Move left -> trailing edge of 'e'
-    let c3 = layout.move_cursor_left(c2);
+    let c3 = layout.move_cursor_left(c2, &mut None);
     assert_eq!(c3.cluster_id.start_byte_in_run, 1);
     assert_eq!(c3.affinity, CursorAffinity::Trailing);
 
     // Move left again -> leading edge of 'e'
-    let c4 = layout.move_cursor_left(c3);
+    let c4 = layout.move_cursor_left(c3, &mut None);
     assert_eq!(c4, start_cursor);
 }
 

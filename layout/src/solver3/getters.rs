@@ -352,10 +352,44 @@ pub(crate) fn get_display_property(
 
 // TODO: STUB helper
 pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
-    // Beispiel: Hole Schriftgröße, Farbe, etc. aus dem StyledDom und baue StyleProperties
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
-    // Hier müssten alle relevanten Properties ausgelesen und in StyleProperties übertragen werden
-    // (dies ist ein Platzhalter, da die genaue Struktur von StyleProperties nicht bekannt ist)
-    StyleProperties::default()
+    let cache = &styled_dom.css_property_cache.ptr;
+
+    let font_family_name = cache
+        .get_font_family(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .and_then(|v| v.get(0).map(|f| f.as_string()))
+        .unwrap_or_else(|| "sans-serif".to_string());
+
+    let font_size = cache
+        .get_font_size(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| v.inner.to_pixels(16.0))
+        .unwrap_or(16.0);
+
+    let color = cache
+        .get_text_color(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| v.inner)
+        .unwrap_or_default();
+
+    let line_height = cache
+        .get_line_height(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| v.inner.normalized() * font_size)
+        .unwrap_or(font_size * 1.2);
+
+    StyleProperties {
+        font_ref: crate::text3::cache::FontRef {
+            family: font_family_name,
+            weight: rust_fontconfig::FcWeight::Normal, // Stub for now
+            style: crate::text3::cache::FontStyle::Normal, // Stub for now
+            unicode_ranges: Vec::new(),
+        },
+        font_size_px: font_size,
+        color,
+        line_height,
+        ..Default::default()
+    }
 }

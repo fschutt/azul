@@ -25,11 +25,11 @@ pub mod two;
 // --- Mocking Infrastructure ---
 
 #[derive(Debug, Clone)]
-struct MockFont {
-    id: u32,
+pub(crate) struct MockFont {
+    id: u16,
     metrics: LayoutFontMetrics,
-    glyphs: HashMap<char, (u16, f32)>, // char -> (glyph_id, advance)
-    ligatures: HashMap<String, (u16, f32)>, // ligature string -> (glyph_id, advance)
+    glyphs: HashMap<char, (u16, f32)>,
+    ligatures: HashMap<String, (u16, f32)>,
 }
 
 impl ParsedFontTrait for MockFont {
@@ -162,7 +162,7 @@ impl ParsedFontTrait for MockFont {
 }
 
 #[derive(Debug)]
-struct MockFontLoader {
+pub(crate) struct MockFontLoader {
     fonts: HashMap<String, Arc<MockFont>>,
 }
 
@@ -179,13 +179,13 @@ impl FontLoaderTrait<MockFont> for MockFontLoader {
 }
 
 // A mock FontManager that doesn't use fontconfig
-struct MockFontManager {
+pub(crate) struct MockFontManager {
     loader: Arc<MockFontLoader>,
     cache: Mutex<HashMap<FontRef, Arc<MockFont>>>,
 }
 
 impl MockFontManager {
-    fn new(loader: Arc<MockFontLoader>) -> Self {
+    pub(crate) fn new(loader: Arc<MockFontLoader>) -> Self {
         Self {
             loader,
             cache: Mutex::new(HashMap::new()),
@@ -209,9 +209,9 @@ impl FontProviderTrait<MockFont> for MockFontManager {
     }
 }
 
-fn create_mock_font_manager() -> MockFontManager {
+pub(crate) fn create_mock_font_manager() -> MockFontManager {
     let mut glyphs = HashMap::new();
-    // Latin
+    // Latin lowercase
     glyphs.insert('f', (1, 10.0));
     glyphs.insert('i', (2, 4.0));
     glyphs.insert('l', (3, 4.0));
@@ -234,6 +234,10 @@ fn create_mock_font_manager() -> MockFontManager {
     glyphs.insert('d', (21, 9.0));
     glyphs.insert('c', (22, 8.0));
     glyphs.insert('u', (23, 9.0));
+
+    // Latin uppercase (for "Hello World")
+    glyphs.insert('H', (24, 10.0));
+    glyphs.insert('W', (25, 12.0));
 
     // Digits
     ('0'..='9').for_each(|c| {
@@ -277,6 +281,62 @@ fn create_mock_font_manager() -> MockFontManager {
 
     let loader = Arc::new(MockFontLoader { fonts });
     MockFontManager::new(loader)
+}
+
+pub(crate) fn create_mock_font_loader() -> Arc<MockFontLoader> {
+    let mut glyphs = HashMap::new();
+    // Latin lowercase
+    glyphs.insert('f', (1, 10.0));
+    glyphs.insert('i', (2, 4.0));
+    glyphs.insert('l', (3, 4.0));
+    glyphs.insert('a', (4, 8.0));
+    glyphs.insert('s', (5, 8.0));
+    glyphs.insert('h', (6, 9.0));
+    glyphs.insert('o', (7, 9.0));
+    glyphs.insert('m', (8, 12.0));
+    glyphs.insert(' ', (10, 5.0));
+    glyphs.insert('y', (11, 10.0));
+    glyphs.insert('p', (12, 9.0));
+    glyphs.insert('e', (13, 8.0));
+    glyphs.insert('n', (14, 9.0));
+    glyphs.insert('t', (15, 7.0));
+    glyphs.insert('b', (16, 9.0));
+    glyphs.insert('r', (17, 7.0));
+    glyphs.insert('k', (18, 9.0));
+    glyphs.insert('g', (19, 9.0));
+    glyphs.insert('w', (20, 10.0));
+    glyphs.insert('d', (21, 9.0));
+    glyphs.insert('c', (22, 8.0));
+    glyphs.insert('u', (23, 9.0));
+
+    // Latin uppercase (for "Hello World")
+    glyphs.insert('H', (24, 10.0));
+    glyphs.insert('W', (25, 12.0));
+
+    // Digits
+    ('0'..='9').for_each(|c| {
+        glyphs.insert(c, (30 + (c as u32 - '0' as u32) as u16, 8.0));
+    });
+
+    let mut ligatures = HashMap::new();
+    ligatures.insert("fi".to_string(), (1000, 12.0));
+
+    let mock_font = Arc::new(MockFont {
+        id: 1,
+        metrics: LayoutFontMetrics {
+            ascent: 80.0,
+            descent: -20.0,
+            line_gap: 0.0,
+            units_per_em: 100,
+        },
+        glyphs,
+        ligatures,
+    });
+
+    let mut fonts = HashMap::new();
+    fonts.insert("mock".to_string(), mock_font);
+
+    Arc::new(MockFontLoader { fonts })
 }
 
 pub fn default_style() -> Arc<StyleProperties> {

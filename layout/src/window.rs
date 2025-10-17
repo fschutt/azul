@@ -59,6 +59,51 @@ fn new_document_id() -> DocumentId {
     DocumentId { namespace_id, id }
 }
 
+/// Direction for cursor navigation
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CursorNavigationDirection {
+    /// Move cursor up one line
+    Up,
+    /// Move cursor down one line
+    Down,
+    /// Move cursor left one character
+    Left,
+    /// Move cursor right one character
+    Right,
+    /// Move cursor to start of current line
+    LineStart,
+    /// Move cursor to end of current line
+    LineEnd,
+    /// Move cursor to start of document
+    DocumentStart,
+    /// Move cursor to end of document
+    DocumentEnd,
+}
+
+/// Result of a cursor movement operation
+#[derive(Debug, Clone)]
+pub enum CursorMovementResult {
+    /// Cursor moved within the same text node
+    MovedWithinNode(azul_core::selection::TextCursor),
+    /// Cursor moved to a different text node
+    MovedToNode {
+        dom_id: DomId,
+        node_id: NodeId,
+        cursor: azul_core::selection::TextCursor,
+    },
+    /// Cursor is at a boundary and cannot move further
+    AtBoundary {
+        boundary: crate::text3::cache::TextBoundary,
+        cursor: azul_core::selection::TextCursor,
+    },
+}
+
+/// Error when no cursor destination is available
+#[derive(Debug, Clone)]
+pub struct NoCursorDestination {
+    pub reason: String,
+}
+
 /// Helper function to create a unique IdNamespace
 fn new_id_namespace() -> IdNamespace {
     let id = ID_NAMESPACE_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
@@ -1388,5 +1433,128 @@ mod tests {
         // Initially no layout results
         assert!(window.get_layout_result(&dom_id).is_none());
         assert_eq!(window.get_dom_ids().len(), 0);
+    }
+}
+
+// --- Cross-Paragraph Cursor Navigation API ---
+impl LayoutWindow {
+    /// Finds the next text node in the DOM tree after the given node.
+    ///
+    /// This function performs a depth-first traversal to find the next node
+    /// that contains text content and is selectable (user-select != none).
+    ///
+    /// # Arguments
+    /// * `dom_id` - The ID of the DOM containing the current node
+    /// * `current_node` - The current node ID to start searching from
+    ///
+    /// # Returns
+    /// * `Some((DomId, NodeId))` - The next text node if found
+    /// * `None` - If no next text node exists
+    pub fn find_next_text_node(
+        &self,
+        dom_id: &DomId,
+        current_node: NodeId,
+    ) -> Option<(DomId, NodeId)> {
+        let layout_result = self.get_layout_result(dom_id)?;
+        let styled_dom = &layout_result.styled_dom;
+
+        // Start from the next node in document order
+        let start_idx = current_node.index() + 1;
+        let node_hierarchy = &styled_dom.node_hierarchy;
+
+        for i in start_idx..node_hierarchy.len() {
+            let node_id = NodeId::new(i);
+
+            // Check if node has text content
+            if self.node_has_text_content(styled_dom, node_id) {
+                // Check if text is selectable
+                if self.is_text_selectable(styled_dom, node_id) {
+                    return Some((*dom_id, node_id));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Finds the previous text node in the DOM tree before the given node.
+    ///
+    /// This function performs a reverse depth-first traversal to find the previous node
+    /// that contains text content and is selectable.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The ID of the DOM containing the current node
+    /// * `current_node` - The current node ID to start searching from
+    ///
+    /// # Returns
+    /// * `Some((DomId, NodeId))` - The previous text node if found
+    /// * `None` - If no previous text node exists
+    pub fn find_prev_text_node(
+        &self,
+        dom_id: &DomId,
+        current_node: NodeId,
+    ) -> Option<(DomId, NodeId)> {
+        let layout_result = self.get_layout_result(dom_id)?;
+        let styled_dom = &layout_result.styled_dom;
+
+        // Start from the previous node in reverse document order
+        let current_idx = current_node.index();
+
+        for i in (0..current_idx).rev() {
+            let node_id = NodeId::new(i);
+
+            // Check if node has text content
+            if self.node_has_text_content(styled_dom, node_id) {
+                // Check if text is selectable
+                if self.is_text_selectable(styled_dom, node_id) {
+                    return Some((*dom_id, node_id));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Checks if a node has text content.
+    fn node_has_text_content(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
+        use azul_core::dom::NodeType;
+
+        // Check if node itself is a text node
+        let node_data_container = styled_dom.node_data.as_container();
+        let node_type = node_data_container[node_id].get_node_type();
+        if matches!(node_type, NodeType::Text(_)) {
+            return true;
+        }
+
+        // Check if node has text children
+        let hierarchy_container = styled_dom.node_hierarchy.as_container();
+        let node_item = &hierarchy_container[node_id];
+
+        // Iterate through children
+        let mut current_child = node_item.first_child_id(node_id);
+        while let Some(child_id) = current_child {
+            let child_type = node_data_container[child_id].get_node_type();
+            if matches!(child_type, NodeType::Text(_)) {
+                return true;
+            }
+
+            // Move to next sibling
+            current_child = hierarchy_container[child_id].next_sibling_id();
+        }
+
+        false
+    }
+
+    /// Checks if text in a node is selectable based on CSS user-select property.
+    ///
+    /// TODO: Currently always returns true. In the future, this should check
+    /// the CSS user-select property once it's available in the CssPropertyCache API.
+    fn is_text_selectable(&self, _styled_dom: &StyledDom, _node_id: NodeId) -> bool {
+        // Default: text is selectable
+        // TODO: Check user-select CSS property:
+        // let node_data = &styled_dom.node_data.as_container()[node_id];
+        // let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+        // styled_dom.css_property_cache.ptr.get_user_select(node_data, &node_id, node_state)
+        true
     }
 }

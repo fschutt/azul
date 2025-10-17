@@ -199,12 +199,24 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         tree: &LayoutTree<T>,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
+        self.ctx.debug_log(&format!(
+            "Calculating inline intrinsic sizes for node {}",
+            node_index
+        ));
+
         // This call is now valid because we added the function to fc.rs
         let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
 
         if inline_content.is_empty() {
+            self.ctx
+                .debug_log("No inline content found, returning default sizes");
             return Ok(IntrinsicSizes::default());
         }
+
+        self.ctx.debug_log(&format!(
+            "Found {} inline content items",
+            inline_content.len()
+        ));
 
         // Layout with "min-content" constraints (effectively zero width).
         // This forces all possible line breaks, giving the width of the longest unbreakable unit.
@@ -216,10 +228,31 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             },
         }];
 
-        let min_layout = self
-            .text_cache
-            .layout_flow(&inline_content, &[], &min_fragments, self.ctx.font_manager)
-            .map_err(|_| LayoutError::SizingFailed)?;
+        let min_layout = match self.text_cache.layout_flow(
+            &inline_content,
+            &[],
+            &min_fragments,
+            self.ctx.font_manager,
+        ) {
+            Ok(layout) => layout,
+            Err(e) => {
+                self.ctx.debug_log(&format!(
+                    "Warning: Sizing failed during min-content layout: {:?}",
+                    e
+                ));
+                self.ctx
+                    .debug_log("Using fallback: returning default intrinsic sizes");
+                // Return reasonable defaults instead of crashing
+                return Ok(IntrinsicSizes {
+                    min_content_width: 100.0, // Arbitrary fallback width
+                    max_content_width: 300.0,
+                    preferred_width: None,
+                    min_content_height: 20.0, // Arbitrary fallback height
+                    max_content_height: 20.0,
+                    preferred_height: None,
+                });
+            }
+        };
 
         // Layout with "max-content" constraints (infinite width).
         // This produces a single, long line, giving the natural width of the content.
@@ -231,10 +264,23 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             },
         }];
 
-        let max_layout = self
-            .text_cache
-            .layout_flow(&inline_content, &[], &max_fragments, self.ctx.font_manager)
-            .map_err(|_| LayoutError::SizingFailed)?;
+        let max_layout = match self.text_cache.layout_flow(
+            &inline_content,
+            &[],
+            &max_fragments,
+            self.ctx.font_manager,
+        ) {
+            Ok(layout) => layout,
+            Err(e) => {
+                self.ctx.debug_log(&format!(
+                    "Warning: Sizing failed during max-content layout: {:?}",
+                    e
+                ));
+                self.ctx.debug_log("Using fallback from min-content layout");
+                // If max-content fails but min-content succeeded, use min as fallback
+                min_layout.clone()
+            }
+        };
 
         let min_width = min_layout
             .fragment_layouts
@@ -275,20 +321,38 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
     }
 }
 
-/// Gathers inline content for the intrinsic sizing pass.
-///
-/// This is a simplified version of `collect_and_measure_inline_content`. Instead of
-/// performing a full recursive layout on atomic inlines (like inline-block), it uses
-/// their already-calculated intrinsic sizes. This is necessary because during the
-/// bottom-up intrinsic sizing pass, the available width for children is not yet known.
-pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+/// Gathers all inline content for the intrinsic sizing pass.
+fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
+    ctx.debug_log(&format!(
+        "Collecting inline content from node {}",
+        ifc_root_index
+    ));
+
     let mut content = Vec::new();
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
 
+    // Check if the root itself is a text node
+    if let Some(dom_id) = ifc_root_node.dom_node_id {
+        if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
+            let style_props = get_style_properties(ctx.styled_dom, dom_id);
+            ctx.debug_log(&format!(
+                "Root node has text: '{}', font: {}",
+                text, style_props.font_ref.family
+            ));
+            content.push(InlineContent::Text(StyledRun {
+                text,
+                style: Arc::new(style_props),
+                logical_start_byte: 0,
+            }));
+        }
+    }
+
+    // Also collect from children, which is necessary for mixed inline content
+    // like `<div>Text <span>more text</span></div>`
     for &child_index in &ifc_root_node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let Some(dom_id) = child_node.dom_node_id else {
@@ -296,24 +360,18 @@ pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         };
 
         if get_display_property(ctx.styled_dom, Some(dom_id)) != LayoutDisplay::Inline {
-            // This is an atomic inline-level box (e.g., inline-block, image).
-            // Use its pre-calculated intrinsic sizes.
             let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
-
-            // For the purpose of calculating the parent's intrinsic size, we treat the
-            // child as an object with its max-content dimensions.
-            let width = intrinsic_sizes.max_content_width;
-            let height = intrinsic_sizes.max_content_height;
-
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
-                    size: crate::text3::cache::Size { width, height },
+                    size: crate::text3::cache::Size {
+                        width: intrinsic_sizes.max_content_width,
+                        height: intrinsic_sizes.max_content_height,
+                    },
                     corner_radius: None,
                 },
                 fill: None,
                 stroke: None,
-                // The baseline is approximated as the bottom of the box for sizing.
-                baseline_offset: height,
+                baseline_offset: intrinsic_sizes.max_content_height,
             }));
         } else if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
             content.push(InlineContent::Text(StyledRun {
@@ -321,28 +379,18 @@ pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
                 logical_start_byte: 0,
             }));
-        } else if let NodeType::Image(image_data) =
-            ctx.styled_dom.node_data.as_container()[dom_id].get_node_type()
-        {
-            let intrinsic_size = child_node.intrinsic_sizes.unwrap_or(IntrinsicSizes {
-                max_content_width: 50.0,
-                max_content_height: 50.0,
-                ..Default::default()
-            });
-            content.push(InlineContent::Image(InlineImage {
-                source: ImageSource::Url(String::new()), // Placeholder
-                intrinsic_size: crate::text3::cache::Size {
-                    width: intrinsic_size.max_content_width,
-                    height: intrinsic_size.max_content_height,
-                },
-                display_size: None,
-                baseline_offset: 0.0,
-                alignment: crate::text3::cache::VerticalAlign::Baseline,
-                object_fit: ObjectFit::Fill,
-            }));
         }
     }
     Ok(content)
+}
+
+// Keep old name as an alias for backward compatibility
+pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &LayoutTree<T>,
+    ifc_root_index: usize,
+) -> Result<Vec<InlineContent>> {
+    collect_inline_content_for_sizing(ctx, tree, ifc_root_index)
 }
 
 fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(

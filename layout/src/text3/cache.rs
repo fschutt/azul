@@ -108,10 +108,14 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
         };
 
         let mut trace = Vec::new();
-        let fc_match = self
-            .fc_cache
-            .query(&pattern, &mut trace)
-            .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
+        let fc_match = self.fc_cache.query(&pattern, &mut trace).ok_or_else(|| {
+            eprintln!(
+                "[FontManager] Font not found: '{}' (weight: {:?}, style: {:?})",
+                font_ref.family, font_ref.weight, font_ref.style
+            );
+            eprintln!("[FontManager] FontConfig trace: {:?}", trace);
+            LayoutError::FontNotFound(font_ref.clone())
+        })?;
 
         // Load font if not cached
         {
@@ -153,6 +157,28 @@ pub enum LayoutError {
     InvalidText(String),
     #[error("Hyphenation failed: {0}")]
     HyphenationError(String),
+}
+
+/// Text boundary types for cursor movement
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextBoundary {
+    /// Reached top of text (first line)
+    Top,
+    /// Reached bottom of text (last line)
+    Bottom,
+    /// Reached start of text (first character)
+    Start,
+    /// Reached end of text (last character)
+    End,
+}
+
+/// Error returned when cursor movement hits a boundary
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CursorBoundsError {
+    /// The boundary that was hit
+    pub boundary: TextBoundary,
+    /// The cursor position (unchanged from input)
+    pub cursor: TextCursor,
 }
 
 /// Unified constraints combining all layout features
@@ -334,7 +360,7 @@ pub struct VisualRun<'a> {
 }
 
 // Font and styling types
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FontRef {
     pub family: String,
     pub weight: FcWeight,
@@ -2367,7 +2393,18 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
     }
 
     /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
-    pub fn move_cursor_left(&self, cursor: TextCursor) -> TextCursor {
+    pub fn move_cursor_left(
+        &self,
+        cursor: TextCursor,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_left: starting at byte {}, affinity {:?}",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
         // Find current item
         let current_item_pos = self.items.iter().position(|i| {
             i.item
@@ -2376,11 +2413,23 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         });
 
         let Some(current_pos) = current_item_pos else {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_left: cursor not found, staying at byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return cursor;
         };
 
         // If we're at trailing edge, move to leading edge of same cluster
         if cursor.affinity == CursorAffinity::Trailing {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_left: moving from trailing to leading edge of byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return TextCursor {
                 cluster_id: cursor.cluster_id,
                 affinity: CursorAffinity::Leading,
@@ -2391,10 +2440,24 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         // Search backwards for a cluster on the same line, or any cluster if at line start
         let current_line = self.items[current_pos].line_index;
 
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_left: at leading edge, current line {}",
+                current_line
+            ));
+        }
+
         // First, try to find previous item on same line
         for i in (0..current_pos).rev() {
             if let Some(cluster) = self.items[i].item.as_cluster() {
                 if self.items[i].line_index == current_line {
+                    if let Some(d) = debug {
+                        d.push(format!(
+                            "[Cursor] move_cursor_left: found previous cluster on same line, byte \
+                             {}",
+                            cluster.source_cluster_id.start_byte_in_run
+                        ));
+                    }
                     return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Trailing,
@@ -2406,9 +2469,22 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         // If no previous item on same line, try to move to end of previous line
         if current_line > 0 {
             let prev_line = current_line - 1;
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_left: trying previous line {}",
+                    prev_line
+                ));
+            }
             for i in (0..current_pos).rev() {
                 if let Some(cluster) = self.items[i].item.as_cluster() {
                     if self.items[i].line_index == prev_line {
+                        if let Some(d) = debug {
+                            d.push(format!(
+                                "[Cursor] move_cursor_left: found cluster on previous line, byte \
+                                 {}",
+                                cluster.source_cluster_id.start_byte_in_run
+                            ));
+                        }
                         return TextCursor {
                             cluster_id: cluster.source_cluster_id,
                             affinity: CursorAffinity::Trailing,
@@ -2419,11 +2495,28 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         }
 
         // At start of text, can't move further
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_left: at start of text, staying at byte {}",
+                cursor.cluster_id.start_byte_in_run
+            ));
+        }
         cursor
     }
 
     /// Moves a cursor one visual unit to the right.
-    pub fn move_cursor_right(&self, cursor: TextCursor) -> TextCursor {
+    pub fn move_cursor_right(
+        &self,
+        cursor: TextCursor,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_right: starting at byte {}, affinity {:?}",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
         // Find current item
         let current_item_pos = self.items.iter().position(|i| {
             i.item
@@ -2432,11 +2525,23 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         });
 
         let Some(current_pos) = current_item_pos else {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_right: cursor not found, staying at byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return cursor;
         };
 
         // If we're at leading edge, move to trailing edge of same cluster
         if cursor.affinity == CursorAffinity::Leading {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_right: moving from leading to trailing edge of byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return TextCursor {
                 cluster_id: cursor.cluster_id,
                 affinity: CursorAffinity::Trailing,
@@ -2446,10 +2551,23 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         // We're at trailing edge, move to next cluster's leading edge
         let current_line = self.items[current_pos].line_index;
 
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_right: at trailing edge, current line {}",
+                current_line
+            ));
+        }
+
         // First, try to find next item on same line
         for i in (current_pos + 1)..self.items.len() {
             if let Some(cluster) = self.items[i].item.as_cluster() {
                 if self.items[i].line_index == current_line {
+                    if let Some(d) = debug {
+                        d.push(format!(
+                            "[Cursor] move_cursor_right: found next cluster on same line, byte {}",
+                            cluster.source_cluster_id.start_byte_in_run
+                        ));
+                    }
                     return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Leading,
@@ -2460,9 +2578,21 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
 
         // If no next item on same line, try to move to start of next line
         let next_line = current_line + 1;
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_right: trying next line {}",
+                next_line
+            ));
+        }
         for i in (current_pos + 1)..self.items.len() {
             if let Some(cluster) = self.items[i].item.as_cluster() {
                 if self.items[i].line_index == next_line {
+                    if let Some(d) = debug {
+                        d.push(format!(
+                            "[Cursor] move_cursor_right: found cluster on next line, byte {}",
+                            cluster.source_cluster_id.start_byte_in_run
+                        ));
+                    }
                     return TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Leading,
@@ -2472,21 +2602,58 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         }
 
         // At end of text, can't move further
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_right: at end of text, staying at byte {}",
+                cursor.cluster_id.start_byte_in_run
+            ));
+        }
         cursor
     }
 
     /// Moves a cursor up one line, attempting to preserve the horizontal column.
-    pub fn move_cursor_up(&self, cursor: TextCursor, goal_x: &mut Option<f32>) -> TextCursor {
+    pub fn move_cursor_up(
+        &self,
+        cursor: TextCursor,
+        goal_x: &mut Option<f32>,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_up: from byte {} (affinity {:?})",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
                 .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
         }) else {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_up: cursor not found in items, staying at byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return cursor;
         };
 
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_up: current line {}, position ({}, {})",
+                current_item.line_index, current_item.position.x, current_item.position.y
+            ));
+        }
+
         let target_line_idx = current_item.line_index.saturating_sub(1);
         if current_item.line_index == target_line_idx {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_up: already at top line {}, staying put",
+                    current_item.line_index
+                ));
+            }
             return cursor;
         }
 
@@ -2509,26 +2676,74 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
             .map(|i| i.position.y + (i.item.bounds().height / 2.0))
             .unwrap_or(current_item.position.y);
 
-        self.hittest_cursor(LogicalPosition {
-            x: current_x,
-            y: target_y,
-        })
-        .unwrap_or(cursor)
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_up: target line {}, hittesting at ({}, {})",
+                target_line_idx, current_x, target_y
+            ));
+        }
+
+        let result = self
+            .hittest_cursor(LogicalPosition {
+                x: current_x,
+                y: target_y,
+            })
+            .unwrap_or(cursor);
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_up: result byte {} (affinity {:?})",
+                result.cluster_id.start_byte_in_run, result.affinity
+            ));
+        }
+
+        result
     }
 
     /// Moves a cursor down one line, attempting to preserve the horizontal column.
-    pub fn move_cursor_down(&self, cursor: TextCursor, goal_x: &mut Option<f32>) -> TextCursor {
+    pub fn move_cursor_down(
+        &self,
+        cursor: TextCursor,
+        goal_x: &mut Option<f32>,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_down: from byte {} (affinity {:?})",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
                 .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
         }) else {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_down: cursor not found in items, staying at byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return cursor;
         };
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_down: current line {}, position ({}, {})",
+                current_item.line_index, current_item.position.x, current_item.position.y
+            ));
+        }
 
         let max_line = self.items.iter().map(|i| i.line_index).max().unwrap_or(0);
         let target_line_idx = (current_item.line_index + 1).min(max_line);
         if current_item.line_index == target_line_idx {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_down: already at bottom line {}, staying put",
+                    current_item.line_index
+                ));
+            }
             return cursor;
         }
 
@@ -2550,22 +2765,63 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
             .map(|i| i.position.y + (i.item.bounds().height / 2.0))
             .unwrap_or(current_item.position.y);
 
-        self.hittest_cursor(LogicalPosition {
-            x: current_x,
-            y: target_y,
-        })
-        .unwrap_or(cursor)
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_down: hit testing at ({}, {})",
+                current_x, target_y
+            ));
+        }
+
+        let result = self
+            .hittest_cursor(LogicalPosition {
+                x: current_x,
+                y: target_y,
+            })
+            .unwrap_or(cursor);
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_down: result byte {}, affinity {:?}",
+                result.cluster_id.start_byte_in_run, result.affinity
+            ));
+        }
+
+        result
     }
 
     /// Moves a cursor to the visual start of its current line.
-    pub fn move_cursor_to_line_start(&self, cursor: TextCursor) -> TextCursor {
+    pub fn move_cursor_to_line_start(
+        &self,
+        cursor: TextCursor,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_line_start: starting at byte {}, affinity {:?}",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
                 .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
         }) else {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_to_line_start: cursor not found, staying at byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return cursor;
         };
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_line_start: current line {}, position ({}, {})",
+                current_item.line_index, current_item.position.x, current_item.position.y
+            ));
+        }
 
         let first_item_on_line = self
             .items
@@ -2580,24 +2836,62 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
 
         if let Some(item) = first_item_on_line {
             if let ShapedItem::Cluster(c) = &item.item {
-                return TextCursor {
+                let result = TextCursor {
                     cluster_id: c.source_cluster_id,
                     affinity: CursorAffinity::Leading,
                 };
+                if let Some(d) = debug {
+                    d.push(format!(
+                        "[Cursor] move_cursor_to_line_start: result byte {}, affinity {:?}",
+                        result.cluster_id.start_byte_in_run, result.affinity
+                    ));
+                }
+                return result;
             }
+        }
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_line_start: no first item found, staying at byte {}",
+                cursor.cluster_id.start_byte_in_run
+            ));
         }
         cursor
     }
 
     /// Moves a cursor to the visual end of its current line.
-    pub fn move_cursor_to_line_end(&self, cursor: TextCursor) -> TextCursor {
+    pub fn move_cursor_to_line_end(
+        &self,
+        cursor: TextCursor,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_line_end: starting at byte {}, affinity {:?}",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
         let Some(current_item) = self.items.iter().find(|i| {
             i.item
                 .as_cluster()
                 .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
         }) else {
+            if let Some(d) = debug {
+                d.push(format!(
+                    "[Cursor] move_cursor_to_line_end: cursor not found, staying at byte {}",
+                    cursor.cluster_id.start_byte_in_run
+                ));
+            }
             return cursor;
         };
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_line_end: current line {}, position ({}, {})",
+                current_item.line_index, current_item.position.x, current_item.position.y
+            ));
+        }
 
         let last_item_on_line = self
             .items
@@ -2612,11 +2906,25 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
 
         if let Some(item) = last_item_on_line {
             if let ShapedItem::Cluster(c) = &item.item {
-                return TextCursor {
+                let result = TextCursor {
                     cluster_id: c.source_cluster_id,
                     affinity: CursorAffinity::Trailing,
                 };
+                if let Some(d) = debug {
+                    d.push(format!(
+                        "[Cursor] move_cursor_to_line_end: result byte {}, affinity {:?}",
+                        result.cluster_id.start_byte_in_run, result.affinity
+                    ));
+                }
+                return result;
             }
+        }
+
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_line_end: no last item found, staying at byte {}",
+                cursor.cluster_id.start_byte_in_run
+            ));
         }
         cursor
     }
@@ -3202,7 +3510,43 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 } else {
                     Direction::Ltr
                 };
-                let font = font_provider.load_font(&style.font_ref)?;
+
+                // Try to load the requested font, fall back to default if not found
+                let font = match font_provider.load_font(&style.font_ref) {
+                    Ok(f) => f,
+                    Err(LayoutError::FontNotFound(_)) => {
+                        // Try generic fallbacks
+                        let fallback_fonts = ["sans-serif", "serif", "monospace", "system-ui"];
+                        let mut loaded_font = None;
+                        for fallback in &fallback_fonts {
+                            let fallback_ref = FontRef {
+                                family: fallback.to_string(),
+                                weight: rust_fontconfig::FcWeight::Normal,
+                                style: FontStyle::Normal,
+                                unicode_ranges: vec![],
+                            };
+                            if let Ok(f) = font_provider.load_font(&fallback_ref) {
+                                eprintln!(
+                                    "[TextLayout] Using fallback font '{}' for '{}'",
+                                    fallback, style.font_ref.family
+                                );
+                                loaded_font = Some(f);
+                                break;
+                            }
+                        }
+
+                        // If no fallback available, skip this text item with warning
+                        if loaded_font.is_none() {
+                            eprintln!(
+                                "[TextLayout] No font available for '{}', skipping text",
+                                style.font_ref.family
+                            );
+                            continue;
+                        }
+                        loaded_font.unwrap()
+                    }
+                    Err(e) => return Err(e),
+                };
                 let language = script_to_language(item.script, &item.text);
 
                 let shaped_clusters = shape_text_correctly(

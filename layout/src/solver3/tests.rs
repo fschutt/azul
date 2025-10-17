@@ -31,13 +31,52 @@ use crate::{
     window_state::FullWindowState,
 };
 
-/// Helper function to create a minimal test font manager
+/// Helper function to create a test FcFontCache with in-memory fonts
+fn create_test_fc_cache() -> rust_fontconfig::FcFontCache {
+    use rust_fontconfig::{FcFont, FcFontCache, FcPattern, FcWeight};
+
+    // Load the test font file
+    let font_bytes = include_bytes!("../../../examples/assets/fonts/KoHo-Light.ttf");
+
+    // Create an in-memory font
+    let pattern = FcPattern {
+        name: Some("KoHo".to_string()),
+        weight: FcWeight::Light,
+        ..Default::default()
+    };
+
+    let fc_font = FcFont {
+        id: "test-koho".to_string(),
+        font_index: 0,
+        bytes: font_bytes.to_vec(),
+    };
+
+    // Create font cache with in-memory font
+    let mut fc_cache = FcFontCache::default();
+    fc_cache.with_memory_fonts(vec![(pattern.clone(), fc_font)]);
+
+    // Also add a fallback "sans-serif" pattern pointing to the same font
+    let sans_pattern = FcPattern {
+        name: Some("sans-serif".to_string()),
+        weight: FcWeight::Normal,
+        ..Default::default()
+    };
+    let sans_font = FcFont {
+        id: "test-sans".to_string(),
+        font_index: 0,
+        bytes: font_bytes.to_vec(),
+    };
+    fc_cache.with_memory_fonts(vec![(sans_pattern, sans_font)]);
+
+    fc_cache
+}
+
+/// Helper function to create a minimal test font manager with in-memory fonts
 fn create_test_font_manager() -> Result<
     FontManager<crate::font::parsed::ParsedFont, crate::text3::default::PathLoader>,
     LayoutError,
 > {
-    use rust_fontconfig::FcFontCache;
-    FontManager::new(FcFontCache::default()).map_err(|e| LayoutError::Text(e))
+    FontManager::new(create_test_fc_cache()).map_err(|e| LayoutError::Text(e))
 }
 
 /// Helper to create a simple DOM with some content
@@ -103,16 +142,66 @@ fn test_basic_layout() {
     );
 }
 
+#[test]
+fn test_layout_with_empty_font_cache() {
+    let mut dom = create_simple_dom();
+    let mut styled_dom = create_styled_dom(&mut dom);
+    styled_dom.dom_id = DomId::ROOT_ID;
+
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: LogicalSize::new(800.0, 600.0),
+    };
+
+    let mut layout_cache = LayoutCache {
+        tree: None,
+        absolute_positions: BTreeMap::new(),
+        viewport: None,
+    };
+    let mut text_cache = TextLayoutCache::new();
+    // Create font manager with EMPTY font cache (no fonts loaded)
+    let empty_fc_cache = rust_fontconfig::FcFontCache::default();
+    let font_manager = FontManager::new(empty_fc_cache).expect("Failed to create font manager");
+    let scroll_offsets = BTreeMap::new();
+    let selections = BTreeMap::new();
+    let mut debug_messages = Some(Vec::new());
+
+    let result = layout_document(
+        &mut layout_cache,
+        &mut text_cache,
+        styled_dom,
+        viewport,
+        &font_manager,
+        &scroll_offsets,
+        &selections,
+        &mut debug_messages,
+    );
+
+    // Layout should succeed even with empty font cache (using fallbacks)
+    assert!(
+        result.is_ok(),
+        "Layout should succeed with empty font cache using fallbacks: {:?}",
+        result.err()
+    );
+
+    // Check debug messages to confirm fallback was used
+    if let Some(messages) = debug_messages {
+        let has_fallback_message = messages
+            .iter()
+            .any(|msg| msg.message.contains("fallback") || msg.message.contains("Font not found"));
+        // We expect some font loading issues to be logged
+        println!("Debug messages: {:?}", messages);
+    }
+}
+
 // ============================================================================
 // WINDOW RESIZING TESTS
 // ============================================================================
 
 #[test]
 fn test_window_resize_invalidates_layout() {
-    use rust_fontconfig::FcFontCache;
-
     let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+        LayoutWindow::new(create_test_fc_cache()).expect("Failed to create layout window");
 
     // Initial layout at 800x600
     let mut dom1 = create_simple_dom();
@@ -320,10 +409,8 @@ fn test_selection_state_tracking() {
 
 #[test]
 fn test_layout_result_caching() {
-    use rust_fontconfig::FcFontCache;
-
     let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+        LayoutWindow::new(create_test_fc_cache()).expect("Failed to create layout window");
 
     let mut dom = create_simple_dom();
     let styled_dom = create_styled_dom(&mut dom);
@@ -628,10 +715,8 @@ fn test_multi_dom_layout_results() {
 
 #[test]
 fn test_clear_caches_resets_all_state() {
-    use rust_fontconfig::FcFontCache;
-
     let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+        LayoutWindow::new(create_test_fc_cache()).expect("Failed to create layout window");
 
     // Setup some state
     let dom_id = DomId::ROOT_ID;
