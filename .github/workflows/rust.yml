@@ -63,6 +63,19 @@ jobs:
         run: cargo check --verbose -p azul-layout
       - name: Check azul-dll
         run: cargo check --verbose -p azul-dll
+      - name: Install Miri (Linux)
+        if: matrix.build == 'linux-x64'
+        run: |
+          rustup toolchain install nightly --component miri
+          rustup override set nightly
+          cargo miri setup
+      - name: Run Miri tests on RefAny (Linux)
+        if: matrix.build == 'linux-x64'
+        run: cargo miri test --lib -p azul-core refany
+        continue-on-error: false
+      - name: Restore stable toolchain (Linux)
+        if: matrix.build == 'linux-x64'
+        run: rustup override set 1.84
       - name: Install dependencies (Linux)
         if: matrix.build == 'linux-x64'
         run: sudo apt install clang

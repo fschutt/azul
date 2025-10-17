@@ -494,13 +494,19 @@ extern "C" fn test_iframe_callback(
 }
 
 #[test]
-#[ignore = "IFrame callback infrastructure causes SIGSEGV - needs deeper investigation of callback \
-            invocation in layout_document"]
 fn test_iframe_callback_invocation() {
     // This test verifies that IFrame callbacks are invoked during layout
     // and that the returned DOM is integrated into the layout tree
+    //
+    // NOTE: IFrame callbacks are handled by LayoutWindow, not by layout_document directly.
+    // layout_document only handles a single StyledDom, while LayoutWindow manages
+    // multiple DOMs (root + iframe children) and invokes callbacks.
 
     use azul_core::dom::IFrameNode;
+    use rust_fontconfig::FcFontCache;
+
+    let mut window =
+        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
 
     let mut dom = Dom::body();
 
@@ -511,36 +517,14 @@ fn test_iframe_callback_invocation() {
     dom.add_child(Dom::iframe(iframe_data, test_iframe_callback));
 
     let css = CssApiWrapper::empty();
-    let mut styled_dom = StyledDom::new(&mut dom, css);
-    styled_dom.dom_id = DomId::ROOT_ID;
 
-    // Perform layout - this should invoke the IFrame callback
+    // Perform layout using LayoutWindow which handles IFrame callbacks
     let viewport = LogicalRect {
         origin: LogicalPosition::zero(),
         size: LogicalSize::new(800.0, 600.0),
     };
 
-    let mut layout_cache = LayoutCache {
-        tree: None,
-        absolute_positions: BTreeMap::new(),
-        viewport: None,
-    };
-    let mut text_cache = TextLayoutCache::new();
-    let font_manager = create_test_font_manager().expect("Failed to create font manager");
-    let scroll_offsets = BTreeMap::new();
-    let selections = BTreeMap::new();
-    let mut debug_messages = None;
-
-    let result = layout_document(
-        &mut layout_cache,
-        &mut text_cache,
-        styled_dom,
-        viewport,
-        &font_manager,
-        &scroll_offsets,
-        &selections,
-        &mut debug_messages,
-    );
+    let result = window.layout(DomId::ROOT_ID, dom, css, viewport);
 
     assert!(result.is_ok(), "Layout with IFrame should succeed");
 
@@ -553,7 +537,6 @@ fn test_iframe_callback_invocation() {
 }
 
 #[test]
-#[ignore = "Depends on test_iframe_callback_invocation which causes SIGSEGV"]
 fn test_iframe_conditional_reinvocation() {
     // This test verifies that IFrame callbacks are only re-invoked when
     // the iframe's bounds or scroll position changes
