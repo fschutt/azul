@@ -47,6 +47,17 @@ fn main() -> anyhow::Result<()> {
             autofix::autofix_api_recursive(&api_data, &project_root, &output_dir)?;
             return Ok(());
         }
+        [_, "autofix", "explain"] => {
+            let patches_dir = project_root.join("target").join("autofix").join("patches");
+
+            if !patches_dir.exists() {
+                eprintln!("❌ No patches found. Run 'azul-docs autofix' first.");
+                std::process::exit(1);
+            }
+
+            patch::explain_patches(&patches_dir)?;
+            return Ok(());
+        }
         [_, "patch", "safe", patch_dir] => {
             println!("🔧 Applying safe (path-only) patches to api.json...\n");
 
@@ -294,6 +305,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  doc print [options]        - Print API information");
     println!("  doc normalize              - Normalize api.json");
     println!("  doc autofix                - Apply automatic fixes to API definitions");
+    println!("  doc autofix explain        - Explain what generated patches will do");
     println!("  doc patch safe <dir>       - Apply and delete safe (path-only) patches");
     println!("  doc patch <patch_file>     - Apply patches to api.json");
     println!("  doc memtest [run]          - Generate and optionally run memory layout tests");

@@ -266,6 +266,146 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
     Ok(stats)
 }
 
+/// Explain what patches in a directory will do without applying them
+pub fn explain_patches(dir_path: &Path) -> Result<()> {
+    let patches = ApiPatch::from_directory(dir_path)?;
+
+    if patches.is_empty() {
+        println!("ℹ️  No patch files found in {}", dir_path.display());
+        return Ok(());
+    }
+
+    println!("╔══════════════════════════════════════════════════════════════════╗");
+    println!("║                    PATCH EXPLANATION                              ║");
+    println!("╚══════════════════════════════════════════════════════════════════╝\n");
+
+    // Categorize patches
+    let mut path_only_patches = Vec::new();
+    let mut structural_patches = Vec::new();
+
+    for (filename, patch) in patches {
+        if patch.is_path_only() {
+            path_only_patches.push((filename, patch));
+        } else {
+            structural_patches.push((filename, patch));
+        }
+    }
+
+    println!("📊 Summary:");
+    println!(
+        "  Total patches: {}",
+        path_only_patches.len() + structural_patches.len()
+    );
+    println!(
+        "  Path-only patches: {} (safe to apply)",
+        path_only_patches.len()
+    );
+    println!(
+        "  Structural patches: {} (need review)",
+        structural_patches.len()
+    );
+
+    // Show path-only patches
+    if !path_only_patches.is_empty() {
+        println!("\n🔧 PATH-ONLY PATCHES ({})", path_only_patches.len());
+        println!(
+            "   These patches only update external paths and are safe to apply automatically.\n"
+        );
+
+        for (filename, patch) in path_only_patches.iter().take(10) {
+            for (version_name, version_patch) in &patch.versions {
+                for (module_name, module_patch) in &version_patch.modules {
+                    for (class_name, class_patch) in &module_patch.classes {
+                        if let Some(external) = &class_patch.external {
+                            println!("  ┌─ {}", filename);
+                            println!("  │  Module: {}", module_name);
+                            println!("  │  Class: {}", class_name);
+                            println!("  │  New path: {}", external);
+                            println!("  │");
+                        }
+                    }
+                }
+            }
+        }
+
+        if path_only_patches.len() > 10 {
+            println!(
+                "  ... and {} more path-only patches",
+                path_only_patches.len() - 10
+            );
+        }
+    }
+
+    // Show structural patches
+    if !structural_patches.is_empty() {
+        println!("\n🏗️  STRUCTURAL PATCHES ({})", structural_patches.len());
+        println!("   These patches add new types or modify structures.\n");
+
+        for (filename, patch) in structural_patches.iter().take(10) {
+            for (version_name, version_patch) in &patch.versions {
+                for (module_name, module_patch) in &version_patch.modules {
+                    for (class_name, class_patch) in &module_patch.classes {
+                        println!("  ┌─ {}", filename);
+                        println!("  │  Module: {}", module_name);
+                        println!("  │  Class: {}", class_name);
+
+                        if let Some(external) = &class_patch.external {
+                            println!("  │  Path: {}", external);
+                        }
+
+                        let mut changes = Vec::new();
+                        if class_patch.struct_fields.is_some() {
+                            changes.push("struct fields");
+                        }
+                        if class_patch.enum_fields.is_some() {
+                            changes.push("enum variants");
+                        }
+                        if class_patch.functions.is_some() {
+                            changes.push("functions");
+                        }
+                        if class_patch.constructors.is_some() {
+                            changes.push("constructors");
+                        }
+                        if class_patch.callback_typedef.is_some() {
+                            changes.push("callback typedef");
+                        }
+
+                        if !changes.is_empty() {
+                            println!("  │  Changes: {}", changes.join(", "));
+                        }
+
+                        println!("  │");
+                    }
+                }
+            }
+        }
+
+        if structural_patches.len() > 10 {
+            println!(
+                "  ... and {} more structural patches",
+                structural_patches.len() - 10
+            );
+        }
+    }
+
+    println!("\n💡 NEXT STEPS:");
+    if !path_only_patches.is_empty() {
+        println!(
+            "  1. Apply safe patches: azul-docs patch safe {}",
+            dir_path.display()
+        );
+    }
+    if !structural_patches.is_empty() {
+        println!("  2. Review structural patches in: {}", dir_path.display());
+        println!(
+            "  3. Apply all patches: azul-docs patch {}",
+            dir_path.display()
+        );
+    }
+
+    Ok(())
+}
+
 /// Apply only path-only patches from a directory and delete them
 /// This is a safe operation that only updates external paths
 /// Returns statistics about applied patches

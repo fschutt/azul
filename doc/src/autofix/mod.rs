@@ -22,6 +22,7 @@ use crate::{
 
 pub mod discover;
 pub mod message;
+pub mod regexes;
 pub mod utils;
 pub mod workspace;
 
@@ -34,12 +35,17 @@ pub fn autofix_api_recursive(
     // Phase 0: Initialization
     println!("🔍 Initializing autofix...");
     println!("   • Loading api.json");
+
+    println!("   • Compiling regexes");
+    let regexes = regexes::CompiledRegexes::new()
+        .map_err(|e| anyhow::anyhow!("Failed to compile regexes: {}", e))?;
+
     println!("   • Building workspace index");
 
     let start_time = Instant::now();
     let mut messages = AutofixMessages::new();
 
-    let workspace_index = WorkspaceIndex::build_with_verbosity(project_root, false)?;
+    let workspace_index = WorkspaceIndex::build_with_regexes(project_root, regexes.clone())?;
     println!(
         "     ✓ Indexed {} types from {} files",
         workspace_index.types.len(),

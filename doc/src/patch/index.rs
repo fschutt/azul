@@ -98,12 +98,25 @@ pub struct WorkspaceIndex {
 
     /// Raw source content by file path (for string-based search)
     pub file_sources: HashMap<PathBuf, String>,
+
+    /// Pre-compiled regexes for efficient parsing
+    pub regexes: Option<crate::autofix::regexes::CompiledRegexes>,
 }
 
 impl WorkspaceIndex {
     /// Build a complete index of the workspace
     pub fn build(project_root: &Path) -> Result<Self> {
         Self::build_with_verbosity(project_root, true)
+    }
+
+    /// Build a complete index of the workspace with pre-compiled regexes
+    pub fn build_with_regexes(
+        project_root: &Path,
+        regexes: crate::autofix::regexes::CompiledRegexes,
+    ) -> Result<Self> {
+        let mut index = Self::build_with_verbosity(project_root, false)?;
+        index.regexes = Some(regexes);
+        Ok(index)
     }
 
     /// Build a complete index of the workspace with optional quiet mode
@@ -117,6 +130,7 @@ impl WorkspaceIndex {
             crate_names: HashMap::new(),
             files: HashMap::new(),
             file_sources: HashMap::new(),
+            regexes: None,
         };
 
         // Step 1: Find all crates and their names
