@@ -1,5 +1,3 @@
-// src/binary_builder.rs
-
 use std::{env, ffi::OsStr, fs, path::Path, process::Command};
 
 use anyhow::{Context, Result};

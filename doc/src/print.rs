@@ -47,7 +47,7 @@ pub fn handle_print_command(api_data: &ApiData, args: &[String]) -> Result<()> {
     }
 }
 
-fn print_all_modules(api_data: &ApiData) -> Result<()> {
+pub fn print_all_modules(api_data: &ApiData) -> Result<()> {
     println!("📦 All API Modules:\n");
 
     let mut has_errors = false;
@@ -92,7 +92,7 @@ fn print_all_modules(api_data: &ApiData) -> Result<()> {
     }
 }
 
-fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
+pub fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
     println!("📁 Module: {}\n", module_name);
 
     let mut found = false;
@@ -135,7 +135,7 @@ fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
     }
 }
 
-fn print_class(
+pub fn print_class(
     api_data: &ApiData,
     project_root: &PathBuf,
     module_name: &str,
@@ -203,7 +203,7 @@ fn print_class(
     Ok(())
 }
 
-fn print_function(
+pub fn print_function(
     api_data: &ApiData,
     project_root: &PathBuf,
     module_name: &str,
@@ -303,7 +303,7 @@ fn print_function(
 
 // Helper functions for formatting
 
-fn print_class_summary(class_name: &str, class_data: &ClassData) {
+pub fn print_class_summary(class_name: &str, class_data: &ClassData) {
     let mut parts = vec![];
 
     if class_data.struct_fields.is_some() {
@@ -327,7 +327,7 @@ fn print_class_summary(class_name: &str, class_data: &ClassData) {
     }
 }
 
-fn print_class_detail(class_data: &ClassData) {
+pub fn print_class_detail(class_data: &ClassData) {
     if let Some(doc) = &class_data.doc {
         println!("  Documentation: {}", doc);
     }
@@ -377,7 +377,7 @@ fn print_class_detail(class_data: &ClassData) {
     }
 }
 
-fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
+pub fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
     let separator = "─".repeat(60);
     println!("{}", separator);
 
@@ -426,7 +426,7 @@ fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
     println!("\n{}", separator_end);
 }
 
-fn validate_class_definition(
+pub fn validate_class_definition(
     project_root: &PathBuf,
     external_path: &str,
     _class_data: &ClassData,
@@ -444,7 +444,7 @@ fn validate_class_definition(
     }
 }
 
-fn match_function_with_source(
+pub fn match_function_with_source(
     project_root: &PathBuf,
     full_path: &str,
     _func_data: &FunctionData,

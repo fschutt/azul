@@ -10,7 +10,7 @@ use serde_json;
 use crate::api::{EnumVariantData, FieldData};
 
 /// Copy widget and azul_impl sources from dll/src to temp directory
-fn copy_dll_sources(project_root: &Path, temp_dir: &Path) -> Result<()> {
+pub fn copy_dll_sources(project_root: &Path, temp_dir: &Path) -> Result<()> {
     let dll_src = project_root.join("dll").join("src");
     let temp_src = temp_dir.join("src");
 
@@ -49,7 +49,7 @@ fn copy_dll_sources(project_root: &Path, temp_dir: &Path) -> Result<()> {
 }
 
 /// Recursively copy a directory
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
 
     for entry in fs::read_dir(src)? {
@@ -250,7 +250,7 @@ azul-layout = { path = "../../layout" }
 }
 
 /// Analyze a type from its full path to extract fields/variants
-fn analyze_type_from_path(project_root: &Path, type_path: &str) -> Result<OracleTypeInfo> {
+pub fn analyze_type_from_path(project_root: &Path, type_path: &str) -> Result<OracleTypeInfo> {
     // Parse the path to find crate and module
     // e.g., "azul_core::dom::NodeDataInlineCssProperty"
     let parts: Vec<&str> = type_path.split("::").collect();
@@ -291,7 +291,11 @@ fn analyze_type_from_path(project_root: &Path, type_path: &str) -> Result<Oracle
 }
 
 /// Parse source code to extract type definition
-fn parse_type_definition(source: &str, type_name: &str, full_path: &str) -> Result<OracleTypeInfo> {
+pub fn parse_type_definition(
+    source: &str,
+    type_name: &str,
+    full_path: &str,
+) -> Result<OracleTypeInfo> {
     use syn::{File, Item};
 
     let syntax_tree: File = syn::parse_str(source).context("Failed to parse source file")?;
@@ -468,7 +472,11 @@ fn test_struct() {{
 }
 
 /// Parse expanded compiler output to extract type information
-fn parse_expanded_type(expanded: &str, type_path: &str, is_enum: bool) -> Result<OracleTypeInfo> {
+pub fn parse_expanded_type(
+    expanded: &str,
+    type_path: &str,
+    is_enum: bool,
+) -> Result<OracleTypeInfo> {
     let type_name = type_path.split("::").last().unwrap();
 
     // Look for repr(C) attribute
