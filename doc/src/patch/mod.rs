@@ -90,6 +90,28 @@ pub struct ClassPatch {
     pub _patched: bool,
 }
 
+impl ClassPatch {
+    /// Check if this patch only contains external path changes
+    /// These are the safest patches to apply automatically
+    pub fn is_path_only(&self) -> bool {
+        self.external.is_some()
+            && self.doc.is_none()
+            && self.derive.is_none()
+            && self.is_boxed_object.is_none()
+            && self.clone.is_none()
+            && self.custom_destructor.is_none()
+            && self.serde.is_none()
+            && self.repr.is_none()
+            && self.const_value_type.is_none()
+            && self.constants.is_none()
+            && self.struct_fields.is_none()
+            && self.enum_fields.is_none()
+            && self.callback_typedef.is_none()
+            && self.constructors.is_none()
+            && self.functions.is_none()
+    }
+}
+
 impl ApiPatch {
     /// Load patch from file
     pub fn from_file(path: &Path) -> Result<Self> {
@@ -153,6 +175,21 @@ impl ApiPatch {
         }
 
         Ok(patches_applied)
+    }
+
+    /// Check if this patch only contains path-only changes
+    /// Returns true if ALL classes in this patch only change external paths
+    pub fn is_path_only(&self) -> bool {
+        for version_patch in self.versions.values() {
+            for module_patch in version_patch.modules.values() {
+                for class_patch in module_patch.classes.values() {
+                    if !class_patch.is_path_only() {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }
 
@@ -223,6 +260,117 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
                 stats.failed += 1;
                 stats.failed_patches.push((filename, e.to_string()));
             }
+        }
+    }
+
+    Ok(stats)
+}
+
+/// Apply only path-only patches from a directory and delete them
+/// This is a safe operation that only updates external paths
+/// Returns statistics about applied patches
+pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Result<PatchStats> {
+    let patches = ApiPatch::from_directory(dir_path)?;
+
+    let mut stats = PatchStats {
+        total_patches: patches.len(),
+        ..Default::default()
+    };
+
+    if patches.is_empty() {
+        println!("ℹ️  No patch files found in {}", dir_path.display());
+        return Ok(stats);
+    }
+
+    // First pass: identify path-only patches
+    let mut path_only_patches = Vec::new();
+    let mut other_patches = Vec::new();
+
+    for (filename, patch) in patches {
+        if patch.is_path_only() {
+            path_only_patches.push((filename, patch));
+        } else {
+            other_patches.push(filename);
+        }
+    }
+
+    if path_only_patches.is_empty() {
+        println!("ℹ️  No path-only patches found in {}", dir_path.display());
+        println!(
+            "   All {} patches contain structural changes",
+            stats.total_patches
+        );
+        return Ok(stats);
+    }
+
+    println!(
+        "🔧 Found {} path-only patches (out of {} total)",
+        path_only_patches.len(),
+        stats.total_patches
+    );
+    println!("   These patches only update external paths and are safe to apply\n");
+
+    // Apply path-only patches
+    for (filename, patch) in &path_only_patches {
+        print!("  Applying {}... ", filename);
+
+        match patch.apply(api_data) {
+            Ok(count) => {
+                println!("✅ ({} changes)", count);
+                stats.successful += 1;
+                stats.total_changes += count;
+            }
+            Err(e) => {
+                println!("❌");
+                stats.failed += 1;
+                stats.failed_patches.push((filename.clone(), e.to_string()));
+            }
+        }
+    }
+
+    // Delete successfully applied patches
+    if stats.successful > 0 {
+        println!(
+            "\n🗑️  Deleting {} successfully applied patch files...",
+            stats.successful
+        );
+
+        for (filename, _) in &path_only_patches {
+            // Skip if this patch failed to apply
+            if stats.failed_patches.iter().any(|(f, _)| f == filename) {
+                continue;
+            }
+
+            let patch_path = dir_path.join(filename);
+            if let Err(e) = fs::remove_file(&patch_path) {
+                eprintln!("   ⚠️  Warning: Failed to delete {}: {}", filename, e);
+            } else {
+                println!("   ✓ Deleted {}", filename);
+            }
+        }
+    }
+
+    // Summary
+    println!("\n📊 Path-only patches summary:");
+    println!("  Applied and deleted: {}", stats.successful);
+    println!("  Failed: {}", stats.failed);
+    println!("  Total changes made: {}", stats.total_changes);
+
+    if !other_patches.is_empty() {
+        println!("\n📁 Remaining patches with structural changes:");
+        for filename in &other_patches {
+            println!("  • {}", filename);
+        }
+        println!(
+            "\n💡 Apply these manually with: azul-docs patch {}",
+            dir_path.display()
+        );
+    }
+
+    if stats.failed > 0 {
+        println!("\n❌ Failed patches:");
+        for (filename, error) in &stats.failed_patches {
+            println!("  • {}: {}", filename, error);
         }
     }
 

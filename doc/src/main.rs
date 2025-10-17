@@ -29,11 +29,11 @@ fn main() -> anyhow::Result<()> {
     let args = args.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
     match args[..] {
-        ["print"] => {
+        [_, "print"] => {
             let api_json = load_api_json(&api_path)?;
             return print::handle_print_command(&api_json, &args[2..]);
         }
-        ["normalize"] => {
+        [_, "normalize"] => {
             println!("🔄 Normalizing api.json...\n");
             let api_data = load_api_json(&api_path)?;
             let api_json = serde_json::to_string_pretty(&api_data)?;
@@ -41,13 +41,68 @@ fn main() -> anyhow::Result<()> {
             println!("💾 Saved normalized api.json\n");
             return Ok(());
         }
-        ["autofix"] => {
+        [_, "autofix"] => {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
             autofix::autofix_api_recursive(&api_data, &project_root, &output_dir)?;
             return Ok(());
         }
-        ["patch", patch_file] => {
+        [_, "patch", "safe", patch_dir] => {
+            println!("🔧 Applying safe (path-only) patches to api.json...\n");
+
+            // Load API data (need mutable copy for patching)
+            let api_json_str = fs::read_to_string(&api_path)
+                .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
+            let mut api_data =
+                api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
+
+            // Get project root (parent of doc/) for resolving paths
+            let patch_path = PathBuf::from(&args[3]);
+            let patch_path = if patch_path.is_absolute() {
+                patch_path
+            } else {
+                // Try relative to project root first
+                let project_relative = project_root.join(&patch_path);
+                if project_relative.exists() {
+                    project_relative
+                } else {
+                    // Fall back to current dir (doc/)
+                    patch_path
+                }
+            };
+
+            if !patch_path.is_dir() {
+                anyhow::bail!("Path must be a directory: {}", patch_path.display());
+            }
+
+            // Apply only path-only patches and delete them
+            let stats = patch::apply_path_only_patches(&mut api_data, &patch_path)?;
+
+            if stats.successful > 0 {
+                // Normalize class names where external path differs from API name
+                match patch::normalize_class_names(&mut api_data) {
+                    Ok(count) if count > 0 => {
+                        println!("\n✅ Renamed {} classes to match external paths", count);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("⚠️  Warning: Failed to normalize class names: {}", e);
+                    }
+                }
+
+                // Save updated api.json
+                let api_json = serde_json::to_string_pretty(&api_data)?;
+                fs::write(&api_path, api_json)?;
+                println!("\n💾 Saved updated api.json");
+            }
+
+            if stats.failed > 0 {
+                std::process::exit(1);
+            }
+
+            return Ok(());
+        }
+        [_, "patch", patch_file] => {
             println!("🔧 Applying patches to api.json...\n");
 
             // Load API data (need mutable copy for patching)
@@ -134,7 +189,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["memtest", "run"] => {
+        [_, "memtest", "run"] => {
             let api_data = load_api_json(&api_path)?;
             println!("🧪 Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
@@ -158,14 +213,14 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["memtest"] => {
+        [_, "memtest"] => {
             let api_data = load_api_json(&api_path)?;
             println!("🧪 Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
-        ["reftest", "headless", test_name] => {
+        [_, "reftest", "headless", test_name] => {
             println!("Running headless reftest for: {}", test_name);
 
             let output_dir = PathBuf::from("target").join("reftest_headless");
@@ -182,7 +237,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["reftest"] => {
+        [_, "reftest"] => {
             println!("Running local reftests...");
 
             let output_dir = PathBuf::from("target").join("reftest");
@@ -211,7 +266,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["deploy"] => {
+        [_, "deploy"] => {
             println!("Starting Azul Build and Deploy System...");
             let api_data = load_api_json(&api_path)?;
             let config = Config::from_args();
@@ -239,6 +294,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  doc print [options]        - Print API information");
     println!("  doc normalize              - Normalize api.json");
     println!("  doc autofix                - Apply automatic fixes to API definitions");
+    println!("  doc patch safe <dir>       - Apply and delete safe (path-only) patches");
     println!("  doc patch <patch_file>     - Apply patches to api.json");
     println!("  doc memtest [run]          - Generate and optionally run memory layout tests");
     println!("  doc reftest [open]         - Run reftests and optionally open report");

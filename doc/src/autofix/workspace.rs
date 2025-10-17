@@ -7,7 +7,7 @@
 /// 4. Provides a clean summary of changes
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    fs,
+    fmt, fs,
     path::Path,
 };
 
@@ -15,7 +15,7 @@ use anyhow::Result;
 
 use crate::{
     api::ApiData,
-    autofix::message::{AutofixMessages, ClassAdded, PatchSummary},
+    autofix::message::{AutofixMessage, AutofixMessages, ClassAdded, PatchSummary, SkipReason},
     patch::{
         index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
         ApiPatch, ClassPatch, ModulePatch, VersionPatch,
@@ -41,6 +41,29 @@ pub enum TypeOrigin {
     TypeAlias { parent_type: String },
 }
 
+impl fmt::Display for TypeOrigin {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ApiReference => write!(f, "Referenced in API"),
+            Self::StructField {
+                parent_type,
+                field_name,
+            } => {
+                write!(f, "Field '{}' in struct '{}'", field_name, parent_type)
+            }
+            Self::EnumVariant {
+                parent_type,
+                variant_name,
+            } => {
+                write!(f, "Variant '{}' in enum '{}'", variant_name, parent_type)
+            }
+            Self::TypeAlias { parent_type } => {
+                write!(f, "Type alias in '{}'", parent_type)
+            }
+        }
+    }
+}
+
 /// Collect all types currently in the API (including callback_typedefs)
 pub fn collect_all_api_types(api_data: &ApiData) -> HashMap<String, String> {
     let mut types = HashMap::new();
@@ -64,6 +87,51 @@ pub fn collect_all_api_types(api_data: &ApiData) -> HashMap<String, String> {
     }
 
     types
+}
+
+/// Check if two paths are synonyms (refer to the same item)
+/// For example: "crate::foo::Bar" and "azul_dll::foo::Bar" are synonyms
+pub fn are_paths_synonyms(path1: &str, path2: &str) -> bool {
+    // If paths are identical, they're obviously synonyms
+    if path1 == path2 {
+        return true;
+    }
+
+    // Define synonym groups - paths with these prefixes refer to the same crate
+    const SYNONYM_GROUPS: &[&[&str]] = &[
+        // azul_dll and crate both refer to the same crate (the DLL crate)
+        &["azul_dll::", "crate::"],
+    ];
+
+    // Helper function to find prefix and suffix
+    fn normalize(path: &str) -> Option<(&'static str, String)> {
+        const SYNONYM_GROUPS: &[&[&str]] = &[&["azul_dll::", "crate::"]];
+
+        for group in SYNONYM_GROUPS {
+            for &prefix in *group {
+                if let Some(suffix) = path.strip_prefix(prefix) {
+                    return Some((prefix, suffix.to_string()));
+                }
+            }
+        }
+        None
+    }
+
+    // Try to normalize both paths
+    if let (Some((prefix1, suffix1)), Some((prefix2, suffix2))) =
+        (normalize(path1), normalize(path2))
+    {
+        // If suffixes match and prefixes are in the same synonym group
+        if suffix1 == suffix2 {
+            for group in SYNONYM_GROUPS {
+                if group.contains(&prefix1) && group.contains(&prefix2) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Check if a type belongs to the azul workspace (not an external crate)
@@ -100,23 +168,32 @@ pub fn discover_type(
     // Try exact match first
     if let Some(candidates) = workspace_index.find_type(type_name) {
         if candidates.len() == 1 {
-            messages.info("discovery", format!("Found type: {}", type_name));
+            messages.push(AutofixMessage::TypeDiscovered {
+                type_name: type_name.to_string(),
+                path: candidates[0].module_path.join("::"),
+                reason: TypeOrigin::ApiReference,
+            });
             return Some(candidates[0].clone());
         } else if !candidates.is_empty() {
-            messages.warning(
-                "discovery",
-                format!("Multiple matches for {}, using first", type_name),
-            );
+            messages.push(AutofixMessage::GenericWarning {
+                message: format!("Multiple matches for {}, using first", type_name),
+            });
+            messages.push(AutofixMessage::TypeDiscovered {
+                type_name: type_name.to_string(),
+                path: candidates[0].module_path.join("::"),
+                reason: TypeOrigin::ApiReference,
+            });
             return Some(candidates[0].clone());
         }
     }
 
     // Try string search (for macro-defined types)
     if let Some(type_info) = workspace_index.find_type_by_string_search(type_name) {
-        messages.info(
-            "discovery",
-            format!("Found via string search: {}", type_name),
-        );
+        messages.push(AutofixMessage::TypeDiscovered {
+            type_name: type_name.to_string(),
+            path: type_info.module_path.join("::"),
+            reason: TypeOrigin::ApiReference,
+        });
         return Some(type_info);
     }
 
@@ -152,10 +229,9 @@ pub fn find_type_in_workspace(
         }
 
         // No exact match, use first one but warn
-        messages.warning(
-            "analysis",
-            format!("Multiple matches for {}, using first", simple_name),
-        );
+        messages.push(AutofixMessage::GenericWarning {
+            message: format!("Multiple matches for {}, using first", simple_name),
+        });
         return Some(candidates[0].clone());
     }
 
@@ -243,7 +319,7 @@ pub fn generate_patches(
     use std::collections::BTreeMap;
 
     if types_to_add.is_empty() && patch_summary.external_path_changes.is_empty() {
-        messages.info("patches", "No patches to generate");
+        // No message needed - will be reflected in final statistics
         return Ok(0);
     }
 
@@ -333,10 +409,9 @@ pub fn generate_patches(
     for ((module_name, class_name), class_patch) in all_patches {
         // Skip invalid class names (e.g., containing commas or other invalid characters)
         if class_name.contains(',') || class_name.contains(' ') {
-            messages.warning(
-                "patches",
-                format!("Skipping invalid class name: {}", class_name),
-            );
+            messages.push(AutofixMessage::GenericWarning {
+                message: format!("Skipping invalid class name: {}", class_name),
+            });
             continue;
         }
 
@@ -366,8 +441,7 @@ pub fn generate_patches(
         patch_count += 1;
     }
 
-    messages.info("patches", format!("Generated {} patch files", patch_count));
-
+    // Patch count will be shown in final statistics
     Ok(patch_count)
 }
 
@@ -460,21 +534,14 @@ pub fn virtual_patch_application(
     loop {
         iteration += 1;
         if iteration > max_virtual_iterations {
-            messages.warning(
-                "virtual-patch",
-                "Reached maximum virtual patch iteration limit",
-            );
+            messages.push(AutofixMessage::MaxIterationsReached { iteration });
             break;
         }
 
-        messages.info(
-            "virtual-patch",
-            format!(
-                "Virtual iteration {}: analyzing {} types",
-                iteration,
-                all_discovered_types.len()
-            ),
-        );
+        messages.push(AutofixMessage::IterationStarted {
+            iteration,
+            count: all_discovered_types.len(),
+        });
 
         // Collect all types referenced by the currently discovered types
         let mut newly_referenced_types = HashSet::new();
@@ -496,17 +563,11 @@ pub fn virtual_patch_application(
             .collect();
 
         if missing_types.is_empty() {
-            messages.info(
-                "virtual-patch",
-                format!("No new dependencies found after {} iterations", iteration),
-            );
+            // No new dependencies - will be reflected in final report
             break;
         }
 
-        messages.info(
-            "virtual-patch",
-            format!("Found {} new dependencies to discover", missing_types.len()),
-        );
+        // Dependencies count will be shown in report
 
         // Discover the missing types
         let mut newly_discovered = Vec::new();
@@ -517,13 +578,10 @@ pub fn virtual_patch_application(
             if let Some(type_info) = discover_type(workspace_index, type_name, messages) {
                 // Skip types from external crates
                 if !is_workspace_type(&type_info.full_path) {
-                    messages.warning(
-                        "virtual-patch",
-                        format!(
-                            "Skipping external crate type: {} ({})",
-                            type_name, type_info.full_path
-                        ),
-                    );
+                    messages.push(AutofixMessage::TypeSkipped {
+                        type_name: type_name.clone(),
+                        reason: SkipReason::ExternalCrate(type_info.full_path.clone()),
+                    });
                     continue;
                 }
 
@@ -535,50 +593,34 @@ pub fn virtual_patch_application(
                 };
 
                 if !has_repr_c {
-                    messages.warning(
-                        "virtual-patch",
-                        format!(
-                            "Skipping type without #[repr(C)]: {} (not FFI-safe)",
-                            type_name
-                        ),
-                    );
+                    messages.push(AutofixMessage::TypeSkipped {
+                        type_name: type_name.clone(),
+                        reason: SkipReason::MissingReprC,
+                    });
                     continue;
                 }
 
                 known_types.insert(type_name.clone(), type_info.full_path.clone());
                 newly_discovered.push(type_info);
             } else {
-                messages.warning(
-                    "virtual-patch",
-                    format!("Could not find dependency: {}", type_name),
-                );
+                messages.push(AutofixMessage::TypeNotFound {
+                    type_name: type_name.clone(),
+                });
             }
         }
 
         if newly_discovered.is_empty() {
-            messages.info("virtual-patch", "No new types discovered in this iteration");
+            // No new types - will be reflected in final report
             break;
         }
 
-        messages.info(
-            "virtual-patch",
-            format!(
-                "Discovered {} new types via virtual patching",
-                newly_discovered.len()
-            ),
-        );
+        // Discovery count will be shown in report
 
         // Add to the list of all discovered types
         all_discovered_types.extend(newly_discovered);
     }
 
-    messages.info(
-        "virtual-patch",
-        format!(
-            "Virtual patch application complete: {} total types discovered",
-            all_discovered_types.len()
-        ),
-    );
+    // Final statistics will be shown in report
 
     // Build final patch summary
     let mut patch_summary = PatchSummary::default();

@@ -2007,7 +2007,7 @@
             ]
           },
           "SystemCallbacks": {
-            "external": "azul_core::window::SystemCallbacks",
+            "external": "azul_layout::window::SystemCallbacks",
             "struct_fields": [
               {
                 "create_thread": {

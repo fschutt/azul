@@ -2,16 +2,17 @@ use std::{
     collections::{BTreeSet, HashMap},
     fs,
     path::Path,
+    time::Instant,
 };
 
 use anyhow::Result;
 
 use self::{
-    message::{AutofixMessages, ExternalPathChange, PatchSummary},
+    message::{AutofixMessage, AutofixMessages, ExternalPathChange, PatchSummary, SkipReason},
     workspace::{
-        collect_all_api_types, collect_referenced_types_from_type_info, discover_type,
-        find_type_in_workspace, generate_patches, is_workspace_type, virtual_patch_application,
-        TypeOrigin,
+        are_paths_synonyms, collect_all_api_types, collect_referenced_types_from_type_info,
+        discover_type, find_type_in_workspace, generate_patches, is_workspace_type,
+        virtual_patch_application, TypeOrigin,
     },
 };
 use crate::{
@@ -30,32 +31,26 @@ pub fn autofix_api_recursive(
     project_root: &Path,
     output_dir: &Path,
 ) -> Result<()> {
+    // Phase 0: Initialization
+    println!("🔍 Initializing autofix...");
+    println!("   • Loading api.json");
+    println!("   • Building workspace index");
+
+    let start_time = Instant::now();
     let mut messages = AutofixMessages::new();
 
-    // Step 1: Build workspace index (quiet)
     let workspace_index = WorkspaceIndex::build_with_verbosity(project_root, false)?;
-    messages.info(
-        "init",
-        format!(
-            "Indexed {} types from {} files",
-            workspace_index.types.len(),
-            workspace_index.files.len()
-        ),
+    println!(
+        "     ✓ Indexed {} types from {} files",
+        workspace_index.types.len(),
+        workspace_index.files.len()
     );
 
-    // Step 2: Collect all types referenced in API
+    println!("\n🔄 Running analysis (this may take a moment)...\n");
+
+    // Step 1: Collect all types referenced in API
     let api_types = collect_all_api_types(api_data);
-    messages.info(
-        "analysis",
-        format!("Found {} types in API", api_types.len()),
-    );
-
-    // Step 3: Find all referenced types (from function signatures, fields, etc.)
     let referenced_types = collect_all_referenced_types_from_api(api_data);
-    messages.info(
-        "analysis",
-        format!("Found {} referenced types", referenced_types.len()),
-    );
 
     // Collect all callback_typedefs from API - these don't need discovery
     let mut api_callback_typedefs = BTreeSet::new();
@@ -68,15 +63,8 @@ pub fn autofix_api_recursive(
             }
         }
     }
-    messages.info(
-        "analysis",
-        format!(
-            "Found {} callback_typedefs in API",
-            api_callback_typedefs.len()
-        ),
-    );
 
-    // Step 4: Recursive type discovery with cycle detection
+    // Step 2: Recursive type discovery with cycle detection
     let mut discovered_types = HashMap::new();
     let mut types_to_add = Vec::new();
     let mut visited_types = BTreeSet::new(); // Track visited types to detect cycles
@@ -94,10 +82,10 @@ pub fn autofix_api_recursive(
             }
             // Skip if it's a callback_typedef in API (will be handled separately)
             if api_callback_typedefs.contains(*type_name) {
-                messages.info(
-                    "skip",
-                    format!("Skipping API callback_typedef: {}", type_name),
-                );
+                messages.push(AutofixMessage::TypeSkipped {
+                    type_name: (*type_name).clone(),
+                    reason: SkipReason::CallbackTypedef,
+                });
                 return false;
             }
             true
@@ -113,23 +101,21 @@ pub fn autofix_api_recursive(
     loop {
         iteration += 1;
         if iteration > max_iterations {
-            messages.warning("recursion", "Reached maximum iteration limit");
+            messages.push(AutofixMessage::MaxIterationsReached { iteration });
             break;
         }
 
         if types_to_discover.is_empty() {
-            messages.info("iteration", "No more types to discover");
+            messages.push(AutofixMessage::IterationComplete {
+                iteration: iteration - 1,
+            });
             break;
         }
 
-        messages.info(
-            "iteration",
-            format!(
-                "Iteration {}: {} types to discover",
-                iteration,
-                types_to_discover.len()
-            ),
-        );
+        messages.push(AutofixMessage::IterationStarted {
+            iteration,
+            count: types_to_discover.len(),
+        });
 
         let mut newly_discovered = Vec::new();
 
@@ -137,10 +123,10 @@ pub fn autofix_api_recursive(
         for type_name in &types_to_discover {
             // Skip if already visited (cycle detection)
             if visited_types.contains(type_name) {
-                messages.info(
-                    "cycle",
-                    format!("Skipping already visited type: {}", type_name),
-                );
+                messages.push(AutofixMessage::TypeSkipped {
+                    type_name: type_name.clone(),
+                    reason: SkipReason::AlreadyVisited,
+                });
                 continue;
             }
 
@@ -149,13 +135,17 @@ pub fn autofix_api_recursive(
             if let Some(type_info) = discover_type(&workspace_index, type_name, &mut messages) {
                 // Skip types from external crates (not part of azul workspace)
                 if !is_workspace_type(&type_info.full_path) {
-                    messages.warning(
-                        "discovery",
-                        format!(
-                            "Skipping external crate type: {} ({})",
-                            type_name, type_info.full_path
-                        ),
-                    );
+                    // Extract crate name from path
+                    let crate_name = type_info
+                        .full_path
+                        .split("::")
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string();
+                    messages.push(AutofixMessage::TypeSkipped {
+                        type_name: type_name.clone(),
+                        reason: SkipReason::ExternalCrate(crate_name),
+                    });
                     continue;
                 }
 
@@ -170,40 +160,20 @@ pub fn autofix_api_recursive(
                 };
 
                 if !has_repr_c {
-                    messages.warning(
-                        "layout",
-                        format!(
-                            "Skipping type without #[repr(C)]: {} (not FFI-safe)",
-                            type_name
-                        ),
-                    );
+                    messages.push(AutofixMessage::TypeSkipped {
+                        type_name: type_name.clone(),
+                        reason: SkipReason::MissingReprC,
+                    });
                     continue;
                 }
 
-                // Print why this type is being added
+                // Record successful discovery
                 if let Some(origin) = type_origins.get(type_name) {
-                    let reason = match origin {
-                        TypeOrigin::ApiReference => format!("referenced in API"),
-                        TypeOrigin::StructField {
-                            parent_type,
-                            field_name,
-                        } => {
-                            format!("field '{}' in struct '{}'", field_name, parent_type)
-                        }
-                        TypeOrigin::EnumVariant {
-                            parent_type,
-                            variant_name,
-                        } => {
-                            format!("variant '{}' in enum '{}'", variant_name, parent_type)
-                        }
-                        TypeOrigin::TypeAlias { parent_type } => {
-                            format!("type alias '{}'", parent_type)
-                        }
-                    };
-                    messages.info(
-                        "discovery",
-                        format!("= note: adding '{}' because it's {}", type_name, reason),
-                    );
+                    messages.push(AutofixMessage::TypeDiscovered {
+                        type_name: type_name.clone(),
+                        path: type_info.full_path.clone(),
+                        reason: origin.clone(),
+                    });
                 }
 
                 // Recursively collect all types referenced by this type
@@ -223,7 +193,9 @@ pub fn autofix_api_recursive(
                     }
                 }
             } else {
-                messages.warning("discovery", format!("Could not find type: {}", type_name));
+                messages.push(AutofixMessage::TypeNotFound {
+                    type_name: type_name.clone(),
+                });
             }
         }
 
@@ -231,30 +203,17 @@ pub fn autofix_api_recursive(
         types_to_discover = newly_discovered;
 
         if types_to_discover.is_empty() {
-            messages.info("iteration", "All dependencies discovered");
+            // All dependencies discovered - will be shown in final report
             break;
         }
     }
 
-    messages.info(
-        "discovery",
-        format!("Discovered {} new types to add", types_to_add.len()),
-    );
-    messages.info(
-        "cycle-detection",
-        format!(
-            "Visited {} unique types (including cycles)",
-            visited_types.len()
-        ),
-    );
+    // Discovery statistics will be shown in final report
 
     // Step 5: Virtual Patch Application - Apply patches in-memory and re-discover
     // This enables truly recursive discovery by finding dependencies of newly added types
     let (final_types_to_add, final_patch_summary) = if !types_to_add.is_empty() {
-        messages.info(
-            "virtual-patch",
-            "Starting virtual patch application for deeper discovery",
-        );
+        // Virtual patching will be reflected in final report
 
         virtual_patch_application(
             api_data,
@@ -264,10 +223,7 @@ pub fn autofix_api_recursive(
             &mut messages,
         )?
     } else {
-        messages.info(
-            "virtual-patch",
-            "No new types discovered, skipping virtual patch application",
-        );
+        // No virtual patching needed - will be shown in report
         (types_to_add, PatchSummary::default())
     };
 
@@ -280,18 +236,17 @@ pub fn autofix_api_recursive(
         {
             // Skip types from self crate
             if !is_workspace_type(&workspace_type.full_path) {
-                messages.warning(
-                    "analysis",
-                    format!(
-                        "Skipping external path change for {}: {} (not a workspace type)",
-                        class_name, workspace_type.full_path
-                    ),
-                );
+                messages.push(AutofixMessage::TypeSkipped {
+                    type_name: class_name.clone(),
+                    reason: SkipReason::ExternalCrate(workspace_type.full_path.clone()),
+                });
                 continue;
             }
 
-            // Check for external path changes
-            if workspace_type.full_path != *api_type_path {
+            // Check for external path changes (but skip synonyms)
+            if workspace_type.full_path != *api_type_path
+                && !are_paths_synonyms(&workspace_type.full_path, api_type_path)
+            {
                 patch_summary
                     .external_path_changes
                     .push(ExternalPathChange {
@@ -306,7 +261,7 @@ pub fn autofix_api_recursive(
         }
     }
 
-    // Step 7: Generate patches
+    // Generate patches
     let work_dir = project_root.join("target").join("autofix");
     let patches_dir = work_dir.join("patches");
     fs::create_dir_all(&patches_dir)?;
@@ -320,27 +275,16 @@ pub fn autofix_api_recursive(
         &mut messages,
     )?;
 
-    // Step 8: Print warnings and errors
-    messages.print_warnings_and_errors();
+    // Analysis complete - print comprehensive report
+    let duration = start_time.elapsed();
+    println!("✅ Analysis complete ({:.1}s)\n", duration.as_secs_f32());
 
-    // Step 9: Print summary
-    patch_summary.print();
-
-    let (info_count, warning_count, error_count) = messages.count_by_level();
-    println!(
-        "\n📊 Messages: {} info, {} warnings, {} errors",
-        info_count, warning_count, error_count
+    messages.print_report(
+        &patch_summary,
+        duration.as_secs_f32(),
+        &patches_dir,
+        patch_count,
     );
-    println!("📁 Patches saved to: {}", patches_dir.display());
-
-    if patch_count > 0 {
-        println!("\n💡 Next steps:");
-        println!("  1. Review the generated patches");
-        println!(
-            "  2. Apply them with: azul-docs patch {}",
-            work_dir.display()
-        );
-    }
 
     Ok(())
 }
