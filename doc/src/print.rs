@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Handle the "print" subcommand for API discovery
-pub fn handle_print_command(api_data: &ApiData, args: &[String]) -> Result<()> {
+pub fn handle_print_command(api_data: &ApiData, args: &[&str]) -> Result<()> {
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Failed to get project root"))?

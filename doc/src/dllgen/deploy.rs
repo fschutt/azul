@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{api::ApiData, license::License};
+use crate::{api::ApiData, dllgen::license::License};
 
 pub struct Config {
     pub build_windows: bool,
@@ -172,7 +172,7 @@ pub fn generate_license_files(version: &str, output_dir: &Path) -> Result<()> {
 
         let mut s = String::new();
         s.push_str(&default_license_text);
-        s.push_str(&crate::license::format_license_authors(&l));
+        s.push_str(&crate::dllgen::license::format_license_authors(&l));
         s.push_str(&license_posttext);
         std::fs::write(&output_dir.join(f), &s)?;
     }
@@ -199,54 +199,54 @@ pub fn create_examples(
     // -- c
 
     source_zip.start_file("c/hello-world.c", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/c/hello-world.c"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/c/hello-world.c"))?;
     source_zip.start_file("c/calculator.c", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/c/calculator.c"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/c/calculator.c"))?;
     source_zip.start_file("c/svg.c", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/c/svg.c"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/c/svg.c"))?;
     source_zip.start_file("c/table.c", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/c/table.c"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/c/table.c"))?;
     source_zip.start_file("c/xhtml.c", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/c/xhtml.c"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/c/xhtml.c"))?;
 
     // -- cpp
 
     source_zip.start_file("cpp/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/cpp/hello-world.cpp"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/hello-world.cpp"))?;
     source_zip.start_file("cpp/calculator.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/cpp/calculator.cpp"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/calculator.cpp"))?;
     source_zip.start_file("cpp/svg.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/cpp/svg.cpp"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/svg.cpp"))?;
     source_zip.start_file("cpp/table.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/cpp/table.cpp"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/table.cpp"))?;
     source_zip.start_file("cpp/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/cpp/xhtml.cpp"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/xhtml.cpp"))?;
 
     // -- rust
 
     source_zip.start_file("rust/hello-world.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/rust/hello-world.rs"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/rust/hello-world.rs"))?;
     source_zip.start_file("rust/calculator.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/rust/calculator.rs"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/rust/calculator.rs"))?;
     source_zip.start_file("rust/svg.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/rust/svg.rs"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/rust/svg.rs"))?;
     source_zip.start_file("rust/table.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/rust/table.rs"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/rust/table.rs"))?;
     source_zip.start_file("rust/xhtml.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/rust/xhtml.rs"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/rust/xhtml.rs"))?;
 
     // -- python
 
     source_zip.start_file("python/hello-world.py", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/python/hello-world.py"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/python/hello-world.py"))?;
     source_zip.start_file("python/calculator.py", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/python/calculator.py"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/python/calculator.py"))?;
     source_zip.start_file("python/svg.py", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/python/svg.py"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/python/svg.py"))?;
     source_zip.start_file("python/table.py", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/python/table.py"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/python/table.py"))?;
     source_zip.start_file("python/xhtml.py", options)?;
-    source_zip.write_all(include_bytes!("./../../examples/python/xhtml.py"))?;
+    source_zip.write_all(include_bytes!("./../../../examples/python/xhtml.py"))?;
 
     source_zip.start_file("include/azul.h", options)?;
     source_zip.write_all(azul_h.as_bytes())?;
@@ -546,47 +546,47 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     // Copy CSS file
     fs::write(
         output_dir.join("main.css"),
-        include_str!("../templates/main.css"),
+        include_str!("./../../templates/main.css"),
     )?;
 
     // Copy JavaScript file
     fs::write(
         output_dir.join("prism_code_highlighter.js"),
-        include_str!("../templates/prism_code_highlighter.js"),
+        include_str!("./../../templates/prism_code_highlighter.js"),
     )?;
 
     // Copy logo SVG
     fs::write(
         output_dir.join("logo.svg"),
-        include_str!("../templates/logo.svg"),
+        include_str!("./../../templates/logo.svg"),
     )?;
 
     // Copy fleur-de-lis SVG (for navigation)
     fs::write(
         images_dir.join("fleur-de-lis.svg"),
-        include_str!("../templates/fleur-de-lis.svg"),
+        include_str!("./../../templates/fleur-de-lis.svg"),
     )?;
 
     // Copy font files
     fs::write(
         fonts_dir.join("SourceSerifPro-Regular.ttf"),
-        include_bytes!("../fonts/SourceSerifPro-Regular.ttf"),
+        include_bytes!("./../../fonts/SourceSerifPro-Regular.ttf"),
     )?;
     fs::write(
         fonts_dir.join("Morris Jenson Initialen.ttf"),
-        include_bytes!("../fonts/Morris Jenson Initialen.ttf"),
+        include_bytes!("./../../fonts/Morris Jenson Initialen.ttf"),
     )?;
     fs::write(
         fonts_dir.join("EBGaramond-Medium.ttf"),
-        include_bytes!("../fonts/EBGaramond-Medium.ttf"),
+        include_bytes!("./../../fonts/EBGaramond-Medium.ttf"),
     )?;
     fs::write(
         fonts_dir.join("EBGaramond-SemiBold.ttf"),
-        include_bytes!("../fonts/EBGaramond-SemiBold.ttf"),
+        include_bytes!("./../../fonts/EBGaramond-SemiBold.ttf"),
     )?;
     fs::write(
         fonts_dir.join("SourceSerifPro-OFL.txt"),
-        include_bytes!("../fonts/SourceSerifPro-OFL.txt"),
+        include_bytes!("./../../fonts/SourceSerifPro-OFL.txt"),
     )?;
 
     // Create favicon

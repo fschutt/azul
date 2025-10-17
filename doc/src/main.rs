@@ -3,7 +3,7 @@
 use std::{env, fs, path::PathBuf};
 
 use anyhow::Context;
-use deploy::Config;
+use dllgen::deploy::Config;
 use reftest::RunRefTestsConfig;
 
 pub mod api;
@@ -26,15 +26,16 @@ fn main() -> anyhow::Result<()> {
 
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
+    let args = args.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
-    match &args[..] {
+    match args[..] {
         ["print"] => {
             let api_json = load_api_json(&api_path)?;
             return print::handle_print_command(&api_json, &args[2..]);
         }
         ["normalize"] => {
             println!("🔄 Normalizing api.json...\n");
-            let api_json = load_api_json(&api_path)?;
+            let api_data = load_api_json(&api_path)?;
             let api_json = serde_json::to_string_pretty(&api_data)?;
             fs::write(&api_path, api_json)?;
             println!("💾 Saved normalized api.json\n");
@@ -42,8 +43,8 @@ fn main() -> anyhow::Result<()> {
         }
         ["autofix"] => {
             let output_dir = project_root.join("target").join("autofix");
-            let api_json = load_api_json(&api_path)?;
-            autofix_v2::autofix_api_recursive(&api_json, &project_root, &output_dir)?;
+            let api_data = load_api_json(&api_path)?;
+            autofix::autofix_api_recursive(&api_data, &project_root, &output_dir)?;
             return Ok(());
         }
         ["patch", patch_file] => {
@@ -134,6 +135,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         ["memtest", "run"] => {
+            let api_data = load_api_json(&api_path)?;
             println!("🧪 Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
@@ -157,7 +159,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         ["memtest"] => {
-            let api_json = load_api_json(&api_path)?;
+            let api_data = load_api_json(&api_path)?;
             println!("🧪 Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
@@ -169,7 +171,6 @@ fn main() -> anyhow::Result<()> {
             let output_dir = PathBuf::from("target").join("reftest_headless");
             let test_dir = PathBuf::from(manifest_dir).join("src/reftest/working");
 
-            run_reftest = true;
             reftest::run_single_reftest_headless(test_name, &test_dir, &output_dir)?;
 
             println!("\nHeadless reftest for '{}' complete.", test_name);
@@ -192,7 +193,6 @@ fn main() -> anyhow::Result<()> {
                 output_filename: "index.html",
             };
 
-            run_reftest = true;
             reftest::run_reftests(config)?;
 
             let report_path = output_dir.join("index.html");
@@ -225,7 +225,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_api_json(api_path: &PathBuf) -> Result<ApiData, String> {
+fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
     let api_json_str = fs::read_to_string(&api_path)
         .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
     let api_data =

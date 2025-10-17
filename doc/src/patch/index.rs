@@ -404,7 +404,10 @@ impl WorkspaceIndex {
     }
 
     /// Convert a ParsedTypeInfo to API format
-    pub fn to_oracle_info(&self, type_info: &ParsedTypeInfo) -> crate::discover::OracleTypeInfo {
+    pub fn to_oracle_info(
+        &self,
+        type_info: &ParsedTypeInfo,
+    ) -> crate::autofix::discover::OracleTypeInfo {
         match &type_info.kind {
             TypeKind::Struct {
                 fields, has_repr_c, ..
@@ -420,7 +423,7 @@ impl WorkspaceIndex {
                         },
                     );
                 }
-                crate::discover::OracleTypeInfo {
+                crate::autofix::discover::OracleTypeInfo {
                     correct_path: Some(type_info.full_path.clone()),
                     fields: api_fields,
                     variants: IndexMap::new(),
@@ -443,7 +446,7 @@ impl WorkspaceIndex {
                         },
                     );
                 }
-                crate::discover::OracleTypeInfo {
+                crate::autofix::discover::OracleTypeInfo {
                     correct_path: Some(type_info.full_path.clone()),
                     fields: IndexMap::new(),
                     variants: api_variants,
@@ -451,7 +454,7 @@ impl WorkspaceIndex {
                     is_enum: true,
                 }
             }
-            TypeKind::TypeAlias { .. } => crate::discover::OracleTypeInfo {
+            TypeKind::TypeAlias { .. } => crate::autofix::discover::OracleTypeInfo {
                 correct_path: Some(type_info.full_path.clone()),
                 fields: IndexMap::new(),
                 variants: IndexMap::new(),
@@ -625,8 +628,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                             field_name.to_string(),
                             FieldInfo {
                                 name: field_name.to_string(),
-                                ty: crate::autofix::clean_type_string(&field_ty),
-                                doc: crate::autofix::extract_doc_comments(&field.attrs),
+                                ty: crate::autofix::utils::clean_type_string(&field_ty),
+                                doc: crate::autofix::utils::extract_doc_comments(&field.attrs),
                             },
                         );
                     }
@@ -645,7 +648,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     kind: TypeKind::Struct {
                         fields,
                         has_repr_c,
-                        doc: crate::autofix::extract_doc_comments(&s.attrs),
+                        doc: crate::autofix::utils::extract_doc_comments(&s.attrs),
                     },
                     source_code: s.to_token_stream().to_string(),
                 });
@@ -666,7 +669,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                             .map(|f| f.ty.to_token_stream().to_string())
                             .collect::<Vec<_>>()
                             .join(", ");
-                        Some(crate::autofix::clean_type_string(&fields_str))
+                        Some(crate::autofix::utils::clean_type_string(&fields_str))
                     };
 
                     variants.insert(
@@ -674,7 +677,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         VariantInfo {
                             name: variant_name,
                             ty: variant_ty,
-                            doc: crate::autofix::extract_doc_comments(&variant.attrs),
+                            doc: crate::autofix::utils::extract_doc_comments(&variant.attrs),
                         },
                     );
                 }
@@ -692,7 +695,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     kind: TypeKind::Enum {
                         variants,
                         has_repr_c,
-                        doc: crate::autofix::extract_doc_comments(&e.attrs),
+                        doc: crate::autofix::utils::extract_doc_comments(&e.attrs),
                     },
                     source_code: e.to_token_stream().to_string(),
                 });
@@ -708,8 +711,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     file_path: parsed_file.path.clone(),
                     module_path: module_path.clone(),
                     kind: TypeKind::TypeAlias {
-                        target: crate::autofix::clean_type_string(&target),
-                        doc: crate::autofix::extract_doc_comments(&t.attrs),
+                        target: crate::autofix::utils::clean_type_string(&target),
+                        doc: crate::autofix::utils::extract_doc_comments(&t.attrs),
                     },
                     source_code: t.to_token_stream().to_string(),
                 });

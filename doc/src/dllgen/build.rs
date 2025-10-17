@@ -2,7 +2,7 @@ use std::{env, ffi::OsStr, fs, path::Path, process::Command};
 
 use anyhow::{Context, Result};
 
-use crate::deploy::Config;
+use crate::dllgen::deploy::Config;
 
 pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Result<()> {
     let mut all_configs = Vec::new();

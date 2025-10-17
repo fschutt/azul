@@ -1,26 +1,28 @@
+use std::{
+    collections::{BTreeSet, HashMap},
+    fs,
+    path::Path,
+};
+
+use anyhow::Result;
+
+use self::{
+    message::{AutofixMessages, ExternalPathChange, PatchSummary},
+    workspace::{
+        collect_all_api_types, collect_referenced_types_from_type_info, discover_type,
+        find_type_in_workspace, generate_patches, is_workspace_type, virtual_patch_application,
+        TypeOrigin,
+    },
+};
+use crate::{
+    api::{collect_all_referenced_types_from_api, ApiData},
+    patch::index::{TypeKind, WorkspaceIndex},
+};
+
 pub mod discover;
 pub mod message;
 pub mod utils;
 pub mod workspace;
-
-/// Tracks where a type was discovered from
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum TypeOrigin {
-    /// Type was directly referenced in the API
-    ApiReference,
-    /// Type was found in a struct field
-    StructField {
-        parent_type: String,
-        field_name: String,
-    },
-    /// Type was found in an enum variant
-    EnumVariant {
-        parent_type: String,
-        variant_name: String,
-    },
-    /// Type was found in a type alias
-    TypeAlias { parent_type: String },
-}
 
 /// Main entry point for autofix with recursive type discovery
 pub fn autofix_api_recursive(

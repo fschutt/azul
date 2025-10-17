@@ -14,14 +14,32 @@ use std::{
 use anyhow::Result;
 
 use crate::{
-    api::ApiData,
-    api_helpers::collect_all_referenced_types_from_api,
-    autofix_messages::{AutofixMessages, ClassAdded, ExternalPathChange, PatchSummary},
+    api::{collect_all_referenced_types_from_api, extract_base_type_if_not_opaque, ApiData},
+    autofix::message::{AutofixMessages, ClassAdded, ExternalPathChange, PatchSummary},
     patch::{
-        workspace_index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
+        index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
         ApiPatch, ClassPatch, ModulePatch, VersionPatch,
     },
 };
+
+/// Tracks where a type was discovered from
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TypeOrigin {
+    /// Type was directly referenced in the API
+    ApiReference,
+    /// Type was found in a struct field
+    StructField {
+        parent_type: String,
+        field_name: String,
+    },
+    /// Type was found in an enum variant
+    EnumVariant {
+        parent_type: String,
+        variant_name: String,
+    },
+    /// Type was found in a type alias
+    TypeAlias { parent_type: String },
+}
 
 /// Collect all types currently in the API (including callback_typedefs)
 pub fn collect_all_api_types(api_data: &ApiData) -> HashMap<String, String> {
@@ -151,7 +169,7 @@ pub fn find_type_in_workspace(
 pub fn collect_referenced_types_from_type_info(
     type_info: &ParsedTypeInfo,
 ) -> HashMap<String, TypeOrigin> {
-    use crate::api_helpers::extract_base_type_if_not_opaque;
+    use crate::api::extract_base_type_if_not_opaque;
 
     let mut types = HashMap::new();
     let parent_type = type_info.type_name.clone();

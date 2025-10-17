@@ -149,6 +149,118 @@ pub fn clean_type_string(type_str: &str) -> String {
     normalize_spacing(&result)
 }
 
+/// Normalize generic type names for FFI compatibility
+/// Examples:
+///   Option<Box<T>> -> *const c_void (opaque)
+///   Option<T> -> OptionT
+///   Vec<T> -> TVec
+///   Result<T, E> -> ResultTE
+///   Box<T> -> *const c_void (opaque)
+pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo>) {
+    // Remove all spaces first (syn returns types with spaces like "Option < Box < T > >")
+    let no_spaces = type_str.replace(" ", "");
+    let trimmed = no_spaces.trim();
+
+    // Special case: Option<Box<T>> -> *const c_void (opaque Rust types in FFI)
+    if let Some(inner) = extract_generic_type(trimmed, "Option") {
+        if let Some(_box_inner) = extract_generic_type(&inner, "Box") {
+            // Option<Box<T>> is opaque in the FFI API
+            return ("*const c_void".to_string(), None);
+        }
+
+        // Not Option<Box<T>>, so normalize normally
+        // Recursively normalize the inner type
+        let (inner_normalized, _) = normalize_generic_type(&inner);
+        let inner_clean = inner_normalized.replace(" ", "");
+        let normalized = format!("Option{}", inner_clean);
+        return (
+            normalized.clone(),
+            Some(GenericTypeInfo::Option {
+                inner_type: inner_clean,
+                normalized_name: normalized,
+            }),
+        );
+    }
+
+    // Check for Vec<T>
+    if let Some(inner) = extract_generic_type(trimmed, "Vec") {
+        // Recursively normalize the inner type
+        let (inner_normalized, _) = normalize_generic_type(&inner);
+        let inner_clean = inner_normalized.replace(" ", "");
+        let normalized = format!("{}Vec", inner_clean);
+        return (
+            normalized.clone(),
+            Some(GenericTypeInfo::Vec {
+                inner_type: inner_clean,
+                normalized_name: normalized,
+            }),
+        );
+    }
+
+    // Check for Box<T> - always convert to *const c_void (opaque in FFI)
+    // Box<T> types cannot be represented in C ABI, so we treat them as opaque pointers
+    if let Some(_inner) = extract_generic_type(trimmed, "Box") {
+        return ("*const c_void".to_string(), None);
+    }
+
+    // Check for Result<T, E>
+    if let Some(inner) = extract_generic_type(trimmed, "Result") {
+        // Parse Result<T, E> - split by comma at top level
+        let parts = split_generic_args(&inner);
+        if parts.len() == 2 {
+            // Recursively normalize both types
+            let (ok_normalized, _) = normalize_generic_type(&parts[0]);
+            let (err_normalized, _) = normalize_generic_type(&parts[1]);
+            let ok_type = ok_normalized.replace(" ", "");
+            let err_type = err_normalized.replace(" ", "");
+            let normalized = format!("Result{}{}", ok_type, err_type);
+            return (
+                normalized.clone(),
+                Some(GenericTypeInfo::Result {
+                    ok_type,
+                    err_type,
+                    normalized_name: normalized,
+                }),
+            );
+        }
+    }
+
+    (type_str.to_string(), None)
+}
+
+/// Normalize raw pointer types to c_void
+/// Only c_void can take raw pointers in the C ABI
+/// Examples:
+///   *const Foo -> *const c_void
+///   *mut Bar -> *mut c_void
+///   *const c_void -> *const c_void (unchanged)
+pub fn normalize_raw_pointers(type_str: &str) -> String {
+    let trimmed = type_str.trim();
+
+    // Normalize spacing in raw pointer syntax: "* const " or "* mut " -> "*const " or "*mut "
+    let normalized_spacing = trimmed
+        .replace("* const ", "*const ")
+        .replace("* mut ", "*mut ");
+
+    // Check for *const Type (but not *const c_void)
+    if normalized_spacing.starts_with("*const ") {
+        let rest = &normalized_spacing[7..]; // Skip "*const "
+        if rest.trim() != "c_void" {
+            return "*const c_void".to_string();
+        }
+    }
+
+    // Check for *mut Type (but not *mut c_void)
+    if normalized_spacing.starts_with("*mut ") {
+        let rest = &normalized_spacing[5..]; // Skip "*mut "
+        if rest.trim() != "c_void" {
+            return "*mut c_void".to_string();
+        }
+    }
+
+    normalized_spacing
+}
+
 /// Normalize spacing in type strings
 pub fn normalize_spacing(s: &str) -> String {
     let mut result = String::with_capacity(s.len());

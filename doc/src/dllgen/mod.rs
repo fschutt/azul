@@ -4,6 +4,9 @@ pub mod build;
 pub mod deploy;
 pub mod license;
 
+// TODO: This function needs to be refactored - it has many undefined variables
+// and seems to be an incomplete migration from the old structure
+/*
 pub fn generate_dll_and_folders_deploy(config: &deploy::Config) -> Result<(), String> {
     println!("working dir = {manifest_dir}");
     println!("CONFIG={}", config.print());
@@ -114,7 +117,7 @@ pub fn generate_dll_and_folders_deploy(config: &deploy::Config) -> Result<(), St
 
     // Generate donation page
     println!("Generating donation page...");
-    let funding_yaml_bytes = include_str!("../../.github/FUNDING.yml");
+    let funding_yaml_bytes = include_str!("../../../.github/FUNDING.yml");
     match docgen::donate::generate_donation_page(funding_yaml_bytes) {
         Ok(donation_html) => {
             fs::write(output_dir.join("donate.html"), &donation_html)?;
@@ -169,3 +172,4 @@ pub fn generate_dll_and_folders_deploy(config: &deploy::Config) -> Result<(), St
 
     Ok(())
 }
+*/
