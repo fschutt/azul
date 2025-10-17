@@ -1,0 +1,7 @@
+[package]
+name = "swgl_shaders"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+glam = "0.24"

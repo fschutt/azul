@@ -1,0 +1,59 @@
+pub(crate) mod brush_solid;
+pub(crate) mod brush_solid_alpha_pass;
+pub(crate) mod brush_image_texture_2d;
+pub(crate) mod brush_opacity_alpha_pass;
+pub(crate) mod brush_image_texture_rect;
+pub(crate) mod brush_image_alpha_pass_texture_2d;
+pub(crate) mod brush_image_alpha_pass_texture_rect;
+pub(crate) mod brush_image_antialiasing_repetition_texture_2d;
+pub(crate) mod brush_image_antialiasing_repetition_texture_rect;
+pub(crate) mod brush_opacity_antialiasing;
+pub(crate) mod brush_opacity_alpha_pass_antialiasing;
+pub(crate) mod brush_linear_gradient;
+pub(crate) mod brush_linear_gradient_alpha_pass;
+pub(crate) mod brush_yuv_image_texture_2d_yuv;
+pub(crate) mod brush_yuv_image_alpha_pass_texture_2d_yuv;
+pub(crate) mod brush_yuv_image_texture_rect_yuv;
+pub(crate) mod brush_yuv_image_alpha_pass_texture_rect_yuv;
+pub(crate) mod cs_scale_texture_2d;
+pub(crate) mod cs_scale_texture_rect;
+pub(crate) mod composite_texture_2d;
+pub(crate) mod composite_texture_rect;
+pub(crate) mod composite_fast_path_texture_2d;
+pub(crate) mod composite_fast_path_texture_rect;
+pub(crate) mod composite_texture_2d_yuv;
+pub(crate) mod composite_texture_rect_yuv;
+pub(crate) mod ps_quad_textured;
+pub(crate) mod ps_quad_mask;
+pub(crate) mod ps_quad_mask_fast_path;
+pub(crate) mod ps_quad_radial_gradient;
+pub(crate) mod ps_quad_conic_gradient;
+pub(crate) mod ps_text_run_alpha_pass_texture_2d;
+pub(crate) mod ps_text_run_alpha_pass_glyph_transform_texture_2d;
+pub(crate) mod ps_text_run_alpha_pass_dual_source_blending_texture_2d;
+pub(crate) mod ps_text_run_alpha_pass_dual_source_blending_glyph_transform_texture_2d;
+pub(crate) mod cs_linear_gradient;
+pub(crate) mod cs_fast_linear_gradient;
+pub(crate) mod cs_radial_gradient;
+pub(crate) mod cs_conic_gradient;
+pub(crate) mod cs_blur_alpha_target;
+pub(crate) mod cs_clip_rectangle;
+pub(crate) mod cs_clip_rectangle_fast_path;
+pub(crate) mod cs_clip_box_shadow_texture_2d;
+pub(crate) mod brush_blend;
+pub(crate) mod brush_blend_alpha_pass;
+pub(crate) mod brush_mix_blend;
+pub(crate) mod cs_svg_filter_node;
+pub(crate) mod ps_clear;
+pub(crate) mod ps_split_composite;
+pub(crate) mod debug_font;
+pub(crate) mod brush_image_advanced_blend_alpha_pass_antialiasing_repetition_texture_2d;
+pub(crate) mod brush_image_advanced_blend_alpha_pass_antialiasing_repetition_texture_rect;
+pub(crate) mod brush_image_advanced_blend_alpha_pass_texture_2d;
+pub(crate) mod brush_image_advanced_blend_alpha_pass_rect;
+pub(crate) mod brush_image_alpha_pass_antialiasing_dual_source_blending_repetition_texture_2d;
+
+// Helper function to compare CStr with &str, mirroring strcmp
+pub fn strcmp(cstr: &CStr, s: &str) -> bool {
+    cstr.to_bytes() == s.as_bytes()
+}

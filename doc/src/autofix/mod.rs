@@ -44,7 +44,7 @@ pub fn autofix_api_recursive(
     );
 
     // Step 2: Collect all types referenced in API
-    let mut api_types = collect_all_api_types(api_data);
+    let api_types = collect_all_api_types(api_data);
     messages.info(
         "analysis",
         format!("Found {} types in API", api_types.len()),

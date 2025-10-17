@@ -1,0 +1,62 @@
+[package]
+name = "wr_azul_glyph_rasterizer"
+version = "0.1.0"
+authors = ["The Mozilla Project Developers", "Azul Developers"]
+description = "A pure-rust, API-compatible glyph rasterizer for WebRender using azul-layout and tiny-skia"
+license = "MPL-2.0"
+edition = "2021"
+
+[features]
+# By default, no features are enabled. The consumer (WebRender) will select them.
+default = []
+
+# --- Compatibility Features ---
+# These features are kept for API compatibility with webrender's Cargo.toml.
+# They enabled C-based FreeType linking in the original crate. Here, they do nothing,
+# allowing this pure-Rust crate to be a drop-in replacement without modifying webrender.
+dynamic_freetype = []
+static_freetype = []
+
+# --- Core Features ---
+# Enable serialization/deserialization for capturing and replaying render commands.
+capture = ["api/serialize", "serde", "smallvec/serde"]
+replay = ["api/deserialize", "serde", "smallvec/serde"]
+
+# --- Integration Features ---
+# Enable telemetry integration for Gecko/Firefox builds.
+gecko = ["glean", "firefox-on-glean"]
+
+# Internal feature to enable serde dependency.
+serde = ["dep:serde_dep", "smallvec/serde", "euclid/serde"]
+
+[dependencies]
+# ===== Original WebRender Dependencies (Pure Rust) =====
+api = { version = "0.62.0", package = "webrender_api", path = "../webrender_api" }
+euclid = { version = "0.22.10", features = ["serde"], optional = true }
+malloc_size_of = { version = "0.0.2", path = "../wr_malloc_size_of", package = "wr_malloc_size_of" }
+malloc_size_of_derive = "0.1"
+rayon = "1"
+smallvec = "1"
+tracy-rs = "0.1.2"
+log = "0.4"
+lazy_static = "1"
+fxhash = "0.2.1"
+
+# Optional dependencies for Gecko integration and serialization
+glean = { workspace = true, optional = true }
+firefox-on-glean = { version = "0.1.0", optional = true }
+# Renamed to avoid ambiguity, a common pattern in Rust workspaces.
+serde_dep = { package = "serde", version = "1.0", features = ["serde_derive"], optional = true }
+
+
+# Replaces FreeType, CoreText, and DirectWrite.
+azul-layout = { git = "https://github.com/maps4print/azul" }
+azul-core = { git = "https://github.com/maps4print/azul" }
+tiny-skia = "0.11"
+
+
+[dev-dependencies]
+# Kept for potential local testing, matching the original crate's setup.
+env_logger = { version = "0.10", default-features = false }
+glutin = "0.28"
+winit = "0.26"

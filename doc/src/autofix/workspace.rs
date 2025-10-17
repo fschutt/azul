@@ -14,8 +14,8 @@ use std::{
 use anyhow::Result;
 
 use crate::{
-    api::{collect_all_referenced_types_from_api, extract_base_type_if_not_opaque, ApiData},
-    autofix::message::{AutofixMessages, ClassAdded, ExternalPathChange, PatchSummary},
+    api::ApiData,
+    autofix::message::{AutofixMessages, ClassAdded, PatchSummary},
     patch::{
         index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
         ApiPatch, ClassPatch, ModulePatch, VersionPatch,
