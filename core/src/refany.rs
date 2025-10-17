@@ -210,7 +210,7 @@ impl RefAny {
     /// Creates a new, type-erased pointer by casting the `T` value into a
     /// `Vec<u8>` and saving the length + type ID
     pub fn new<T: 'static>(value: T) -> Self {
-        extern "C" fn default_custom_destructor<U: 'static>(ptr: &mut c_void) {
+        extern "C" fn default_custom_destructor<U: 'static>(ptr: *mut c_void) {
             use core::{mem, ptr};
 
             // note: in the default constructor, we do not need to check whether U == T
@@ -220,9 +220,9 @@ impl RefAny {
                 // call mem::drop on U to run the destructor
                 let mut stack_mem = mem::MaybeUninit::<U>::uninit();
                 ptr::copy_nonoverlapping(
-                    (ptr as *mut c_void) as *const U,
+                    ptr as *const U,
                     stack_mem.as_mut_ptr(),
-                    mem::size_of::<U>(),
+                    1, // copy 1 element of type U, not size_of::<U>() elements!
                 );
                 let stack_mem = stack_mem.assume_init();
                 mem::drop(stack_mem);
@@ -234,6 +234,7 @@ impl RefAny {
         let s = Self::new_c(
             (&value as *const T) as *const c_void,
             ::core::mem::size_of::<T>(),
+            ::core::mem::align_of::<T>(), // Pass the alignment here.
             Self::get_type_id_static::<T>(),
             st,
             default_custom_destructor::<T>,
@@ -248,11 +249,13 @@ impl RefAny {
         ptr: *const c_void,
         // sizeof(T)
         len: usize,
+        // alignof(T)
+        align: usize,
         // unique ID of the type (used for type comparison when downcasting)
         type_id: u64,
         // name of the class such as "app::MyData", usually compiler- or macro-generated
         type_name: AzString,
-        custom_destructor: extern "C" fn(&mut c_void),
+        custom_destructor: extern "C" fn(*mut c_void),
     ) -> Self {
         use core::ptr;
 
@@ -264,19 +267,18 @@ impl RefAny {
             let _dummy: [u8; 0] = [];
             (ptr::null_mut(), Layout::for_value(&_dummy))
         } else {
-            // cast the struct as bytes
-            let struct_as_bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
-            let layout = Layout::for_value(&*struct_as_bytes);
+            // Create a layout with the correct size and alignment.
+            // This is the key fix to prevent unaligned reference errors.
+            let layout = Layout::from_size_align(len, align).expect("Failed to create layout");
 
-            // allocate + copy the struct to the heap
             let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
-            unsafe {
-                ptr::copy_nonoverlapping(
-                    struct_as_bytes.as_ptr(),
-                    heap_struct_as_bytes,
-                    struct_as_bytes.len(),
-                )
-            };
+
+            // It's good practice to handle allocation failure.
+            if heap_struct_as_bytes.is_null() {
+                alloc::alloc::handle_alloc_error(layout);
+            }
+
+            unsafe { ptr::copy_nonoverlapping(ptr as *const u8, heap_struct_as_bytes, len) };
             (heap_struct_as_bytes, layout)
         };
 
@@ -289,8 +291,7 @@ impl RefAny {
             _internal_layout_align: layout.align(),
             type_id,
             type_name,
-            // fn(&mut c_void) and fn(*mut c_void) are the same, so transmute is safe
-            custom_destructor: unsafe { core::mem::transmute(custom_destructor) },
+            custom_destructor,
         };
 
         Self {
@@ -468,5 +469,299 @@ impl Drop for RefAny {
                 alloc::alloc::dealloc(self._internal_ptr as *mut u8, layout);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestStruct {
+        value: i32,
+        name: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct NestedStruct {
+        inner: TestStruct,
+        data: Vec<u8>,
+    }
+
+    #[test]
+    fn test_refany_basic_create_and_downcast() {
+        let test_val = TestStruct {
+            value: 42,
+            name: "test".to_string(),
+        };
+
+        let mut refany = RefAny::new(test_val.clone());
+
+        // Test downcast_ref
+        let borrowed = refany
+            .downcast_ref::<TestStruct>()
+            .expect("Should downcast successfully");
+        assert_eq!(borrowed.value, 42);
+        assert_eq!(borrowed.name, "test");
+        drop(borrowed);
+
+        // Test downcast_mut
+        {
+            let mut borrowed_mut = refany
+                .downcast_mut::<TestStruct>()
+                .expect("Should downcast mutably");
+            borrowed_mut.value = 100;
+            borrowed_mut.name = "modified".to_string();
+        }
+
+        // Verify mutation
+        let borrowed = refany
+            .downcast_ref::<TestStruct>()
+            .expect("Should downcast after mutation");
+        assert_eq!(borrowed.value, 100);
+        assert_eq!(borrowed.name, "modified");
+    }
+
+    #[test]
+    fn test_refany_clone_and_sharing() {
+        let test_val = TestStruct {
+            value: 42,
+            name: "test".to_string(),
+        };
+
+        let mut refany1 = RefAny::new(test_val);
+        let mut refany2 = refany1.clone();
+        let mut refany3 = refany1.clone();
+
+        // All three should point to the same data
+        let borrowed1 = refany1
+            .downcast_ref::<TestStruct>()
+            .expect("Should downcast ref1");
+        assert_eq!(borrowed1.value, 42);
+        drop(borrowed1);
+
+        let borrowed2 = refany2
+            .downcast_ref::<TestStruct>()
+            .expect("Should downcast ref2");
+        assert_eq!(borrowed2.value, 42);
+        drop(borrowed2);
+
+        // Modify through refany3
+        {
+            let mut borrowed_mut = refany3
+                .downcast_mut::<TestStruct>()
+                .expect("Should downcast mut");
+            borrowed_mut.value = 200;
+        }
+
+        // Verify all see the change
+        let borrowed1 = refany1
+            .downcast_ref::<TestStruct>()
+            .expect("Should see mutation from ref1");
+        assert_eq!(borrowed1.value, 200);
+        drop(borrowed1);
+
+        let borrowed2 = refany2
+            .downcast_ref::<TestStruct>()
+            .expect("Should see mutation from ref2");
+        assert_eq!(borrowed2.value, 200);
+    }
+
+    #[test]
+    fn test_refany_borrow_checking() {
+        let test_val = TestStruct {
+            value: 42,
+            name: "test".to_string(),
+        };
+
+        let mut refany = RefAny::new(test_val);
+
+        // Test that we can get an immutable reference
+        {
+            let borrowed1 = refany
+                .downcast_ref::<TestStruct>()
+                .expect("First immutable borrow");
+            assert_eq!(borrowed1.value, 42);
+            assert_eq!(borrowed1.name, "test");
+        }
+
+        // Test that we can get a mutable reference and modify the value
+        {
+            let mut borrowed_mut = refany
+                .downcast_mut::<TestStruct>()
+                .expect("Mutable borrow should work");
+            borrowed_mut.value = 100;
+            borrowed_mut.name = "modified".to_string();
+        }
+
+        // Verify the modification persisted
+        {
+            let borrowed = refany
+                .downcast_ref::<TestStruct>()
+                .expect("Should be able to borrow again");
+            assert_eq!(borrowed.value, 100);
+            assert_eq!(borrowed.name, "modified");
+        }
+    }
+
+    #[test]
+    fn test_refany_type_safety() {
+        let test_val = TestStruct {
+            value: 42,
+            name: "test".to_string(),
+        };
+
+        let mut refany = RefAny::new(test_val);
+
+        // Try to downcast to wrong type
+        assert!(
+            refany.downcast_ref::<i32>().is_none(),
+            "Should not allow downcasting to wrong type"
+        );
+        assert!(
+            refany.downcast_mut::<String>().is_none(),
+            "Should not allow mutable downcasting to wrong type"
+        );
+
+        // Correct type should still work
+        let borrowed = refany
+            .downcast_ref::<TestStruct>()
+            .expect("Correct type should work");
+        assert_eq!(borrowed.value, 42);
+    }
+
+    #[test]
+    fn test_refany_zero_sized_type() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct ZeroSized;
+
+        let refany = RefAny::new(ZeroSized);
+
+        // Zero-sized types are stored differently (null pointer)
+        // Verify that the RefAny can be created and cloned without issues
+        let _cloned = refany.clone();
+
+        // Note: downcast operations on ZSTs may have limitations
+        // This test primarily verifies that creation and cloning work
+    }
+
+    #[test]
+    fn test_refany_with_vec() {
+        let test_val = vec![1, 2, 3, 4, 5];
+        let mut refany = RefAny::new(test_val);
+
+        {
+            let mut borrowed_mut = refany
+                .downcast_mut::<Vec<i32>>()
+                .expect("Should downcast vec");
+            borrowed_mut.push(6);
+            borrowed_mut.push(7);
+        }
+
+        let borrowed = refany
+            .downcast_ref::<Vec<i32>>()
+            .expect("Should downcast vec");
+        assert_eq!(&**borrowed, &[1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn test_refany_nested_struct() {
+        let nested = NestedStruct {
+            inner: TestStruct {
+                value: 42,
+                name: "inner".to_string(),
+            },
+            data: vec![1, 2, 3],
+        };
+
+        let mut refany = RefAny::new(nested);
+
+        {
+            let mut borrowed_mut = refany
+                .downcast_mut::<NestedStruct>()
+                .expect("Should downcast nested");
+            borrowed_mut.inner.value = 100;
+            borrowed_mut.data.push(4);
+        }
+
+        let borrowed = refany
+            .downcast_ref::<NestedStruct>()
+            .expect("Should downcast nested");
+        assert_eq!(borrowed.inner.value, 100);
+        assert_eq!(&borrowed.data, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_refany_drop_order() {
+        use std::sync::{Arc, Mutex};
+
+        let drop_counter = Arc::new(Mutex::new(0));
+
+        struct DropTracker {
+            counter: Arc<Mutex<i32>>,
+        }
+
+        impl Drop for DropTracker {
+            fn drop(&mut self) {
+                *self.counter.lock().unwrap() += 1;
+            }
+        }
+
+        {
+            let tracker = DropTracker {
+                counter: drop_counter.clone(),
+            };
+            let refany1 = RefAny::new(tracker);
+            let refany2 = refany1.clone();
+            let refany3 = refany1.clone();
+
+            assert_eq!(*drop_counter.lock().unwrap(), 0, "Should not drop yet");
+
+            drop(refany1);
+            assert_eq!(
+                *drop_counter.lock().unwrap(),
+                0,
+                "Should not drop after first clone dropped"
+            );
+
+            drop(refany2);
+            assert_eq!(
+                *drop_counter.lock().unwrap(),
+                0,
+                "Should not drop after second clone dropped"
+            );
+
+            drop(refany3);
+            assert_eq!(
+                *drop_counter.lock().unwrap(),
+                1,
+                "Should drop after last clone dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn test_refany_callback_simulation() {
+        // Simulate the IFrame callback pattern
+        #[derive(Clone)]
+        struct CallbackData {
+            counter: i32,
+        }
+
+        let data = CallbackData { counter: 0 };
+        let mut refany = RefAny::new(data);
+
+        // Simulate callback invocation
+        {
+            let mut borrowed = refany
+                .downcast_mut::<CallbackData>()
+                .expect("Should downcast in callback");
+            borrowed.counter += 1;
+        }
+
+        let borrowed = refany
+            .downcast_ref::<CallbackData>()
+            .expect("Should read after callback");
+        assert_eq!(borrowed.counter, 1);
     }
 }

@@ -4262,6 +4262,9 @@
                     "len": "usize"
                   },
                   {
+                    "align": "usize"
+                  },
+                  {
                     "type_id": "u64"
                   },
                   {
@@ -4271,7 +4274,7 @@
                     "destructor": "RefAnyDestructorType"
                   }
                 ],
-                "fn_body": "AzRefAny::new_c(ptr, len, type_id, type_name, destructor)"
+                "fn_body": "AzRefAny::new_c(ptr, len, align, type_id, type_name, destructor)"
               }
             },
             "functions": {

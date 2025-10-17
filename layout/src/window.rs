@@ -1329,44 +1329,9 @@ mod tests {
         assert!(window.get_timer(&timer3).is_some());
     }
 
-    #[test]
-    #[ignore = "Thread::default() not available - threads require complex setup"]
-    fn test_thread_add_remove() {
-        let fc_cache = FcFontCache::default();
-        let mut window = LayoutWindow::new(fc_cache).unwrap();
-
-        let thread_id = ThreadId::unique();
-        // TODO: Create a proper Thread instance using create_thread
-        // let thread = Thread::default();
-
-        // Add thread
-        // window.add_thread(thread_id, thread);
-        // assert!(window.get_thread(&thread_id).is_some());
-        // assert_eq!(window.get_thread_ids().len(), 1);
-
-        // Remove thread
-        // let removed = window.remove_thread(&thread_id);
-        // assert!(removed.is_some());
-        // assert!(window.get_thread(&thread_id).is_none());
-        // assert_eq!(window.get_thread_ids().len(), 0);
-    }
-
-    #[test]
-    #[ignore = "Thread::default() not available - threads require complex setup"]
-    fn test_thread_get_mut() {
-        let fc_cache = FcFontCache::default();
-        let mut window = LayoutWindow::new(fc_cache).unwrap();
-
-        let thread_id = ThreadId::unique();
-        // TODO: Create a proper Thread instance using create_thread
-        // let thread = Thread::default();
-
-        // window.add_thread(thread_id, thread);
-
-        // Get mutable reference
-        // let thread_mut = window.get_thread_mut(&thread_id);
-        // assert!(thread_mut.is_some());
-    }
+    // Thread management tests removed - Thread::default() not available
+    // and threads require complex setup. Thread management is tested
+    // through integration tests instead.
 
     #[test]
     fn test_gpu_cache_management() {

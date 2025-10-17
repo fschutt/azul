@@ -494,7 +494,8 @@ extern "C" fn test_iframe_callback(
 }
 
 #[test]
-#[ignore] // Ignored until IFrame callback invocation is implemented in solver3
+#[ignore = "IFrame callback infrastructure causes SIGSEGV - needs deeper investigation of callback \
+            invocation in layout_document"]
 fn test_iframe_callback_invocation() {
     // This test verifies that IFrame callbacks are invoked during layout
     // and that the returned DOM is integrated into the layout tree
@@ -552,7 +553,7 @@ fn test_iframe_callback_invocation() {
 }
 
 #[test]
-#[ignore] // Ignored until conditional re-invocation is implemented
+#[ignore = "Depends on test_iframe_callback_invocation which causes SIGSEGV"]
 fn test_iframe_conditional_reinvocation() {
     // This test verifies that IFrame callbacks are only re-invoked when
     // the iframe's bounds or scroll position changes
@@ -641,33 +642,17 @@ fn test_iframe_conditional_reinvocation() {
 }
 
 // ============================================================================
-// IMAGE CALLBACK TESTS (Preparation for implementation)
+// IMAGE CALLBACK TESTS
 // ============================================================================
-
-#[test]
-#[ignore] // Ignored until ImageCallback implementation
-fn test_image_callback_on_resize() {
-    // This test verifies that ImageCallback is invoked when an image node
-    // is resized, but not when other properties change
-
-    // TODO: Implement once ImageCallback support is added to solver3
-}
-
-#[test]
-#[ignore] // Ignored until ImageCallback implementation
-fn test_image_callback_conditional_reinvocation() {
-    // This test verifies that ImageCallback is only re-invoked when
-    // the image's dimensions actually change
-
-    // TODO: Implement once ImageCallback support is added to solver3
-}
+// TODO: Add ImageCallback tests once implementation is complete
+// - test_image_callback_on_resize: Verify ImageCallback is invoked on resize
+// - test_image_callback_conditional_reinvocation: Verify conditional re-invocation
 
 // ============================================================================
 // MULTI-DOM COORDINATION TESTS
 // ============================================================================
 
 #[test]
-#[ignore] // Ignored until multi-DOM support is fully implemented
 fn test_multi_dom_layout_results() {
     // This test verifies that multiple DOMs (root + iframes) can be
     // laid out and their results are properly tracked
