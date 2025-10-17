@@ -23,6 +23,8 @@ use azul_css::{
     parser2::CssApiWrapper,
     props::layout::{LayoutDisplay, LayoutPosition},
 };
+// Font embedding for tests
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern, FcWeight};
 
 use crate::{
     solver3::{cache::LayoutCache, display_list::DisplayList, layout_document, LayoutError},
@@ -31,31 +33,14 @@ use crate::{
     window_state::FullWindowState,
 };
 
-/// Helper function to create a test FcFontCache with in-memory fonts
-fn create_test_fc_cache() -> rust_fontconfig::FcFontCache {
-    use rust_fontconfig::{FcFont, FcFontCache, FcPattern, FcWeight};
-
-    // Load the test font file
-    let font_bytes = include_bytes!("../../../examples/assets/fonts/KoHo-Light.ttf");
-
-    // Create an in-memory font
-    let pattern = FcPattern {
-        name: Some("KoHo".to_string()),
-        weight: FcWeight::Light,
-        ..Default::default()
-    };
-
-    let fc_font = FcFont {
-        id: "test-koho".to_string(),
-        font_index: 0,
-        bytes: font_bytes.to_vec(),
-    };
-
-    // Create font cache with in-memory font
+/// Helper function to create a test font cache with in-memory fonts
+fn create_test_fc_cache() -> FcFontCache {
     let mut fc_cache = FcFontCache::default();
-    fc_cache.with_memory_fonts(vec![(pattern.clone(), fc_font)]);
 
-    // Also add a fallback "sans-serif" pattern pointing to the same font
+    // Embed test font at compile time
+    const FONT_BYTES: &[u8] = include_bytes!("../../../examples/assets/fonts/KoHo-Light.ttf");
+
+    // Add as in-memory font with sans-serif fallback
     let sans_pattern = FcPattern {
         name: Some("sans-serif".to_string()),
         weight: FcWeight::Normal,
@@ -64,7 +49,7 @@ fn create_test_fc_cache() -> rust_fontconfig::FcFontCache {
     let sans_font = FcFont {
         id: "test-sans".to_string(),
         font_index: 0,
-        bytes: font_bytes.to_vec(),
+        bytes: FONT_BYTES.to_vec(),
     };
     fc_cache.with_memory_fonts(vec![(sans_pattern, sans_font)]);
 
