@@ -2,7 +2,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use anyhow::{Context, Result};
@@ -12,11 +12,7 @@ use quote::ToTokens;
 use crate::{
     api::{ApiData, CallbackArgData, CallbackDefinition, EnumVariantData, FieldData},
     discover,
-    patch::{
-        locatesource::{self, get_current_crate_name},
-        parser::{self, SymbolInfo},
-        ApiPatch, ClassPatch, ModulePatch, VersionPatch,
-    },
+    patch::{ApiPatch, ClassPatch, ModulePatch, VersionPatch},
 };
 
 /// Statistics about the autofix operation
@@ -66,10 +62,14 @@ impl AutofixStats {
 }
 
 /// Generate patches for all issues found in the API
+///
+/// NOTE: This is the legacy autofix implementation. The new implementation
+/// is in autofix_v2.rs with recursive type discovery and virtual patch application.
+#[allow(unused_variables)]
 pub fn autofix_api(
     api_data: &ApiData,
     project_root: &Path,
-    output_dir: &Path,
+    _output_dir: &Path, // Unused but kept for API compatibility
 ) -> Result<AutofixStats> {
     println!("🔍 Analyzing API and source code...\n");
 

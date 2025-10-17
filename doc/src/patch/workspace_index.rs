@@ -103,7 +103,14 @@ pub struct WorkspaceIndex {
 impl WorkspaceIndex {
     /// Build a complete index of the workspace
     pub fn build(project_root: &Path) -> Result<Self> {
-        println!("🔍 Building workspace index...");
+        Self::build_with_verbosity(project_root, true)
+    }
+
+    /// Build a complete index of the workspace with optional quiet mode
+    pub fn build_with_verbosity(project_root: &Path, verbose: bool) -> Result<Self> {
+        if verbose {
+            println!("🔍 Building workspace index...");
+        }
 
         let mut index = WorkspaceIndex {
             types: HashMap::new(),
@@ -113,37 +120,70 @@ impl WorkspaceIndex {
         };
 
         // Step 1: Find all crates and their names
-        println!("  📦 Discovering crates...");
+        if verbose {
+            println!("  📦 Discovering crates...");
+        }
         index.crate_names = build_crate_name_map(project_root)?;
-        println!("    Found {} crates", index.crate_names.len());
+        if verbose {
+            println!("    Found {} crates", index.crate_names.len());
+        }
 
         // Step 2: Find all Rust source files (including dll/src/widgets)
-        println!("  📂 Finding Rust source files...");
+        if verbose {
+            println!("  📂 Finding Rust source files...");
+        }
         let rust_files = find_all_rust_files(project_root)?;
-        println!("    Found {} .rs files", rust_files.len());
+        if verbose {
+            println!("    Found {} .rs files", rust_files.len());
+        }
 
         // Step 3: Read all file sources first (for string-based search)
-        println!("  📄 Reading file sources...");
+        if verbose {
+            println!("  📄 Reading file sources...");
+        }
         for file_path in &rust_files {
             if let Ok(content) = fs::read_to_string(file_path) {
                 index.file_sources.insert(file_path.clone(), content);
             }
         }
-        println!("    Read {} files into memory", index.file_sources.len());
+        if verbose {
+            println!("    Read {} files into memory", index.file_sources.len());
+        }
 
         // Step 4: Parse all files in parallel
-        println!("  📖 Parsing all files...");
+        if verbose {
+            println!("  📖 Parsing all files...");
+        }
         use rayon::prelude::*;
+
+        let self_crate_name = env!("CARGO_PKG_NAME").replace('-', "_");
 
         let parsed_files: Vec<_> = rust_files
             .par_iter()
             .filter_map(|file_path| {
+                // Skip files from the self crate (build tools, not part of API)
+                // Find the crate directory for this file
+                let crate_name = index
+                    .crate_names
+                    .iter()
+                    .find(|(crate_dir, _)| file_path.starts_with(crate_dir))
+                    .map(|(_, name)| name.as_str());
+
+                if let Some(name) = crate_name {
+                    if name == self_crate_name {
+                        if verbose {
+                            eprintln!("    ⏭️  Skipping self crate file: {}", file_path.display());
+                        }
+                        return None;
+                    }
+                }
+
                 match parse_rust_file(file_path, project_root, &index.crate_names) {
                     Ok(parsed) => Some(parsed),
                     Err(e) => {
                         // Silently skip unparseable files (likely syntax errors or non-module
                         // files)
-                        if !file_path.to_string_lossy().contains("/target/") {
+                        if verbose && !file_path.to_string_lossy().contains("/target/") {
                             eprintln!("    ⚠️  Failed to parse {}: {}", file_path.display(), e);
                         }
                         None
@@ -152,10 +192,14 @@ impl WorkspaceIndex {
             })
             .collect();
 
-        println!("    Successfully parsed {} files", parsed_files.len());
+        if verbose {
+            println!("    Successfully parsed {} files", parsed_files.len());
+        }
 
         // Step 5: Build index from parsed files
-        println!("  🗂️  Building type index...");
+        if verbose {
+            println!("  🗂️  Building type index...");
+        }
         for parsed_file in parsed_files {
             // Extract all type definitions from this file
             for type_info in extract_types_from_file(&parsed_file)? {
@@ -169,12 +213,14 @@ impl WorkspaceIndex {
             index.files.insert(parsed_file.path.clone(), parsed_file);
         }
 
-        let total_types: usize = index.types.values().map(|v| v.len()).sum();
-        println!(
-            "    Indexed {} unique type names ({} total definitions)",
-            index.types.len(),
-            total_types
-        );
+        if verbose {
+            let total_types: usize = index.types.values().map(|v| v.len()).sum();
+            println!(
+                "    Indexed {} unique type names ({} total definitions)",
+                index.types.len(),
+                total_types
+            );
+        }
 
         Ok(index)
     }

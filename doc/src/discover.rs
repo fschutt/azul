@@ -1,11 +1,5 @@
 /// Compiler Oracle - uses rustc to discover correct paths and field information
-use std::{
-    collections::{BTreeMap, HashMap},
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{collections::HashMap, fs, path::Path, process::Command};
 
 use anyhow::{Context, Result};
 use indexmap::IndexMap;

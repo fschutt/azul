@@ -1,5 +1,8 @@
 mod api;
+mod api_helpers;
 mod autofix;
+mod autofix_messages;
+mod autofix_v2;
 mod build;
 mod codegen;
 mod deploy;
@@ -177,25 +180,11 @@ fn main() -> anyhow::Result<()> {
             project_root.join("target").join("autofix")
         };
 
-        println!("🔍 Analyzing API for issues...\n");
-
         // Use pre-loaded API data
         let api_data = api_data.as_ref().unwrap();
 
-        // Run autofix
-        let stats = autofix::autofix_api(&api_data, &project_root, &output_dir)?;
-
-        stats.print_summary();
-
-        if stats.patches_generated > 0 {
-            println!("\n📁 Patches saved to: {}", output_dir.display());
-            println!("\n💡 Next steps:");
-            println!("  1. Review the generated patches");
-            println!(
-                "  2. Apply them with: azul-docs patch {}",
-                output_dir.display()
-            );
-        }
+        // Run new recursive autofix
+        autofix_v2::autofix_api_recursive(&api_data, &project_root, &output_dir)?;
 
         return Ok(());
     }
