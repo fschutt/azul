@@ -14,6 +14,7 @@ use std::{
 use azul_core::{
     callbacks::{FocusTarget, Update},
     dom::{DomId, DomNodeId, NodeId},
+    events::EasingFunction,
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
@@ -2056,7 +2057,7 @@ mod tests {
             delta: LogicalPosition::new(10.0, 20.0),
             source: crate::scroll::ScrollSource::UserInput,
             duration: None,
-            easing: crate::scroll::EasingFunction::Linear,
+            easing: EasingFunction::Linear,
         };
 
         #[cfg(feature = "std")]
@@ -2093,7 +2094,7 @@ mod tests {
             node_id,
             LogicalPosition::new(100.0, 200.0),
             Duration::System(SystemTimeDiff::from_millis(300)),
-            crate::scroll::EasingFunction::EaseOut,
+            EasingFunction::EaseOut,
             now.clone(),
         );
 
@@ -2135,7 +2136,7 @@ mod tests {
                                                       * within 200px */
             source: crate::scroll::ScrollSource::UserInput,
             duration: None,
-            easing: crate::scroll::EasingFunction::Linear,
+            easing: EasingFunction::Linear,
         };
 
         window
@@ -2217,7 +2218,7 @@ mod tests {
             delta: LogicalPosition::new(0.0, 10.0),
             source: crate::scroll::ScrollSource::UserInput,
             duration: None,
-            easing: crate::scroll::EasingFunction::Linear,
+            easing: EasingFunction::Linear,
         };
 
         window
@@ -2354,7 +2355,7 @@ mod tests {
             delta: LogicalPosition::new(5.0, 5.0),
             source: crate::scroll::ScrollSource::UserInput,
             duration: None,
-            easing: crate::scroll::EasingFunction::Linear,
+            easing: EasingFunction::Linear,
         };
 
         let did_scroll = window

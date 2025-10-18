@@ -374,18 +374,19 @@ impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
 /// # Usage
 ///
 /// ```rust
+/// # use azul_core::refany::RefAny;
 /// let data = RefAny::new(42i32);
 /// let mut data_clone = data.clone(); // shares the same heap allocation
 ///
 /// // Runtime-checked downcasting with type safety
 /// if let Some(value_ref) = data_clone.downcast_ref::<i32>() {
 ///     assert_eq!(*value_ref, 42);
-/// }
+/// };
 ///
 /// // Runtime-checked mutable borrowing
 /// if let Some(mut value_mut) = data_clone.downcast_mut::<i32>() {
 ///     *value_mut = 100;
-/// }
+/// };
 /// ```
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
@@ -469,7 +470,8 @@ impl RefAny {
     /// # Example
     ///
     /// ```rust
-    /// let data = RefAny::new(42i32);
+    /// # use azul_core::refany::RefAny;
+    /// let mut data = RefAny::new(42i32);
     /// let value = data.downcast_ref::<i32>().unwrap();
     /// assert_eq!(*value, 42);
     /// ```
@@ -910,7 +912,7 @@ impl Drop for RefAny {
     /// # Memory Ordering: SeqCst Prevents Races
     ///
     /// Example race without proper ordering:
-    /// ```
+    /// ```no_run,ignore
     /// Thread A: fetch_sub(1) -> sees 2, returns
     /// Thread B: fetch_sub(1) -> sees 1, starts cleanup
     /// Thread A: (much later) actually writes the decremented value

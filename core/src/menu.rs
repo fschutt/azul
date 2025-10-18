@@ -7,17 +7,22 @@
 //!
 //! ```rust,no_run
 //! use azul_core::{
-//!     callbacks::RefAny,
 //!     menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
+//!     refany::RefAny,
 //! };
 //! use azul_css::AzString;
 //!
 //! // Create a simple context menu
-//! let menu = Menu::new(MenuItemVec::from_const_slice(&[
-//!     MenuItem::String(StringMenuItem::new(AzString::from_const_str("Copy"))),
+//! const ITEM_1: AzString = AzString::from_const_str("Copy");
+//! const ITEM_2: AzString = AzString::from_const_str("Paste");
+//! const ITEM_1_STR: StringMenuItem = StringMenuItem::new(ITEM_1);
+//! const ITEM_2_STR: StringMenuItem = StringMenuItem::new(ITEM_2);
+//! const MENU_ITEMS: &[MenuItem] = &[
+//!     MenuItem::String(ITEM_1_STR),
 //!     MenuItem::Separator,
-//!     MenuItem::String(StringMenuItem::new(AzString::from_const_str("Paste"))),
-//! ]));
+//!     MenuItem::String(ITEM_2_STR),
+//! ];
+//! let menu = Menu::new(MenuItemVec::from_const_slice(MENU_ITEMS));
 //! ```
 //!
 //! # Core vs Layout Types
@@ -225,13 +230,13 @@ impl StringMenuItem {
     /// - Normal state
     /// - No icon
     /// - No children
-    pub fn new(label: AzString) -> Self {
+    pub const fn new(label: AzString) -> Self {
         StringMenuItem {
             label,
-            accelerator: None.into(),
-            callback: None.into(),
+            accelerator: OptionVirtualKeyCodeCombo::None,
+            callback: OptionCoreMenuCallback::None,
             state: MenuItemState::Normal,
-            icon: None.into(),
+            icon: OptionMenuItemIcon::None,
             children: MenuItemVec::from_const_slice(&[]),
         }
     }

@@ -12,6 +12,7 @@ use alloc::collections::BTreeMap;
 use azul_core::{
     callbacks::IFrameCallbackReason,
     dom::{DomId, NodeId},
+    events::EasingFunction,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     task::{Duration, Instant, SystemTick},
@@ -71,14 +72,6 @@ struct ScrollAnimation {
     easing: EasingFunction,
 }
 
-/// Easing functions for smooth scrolling
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EasingFunction {
-    Linear,
-    EaseInOut,
-    EaseOut,
-}
-
 /// Tracks which edges are near scroll boundaries
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct EdgeFlags {
@@ -106,6 +99,10 @@ pub enum ScrollSource {
     Programmatic,
     /// System-initiated scroll (keyboard navigation, find-in-page)
     System,
+    /// Synthetic scroll events (e.g. from testing or scripts)
+    Synthetic,
+    /// Lifecycle scroll events (e.g. during layout or DOM changes)
+    Lifecycle,
 }
 
 /// Scroll event to be processed
@@ -553,13 +550,95 @@ impl ScrollManager {
         self.states.values().any(|state| state.animation.is_some())
     }
 
-    /// Check if we should rebuild hit-test data (scroll positions changed)
-    pub fn needs_hit_test_rebuild(&self) -> bool {
-        self.had_scroll_activity
+    pub fn start_smooth_scroll(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        delta: LogicalPosition,
+        duration: Duration,
+        easing: EasingFunction,
+        now: Instant,
+    ) {
+        let state = self
+            .states
+            .entry((dom_id, node_id))
+            .or_insert_with(|| ScrollState::new(now.clone()));
+
+        let target_offset = LogicalPosition {
+            x: state.current_offset.x + delta.x,
+            y: state.current_offset.y + delta.y,
+        };
+
+        let clamped_target = state.clamp(target_offset);
+
+        state.animation = Some(ScrollAnimation {
+            start_time: now.clone(),
+            duration,
+            start_offset: state.current_offset,
+            target_offset: clamped_target,
+            easing,
+        });
+        state.last_activity = now;
     }
 
-    /// Check if we should re-invoke IFrame callbacks (new DOMs, scroll near edges)
-    pub fn should_check_iframe_callbacks(&self) -> bool {
+    pub fn set_scroll_offset(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        delta: LogicalPosition,
+        now: Instant,
+    ) {
+        let state = self
+            .states
+            .entry((dom_id, node_id))
+            .or_insert_with(|| ScrollState::new(now.clone()));
+
+        let new_offset = LogicalPosition {
+            x: state.current_offset.x + delta.x,
+            y: state.current_offset.y + delta.y,
+        };
+
+        state.current_offset = state.clamp(new_offset);
+        state.animation = None;
+        state.last_activity = now;
+
+        // Reset edge flags when explicitly setting position
+        state.invoked_for_current_edge = false;
+    }
+
+    /// Check if we should rebuild hit-test data (scroll positions changed)
+    pub fn needs_hit_test_rebuild(&mut self, event: &ScrollEvent, now: Instant) -> bool {
+        match event.source {
+            ScrollSource::UserInput => {
+                self.had_scroll_activity = true;
+                // User: momentum scroll
+                self.set_scroll_offset(event.dom_id, event.node_id, event.delta, now);
+            }
+            ScrollSource::Programmatic | ScrollSource::System => {
+                self.had_programmatic_scroll = true;
+                // Programmatic/System: instant scroll
+                self.set_scroll_offset(event.dom_id, event.node_id, event.delta, now);
+            }
+            ScrollSource::Synthetic => {
+                // Synthetic: smooth scroll
+                if let Some(duration) = event.duration {
+                    self.start_smooth_scroll(
+                        event.dom_id,
+                        event.node_id,
+                        event.delta,
+                        duration,
+                        event.easing,
+                        now,
+                    );
+                } else {
+                    self.set_scroll_offset(event.dom_id, event.node_id, event.delta, now);
+                }
+            }
+            ScrollSource::Lifecycle => {
+                // Lifecycle: keine Animation, direkt setzen
+                self.set_scroll_offset(event.dom_id, event.node_id, event.delta, now);
+            }
+        }
         self.had_new_doms || self.had_scroll_activity
     }
 
@@ -603,7 +682,7 @@ impl ScrollManager {
 // ============================================================================
 
 impl ScrollState {
-    fn new(now: Instant) -> Self {
+    pub fn new(now: Instant) -> Self {
         Self {
             current_offset: LogicalPosition::zero(),
             animation: None,
@@ -620,7 +699,7 @@ impl ScrollState {
     }
 
     /// Clamps a position to valid scroll bounds
-    fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
+    pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
         let max_x = (self.content_rect.size.width - self.container_rect.size.width).max(0.0);
         let max_y = (self.content_rect.size.height - self.container_rect.size.height).max(0.0);
 
@@ -631,7 +710,7 @@ impl ScrollState {
     }
 
     /// Checks if this IFrame needs re-invocation based on 5 conditional rules
-    fn check_iframe_reinvoke_condition(
+    pub fn check_iframe_reinvoke_condition(
         &mut self,
         scroll_size: LogicalSize,
     ) -> Option<IFrameCallbackReason> {
@@ -752,7 +831,7 @@ impl From<EdgeType> for EdgeFlags {
 // Easing Functions
 // ============================================================================
 
-fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
+pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
         EasingFunction::Linear => t,
         EasingFunction::EaseOut => 1.0 - (1.0 - t).powi(3), // Cubic ease out

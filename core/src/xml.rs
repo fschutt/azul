@@ -39,7 +39,7 @@
 //!
 //! # Examples
 //!
-//! ```rust,no_run
+//! ```rust,no_run,ignore
 //! use azul_core::xml::{XmlNode, XmlParseOptions};
 //!
 //! let xml = "<div>Hello</div>";

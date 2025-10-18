@@ -94,5 +94,3 @@ pub fn parse_font_fn(
         })
     })
 }
-
-// Removed old text2 callback - text3 handles shaping differently

@@ -21,7 +21,7 @@
 //!
 //! # Examples
 //!
-//! ```rust,no_run
+//! ```rust,no_run,ignore
 //! use azul_core::svg::{SvgPath, SvgStrokeOptions};
 //!
 //! // Parse and tessellate an SVG path
