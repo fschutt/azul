@@ -65,7 +65,7 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
             internal.get_dpi_scale_factor(),
             &crate::desktop::app::CALLBACKS,
             fc_cache,
-            azul_layout::solver2::do_the_relayout,
+            azul_layout::solver3::do_the_relayout,
             |window_state, scroll_states, layout_results| {
                 crate::desktop::wr_translate::fullhittest_new_webrender(
                     &*hit_tester.resolve(),
@@ -151,7 +151,7 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
     //     None,
     //     None,
     //     &None,
-    //     azul_layout::solver2::do_the_relayout,
+    //     azul_layout::solver3::do_the_relayout,
     // );
 
     az_regenerate_display_list(current_window, userdata, _guard);
@@ -675,7 +675,7 @@ pub(crate) fn wm_size(
         current_window.internal.do_quick_resize(
             &image_cache,
             &crate::desktop::app::CALLBACKS,
-            azul_layout::solver2::do_the_relayout,
+            azul_layout::solver3::do_the_relayout,
             &mut *fc_cache,
             &current_window.gl_context_ptr,
             &new_window_state.size,

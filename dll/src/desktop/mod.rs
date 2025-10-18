@@ -11,7 +11,10 @@
 /// state
 pub mod app;
 /// Windowing backend for the platforms window manager (Win32, NSView, X11, Wayland)
-pub mod shell;
+/// OLD: Kept for reference, but disabled to avoid compilation errors during shell2 development
+// pub mod shell;
+/// New windowing backend (shell2) - modern, clean architecture
+pub mod shell2;
 pub use azul_core::{callbacks, task};
 /// CSS type definitions / CSS parsing functions
 #[cfg(any(feature = "css_parser", feature = "native_style"))]
@@ -27,10 +30,12 @@ pub mod resources {
     pub use azul_layout::{font::*, image::*};
 }
 
-mod compositor;
+// OLD: compositor and wr_translate are part of old shell implementation
+// Will be re-implemented as part of shell2
+// mod compositor;
 #[cfg(feature = "logging")]
 mod logging;
-mod wr_translate;
+// mod wr_translate;
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {

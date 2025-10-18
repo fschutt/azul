@@ -295,7 +295,7 @@ pub(crate) fn process_callback_results(
     //     callback_results.css_properties_changed.as_ref(),
     //     callback_results.words_changed.as_ref(),
     //     &callback_results.update_focused_node,
-    //     azul_layout::solver2::do_the_relayout,
+    //     azul_layout::solver3::do_the_relayout,
     // );
 
     // Temporary: skip resize logic until reimplemented
@@ -313,7 +313,7 @@ pub(crate) fn process_callback_results(
                 &mut window.internal.gl_texture_cache,
                 &mut window.internal.renderer_resources,
                 &crate::desktop::app::CALLBACKS,
-                azul_layout::solver2::do_the_relayout,
+                azul_layout::solver3::do_the_relayout,
                 &*fc_cache,
                 &window.internal.current_window_state.size,
                 window.internal.current_window_state.theme,

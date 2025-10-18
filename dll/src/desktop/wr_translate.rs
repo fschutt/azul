@@ -18,7 +18,7 @@ use azul_core::{
         ExternalImageId, ExternalImageType, FontInstanceFlags, FontInstanceKey,
         FontInstanceOptions, FontInstancePlatformOptions, FontKey, FontRenderMode, FontVariation,
         GlyphOptions, IdNamespace, ImageBufferKind, ImageCache, ImageData, ImageDescriptor,
-        ImageDescriptorFlags, ImageDirtyRect, ImageKey, PrimitiveFlags,
+        ImageDescriptorFlags, ImageDirtyRect, ImageKey, ImageMask, PrimitiveFlags,
         RawImageFormat as ImageFormat, ResourceUpdate, SyntheticItalics, TransformKey, UpdateImage,
         UpdateImageResult,
     },
@@ -36,7 +36,9 @@ use azul_css::{
             },
         },
         style::{
-            background::ExtendMode as CssExtendMode, border::BorderStyle as CssBorderStyle,
+            background::ExtendMode as CssExtendMode,
+            border::BorderStyle as CssBorderStyle,
+            border_radius::StyleBorderRadius,
             box_shadow::BoxShadowClipMode as CssBoxShadowClipMode,
             effects::StyleMixBlendMode as CssMixBlendMode,
         },
@@ -511,14 +513,16 @@ pub(crate) fn generate_frame(
     render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
 }
 
-#[inline]
-fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
-    WrImageMask {
-        image: wr_translate_image_key(input.image),
-        rect: wr_translate_logical_rect(input.rect),
-        repeat: input.repeat,
-    }
-}
+// TODO: DisplayListImageMask type renamed to ImageMask
+// Update this function once we know where it's used
+// #[inline]
+// fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
+//     WrImageMask {
+//         image: wr_translate_image_key(input.image),
+//         rect: wr_translate_logical_rect(input.rect),
+//         repeat: input.repeat,
+//     }
+// }
 
 #[inline]
 fn wr_translate_layouted_glyphs(input: &[GlyphInstance]) -> Vec<WrGlyphInstance> {
@@ -862,15 +866,17 @@ pub fn wr_translate_image_format(input: ImageFormat) -> Option<WrImageFormat> {
     }
 }
 
-#[inline(always)]
-pub fn wr_translate_layout_side_offsets(input: CssLayoutSideOffsets) -> WrLayoutSideOffsets {
-    WrLayoutSideOffsets::new(
-        input.top.get(),
-        input.right.get(),
-        input.bottom.get(),
-        input.left.get(),
-    )
-}
+// TODO: CssLayoutSideOffsets type no longer exists in azul-css
+// This function appears to be unused - commented out for now
+// #[inline(always)]
+// pub fn wr_translate_layout_side_offsets(input: CssLayoutSideOffsets) -> WrLayoutSideOffsets {
+//     WrLayoutSideOffsets::new(
+//         input.top.get(),
+//         input.right.get(),
+//         input.bottom.get(),
+//         input.left.get(),
+//     )
+// }
 
 #[inline(always)]
 pub const fn wr_translate_color_u(input: CssColorU) -> WrColorU {

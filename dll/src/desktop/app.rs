@@ -137,20 +137,24 @@ impl App {
 
     /// Returns a list of monitors available on the system
     pub fn get_monitors(&self) -> MonitorVec {
-        #[cfg(target_os = "windows")]
-        {
-            crate::desktop::shell::win32::get_monitors(self)
-        }
+        // TODO: Implement in shell2
+        // For now return empty list until shell2 is complete
+        MonitorVec::from_const_slice(&[])
 
-        #[cfg(target_os = "linux")]
-        {
-            crate::desktop::shell::x11::get_monitors(self)
-        }
+        // #[cfg(target_os = "windows")]
+        // {
+        //     crate::desktop::shell::win32::get_monitors(self)
+        // }
 
-        #[cfg(target_os = "macos")]
-        {
-            crate::desktop::shell::appkit::get_monitors(self)
-        }
+        // #[cfg(target_os = "linux")]
+        // {
+        //     crate::desktop::shell::x11::get_monitors(self)
+        // }
+
+        // #[cfg(target_os = "macos")]
+        // {
+        //     crate::desktop::shell::appkit::get_monitors(self)
+        // }
     }
 
     /// Start the rendering loop for the currently added windows. The run() function
@@ -158,19 +162,25 @@ impl App {
     /// the main application window.
     #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
-        #[cfg(target_os = "windows")]
-        let err = crate::desktop::shell::win32::run(self, root_window);
+        // TODO: Implement shell2 run loop
+        // For now just print a message
+        println!("shell2: Would open window");
+        println!("shell2: Main event loop not yet implemented");
 
-        #[cfg(target_os = "linux")]
-        let err = crate::desktop::shell::x11::run(self, root_window);
+        // Old shell code (commented out until shell2 is complete):
+        // #[cfg(target_os = "windows")]
+        // let err = crate::desktop::shell::win32::run(self, root_window);
 
-        #[cfg(target_os = "macos")]
-        let err = crate::desktop::shell::appkit::run(self, root_window);
+        // #[cfg(target_os = "linux")]
+        // let err = crate::desktop::shell::x11::run(self, root_window);
 
-        if let Err(e) = err {
-            crate::desktop::dialogs::msg_box(&format!("{:?}", e));
-            println!("{:?}", e);
-        }
+        // #[cfg(target_os = "macos")]
+        // let err = crate::desktop::shell::appkit::run(self, root_window);
+
+        // if let Err(e) = err {
+        //     crate::desktop::dialogs::msg_box(&format!("{:?}", e));
+        //     println!("{:?}", e);
+        // }
     }
 }
 

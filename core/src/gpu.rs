@@ -19,6 +19,7 @@
 //! update events to send to the GPU.
 
 use alloc::{collections::BTreeMap, vec::Vec};
+use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
 
@@ -27,7 +28,7 @@ use crate::{
     id::NodeDataContainerRef,
     resources::{OpacityKey, TransformKey},
     styled_dom::StyledDom,
-    transform::{ComputedTransform3D, RotationMode},
+    transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
 };
 
 /// Caches GPU transform and opacity keys and their current values for all nodes.

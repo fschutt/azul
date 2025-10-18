@@ -18,10 +18,9 @@ use azul_css::{
 };
 use azul_layout::callbacks::{Callback, CallbackInfo};
 
-use crate::{
-    dialogs::OptionFileTypeList,
-    widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
-};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::desktop::dialogs::OptionFileTypeList;
+use crate::widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback};
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -190,8 +189,6 @@ impl FileInput {
 }
 
 extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use crate::dialogs::open_file_dialog;
-
     let mut fileinputstatewrapper = match data.downcast_mut::<FileInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -199,16 +196,26 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
 
     // Open file select dialog
-    let user_new_file_selected = match open_file_dialog(
-        fileinputstatewrapper.file_dialog_title.as_str(),
-        fileinputstatewrapper
-            .default_dir
-            .as_ref()
-            .map(|s| s.as_str()),
-        fileinputstatewrapper.file_types.clone(),
-    ) {
-        Some(s) => OptionAzString::Some(s),
-        None => return Update::DoNothing,
+    #[cfg(not(target_arch = "wasm32"))]
+    let user_new_file_selected = {
+        use crate::desktop::dialogs::open_file_dialog;
+        match open_file_dialog(
+            fileinputstatewrapper.file_dialog_title.as_str(),
+            fileinputstatewrapper
+                .default_dir
+                .as_ref()
+                .map(|s| s.as_str()),
+            fileinputstatewrapper.file_types.clone().into(),
+        ) {
+            Some(s) => OptionAzString::Some(s),
+            None => return Update::DoNothing,
+        }
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let user_new_file_selected = {
+        // TODO: Implement wasm32 file dialog
+        return Update::DoNothing;
     };
 
     fileinputstatewrapper.inner.path = user_new_file_selected;

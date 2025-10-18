@@ -39,11 +39,11 @@ use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
 use crate::geom::LogicalPosition;
 
 /// CPU feature detection: true if initialization has been performed
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
+pub(crate) static INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// CPU feature detection: true if AVX instructions are available
-static USE_AVX: AtomicBool = AtomicBool::new(false);
+pub(crate) static USE_AVX: AtomicBool = AtomicBool::new(false);
 /// CPU feature detection: true if SSE instructions are available
-static USE_SSE: AtomicBool = AtomicBool::new(false);
+pub(crate) static USE_SSE: AtomicBool = AtomicBool::new(false);
 
 /// Specifies the coordinate system convention for rotations.
 ///
@@ -770,7 +770,10 @@ impl ComputedTransform3D {
 
     // dual linear combination using AVX instructions on YMM regs
     #[cfg(target_arch = "x86_64")]
-    pub unsafe fn linear_combine_avx8(a01: __m256, b: &ComputedTransform3D) -> __m256 {
+    pub unsafe fn linear_combine_avx8(
+        a01: core::arch::x86_64::__m256,
+        b: &ComputedTransform3D,
+    ) -> core::arch::x86_64::__m256 {
         use core::{
             arch::x86_64::{_mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps},
             mem,
@@ -808,7 +811,7 @@ impl ComputedTransform3D {
     #[inline]
     pub unsafe fn then_avx8(&self, other: &Self) -> Self {
         use core::{
-            arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper},
+            arch::x86_64::{__m256, _mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper},
             mem,
         };
 

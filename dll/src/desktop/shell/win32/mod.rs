@@ -820,7 +820,7 @@ impl Window {
                     &mut initial_resource_updates,
                     &crate::desktop::app::CALLBACKS,
                     fc_cache,
-                    azul_layout::solver2::do_the_relayout,
+                    azul_layout::solver3::do_the_relayout,
                     |window_state, scroll_states, layout_results| {
                         crate::desktop::wr_translate::fullhittest_new_webrender(
                             hit_tester_ref,
@@ -919,7 +919,7 @@ impl Window {
                 internal.do_quick_resize(
                     &image_cache,
                     &crate::desktop::app::CALLBACKS,
-                    azul_layout::solver2::do_the_relayout,
+                    azul_layout::solver3::do_the_relayout,
                     fc_cache,
                     &gl_context_ptr,
                     &size,
@@ -1734,7 +1734,7 @@ unsafe extern "system" fn WindowProc(
                             internal.get_dpi_scale_factor(),
                             &crate::desktop::app::CALLBACKS,
                             fc_cache,
-                            azul_layout::solver2::do_the_relayout,
+                            azul_layout::solver3::do_the_relayout,
                             |window_state, scroll_states, layout_results| {
                                 crate::desktop::wr_translate::fullhittest_new_webrender(
                                     &*hit_tester.resolve(),
@@ -1830,7 +1830,7 @@ unsafe extern "system" fn WindowProc(
                     //     None,
                     //     None,
                     //     &None,
-                    //     azul_layout::solver2::do_the_relayout,
+                    //     azul_layout::solver3::do_the_relayout,
                     // );
 
                     PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
@@ -2647,7 +2647,7 @@ unsafe extern "system" fn WindowProc(
                         let resize_result = current_window.internal.do_quick_resize(
                             &image_cache,
                             &crate::desktop::app::CALLBACKS,
-                            azul_layout::solver2::do_the_relayout,
+                            azul_layout::solver3::do_the_relayout,
                             fc_cache,
                             &current_window.gl_context_ptr,
                             &new_window_state.size,

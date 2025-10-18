@@ -258,7 +258,7 @@ impl Window {
                 &mut initial_resource_updates,
                 &crate::desktop::app::CALLBACKS,
                 fc_cache,
-                azul_layout::solver2::do_the_relayout,
+                azul_layout::solver3::do_the_relayout,
                 |window_state, scroll_states, layout_results| {
                     crate::desktop::wr_translate::fullhittest_new_webrender(
                         &*render_api
@@ -307,7 +307,7 @@ impl Window {
             internal.do_quick_resize(
                 ic1,
                 &crate::desktop::app::CALLBACKS,
-                azul_layout::solver2::do_the_relayout,
+                azul_layout::solver3::do_the_relayout,
                 &mut fc_cache,
                 &gl_context_ptr,
                 &size,

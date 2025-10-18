@@ -154,20 +154,28 @@ impl ColorInput {
 }
 
 extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use crate::dialogs::color_picker_dialog;
-
     let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
     // open the color picker dialog
-    let new_color = match color_picker_dialog(
-        color_input.title.as_str(),
-        Some(color_input.inner.color).into(),
-    ) {
-        Some(s) => s,
-        None => return Update::DoNothing,
+    #[cfg(not(target_arch = "wasm32"))]
+    let new_color = {
+        use crate::desktop::dialogs::color_picker_dialog;
+        match color_picker_dialog(
+            color_input.title.as_str(),
+            Some(color_input.inner.color).into(),
+        ) {
+            Some(s) => s,
+            None => return Update::DoNothing,
+        }
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let new_color = {
+        // TODO: Implement wasm32 color picker using browser's <input type="color">
+        return Update::DoNothing;
     };
 
     // Update the color in the data and the screen
