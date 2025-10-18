@@ -446,12 +446,16 @@ fn test_dom_id_allocation() {
     let mut window =
         LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
 
-    // allocate_dom_id is private, but we can test through next_dom_id
-    assert_eq!(window.next_dom_id, 1, "Should start at 1 (0 is ROOT_ID)");
+    // Note: next_dom_id field no longer exists. DomId allocation is now
+    // managed by IFrameManager::get_or_create_nested_dom_id().
+    // The test still verifies that clear_caches() works correctly.
 
-    // After clearing, it should reset
+    // After clearing, caches should be reset
     window.clear_caches();
-    assert_eq!(window.next_dom_id, 1, "Should reset to 1 after clear");
+    assert!(
+        window.layout_cache.tree.is_none(),
+        "Layout cache should be cleared"
+    );
 }
 
 // ============================================================================
@@ -524,225 +528,235 @@ extern "C" fn test_iframe_callback(
     }
 }
 
+// ============================================================================
+// IFRAME MANAGER TESTS (New Architecture)
+// ============================================================================
+
 #[test]
-fn test_iframe_initial_render() {
-    // Test Rule 1: Initial render - callback should be invoked with InitialRender reason
+fn test_iframe_manager_initial_dom_id_creation() {
+    use azul_core::dom::{DomId, NodeId};
 
-    use azul_core::callbacks::IFrameCallbackReason;
-    use rust_fontconfig::FcFontCache;
+    use crate::iframe::IFrameManager;
 
-    let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+    let mut iframe_manager = IFrameManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node_id = NodeId::new(1);
 
-    let tracker = IFrameCallbackTracker::new();
-    let iframe_data = RefAny::new(tracker.clone());
+    // First call should create a new DomId
+    let child_dom_id = iframe_manager.get_or_create_nested_dom_id(parent_dom, node_id);
 
-    let mut dom = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom.add_child(
-        Dom::iframe(iframe_data, test_iframe_callback)
-            .with_inline_style("width: 300px; height: 200px;".into()),
+    assert_ne!(
+        child_dom_id, parent_dom,
+        "Child DOM should have different ID"
     );
 
-    let css = CssApiWrapper::empty();
-    let styled_dom = StyledDom::new(&mut dom, css);
+    // Second call should return the same DomId
+    let same_dom_id = iframe_manager.get_or_create_nested_dom_id(parent_dom, node_id);
+    assert_eq!(child_dom_id, same_dom_id, "Should return cached DomId");
+}
 
-    let mut window_state = FullWindowState::default();
-    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+#[test]
+fn test_iframe_manager_multiple_iframes() {
+    use azul_core::dom::{DomId, NodeId};
 
-    let result = window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
-    );
+    use crate::iframe::IFrameManager;
 
-    assert!(result.is_ok(), "Layout with IFrame should succeed");
-    assert_eq!(
-        tracker.invocation_count(),
-        1,
-        "Initial render should invoke callback once"
+    let mut iframe_manager = IFrameManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node1 = NodeId::new(1);
+    let node2 = NodeId::new(2);
+
+    let child1 = iframe_manager.get_or_create_nested_dom_id(parent_dom, node1);
+    let child2 = iframe_manager.get_or_create_nested_dom_id(parent_dom, node2);
+
+    assert_ne!(
+        child1, child2,
+        "Different IFrames should have different DomIds"
     );
 }
 
 #[test]
-fn test_iframe_no_reinvoke_same_bounds() {
-    // Test that same bounds and no scroll don't trigger re-invocation
+fn test_iframe_manager_check_reinvoke_initial_render() {
+    use azul_core::{
+        callbacks::IFrameCallbackReason,
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+    };
 
-    use rust_fontconfig::FcFontCache;
+    use crate::{iframe::IFrameManager, scroll::ScrollManager};
 
-    let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+    let mut iframe_manager = IFrameManager::new();
+    let scroll_manager = ScrollManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node_id = NodeId::new(1);
+    let bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 200.0));
 
-    let tracker = IFrameCallbackTracker::new();
-    let iframe_data = RefAny::new(tracker.clone());
+    // First check - should return InitialRender
+    let reason = iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, bounds);
 
-    // First layout
-    let mut dom1 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom1.add_child(
-        Dom::iframe(iframe_data.clone(), test_iframe_callback)
-            .with_inline_style("width: 300px; height: 200px;".into()),
-    );
-
-    let css1 = CssApiWrapper::empty();
-    let styled_dom1 = StyledDom::new(&mut dom1, css1);
-
-    let mut window_state = FullWindowState::default();
-    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
-
-    let _ = window.layout_and_generate_display_list(
-        styled_dom1,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
-    );
-
-    assert_eq!(tracker.invocation_count(), 1, "First layout should invoke");
-
-    // Second layout with same bounds - should NOT re-invoke
-    let mut dom2 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom2.add_child(
-        Dom::iframe(iframe_data.clone(), test_iframe_callback)
-            .with_inline_style("width: 300px; height: 200px;".into()),
-    );
-
-    let css2 = CssApiWrapper::empty();
-    let styled_dom2 = StyledDom::new(&mut dom2, css2);
-
-    let _ = window.layout_and_generate_display_list(
-        styled_dom2,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
-    );
-
-    assert_eq!(
-        tracker.invocation_count(),
-        1,
-        "Same bounds should not re-invoke callback"
+    assert!(reason.is_some(), "Initial render should trigger reinvoke");
+    assert!(
+        matches!(reason, Some(IFrameCallbackReason::InitialRender)),
+        "First invocation should be InitialRender, got {:?}",
+        reason
     );
 }
 
 #[test]
-fn test_iframe_reinvoke_on_bounds_expansion() {
-    // Test Rule 3: Bounds expansion should trigger re-invocation with BoundsExpanded reason
+fn test_iframe_manager_no_reinvoke_same_bounds() {
+    use azul_core::{
+        callbacks::IFrameCallbackReason,
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+    };
 
-    use rust_fontconfig::FcFontCache;
+    use crate::{iframe::IFrameManager, scroll::ScrollManager};
 
-    let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+    let mut iframe_manager = IFrameManager::new();
+    let scroll_manager = ScrollManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node_id = NodeId::new(1);
+    let bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 200.0));
 
-    let tracker = IFrameCallbackTracker::new();
-    let iframe_data = RefAny::new(tracker.clone());
+    // Initial render
+    let _reason = iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, bounds);
+    iframe_manager.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
 
-    // First layout with small IFrame
-    let mut dom1 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom1.add_child(
-        Dom::iframe(iframe_data.clone(), test_iframe_callback)
-            .with_inline_style("width: 300px; height: 200px;".into()),
-    );
+    // Same bounds - should not reinvoke
+    let reason = iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, bounds);
 
-    let css1 = CssApiWrapper::empty();
-    let styled_dom1 = StyledDom::new(&mut dom1, css1);
-
-    let mut window_state = FullWindowState::default();
-    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
-
-    let _ = window.layout_and_generate_display_list(
-        styled_dom1,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
-    );
-
-    assert_eq!(tracker.invocation_count(), 1);
-
-    // Second layout with expanded IFrame bounds
-    let mut dom2 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom2.add_child(
-        Dom::iframe(iframe_data.clone(), test_iframe_callback)
-            .with_inline_style("width: 500px; height: 400px;".into()),
-    );
-
-    let css2 = CssApiWrapper::empty();
-    let styled_dom2 = StyledDom::new(&mut dom2, css2);
-
-    let _ = window.layout_and_generate_display_list(
-        styled_dom2,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
-    );
-
-    assert_eq!(
-        tracker.invocation_count(),
-        2,
-        "Expanded bounds should trigger re-invocation"
+    assert!(
+        reason.is_none(),
+        "Same bounds should not trigger reinvoke, got {:?}",
+        reason
     );
 }
 
 #[test]
-fn test_iframe_no_reinvoke_on_bounds_shrink() {
-    // Test that bounds shrinking does NOT trigger re-invocation
+fn test_iframe_manager_reinvoke_on_bounds_expansion() {
+    use azul_core::{
+        callbacks::IFrameCallbackReason,
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+    };
 
-    use rust_fontconfig::FcFontCache;
+    use crate::{iframe::IFrameManager, scroll::ScrollManager};
 
-    let mut window =
-        LayoutWindow::new(FcFontCache::default()).expect("Failed to create layout window");
+    let mut iframe_manager = IFrameManager::new();
+    let scroll_manager = ScrollManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node_id = NodeId::new(1);
+    let initial_bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 200.0));
 
-    let tracker = IFrameCallbackTracker::new();
-    let iframe_data = RefAny::new(tracker.clone());
+    // Initial render
+    iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, initial_bounds);
+    iframe_manager.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
 
-    // First layout with large IFrame
-    let mut dom1 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom1.add_child(
-        Dom::iframe(iframe_data.clone(), test_iframe_callback)
-            .with_inline_style("width: 500px; height: 400px;".into()),
+    // Set scroll size to match initial bounds (IFrame callback would do this)
+    iframe_manager.update_iframe_info(
+        parent_dom,
+        node_id,
+        LogicalSize::new(300.0, 200.0), // scroll_size = initial bounds
+        LogicalSize::new(300.0, 200.0), // virtual_scroll_size
     );
 
-    let css1 = CssApiWrapper::empty();
-    let styled_dom1 = StyledDom::new(&mut dom1, css1);
+    // Expanded bounds - should reinvoke because container expanded beyond scroll_size
+    let expanded_bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(500.0, 400.0));
+    let reason =
+        iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, expanded_bounds);
 
-    let mut window_state = FullWindowState::default();
-    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    assert!(reason.is_some(), "Expanded bounds should trigger reinvoke");
+    assert!(
+        matches!(reason, Some(IFrameCallbackReason::BoundsExpanded)),
+        "Should be BoundsExpanded reason, got {:?}",
+        reason
+    );
+}
 
-    let _ = window.layout_and_generate_display_list(
-        styled_dom1,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
+#[test]
+fn test_iframe_manager_no_reinvoke_on_bounds_shrink() {
+    use azul_core::{
+        callbacks::IFrameCallbackReason,
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+    };
+
+    use crate::{iframe::IFrameManager, scroll::ScrollManager};
+
+    let mut iframe_manager = IFrameManager::new();
+    let scroll_manager = ScrollManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node_id = NodeId::new(1);
+    let initial_bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(500.0, 400.0));
+
+    // Initial render
+    iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, initial_bounds);
+    iframe_manager.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
+
+    // Shrunken bounds - should NOT reinvoke
+    let shrunken_bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 200.0));
+    let reason =
+        iframe_manager.check_reinvoke(parent_dom, node_id, &scroll_manager, shrunken_bounds);
+
+    assert!(
+        reason.is_none(),
+        "Shrunken bounds should not trigger reinvoke (lazy loading), got {:?}",
+        reason
+    );
+}
+
+#[test]
+fn test_iframe_manager_update_scroll_info() {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        geom::LogicalSize,
+    };
+
+    use crate::iframe::IFrameManager;
+
+    let mut iframe_manager = IFrameManager::new();
+    let parent_dom = DomId::ROOT_ID;
+    let node_id = NodeId::new(1);
+
+    // Update scroll info
+    iframe_manager.update_iframe_info(
+        parent_dom,
+        node_id,
+        LogicalSize::new(800.0, 600.0),   // scroll_size
+        LogicalSize::new(1600.0, 1200.0), // virtual_scroll_size
     );
 
-    assert_eq!(tracker.invocation_count(), 1);
+    // Verify info was stored (can't directly access, but it should not panic)
+    // Future: Add getter methods to IFrameManager to verify state
+}
 
-    // Second layout with shrunk IFrame bounds - should NOT re-invoke
-    let mut dom2 = Dom::body().with_inline_style("width: 800px; height: 600px;".into());
-    dom2.add_child(
-        Dom::iframe(iframe_data.clone(), test_iframe_callback)
-            .with_inline_style("width: 300px; height: 200px;".into()),
+#[test]
+fn test_iframe_manager_nested_iframes() {
+    use azul_core::dom::{DomId, NodeId};
+
+    use crate::iframe::IFrameManager;
+
+    let mut iframe_manager = IFrameManager::new();
+
+    // Parent IFrame
+    let root_dom = DomId::ROOT_ID;
+    let parent_iframe_node = NodeId::new(1);
+    let parent_child_dom = iframe_manager.get_or_create_nested_dom_id(root_dom, parent_iframe_node);
+
+    // Nested IFrame (child of the first IFrame)
+    let nested_iframe_node = NodeId::new(2);
+    let nested_child_dom =
+        iframe_manager.get_or_create_nested_dom_id(parent_child_dom, nested_iframe_node);
+
+    assert_ne!(
+        root_dom, parent_child_dom,
+        "Parent child DOM should be different"
     );
-
-    let css2 = CssApiWrapper::empty();
-    let styled_dom2 = StyledDom::new(&mut dom2, css2);
-
-    let _ = window.layout_and_generate_display_list(
-        styled_dom2,
-        &window_state,
-        &azul_core::resources::RendererResources::default(),
-        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
-        &mut None,
+    assert_ne!(
+        parent_child_dom, nested_child_dom,
+        "Nested child DOM should be different"
     );
-
-    assert_eq!(
-        tracker.invocation_count(),
-        1,
-        "Shrunk bounds should NOT trigger re-invocation"
-    );
+    assert_ne!(root_dom, nested_child_dom, "All DOMs should be unique");
 }
 
 // Note: Tests for Rule 4 (scroll near edge) and Rule 5 (scroll beyond content)
@@ -837,7 +851,7 @@ fn test_clear_caches_resets_all_state() {
     // Verify everything was cleared
     assert!(window.get_scroll_position(dom_id, node_id).is_none());
     assert!(window.get_layout_result(&dom_id).is_none());
-    assert_eq!(window.next_dom_id, 1);
+    // Note: next_dom_id removed - DomId allocation now in IFrameManager
     assert!(window.layout_cache.tree.is_none());
     assert!(window.layout_cache.viewport.is_none());
 }

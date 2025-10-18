@@ -60,16 +60,21 @@ impl IFrameManager {
     }
 
     pub fn get_or_create_nested_dom_id(&mut self, dom_id: DomId, node_id: NodeId) -> DomId {
-        let state = self.states.entry((dom_id, node_id)).or_insert_with(|| {
-            IFrameState::new(DomId {
-                inner: self.next_dom_id,
-            })
-        });
-        if state.nested_dom_id.inner == 0 {
-            // new entry
-            self.next_dom_id += 1;
+        let key = (dom_id, node_id);
+
+        // Check if already exists
+        if let Some(state) = self.states.get(&key) {
+            return state.nested_dom_id;
         }
-        state.nested_dom_id
+
+        // Create new nested DOM ID
+        let nested_dom_id = DomId {
+            inner: self.next_dom_id,
+        };
+        self.next_dom_id += 1;
+
+        self.states.insert(key, IFrameState::new(nested_dom_id));
+        nested_dom_id
     }
 
     pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {

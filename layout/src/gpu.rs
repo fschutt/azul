@@ -12,7 +12,7 @@ use azul_core::{
     geom::LogicalSize,
     gpu::{GpuEventChanges, GpuScrollbarOpacityEvent, GpuTransformKeyEvent, GpuValueCache},
     resources::{OpacityKey, TransformKey},
-    task::{Duration, Instant},
+    task::{Duration, Instant, SystemTimeDiff},
     transform::{ComputedTransform3D, RotationMode},
 };
 
@@ -31,7 +31,10 @@ pub struct GpuStateManager {
 
 impl Default for GpuStateManager {
     fn default() -> Self {
-        Self::new(Duration::from_millis(500), Duration::from_millis(200))
+        Self::new(
+            Duration::System(SystemTimeDiff::from_millis(500)),
+            Duration::System(SystemTimeDiff::from_millis(200)),
+        )
     }
 }
 
@@ -93,9 +96,9 @@ impl GpuStateManager {
             let content_size = node
                 .inline_layout_result
                 .as_ref()
-                .map(|l| LayoutSize {
-                    width: l.content_size.width,
-                    height: l.content_size.height,
+                .map(|l| LogicalSize {
+                    width: l.bounds.width,
+                    height: l.bounds.height,
                 })
                 .unwrap_or(container_size);
 

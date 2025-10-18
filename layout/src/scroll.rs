@@ -132,7 +132,7 @@ impl ScrollManager {
 
     pub fn process_scroll_event(&mut self, event: ScrollEvent, now: Instant) -> bool {
         self.had_scroll_activity = true;
-        if event.source == EventSource::Programmatic || event.source == EventSource::System {
+        if event.source == EventSource::Programmatic || event.source == EventSource::User {
             self.had_programmatic_scroll = true;
         }
 
