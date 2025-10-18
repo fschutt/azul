@@ -568,8 +568,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let scrollbar_changed = {
         let current_node = tree.get(node_index).unwrap();
         match &current_node.scrollbar_info {
-            None => scrollbar_info.needs_reflow(), /* First layout, check if scrollbars will
-                                                     * reduce size */
+            None => scrollbar_info.needs_reflow(), /* First layout, check if scrollbars will */
+            // reduce size
             Some(old_info) => {
                 // Compare if scrollbar necessity changed
                 old_info.needs_horizontal != scrollbar_info.needs_horizontal

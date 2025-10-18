@@ -326,15 +326,46 @@ pub(crate) fn synchronize_gpu_values(
     let floats = layout_results
         .iter()
         .flat_map(|lr| {
-            lr.gpu_value_cache
+            // Collect CSS opacity keys
+            let mut opacity_floats = lr
+                .gpu_value_cache
                 .opacity_keys
                 .iter()
                 .filter_map(|(nid, key)| {
                     let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
                     Some((key, *value))
                 })
-                .collect::<Vec<_>>()
-                .into_iter()
+                .collect::<Vec<_>>();
+
+            // Collect vertical scrollbar opacity keys
+            opacity_floats.extend(
+                lr.gpu_value_cache
+                    .scrollbar_v_opacity_keys
+                    .iter()
+                    .filter_map(|(key_tuple, key)| {
+                        let value = lr
+                            .gpu_value_cache
+                            .scrollbar_v_opacity_values
+                            .get(key_tuple)?;
+                        Some((key, *value))
+                    }),
+            );
+
+            // Collect horizontal scrollbar opacity keys
+            opacity_floats.extend(
+                lr.gpu_value_cache
+                    .scrollbar_h_opacity_keys
+                    .iter()
+                    .filter_map(|(key_tuple, key)| {
+                        let value = lr
+                            .gpu_value_cache
+                            .scrollbar_h_opacity_values
+                            .get(key_tuple)?;
+                        Some((key, *value))
+                    }),
+            );
+
+            opacity_floats.into_iter()
         })
         .map(|(k, v)| WrPropertyValue {
             key: WrPropertyBindingKey::new(k.id as u64),

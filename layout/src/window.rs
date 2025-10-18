@@ -229,6 +229,7 @@ impl LayoutWindow {
         mut styled_dom: StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<DisplayList, crate::solver3::LayoutError> {
         // Assign root DomId if not set
@@ -268,6 +269,23 @@ impl LayoutWindow {
 
         // Store the layout result
         if let Some(tree) = self.layout_cache.tree.clone() {
+            // Synchronize scrollbar opacity values with GPU cache
+            // This enables GPU-animated scrollbar fading without display list updates
+            let scrollbar_opacity_events = self.synchronize_scrollbar_opacity(
+                dom_id,
+                &tree,
+                system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )), // fade_delay: 500ms
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )), // fade_duration: 200ms
+            );
+
+            // TODO: Store scrollbar_opacity_events somewhere if needed for debugging
+            // For now, the GPU cache is already updated, which is what matters
+
             self.layout_results.insert(
                 dom_id,
                 DomLayoutResult {
@@ -294,9 +312,14 @@ impl LayoutWindow {
                 "DEBUG: Processing IFrame node {:?} with bounds {:?}",
                 node_id, bounds
             );
-            if let Some((child_dom_id, _child_display_list)) =
-                self.invoke_iframe_callback(dom_id, node_id, bounds, window_state, debug_messages)
-            {
+            if let Some((child_dom_id, _child_display_list)) = self.invoke_iframe_callback(
+                dom_id,
+                node_id,
+                bounds,
+                window_state,
+                system_callbacks,
+                debug_messages,
+            ) {
                 eprintln!(
                     "DEBUG: IFrame callback invoked successfully, child_dom_id = {:?}",
                     child_dom_id
@@ -329,6 +352,7 @@ impl LayoutWindow {
         styled_dom: StyledDom,
         new_size: LogicalSize,
         renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<DisplayList, crate::solver3::LayoutError> {
         // Create a temporary FullWindowState with the new size
@@ -341,6 +365,7 @@ impl LayoutWindow {
             styled_dom,
             &window_state,
             renderer_resources,
+            system_callbacks,
             debug_messages,
         )
     }
@@ -519,6 +544,7 @@ impl LayoutWindow {
         node_id: NodeId,
         bounds: LogicalRect,
         window_state: &FullWindowState,
+        system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<(DomId, DisplayList)> {
         eprintln!(
@@ -560,6 +586,7 @@ impl LayoutWindow {
             &iframe_node,
             bounds,
             window_state,
+            system_callbacks,
             debug_messages,
         )
     }
@@ -593,15 +620,11 @@ impl LayoutWindow {
         iframe_node: &azul_core::dom::IFrameNode,
         bounds: LogicalRect,
         window_state: &FullWindowState,
+        system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<(DomId, DisplayList)> {
-        use azul_core::task::Instant;
-
-        // Get current time for scroll manager
-        #[cfg(feature = "std")]
-        let now = Instant::System(std::time::Instant::now().into());
-        #[cfg(not(feature = "std"))]
-        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+        // Get current time from system callbacks
+        let now = (system_callbacks.get_system_time_fn.cb)();
 
         // Get current scroll offset for this IFrame node
         let scroll_offset = self
@@ -730,6 +753,19 @@ impl LayoutWindow {
 
         // Store the child layout result
         if let Some(tree) = child_layout_cache.tree.clone() {
+            // Synchronize scrollbar opacity for child DOM (IFrame)
+            let _child_scrollbar_opacity_events = self.synchronize_scrollbar_opacity(
+                child_dom_id,
+                &tree,
+                system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )), // fade_delay: 500ms
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )), // fade_duration: 200ms
+            );
+
             self.layout_results.insert(
                 child_dom_id,
                 DomLayoutResult {
@@ -1024,7 +1060,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         layout_tree: &LayoutTree<ParsedFont>,
-        now: Instant,
+        system_callbacks: &ExternalSystemCallbacks,
         fade_delay: azul_core::task::Duration,
         fade_duration: azul_core::task::Duration,
     ) -> Vec<azul_core::gpu::GpuScrollbarOpacityEvent> {
@@ -1032,6 +1068,9 @@ impl LayoutWindow {
 
         let mut events = Vec::new();
         let gpu_cache = self.gpu_value_cache.entry(dom_id).or_default();
+
+        // Get current time from system callbacks
+        let now = (system_callbacks.get_system_time_fn.cb)();
 
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
