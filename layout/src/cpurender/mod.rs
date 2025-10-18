@@ -141,6 +141,7 @@ fn render_display_list(
                 bounds,
                 color,
                 orientation,
+                opacity_key: _, // Ignored in CPU rendering - use color.a directly
             } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();

@@ -564,8 +564,25 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         to_overflow_behavior(overflow_y),
     );
 
-    if scrollbar_info.needs_reflow() {
+    // Check if scrollbar situation changed compared to previous layout
+    let scrollbar_changed = {
+        let current_node = tree.get(node_index).unwrap();
+        match &current_node.scrollbar_info {
+            None => scrollbar_info.needs_reflow(), /* First layout, check if scrollbars will
+                                                     * reduce size */
+            Some(old_info) => {
+                // Compare if scrollbar necessity changed
+                old_info.needs_horizontal != scrollbar_info.needs_horizontal
+                    || old_info.needs_vertical != scrollbar_info.needs_vertical
+            }
+        }
+    };
+
+    if scrollbar_changed {
         *reflow_needed_for_scrollbars = true;
+        // Store the new scrollbar info before returning
+        let current_node = tree.get_mut(node_index).unwrap();
+        current_node.scrollbar_info = Some(scrollbar_info);
         return Ok(());
     }
 
@@ -575,6 +592,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // --- Phase 4: Update self and recurse to children ---
     let current_node = tree.get_mut(node_index).unwrap();
     current_node.used_size = Some(final_used_size);
+    current_node.scrollbar_info = Some(scrollbar_info); // Store scrollbar info
 
     // The absolute position of this node's content-box for its children.
     let self_content_box_pos = LogicalPosition::new(

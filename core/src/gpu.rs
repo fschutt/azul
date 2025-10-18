@@ -23,7 +23,7 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use azul_css::props::{basic::LayoutSize, style::StyleTransformOrigin};
 
 use crate::{
-    dom::NodeId,
+    dom::{DomId, NodeId},
     id::NodeDataContainerRef,
     resources::{OpacityKey, TransformKey},
     styled_dom::StyledDom,
@@ -42,12 +42,20 @@ use crate::{
 /// * `current_transform_values` - Current computed transform for each node
 /// * `opacity_keys` - Maps node IDs to their WebRender opacity keys
 /// * `current_opacity_values` - Current opacity value for each node
+/// * `scrollbar_v_opacity_keys` - Maps (DomId, NodeId) to vertical scrollbar opacity keys
+/// * `scrollbar_h_opacity_keys` - Maps (DomId, NodeId) to horizontal scrollbar opacity keys
+/// * `scrollbar_v_opacity_values` - Current vertical scrollbar opacity values
+/// * `scrollbar_h_opacity_values` - Current horizontal scrollbar opacity values
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuValueCache {
     pub transform_keys: BTreeMap<NodeId, TransformKey>,
     pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
     pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
     pub current_opacity_values: BTreeMap<NodeId, f32>,
+    pub scrollbar_v_opacity_keys: BTreeMap<(DomId, NodeId), OpacityKey>,
+    pub scrollbar_h_opacity_keys: BTreeMap<(DomId, NodeId), OpacityKey>,
+    pub scrollbar_v_opacity_values: BTreeMap<(DomId, NodeId), f32>,
+    pub scrollbar_h_opacity_values: BTreeMap<(DomId, NodeId), f32>,
 }
 
 /// Represents a change to a GPU transform key.
@@ -244,20 +252,43 @@ impl GpuValueCache {
         GpuEventChanges {
             transform_key_changes: all_current_transform_events,
             opacity_key_changes: all_current_opacity_events,
+            scrollbar_opacity_changes: Vec::new(), // Filled by separate synchronization
         }
     }
 }
 
+/// Represents a change to a scrollbar opacity key.
+///
+/// Scrollbar opacity is managed separately from CSS opacity to enable
+/// independent fading animations without affecting element opacity.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum GpuScrollbarOpacityEvent {
+    /// A vertical scrollbar was added to a node
+    VerticalAdded(DomId, NodeId, OpacityKey, f32),
+    /// A vertical scrollbar opacity was changed
+    VerticalChanged(DomId, NodeId, OpacityKey, f32, f32),
+    /// A vertical scrollbar was removed from a node
+    VerticalRemoved(DomId, NodeId, OpacityKey),
+    /// A horizontal scrollbar was added to a node
+    HorizontalAdded(DomId, NodeId, OpacityKey, f32),
+    /// A horizontal scrollbar opacity was changed
+    HorizontalChanged(DomId, NodeId, OpacityKey, f32, f32),
+    /// A horizontal scrollbar was removed from a node
+    HorizontalRemoved(DomId, NodeId, OpacityKey),
+}
+
 /// Contains all GPU-related change events from a cache synchronization.
 ///
-/// This structure groups transform and opacity changes together for efficient
-/// batch processing when updating WebRender.
+/// This structure groups transform, opacity, and scrollbar opacity changes together
+/// for efficient batch processing when updating WebRender.
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuEventChanges {
     /// All transform key changes (additions, modifications, removals)
     pub transform_key_changes: Vec<GpuTransformKeyEvent>,
     /// All opacity key changes (additions, modifications, removals)
     pub opacity_key_changes: Vec<GpuOpacityKeyEvent>,
+    /// All scrollbar opacity key changes (additions, modifications, removals)
+    pub scrollbar_opacity_changes: Vec<GpuScrollbarOpacityEvent>,
 }
 
 impl GpuEventChanges {
@@ -266,9 +297,11 @@ impl GpuEventChanges {
         Self::default()
     }
 
-    /// Returns `true` if there are no transform or opacity changes.
+    /// Returns `true` if there are no transform, opacity, or scrollbar opacity changes.
     pub fn is_empty(&self) -> bool {
-        self.transform_key_changes.is_empty() && self.opacity_key_changes.is_empty()
+        self.transform_key_changes.is_empty()
+            && self.opacity_key_changes.is_empty()
+            && self.scrollbar_opacity_changes.is_empty()
     }
 
     /// Merges another `GpuEventChanges` into this one, consuming the other.
@@ -279,6 +312,8 @@ impl GpuEventChanges {
             .extend(other.transform_key_changes.drain(..));
         self.opacity_key_changes
             .extend(other.opacity_key_changes.drain(..));
+        self.scrollbar_opacity_changes
+            .extend(other.scrollbar_opacity_changes.drain(..));
     }
 }
 

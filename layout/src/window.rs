@@ -249,6 +249,9 @@ impl LayoutWindow {
         // Clone the styled_dom before moving it
         let styled_dom_clone = styled_dom.clone();
 
+        // Get GPU value cache for this DOM
+        let gpu_cache = self.gpu_value_cache.get(&dom_id);
+
         // Call the solver3 layout engine
         let mut display_list = solver3::layout_document(
             &mut self.layout_cache,
@@ -259,6 +262,8 @@ impl LayoutWindow {
             &scroll_offsets,
             &self.selections,
             debug_messages,
+            gpu_cache,
+            dom_id,
         )?;
 
         // Store the layout result
@@ -706,6 +711,9 @@ impl LayoutWindow {
             viewport: None,
         };
 
+        // Get GPU value cache for the child DOM
+        let child_gpu_cache = self.gpu_value_cache.get(&child_dom_id);
+
         let child_display_list = solver3::layout_document(
             &mut child_layout_cache,
             &mut self.text_cache,
@@ -715,6 +723,8 @@ impl LayoutWindow {
             &child_scroll_offsets,
             &self.selections,
             debug_messages,
+            child_gpu_cache,
+            child_dom_id,
         )
         .ok()?;
 
@@ -992,6 +1002,172 @@ impl LayoutWindow {
     // 2. Traversing the layout tree to find nodes under the cursor
     // 3. Handling z-index and stacking contexts
     // 4. Building the FullHitTest structure
+
+    /// Synchronize scrollbar opacity values with the GPU value cache.
+    ///
+    /// This method updates GPU opacity keys for all scrollbars based on scroll activity
+    /// tracked by the ScrollManager. It enables smooth scrollbar fading without
+    /// requiring display list regeneration.
+    ///
+    /// # Arguments
+    ///
+    /// * `dom_id` - The DOM to synchronize scrollbar opacity for
+    /// * `layout_tree` - The layout tree containing scrollbar information
+    /// * `now` - Current timestamp for calculating fade progress
+    /// * `fade_delay` - Delay before scrollbar starts fading (e.g., 500ms)
+    /// * `fade_duration` - Duration of the fade animation (e.g., 200ms)
+    ///
+    /// # Returns
+    ///
+    /// A vector of GPU scrollbar opacity change events
+    pub fn synchronize_scrollbar_opacity(
+        &mut self,
+        dom_id: DomId,
+        layout_tree: &LayoutTree<ParsedFont>,
+        now: Instant,
+        fade_delay: azul_core::task::Duration,
+        fade_duration: azul_core::task::Duration,
+    ) -> Vec<azul_core::gpu::GpuScrollbarOpacityEvent> {
+        use azul_core::{gpu::GpuScrollbarOpacityEvent, resources::OpacityKey};
+
+        let mut events = Vec::new();
+        let gpu_cache = self.gpu_value_cache.entry(dom_id).or_default();
+
+        // Iterate over all nodes with scrollbar info
+        for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
+            // Check if node needs scrollbars
+            let scrollbar_info = match &node.scrollbar_info {
+                Some(info) => info,
+                None => continue,
+            };
+
+            let node_id = match node.dom_node_id {
+                Some(nid) => nid,
+                None => continue, // Skip anonymous boxes
+            };
+
+            // Calculate current opacity from ScrollManager
+            let vertical_opacity = if scrollbar_info.needs_vertical {
+                self.scroll_states.get_scrollbar_opacity(
+                    dom_id,
+                    node_id,
+                    now.clone(),
+                    fade_delay,
+                    fade_duration,
+                )
+            } else {
+                0.0
+            };
+
+            let horizontal_opacity = if scrollbar_info.needs_horizontal {
+                self.scroll_states.get_scrollbar_opacity(
+                    dom_id,
+                    node_id,
+                    now.clone(),
+                    fade_delay,
+                    fade_duration,
+                )
+            } else {
+                0.0
+            };
+
+            // Handle vertical scrollbar
+            if scrollbar_info.needs_vertical && vertical_opacity > 0.001 {
+                let key = (dom_id, node_id);
+                let existing = gpu_cache.scrollbar_v_opacity_values.get(&key);
+
+                match existing {
+                    None => {
+                        let opacity_key = OpacityKey::unique();
+                        gpu_cache.scrollbar_v_opacity_keys.insert(key, opacity_key);
+                        gpu_cache
+                            .scrollbar_v_opacity_values
+                            .insert(key, vertical_opacity);
+                        events.push(GpuScrollbarOpacityEvent::VerticalAdded(
+                            dom_id,
+                            node_id,
+                            opacity_key,
+                            vertical_opacity,
+                        ));
+                    }
+                    Some(&old_opacity) if (old_opacity - vertical_opacity).abs() > 0.001 => {
+                        let opacity_key = gpu_cache.scrollbar_v_opacity_keys[&key];
+                        gpu_cache
+                            .scrollbar_v_opacity_values
+                            .insert(key, vertical_opacity);
+                        events.push(GpuScrollbarOpacityEvent::VerticalChanged(
+                            dom_id,
+                            node_id,
+                            opacity_key,
+                            old_opacity,
+                            vertical_opacity,
+                        ));
+                    }
+                    _ => {}
+                }
+            } else {
+                // Remove if scrollbar no longer needed or fully transparent
+                let key = (dom_id, node_id);
+                if let Some(opacity_key) = gpu_cache.scrollbar_v_opacity_keys.remove(&key) {
+                    gpu_cache.scrollbar_v_opacity_values.remove(&key);
+                    events.push(GpuScrollbarOpacityEvent::VerticalRemoved(
+                        dom_id,
+                        node_id,
+                        opacity_key,
+                    ));
+                }
+            }
+
+            // Handle horizontal scrollbar (same logic)
+            if scrollbar_info.needs_horizontal && horizontal_opacity > 0.001 {
+                let key = (dom_id, node_id);
+                let existing = gpu_cache.scrollbar_h_opacity_values.get(&key);
+
+                match existing {
+                    None => {
+                        let opacity_key = OpacityKey::unique();
+                        gpu_cache.scrollbar_h_opacity_keys.insert(key, opacity_key);
+                        gpu_cache
+                            .scrollbar_h_opacity_values
+                            .insert(key, horizontal_opacity);
+                        events.push(GpuScrollbarOpacityEvent::HorizontalAdded(
+                            dom_id,
+                            node_id,
+                            opacity_key,
+                            horizontal_opacity,
+                        ));
+                    }
+                    Some(&old_opacity) if (old_opacity - horizontal_opacity).abs() > 0.001 => {
+                        let opacity_key = gpu_cache.scrollbar_h_opacity_keys[&key];
+                        gpu_cache
+                            .scrollbar_h_opacity_values
+                            .insert(key, horizontal_opacity);
+                        events.push(GpuScrollbarOpacityEvent::HorizontalChanged(
+                            dom_id,
+                            node_id,
+                            opacity_key,
+                            old_opacity,
+                            horizontal_opacity,
+                        ));
+                    }
+                    _ => {}
+                }
+            } else {
+                // Remove if scrollbar no longer needed or fully transparent
+                let key = (dom_id, node_id);
+                if let Some(opacity_key) = gpu_cache.scrollbar_h_opacity_keys.remove(&key) {
+                    gpu_cache.scrollbar_h_opacity_values.remove(&key);
+                    events.push(GpuScrollbarOpacityEvent::HorizontalRemoved(
+                        dom_id,
+                        node_id,
+                        opacity_key,
+                    ));
+                }
+            }
+        }
+
+        events
+    }
 }
 
 /// Result of a layout operation,包含display list和可能的warnings/debug信息.

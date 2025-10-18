@@ -107,6 +107,9 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     pub baseline: Option<f32>,
     /// Optional layouted text that this layout node carries
     pub inline_layout_result: Option<Arc<UnifiedLayout<T>>>,
+    /// Cached scrollbar information (calculated during layout)
+    /// Used to determine if scrollbars appeared/disappeared requiring reflow
+    pub scrollbar_info: Option<crate::solver3::fc::ScrollbarInfo>,
 }
 
 /// Types of anonymous boxes that can be generated
@@ -467,6 +470,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             relative_position: None,
             baseline: None,
             inline_layout_result: None,
+            scrollbar_info: None,
         });
         self.nodes[parent].children.push(index);
         index
@@ -496,6 +500,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             relative_position: None,
             baseline: None,
             inline_layout_result: None,
+            scrollbar_info: None,
         });
         if let Some(p) = parent {
             self.nodes[p].children.push(index);

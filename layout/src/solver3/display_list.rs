@@ -118,11 +118,15 @@ pub enum DisplayListItem {
         bounds: LogicalRect,
         key: ImageKey,
     },
-    /// A dedicated primitive for a scrollbar.
+    /// A dedicated primitive for a scrollbar with optional GPU-animated opacity.
     ScrollBar {
         bounds: LogicalRect,
         color: ColorU,
         orientation: ScrollbarOrientation,
+        /// Optional opacity key for GPU-side fading animation.
+        /// If present, the renderer will use this key to look up dynamic opacity.
+        /// If None, the alpha channel of `color` is used directly.
+        opacity_key: Option<azul_core::resources::OpacityKey>,
     },
 
     /// An embedded IFrame that references a child DOM with its own display list.
@@ -218,13 +222,15 @@ impl DisplayListBuilder {
         bounds: LogicalRect,
         color: ColorU,
         orientation: ScrollbarOrientation,
+        opacity_key: Option<azul_core::resources::OpacityKey>,
     ) {
-        if color.a > 0 {
-            // Optimization: Don't draw fully transparent items.
+        if color.a > 0 || opacity_key.is_some() {
+            // Optimization: Don't draw fully transparent items without opacity keys.
             self.items.push(DisplayListItem::ScrollBar {
                 bounds,
                 color,
                 orientation,
+                opacity_key,
             });
         }
     }
@@ -328,6 +334,8 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     tree: &LayoutTree<T>,
     absolute_positions: &BTreeMap<usize, LogicalPosition>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
     ctx.debug_log("Generating display list");
 
@@ -335,7 +343,13 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         tree,
         absolute_positions,
     };
-    let mut generator = DisplayListGenerator::new(ctx, scroll_offsets, &positioned_tree);
+    let mut generator = DisplayListGenerator::new(
+        ctx,
+        scroll_offsets,
+        &positioned_tree,
+        gpu_value_cache,
+        dom_id,
+    );
     let mut builder = DisplayListBuilder::new();
 
     // 1. Build a tree of stacking contexts, which defines the global paint order.
@@ -357,6 +371,8 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     ctx: &'a LayoutContext<'b, T, Q>,
     scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
     positioned_tree: &'a PositionedTree<'a, T>,
+    gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
+    dom_id: azul_core::dom::DomId,
 }
 
 /// Represents a node in the CSS stacking context tree, not the DOM tree.
@@ -378,11 +394,15 @@ where
         ctx: &'a LayoutContext<'b, T, Q>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a, T>,
+        gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
+        dom_id: azul_core::dom::DomId,
     ) -> Self {
         Self {
             ctx,
             scroll_offsets,
             positioned_tree,
+            gpu_value_cache,
+            dom_id,
         }
     }
 
@@ -777,7 +797,21 @@ where
 
         // Check if we need to draw scrollbars for this node.
         let scrollbar_info = get_scrollbar_info_from_layout(node); // This data would be cached from the layout phase.
+
+        // Get node_id for GPU cache lookup
+        let node_id = node.dom_node_id;
+
         if scrollbar_info.needs_vertical {
+            // Look up opacity key from GPU cache
+            let opacity_key = node_id.and_then(|nid| {
+                self.gpu_value_cache.and_then(|cache| {
+                    cache
+                        .scrollbar_v_opacity_keys
+                        .get(&(self.dom_id, nid))
+                        .copied()
+                })
+            });
+
             // Calculate scrollbar bounds based on paint_rect
             let sb_bounds = LogicalRect {
                 origin: LogicalPosition::new(
@@ -790,9 +824,20 @@ where
                 sb_bounds,
                 ColorU::new(192, 192, 192, 255),
                 ScrollbarOrientation::Vertical,
+                opacity_key,
             );
         }
         if scrollbar_info.needs_horizontal {
+            // Look up opacity key from GPU cache
+            let opacity_key = node_id.and_then(|nid| {
+                self.gpu_value_cache.and_then(|cache| {
+                    cache
+                        .scrollbar_h_opacity_keys
+                        .get(&(self.dom_id, nid))
+                        .copied()
+                })
+            });
+
             let sb_bounds = LogicalRect {
                 origin: LogicalPosition::new(
                     paint_rect.origin.x,
@@ -804,6 +849,7 @@ where
                 sb_bounds,
                 ColorU::new(192, 192, 192, 255),
                 ScrollbarOrientation::Horizontal,
+                opacity_key,
             );
         }
 

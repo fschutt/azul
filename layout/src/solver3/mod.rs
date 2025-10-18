@@ -83,6 +83,8 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
@@ -106,7 +108,14 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     if recon_result.is_clean() {
         ctx.debug_log("No changes, returning existing display list");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
-        return generate_display_list(&mut ctx, tree, &cache.absolute_positions, scroll_offsets);
+        return generate_display_list(
+            &mut ctx,
+            tree,
+            &cache.absolute_positions,
+            scroll_offsets,
+            gpu_value_cache,
+            dom_id,
+        );
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
@@ -177,8 +186,14 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut absolute_positions, viewport)?;
 
     // --- Step 4: Generate Display List & Update Cache ---
-    let display_list =
-        generate_display_list(&mut ctx, &new_tree, &absolute_positions, scroll_offsets)?;
+    let display_list = generate_display_list(
+        &mut ctx,
+        &new_tree,
+        &absolute_positions,
+        scroll_offsets,
+        gpu_value_cache,
+        dom_id,
+    )?;
 
     cache.tree = Some(new_tree);
     cache.absolute_positions = absolute_positions;

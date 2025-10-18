@@ -1,6 +1,7 @@
 target/
 reftest_output/
 output/
+api/
 vendor/
 **/*.rs.bk
 *.pdf
