@@ -57,6 +57,8 @@ struct ScrollState {
     invoked_for_current_expansion: bool,
     /// Have we invoked for current edge approach?
     invoked_for_current_edge: bool,
+    /// Has this IFrame been invoked at least once?
+    iframe_was_invoked: bool,
 }
 
 /// Details of an in-progress smooth scroll animation
@@ -484,7 +486,8 @@ impl ScrollManager {
             .get(&(dom_id, node_id))
             .map(|state| ScrollPosition {
                 parent_rect: state.container_rect,
-                children_rect: LogicalRect::new(state.current_offset, state.content_rect.size),
+                // Return content_rect as-is (which includes scroll offset as origin)
+                children_rect: state.content_rect,
             })
     }
 
@@ -529,6 +532,9 @@ impl ScrollManager {
         reason: IFrameCallbackReason,
     ) {
         if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            // Always mark that this IFrame was invoked at least once
+            state.iframe_was_invoked = true;
+
             match reason {
                 IFrameCallbackReason::BoundsExpanded => {
                     state.invoked_for_current_expansion = true;
@@ -555,6 +561,14 @@ impl ScrollManager {
     /// Check if we should re-invoke IFrame callbacks (new DOMs, scroll near edges)
     pub fn should_check_iframe_callbacks(&self) -> bool {
         self.had_new_doms || self.had_scroll_activity
+    }
+
+    /// Check if an IFrame was already invoked (for avoiding duplicate InitialRender)
+    pub fn was_iframe_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        self.states
+            .get(&(dom_id, node_id))
+            .map(|state| state.iframe_was_invoked)
+            .unwrap_or(false)
     }
 
     /// Get all scroll states (legacy compatibility)
@@ -601,6 +615,7 @@ impl ScrollState {
             last_edge_triggered: EdgeFlags::default(),
             invoked_for_current_expansion: false,
             invoked_for_current_edge: false,
+            iframe_was_invoked: false,
         }
     }
 

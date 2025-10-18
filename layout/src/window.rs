@@ -645,12 +645,33 @@ impl LayoutWindow {
         let tick_result = self.scroll_states.tick(now.clone());
 
         // Find if this specific IFrame is in the update list
-        let reason = tick_result
+        let reason_opt = tick_result
             .iframes_to_update
             .iter()
             .find(|(d, n, _)| *d == parent_dom_id && *n == node_id)
-            .map(|(_, _, r)| *r)
-            .unwrap_or(azul_core::callbacks::IFrameCallbackReason::InitialRender);
+            .map(|(_, _, r)| *r);
+
+        // If IFrame doesn't need update, check if it's a new IFrame
+        let reason = match reason_opt {
+            Some(r) => r,
+            None => {
+                // Check if this IFrame was already invoked
+                if self
+                    .scroll_states
+                    .was_iframe_invoked(parent_dom_id, node_id)
+                {
+                    // IFrame exists and doesn't need update - skip callback
+                    eprintln!(
+                        "DEBUG: IFrame ({:?}, {:?}) - No update needed, skipping callback",
+                        parent_dom_id, node_id
+                    );
+                    return None;
+                } else {
+                    // New IFrame - invoke with InitialRender
+                    azul_core::callbacks::IFrameCallbackReason::InitialRender
+                }
+            }
+        };
 
         eprintln!(
             "DEBUG: IFrame ({:?}, {:?}) - Reason: {:?}",
@@ -688,16 +709,27 @@ impl LayoutWindow {
         // Invoke the callback
         let callback_return = (iframe_node.callback.cb)(&mut callback_data, &mut callback_info);
 
-        // Handle the OptionStyledDom - if None, keep using cached DOM
+        // Handle the OptionStyledDom - if None, keep using cached DOM or create empty div
         let mut child_styled_dom = match callback_return.dom {
             azul_core::styled_dom::OptionStyledDom::Some(dom) => dom,
             azul_core::styled_dom::OptionStyledDom::None => {
                 // Callback said "no update needed"
-                // Mark as invoked to prevent repeated calls
-                self.scroll_states
-                    .mark_iframe_invoked(parent_dom_id, node_id, reason);
-                eprintln!("DEBUG: Callback returned None, keeping cached DOM");
-                return None;
+                if matches!(
+                    reason,
+                    azul_core::callbacks::IFrameCallbackReason::InitialRender
+                ) {
+                    // For InitialRender, create an empty Dom::div() if callback returns None
+                    eprintln!("DEBUG: InitialRender returned None, creating empty Dom::div()");
+                    let mut empty_dom = azul_core::dom::Dom::div();
+                    let empty_css = azul_css::parser2::CssApiWrapper::empty();
+                    empty_dom.style(empty_css)
+                } else {
+                    // For other reasons, mark as invoked and keep cached DOM
+                    self.scroll_states
+                        .mark_iframe_invoked(parent_dom_id, node_id, reason);
+                    eprintln!("DEBUG: Callback returned None, keeping cached DOM");
+                    return None;
+                }
             }
         };
 
@@ -1986,6 +2018,354 @@ mod tests {
         // Initially no layout results
         assert!(window.get_layout_result(&dom_id).is_none());
         assert_eq!(window.get_dom_ids().len(), 0);
+    }
+
+    // === ScrollManager and IFrame Integration Tests ===
+
+    #[test]
+    fn test_scroll_manager_initialization() {
+        let fc_cache = FcFontCache::default();
+        let window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        // Initially no scroll states
+        let scroll_offsets = window.scroll_states.get_scroll_states_for_dom(dom_id);
+        assert!(scroll_offsets.is_empty());
+
+        // No current offset
+        let offset = window.scroll_states.get_current_offset(dom_id, node_id);
+        assert_eq!(offset, None);
+    }
+
+    #[test]
+    fn test_scroll_manager_tick_updates_activity() {
+        use azul_core::task::{Duration, Instant, SystemTimeDiff};
+
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        // Create a scroll event
+        let scroll_event = crate::scroll::ScrollEvent {
+            dom_id,
+            node_id,
+            delta: LogicalPosition::new(10.0, 20.0),
+            source: crate::scroll::ScrollSource::UserInput,
+            duration: None,
+            easing: crate::scroll::EasingFunction::Linear,
+        };
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        let did_scroll = window
+            .scroll_states
+            .process_scroll_event(scroll_event, now.clone());
+
+        // process_scroll_event should return true for successful scroll
+        assert!(did_scroll);
+    }
+
+    #[test]
+    fn test_scroll_manager_programmatic_scroll() {
+        use azul_core::task::{Duration, Instant, SystemTimeDiff};
+
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        // Programmatic scroll with animation
+        window.scroll_states.scroll_to(
+            dom_id,
+            node_id,
+            LogicalPosition::new(100.0, 200.0),
+            Duration::System(SystemTimeDiff::from_millis(300)),
+            crate::scroll::EasingFunction::EaseOut,
+            now.clone(),
+        );
+
+        let tick_result = window.scroll_states.tick(now);
+
+        // Programmatic scroll should start animation
+        assert!(tick_result.needs_repaint);
+    }
+
+    #[test]
+    fn test_scroll_manager_iframe_edge_detection() {
+        use azul_core::task::{Duration, Instant, SystemTimeDiff};
+
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        // Update IFrame scroll info with bounds
+        window.scroll_states.update_iframe_scroll_info(
+            dom_id,
+            node_id,
+            LogicalSize::new(1000.0, 1000.0), // scroll_size
+            LogicalSize::new(2000.0, 2000.0), // virtual_scroll_size
+            now.clone(),
+        );
+
+        // Scroll near the bottom edge (within 200px threshold)
+        let scroll_event = crate::scroll::ScrollEvent {
+            dom_id,
+            node_id,
+            delta: LogicalPosition::new(0.0, 750.0), /* Scroll to y=750, bottom edge at 1000,
+                                                      * within 200px */
+            source: crate::scroll::ScrollSource::UserInput,
+            duration: None,
+            easing: crate::scroll::EasingFunction::Linear,
+        };
+
+        window
+            .scroll_states
+            .process_scroll_event(scroll_event, now.clone());
+
+        let tick_result = window.scroll_states.tick(now);
+
+        // Check if bottom edge was detected
+        let iframes_to_update = tick_result.iframes_to_update;
+        let has_bottom_edge = iframes_to_update.iter().any(|(d, n, reason)| {
+            *d == dom_id
+                && *n == node_id
+                && matches!(
+                    reason,
+                    azul_core::callbacks::IFrameCallbackReason::EdgeScrolled(_)
+                )
+        });
+
+        assert!(
+            has_bottom_edge,
+            "Bottom edge should be detected when scrolling within 200px threshold"
+        );
+    }
+
+    #[test]
+    fn test_scroll_manager_iframe_invocation_tracking() {
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        // Mark IFrame as invoked
+        window.scroll_states.mark_iframe_invoked(
+            dom_id,
+            node_id,
+            azul_core::callbacks::IFrameCallbackReason::InitialRender,
+        );
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        let tick_result = window.scroll_states.tick(now);
+
+        // Same IFrame should not be in update list immediately after invocation
+        let has_same_iframe = tick_result
+            .iframes_to_update
+            .iter()
+            .any(|(d, n, _)| *d == dom_id && *n == node_id);
+
+        assert!(
+            !has_same_iframe,
+            "IFrame should not be in update list immediately after being invoked"
+        );
+    }
+
+    #[test]
+    fn test_scrollbar_opacity_fading() {
+        use azul_core::task::{Duration, Instant, SystemTimeDiff};
+
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        // Initial scroll to activate scrollbar
+        let scroll_event = crate::scroll::ScrollEvent {
+            dom_id,
+            node_id,
+            delta: LogicalPosition::new(0.0, 10.0),
+            source: crate::scroll::ScrollSource::UserInput,
+            duration: None,
+            easing: crate::scroll::EasingFunction::Linear,
+        };
+
+        window
+            .scroll_states
+            .process_scroll_event(scroll_event, now.clone());
+
+        // Immediately after scroll, opacity should be 1.0
+        let opacity_immediate = window.scroll_states.get_scrollbar_opacity(
+            dom_id,
+            node_id,
+            now.clone(),
+            Duration::System(SystemTimeDiff::from_millis(500)), // fade_delay
+            Duration::System(SystemTimeDiff::from_millis(200)), // fade_duration
+        );
+
+        assert!(
+            opacity_immediate > 0.99,
+            "Scrollbar should be fully visible immediately after scroll, got {}",
+            opacity_immediate
+        );
+
+        // After delay + duration, opacity should fade
+        #[cfg(feature = "std")]
+        let later = Instant::System(
+            (std::time::Instant::now() + std::time::Duration::from_millis(800)).into(),
+        );
+        #[cfg(not(feature = "std"))]
+        let later = Instant::Tick(azul_core::task::SystemTick { tick_counter: 800 });
+
+        let opacity_faded = window.scroll_states.get_scrollbar_opacity(
+            dom_id,
+            node_id,
+            later,
+            Duration::System(SystemTimeDiff::from_millis(500)),
+            Duration::System(SystemTimeDiff::from_millis(200)),
+        );
+
+        assert!(
+            opacity_faded < 0.1,
+            "Scrollbar should be faded after delay + duration, got {}",
+            opacity_faded
+        );
+    }
+
+    #[test]
+    fn test_iframe_callback_reason_initial_render() {
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        // Reset new DOM flag
+        window.scroll_states.begin_frame();
+
+        // Update IFrame scroll info - this should set had_new_doms for InitialRender
+        window.scroll_states.update_iframe_scroll_info(
+            dom_id,
+            node_id,
+            LogicalSize::new(800.0, 600.0),
+            LogicalSize::new(800.0, 600.0),
+            now.clone(),
+        );
+
+        // Check end_frame shows new DOM
+        let frame_info = window.scroll_states.end_frame();
+        assert!(
+            frame_info.had_new_doms,
+            "InitialRender should set had_new_doms flag"
+        );
+    }
+
+    #[test]
+    fn test_gpu_cache_scrollbar_opacity_keys() {
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        let dom_id = DomId::ROOT_ID;
+        let node_id = NodeId::new(0);
+
+        // Get or create GPU cache
+        let gpu_cache = window.get_or_create_gpu_cache(dom_id);
+
+        // Initially no scrollbar opacity keys
+        assert!(gpu_cache.scrollbar_v_opacity_keys.is_empty());
+        assert!(gpu_cache.scrollbar_h_opacity_keys.is_empty());
+
+        // Add a vertical scrollbar opacity key
+        let opacity_key = azul_core::resources::OpacityKey::unique();
+        gpu_cache
+            .scrollbar_v_opacity_keys
+            .insert((dom_id, node_id), opacity_key);
+        gpu_cache
+            .scrollbar_v_opacity_values
+            .insert((dom_id, node_id), 1.0);
+
+        // Verify it was added
+        assert_eq!(gpu_cache.scrollbar_v_opacity_keys.len(), 1);
+        assert_eq!(
+            gpu_cache.scrollbar_v_opacity_values.get(&(dom_id, node_id)),
+            Some(&1.0)
+        );
+    }
+
+    #[test]
+    fn test_frame_lifecycle_begin_end() {
+        use azul_core::task::Instant;
+
+        let fc_cache = FcFontCache::default();
+        let mut window = LayoutWindow::new(fc_cache).unwrap();
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        #[cfg(feature = "std")]
+        let now = Instant::System(std::time::Instant::now().into());
+        #[cfg(not(feature = "std"))]
+        let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+
+        // Begin frame
+        window.scroll_states.begin_frame();
+
+        // Do some scrolling
+        let scroll_event = crate::scroll::ScrollEvent {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(0),
+            delta: LogicalPosition::new(5.0, 5.0),
+            source: crate::scroll::ScrollSource::UserInput,
+            duration: None,
+            easing: crate::scroll::EasingFunction::Linear,
+        };
+
+        let did_scroll = window
+            .scroll_states
+            .process_scroll_event(scroll_event, now.clone());
+        assert!(did_scroll);
+
+        // End frame
+        let frame_info = window.scroll_states.end_frame();
+        assert!(frame_info.had_scroll_activity);
+        assert!(!frame_info.had_programmatic_scroll);
     }
 }
 

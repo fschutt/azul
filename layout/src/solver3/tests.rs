@@ -113,6 +113,8 @@ fn test_basic_layout() {
         &scroll_offsets,
         &selections,
         &mut debug_messages,
+        None, // gpu_value_cache
+        DomId::ROOT_ID,
     );
 
     assert!(
@@ -160,6 +162,8 @@ fn test_layout_with_empty_font_cache() {
         &scroll_offsets,
         &selections,
         &mut debug_messages,
+        None, // gpu_value_cache
+        DomId::ROOT_ID,
     );
 
     // Layout should succeed even with empty font cache (using fallbacks)
@@ -195,10 +199,13 @@ fn test_window_resize_invalidates_layout() {
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
 
+    let system_callbacks = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+
     let result1 = window.layout_and_generate_display_list(
         styled_dom1,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &system_callbacks,
         &mut None,
     );
 
@@ -222,6 +229,7 @@ fn test_window_resize_invalidates_layout() {
         styled_dom2,
         LogicalSize::new(1024.0, 768.0),
         &azul_core::resources::RendererResources::default(),
+        &system_callbacks,
         &mut None,
     );
 
@@ -408,6 +416,7 @@ fn test_layout_result_caching() {
         styled_dom,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -544,6 +553,7 @@ fn test_iframe_initial_render() {
         styled_dom,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -584,6 +594,7 @@ fn test_iframe_no_reinvoke_same_bounds() {
         styled_dom1,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -603,6 +614,7 @@ fn test_iframe_no_reinvoke_same_bounds() {
         styled_dom2,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -642,6 +654,7 @@ fn test_iframe_reinvoke_on_bounds_expansion() {
         styled_dom1,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -661,6 +674,7 @@ fn test_iframe_reinvoke_on_bounds_expansion() {
         styled_dom2,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -700,6 +714,7 @@ fn test_iframe_no_reinvoke_on_bounds_shrink() {
         styled_dom1,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -719,6 +734,7 @@ fn test_iframe_no_reinvoke_on_bounds_shrink() {
         styled_dom2,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -764,6 +780,7 @@ fn test_multi_dom_layout_results() {
         styled_root,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
@@ -806,6 +823,7 @@ fn test_clear_caches_resets_all_state() {
         styled_dom,
         &window_state,
         &azul_core::resources::RendererResources::default(),
+        &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
         &mut None,
     );
 
