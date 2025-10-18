@@ -104,6 +104,14 @@ impl ScrollTagId {
     }
 }
 
+/// Orientation of a scrollbar.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ScrollbarOrientation {
+    Horizontal,
+    Vertical,
+}
+
 /// Calculated hash of a DOM node, used for identifying identical DOM
 /// nodes across frames for efficient diffing and state preservation.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]

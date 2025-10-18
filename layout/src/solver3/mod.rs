@@ -9,6 +9,7 @@ pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
 pub mod positioning;
+pub mod scrollbar;
 pub mod sizing;
 pub mod taffy_bridge;
 

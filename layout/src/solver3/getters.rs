@@ -17,7 +17,7 @@ use azul_css::props::{
 };
 
 use crate::{
-    solver3::{display_list::BorderRadius, layout_tree::LayoutNode},
+    solver3::{display_list::BorderRadius, layout_tree::LayoutNode, scrollbar::ScrollbarInfo},
     text3::cache::{ParsedFontTrait, StyleProperties},
 };
 
@@ -303,14 +303,6 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 }
 
 // Scrollbar Information
-
-/// Information about scrollbar requirements and dimensions
-pub struct ScrollbarInfo {
-    pub needs_vertical: bool,
-    pub needs_horizontal: bool,
-    pub scrollbar_width: f32,
-    pub scrollbar_height: f32,
-}
 
 /// Get scrollbar information from a layout node
 pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> ScrollbarInfo {

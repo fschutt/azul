@@ -5,7 +5,7 @@ use core::{
 };
 
 use crate::{
-    dom::{DomId, DomNodeHash, DomNodeId, ScrollTagId},
+    dom::{DomId, DomNodeHash, DomNodeId, ScrollTagId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     id::NodeId,
     resources::IdNamespace,
@@ -18,6 +18,8 @@ use crate::{
 pub struct HitTest {
     pub regular_hit_test_nodes: BTreeMap<NodeId, HitTestItem>,
     pub scroll_hit_test_nodes: BTreeMap<NodeId, ScrollHitTestItem>,
+    /// Hit test results for scrollbar components.
+    pub scrollbar_hit_test_nodes: BTreeMap<ScrollbarHitId, ScrollbarHitTestItem>,
 }
 
 impl HitTest {
@@ -25,14 +27,36 @@ impl HitTest {
         Self {
             regular_hit_test_nodes: BTreeMap::new(),
             scroll_hit_test_nodes: BTreeMap::new(),
+            scrollbar_hit_test_nodes: BTreeMap::new(),
         }
     }
     pub fn is_empty(&self) -> bool {
-        self.regular_hit_test_nodes.is_empty() && self.scroll_hit_test_nodes.is_empty()
+        self.regular_hit_test_nodes.is_empty()
+            && self.scroll_hit_test_nodes.is_empty()
+            && self.scrollbar_hit_test_nodes.is_empty()
     }
 }
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq, Ord, PartialOrd)]
+/// NEW: Unique identifier for a specific component of a scrollbar.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum ScrollbarHitId {
+    VerticalTrack(DomId, NodeId),
+    VerticalThumb(DomId, NodeId),
+    HorizontalTrack(DomId, NodeId),
+    HorizontalThumb(DomId, NodeId),
+}
+
+/// Hit test item specifically for scrollbar components.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ScrollbarHitTestItem {
+    pub point_in_viewport: LogicalPosition,
+    pub point_relative_to_item: LogicalPosition,
+    pub orientation: ScrollbarOrientation,
+}
+
+#[derive(Copy, Clone, Eq, Hash, PartialEq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
 
@@ -140,10 +164,8 @@ impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
 
     pub fn new() -> Self {
-        PipelineId(
-            LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u32,
-            0,
-        )
+        use std::sync::atomic::Ordering;
+        PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
     }
 }
 

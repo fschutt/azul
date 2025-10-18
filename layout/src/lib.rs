@@ -19,7 +19,11 @@ pub mod focus;
 #[cfg(feature = "font_loading")]
 pub mod font;
 #[cfg(feature = "text_layout")]
+pub mod gpu;
+#[cfg(feature = "text_layout")]
 pub mod hit_test;
+#[cfg(feature = "text_layout")]
+pub mod iframe;
 pub mod image;
 #[cfg(feature = "pdf")]
 pub mod paged;

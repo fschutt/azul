@@ -30,6 +30,7 @@ use crate::{
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
         getters::{get_float, get_overflow_x, get_overflow_y, get_position},
+        scrollbar::ScrollbarInfo,
         LayoutContext, Result,
     },
     text3::cache::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
@@ -109,7 +110,7 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     pub inline_layout_result: Option<Arc<UnifiedLayout<T>>>,
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
-    pub scrollbar_info: Option<crate::solver3::fc::ScrollbarInfo>,
+    pub scrollbar_info: Option<ScrollbarInfo>,
 }
 
 /// Types of anonymous boxes that can be generated

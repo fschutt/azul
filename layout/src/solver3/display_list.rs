@@ -39,7 +39,7 @@ use std::collections::BTreeMap;
 
 use allsorts::glyph_position;
 use azul_core::{
-    dom::{NodeId, NodeType},
+    dom::{NodeId, NodeType, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     resources::{ImageKey, ImageRefHash},
@@ -62,10 +62,11 @@ use crate::{
         getters::{
             get_background_color, get_border_info, get_border_radius, get_caret_style,
             get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout, get_selection_style,
-            get_z_index, BorderInfo, CaretStyle, ScrollbarInfo, SelectionStyle,
+            get_z_index, BorderInfo, CaretStyle, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
+        scrollbar::ScrollbarInfo,
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
@@ -187,12 +188,6 @@ impl BorderRadius {
             && self.bottom_left == 0.0
             && self.bottom_right == 0.0
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum ScrollbarOrientation {
-    Horizontal,
-    Vertical,
 }
 
 // Dummy types for compilation

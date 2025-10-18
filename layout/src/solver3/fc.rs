@@ -33,6 +33,7 @@ use crate::{
         getters::{get_display_property, get_style_properties, get_writing_mode},
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
+        scrollbar::ScrollbarInfo,
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutError, Result,
     },
@@ -998,31 +999,6 @@ pub fn check_scrollbar_necessity(
         needs_vertical,
         scrollbar_width: if needs_vertical { 16.0 } else { 0.0 },
         scrollbar_height: if needs_horizontal { 16.0 } else { 0.0 },
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ScrollbarInfo {
-    pub needs_horizontal: bool,
-    pub needs_vertical: bool,
-    pub scrollbar_width: f32,
-    pub scrollbar_height: f32,
-}
-
-impl ScrollbarInfo {
-    /// Checks if the presence of scrollbars reduces the available inner size,
-    /// which would necessitate a reflow of the content.
-    pub fn needs_reflow(&self) -> bool {
-        self.scrollbar_width > 0.0 || self.scrollbar_height > 0.0
-    }
-
-    /// Takes a size (representing a content-box) and returns a new size
-    /// reduced by the dimensions of any active scrollbars.
-    pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
-        LogicalSize {
-            width: (size.width - self.scrollbar_width).max(0.0),
-            height: (size.height - self.scrollbar_height).max(0.0),
-        }
     }
 }
 
