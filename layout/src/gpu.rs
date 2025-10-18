@@ -22,11 +22,17 @@ use crate::{
     text3::cache::ParsedFontTrait,
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GpuStateManager {
     pub caches: BTreeMap<DomId, GpuValueCache>,
-    fade_delay: Duration,
-    fade_duration: Duration,
+    pub fade_delay: Duration,
+    pub fade_duration: Duration,
+}
+
+impl Default for GpuStateManager {
+    fn default() -> Self {
+        Self::new(Duration::from_millis(500), Duration::from_millis(200))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +93,10 @@ impl GpuStateManager {
             let content_size = node
                 .inline_layout_result
                 .as_ref()
-                .map(|l| l.bounds.size())
+                .map(|l| LayoutSize {
+                    width: l.content_size.width,
+                    height: l.content_size.height,
+                })
                 .unwrap_or(container_size);
 
             if scrollbar_info.needs_vertical {
