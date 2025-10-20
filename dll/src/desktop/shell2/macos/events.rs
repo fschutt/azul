@@ -213,17 +213,24 @@ impl MacOSWindow {
     }
 
     /// Perform hit testing at given position.
+    ///
+    /// Currently returns root node as placeholder.
+    /// TODO (Phase 6): Integrate WebRender hit-testing:
+    /// 1. Get hit_tester from MacOSWindow (AsyncHitTester)
+    /// 2. Call fullhittest_new_webrender() with resolved hit tester
+    /// 3. Extract hovered nodes from FullHitTest result
+    /// 4. Map to HitTestNode format
     fn perform_hit_test(&self, position: LogicalPosition) -> Option<HitTestNode> {
-        // TODO: Implement full WebRender hit testing
-        // For now, we return a simple hit result if we have a layout window
-        // This will be replaced with proper hit testing once WebRender is integrated
+        // Placeholder implementation - returns root node
+        // Once WebRender is initialized in MacOSWindow, this will use:
+        // - self.hit_tester.resolve() to get ApiHitTester
+        // - crate::desktop::wr_translate::fullhittest_new_webrender(...)
+        // - Extract first hovered node from hit_test.hovered_nodes
 
-        if let Some(ref layout_window) = self.layout_window {
-            // For now, we'll just return a hit on the root DOM's root node
-            // Real implementation would use WebRender hit tester or layout rect checking
+        if self.layout_window.is_some() {
             Some(HitTestNode {
-                dom_id: 0,  // DomId::ROOT_ID.inner
-                node_id: 0, // Root node
+                dom_id: 0,
+                node_id: 0,
             })
         } else {
             None
@@ -361,7 +368,7 @@ impl MacOSWindow {
     ) -> ProcessEventResult {
         // Update scroll state in current_window_state
         // OptionF32 needs to be set, not incremented
-        use azul_core::geom::OptionF32;
+        use azul_css::OptionF32;
         let current_x = self
             .current_window_state
             .mouse_state

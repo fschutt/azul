@@ -457,6 +457,24 @@ pub struct MacOSWindow {
 
     /// Menu state (for hash-based diff updates)
     menu_state: menu::MenuState,
+
+    // WebRender infrastructure for proper hit-testing and rendering
+    // TODO: Initialize these fields in new_with_options() by:
+    // 1. Creating webrender::Renderer with gl_functions
+    // 2. Getting RenderApi from sender.create_api()
+    // 3. Adding document: render_api.add_document(framebuffer_size)
+    // 4. Requesting hit tester: render_api.request_hit_tester(document_id)
+    // 5. Passing hit_tester to LayoutWindow as closure
+    //
+    // For now, these are placeholders - WebRender initialization happens in phase 6
+    /// WebRender document ID (default until full initialization)
+    pub(crate) document_id: azul_core::hit_test::DocumentId,
+
+    /// WebRender pipeline ID (default until full initialization)
+    pub(crate) pipeline_id: azul_core::hit_test::PipelineId,
+
+    /// WebRender ID namespace (default until full initialization)
+    pub(crate) id_namespace: azul_core::resources::IdNamespace,
 }
 
 impl MacOSWindow {
@@ -658,6 +676,13 @@ impl MacOSWindow {
             last_hovered_node: None,
             layout_window: None, // TODO: Initialize with LayoutWindow from options
             menu_state: menu::MenuState::new(),
+            // WebRender fields - TODO: Initialize properly in phase 6
+            document_id: azul_core::hit_test::DocumentId {
+                namespace_id: azul_core::resources::IdNamespace(0),
+                id: 0,
+            },
+            pipeline_id: azul_core::hit_test::PipelineId::new(),
+            id_namespace: azul_core::resources::IdNamespace(0),
         })
     }
 

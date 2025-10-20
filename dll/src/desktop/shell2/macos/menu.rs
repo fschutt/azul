@@ -123,6 +123,11 @@ fn build_menu_items(
                 let separator = unsafe { NSMenuItem::separatorItem(mtm) };
                 parent_menu.addItem(&separator);
             }
+            MenuItem::BreakLine => {
+                // BreakLine is not supported in macOS menus, treat as separator
+                let separator = unsafe { NSMenuItem::separatorItem(mtm) };
+                parent_menu.addItem(&separator);
+            }
         }
     }
 }
