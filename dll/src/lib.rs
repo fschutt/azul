@@ -12,7 +12,13 @@ pub mod desktop;
 pub mod web;
 
 // TODO: Re-enable extra after fixing API compatibility
+// The extra module has API incompatibilities with the new azul-core/azul-layout APIs:
+// - NodeId::from_crate_internal() / into_crate_internal() missing
+// - NodeData.callbacks field is now private
+// - LayoutCallbackInfo structure changed (window_id, window_state, layout_window_ptr removed)
+// - RefAny::default() not available
 // pub mod extra;
+
 pub mod str;
 
 pub mod azul_impl {
@@ -22,14 +28,19 @@ pub mod azul_impl {
     pub use super::desktop::*;
 }
 
-// Temporarily disabled due to API changes
-// use core::ffi::c_void;
 #[cfg(all(
     feature = "python-extension",
     feature = "link-dynamic",
     not(feature = "link-static")
 ))]
 pub mod python;
+
 // TODO: Re-enable widgets after fixing API compatibility
+// The widgets module has similar API incompatibilities as extra:
+// - NodeId::from_crate_internal() / into_crate_internal() usage throughout
+// - Direct NodeData.callbacks field access (now private, use accessors)
+// - LayoutCallbackInfo API changes
+// - ExternalSystemCallbacks::default() -> ::rust_internal()
+// Total errors: ~68 across all widget implementations
 // pub mod widgets;
 

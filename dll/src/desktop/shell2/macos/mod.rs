@@ -933,17 +933,22 @@ impl MacOSWindow {
         // 1. Create scroll event and process it
         let scroll_event = ScrollEvent {
             dom_id: dom_id_typed,
-            node_id: node_id_typed,
+            node_id: NodeId::new(node_id_typed),
             delta: LogicalPosition::new(delta_x, delta_y),
             source: EventSource::User,
             duration: None, // Instant scroll
             easing: EasingFunction::Linear,
         };
 
+        // Apply scroll using scroll_by instead of apply_scroll_event
         layout_window
             .scroll_states
-            .apply_scroll_event(scroll_event)
-            .map_err(|e| format!("Scroll error: {:?}", e))?;
+            .scroll_by(
+                scroll_event.dom_id,
+                scroll_event.node_id,
+                scroll_event.delta.x,
+                scroll_event.delta.y,
+            );
 
         // 2. Recalculate scrollbar states after scroll update
         // This updates scrollbar thumb positions based on new scroll offsets
@@ -1096,22 +1101,22 @@ impl MacOSWindow {
         transform: &azul_core::transform::ComputedTransform3D,
     ) -> webrender::api::units::LayoutTransform {
         webrender::api::units::LayoutTransform::new(
-            transform.m11,
-            transform.m12,
-            transform.m13,
-            transform.m14,
-            transform.m21,
-            transform.m22,
-            transform.m23,
-            transform.m24,
-            transform.m31,
-            transform.m32,
-            transform.m33,
-            transform.m34,
-            transform.m41,
-            transform.m42,
-            transform.m43,
-            transform.m44,
+            transform.m[0][0], // m11
+            transform.m[0][1], // m12
+            transform.m[0][2], // m13
+            transform.m[0][3], // m14
+            transform.m[1][0], // m21
+            transform.m[1][1], // m22
+            transform.m[1][2], // m23
+            transform.m[1][3], // m24
+            transform.m[2][0], // m31
+            transform.m[2][1], // m32
+            transform.m[2][2], // m33
+            transform.m[2][3], // m34
+            transform.m[3][0], // m41
+            transform.m[3][1], // m42
+            transform.m[3][2], // m43
+            transform.m[3][3], // m44
         )
     }
 
