@@ -212,21 +212,10 @@ impl MacOSWindow {
         EventProcessResult::DoNothing
     }
 
-    /// Perform hit testing at given position.
-    ///
-    /// Currently returns root node as placeholder.
-    /// TODO (Phase 6): Integrate WebRender hit-testing:
-    /// 1. Get hit_tester from MacOSWindow (AsyncHitTester)
-    /// 2. Call fullhittest_new_webrender() with resolved hit tester
-    /// 3. Extract hovered nodes from FullHitTest result
-    /// 4. Map to HitTestNode format
+    /// Perform hit testing at given position using WebRender hit-testing API.
     fn perform_hit_test(&self, position: LogicalPosition) -> Option<HitTestNode> {
-        // Placeholder implementation - returns root node
-        // Once WebRender is initialized in MacOSWindow, this will use:
-        // - self.hit_tester.resolve() to get ApiHitTester
-        // - crate::desktop::wr_translate::fullhittest_new_webrender(...)
-        // - Extract first hovered node from hit_test.hovered_nodes
-
+        // TODO: Once LayoutWindow is properly initialized, get layout_results from it
+        // For now, return placeholder (root node)
         if self.layout_window.is_some() {
             Some(HitTestNode {
                 dom_id: 0,
@@ -235,6 +224,38 @@ impl MacOSWindow {
         } else {
             None
         }
+
+        // Full implementation when LayoutWindow is available:
+        /*
+        let cursor_position = CursorPosition::InWindow(position);
+
+        let layout_results = if let Some(ref layout_window) = self.layout_window {
+            // Convert BTreeMap to Vec for hit-testing API
+            layout_window.layout_results.values().collect::<Vec<_>>()
+        } else {
+            return None;
+        };
+
+        let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
+            &*self.hit_tester.resolve(),
+            self.document_id,
+            self.current_window_state.focused_node,
+            &layout_results,
+            &cursor_position,
+            self.current_window_state.size.get_hidpi_factor(),
+        );
+
+        // Extract first hovered node from hit test result
+        hit_test.hovered_nodes.iter()
+            .flat_map(|(dom_id, ht)| {
+                ht.regular_hit_test_nodes.keys().next()
+                    .map(|node_id| HitTestNode {
+                        dom_id: dom_id.inner as u64,
+                        node_id: node_id.into_crate_internal()? as u64,
+                    })
+            })
+            .next()
+        */
     }
 
     /// Convert macOS keycode to VirtualKeyCode.

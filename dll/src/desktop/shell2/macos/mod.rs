@@ -36,9 +36,16 @@ use objc2_foundation::{
     ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
 };
 
-use crate::desktop::shell2::common::{
-    Compositor, CompositorError, CompositorMode, PlatformWindow, RenderContext, WindowError,
-    WindowProperties,
+use crate::desktop::{
+    shell2::common::{
+        Compositor, CompositorError, CompositorMode, PlatformWindow, RenderContext, WindowError,
+        WindowProperties,
+    },
+    wr_translate2::{
+        default_renderer_options, translate_document_id_wr, translate_id_namespace_wr,
+        wr_translate_document_id, AsyncHitTester, Compositor as WrCompositor, Notifier,
+        WR_SHADER_CACHE,
+    },
 };
 
 mod events;
@@ -459,22 +466,23 @@ pub struct MacOSWindow {
     menu_state: menu::MenuState,
 
     // WebRender infrastructure for proper hit-testing and rendering
-    // TODO: Initialize these fields in new_with_options() by:
-    // 1. Creating webrender::Renderer with gl_functions
-    // 2. Getting RenderApi from sender.create_api()
-    // 3. Adding document: render_api.add_document(framebuffer_size)
-    // 4. Requesting hit tester: render_api.request_hit_tester(document_id)
-    // 5. Passing hit_tester to LayoutWindow as closure
-    //
-    // For now, these are placeholders - WebRender initialization happens in phase 6
-    /// WebRender document ID (default until full initialization)
+    /// Main render API for registering fonts, images, display lists
+    pub(crate) render_api: webrender::RenderApi,
+
+    /// WebRender renderer (software or hardware depending on backend)
+    pub(crate) renderer: Option<webrender::Renderer>,
+
+    /// Hit-tester for fast asynchronous hit-testing (updated on layout changes)
+    pub(crate) hit_tester: crate::desktop::wr_translate2::AsyncHitTester,
+
+    /// WebRender document ID
     pub(crate) document_id: azul_core::hit_test::DocumentId,
 
-    /// WebRender pipeline ID (default until full initialization)
-    pub(crate) pipeline_id: azul_core::hit_test::PipelineId,
-
-    /// WebRender ID namespace (default until full initialization)
+    /// WebRender ID namespace
     pub(crate) id_namespace: azul_core::resources::IdNamespace,
+
+    /// OpenGL context pointer with compiled SVG and FXAA shaders
+    pub(crate) gl_context_ptr: azul_core::gl::OptionGlContextPtr,
 }
 
 impl MacOSWindow {
@@ -637,8 +645,81 @@ impl MacOSWindow {
             window.makeKeyAndOrderFront(None);
         }
 
-        // Initialize window states
-        let current_window_state = FullWindowState {
+        // Make OpenGL context current before initializing WebRender
+        if let Some(ref ctx) = gl_context {
+            unsafe {
+                ctx.makeCurrentContext();
+            }
+        }
+
+        // Initialize WebRender renderer
+        use azul_core::window::{HwAcceleration, RendererType};
+
+        let renderer_type = match backend {
+            RenderBackend::OpenGL => RendererType::Hardware,
+            RenderBackend::CPU => RendererType::Software,
+        };
+
+        let gl_funcs = if let Some(ref f) = gl_functions {
+            f.functions.clone()
+        } else {
+            // Fallback for CPU backend - initialize GL functions or fail gracefully
+            match gl::GlFunctions::initialize() {
+                Ok(f) => f.functions.clone(),
+                Err(e) => {
+                    return Err(WindowError::PlatformError(format!(
+                        "Failed to initialize GL functions: {}",
+                        e
+                    )));
+                }
+            }
+        };
+
+        let wr_renderer = webrender::Renderer::new(
+            gl_funcs.clone(),
+            Box::new(Notifier {}),
+            default_renderer_options(&options),
+            WR_SHADER_CACHE,
+        )
+        .map_err(|e| {
+            WindowError::PlatformError(format!("WebRender initialization failed: {:?}", e))
+        })?;
+
+        let (mut renderer, sender) = wr_renderer;
+        renderer.set_external_image_handler(Box::new(WrCompositor::default()));
+
+        let mut render_api = sender.create_api();
+
+        // Get physical size for framebuffer
+        let physical_size = azul_core::geom::PhysicalSize {
+            width: (options.state.size.dimensions.width * options.state.size.get_hidpi_factor())
+                as u32,
+            height: (options.state.size.dimensions.height * options.state.size.get_hidpi_factor())
+                as u32,
+        };
+
+        let framebuffer_size = webrender::api::units::DeviceIntSize::new(
+            physical_size.width as i32,
+            physical_size.height as i32,
+        );
+
+        // Create WebRender document (one per window)
+        let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
+        let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+
+        // Request hit tester for this document
+        let hit_tester = render_api
+            .request_hit_tester(wr_translate_document_id(document_id))
+            .resolve();
+
+        // Create GlContextPtr for LayoutWindow
+        let gl_context_ptr: azul_core::gl::OptionGlContextPtr = gl_context
+            .as_ref()
+            .map(|_| azul_core::gl::GlContextPtr::new(renderer_type, gl_funcs.clone()))
+            .into();
+
+        // Initialize window state
+        let mut current_window_state = FullWindowState {
             title: options.state.title.clone(),
             size: options.state.size,
             position: options.state.position,
@@ -662,6 +743,19 @@ impl MacOSWindow {
             selections: Default::default(),
         };
 
+        // Initialize LayoutWindow with hit-test closure
+        // TODO: This needs actual app data, image cache, font cache, etc.
+        // For now, create a minimal LayoutWindow structure
+        let layout_window = None; // Will be initialized when we have full app data integration
+
+        // Clear OpenGL context after initialization
+        if gl_context.is_some() {
+            unsafe {
+                use objc2_app_kit::NSOpenGLContext;
+                NSOpenGLContext::clearCurrentContext();
+            }
+        }
+
         Ok(Self {
             window,
             backend,
@@ -674,15 +768,14 @@ impl MacOSWindow {
             previous_window_state: None,
             current_window_state,
             last_hovered_node: None,
-            layout_window: None, // TODO: Initialize with LayoutWindow from options
+            layout_window,
             menu_state: menu::MenuState::new(),
-            // WebRender fields - TODO: Initialize properly in phase 6
-            document_id: azul_core::hit_test::DocumentId {
-                namespace_id: azul_core::resources::IdNamespace(0),
-                id: 0,
-            },
-            pipeline_id: azul_core::hit_test::PipelineId::new(),
-            id_namespace: azul_core::resources::IdNamespace(0),
+            render_api,
+            renderer: Some(renderer),
+            hit_tester: AsyncHitTester::Resolved(hit_tester),
+            document_id,
+            id_namespace,
+            gl_context_ptr,
         })
     }
 
