@@ -43,6 +43,7 @@ use crate::desktop::shell2::common::{
 
 mod events;
 mod gl;
+mod menu;
 
 use gl::GlFunctions;
 
@@ -453,6 +454,9 @@ pub struct MacOSWindow {
 
     /// LayoutWindow integration (for UI callbacks and display list)
     layout_window: Option<azul_layout::window::LayoutWindow>,
+
+    /// Menu state (for hash-based diff updates)
+    menu_state: menu::MenuState,
 }
 
 impl MacOSWindow {
@@ -653,10 +657,47 @@ impl MacOSWindow {
             current_window_state,
             last_hovered_node: None,
             layout_window: None, // TODO: Initialize with LayoutWindow from options
+            menu_state: menu::MenuState::new(),
         })
     }
 
     /// Synchronize window state with the OS based on diff between previous and current state
+    /// Regenerate layout and display list for the current window.
+    ///
+    /// This should be called when:
+    /// - The window is resized
+    /// - The DOM changes (via callbacks)
+    /// - Layout callback changes
+    pub fn regenerate_layout(&mut self) -> Result<(), String> {
+        // TODO: Implement full layout regeneration
+        // This requires:
+        // 1. Calling layout_callback to get styled_dom
+        // 2. layout_window.layout_and_generate_display_list()
+        // 3. Updating display list for rendering
+        //
+        // For now, just return Ok
+        Ok(())
+    }
+
+    /// Perform GPU scrolling - updates scroll transforms without full relayout
+    pub fn gpu_scroll(
+        &mut self,
+        dom_id: u64,
+        node_id: u64,
+        delta_x: f32,
+        delta_y: f32,
+    ) -> Result<(), String> {
+        // TODO: Implement GPU scrolling
+        // This requires:
+        // 1. Getting current scroll position from layout_window
+        // 2. Updating scroll position by delta
+        // 3. Updating GPU transforms (WebRender scroll layers)
+        // 4. Triggering a redraw without relayout
+        //
+        // For now, just trigger a redraw
+        Ok(())
+    }
+
     fn sync_window_state(&mut self) {
         let previous = match &self.previous_window_state {
             Some(prev) => prev,

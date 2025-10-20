@@ -214,9 +214,20 @@ impl MacOSWindow {
 
     /// Perform hit testing at given position.
     fn perform_hit_test(&self, position: LogicalPosition) -> Option<HitTestNode> {
-        // TODO: Implement actual hit testing against display list
-        // For now, return None (no hit)
-        None
+        // TODO: Implement full WebRender hit testing
+        // For now, we return a simple hit result if we have a layout window
+        // This will be replaced with proper hit testing once WebRender is integrated
+
+        if let Some(ref layout_window) = self.layout_window {
+            // For now, we'll just return a hit on the root DOM's root node
+            // Real implementation would use WebRender hit tester or layout rect checking
+            Some(HitTestNode {
+                dom_id: 0,  // DomId::ROOT_ID.inner
+                node_id: 0, // Root node
+            })
+        } else {
+            None
+        }
     }
 
     /// Convert macOS keycode to VirtualKeyCode.
@@ -308,9 +319,15 @@ impl MacOSWindow {
         button: MouseButton,
         position: LogicalPosition,
     ) -> ProcessEventResult {
-        // TODO: Look up callbacks for node, filter by MouseDown event
-        // TODO: Call LayoutWindow::call_callbacks()
-        ProcessEventResult::DoNothing
+        // TODO: Implement callback dispatch using LayoutWindow::invoke_single_callback
+        // This requires:
+        // 1. Looking up callbacks registered for the hit node
+        // 2. Filtering by MouseDown event type
+        // 3. Creating CallbackInfo with proper context
+        // 4. Invoking callbacks and processing results
+        //
+        // For now, we trigger a redraw for any click
+        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 
     /// Dispatch mouse up callbacks to hit node.
@@ -342,8 +359,31 @@ impl MacOSWindow {
         delta_y: f32,
         position: LogicalPosition,
     ) -> ProcessEventResult {
-        // TODO: Look up callbacks for node, filter by Scroll event
-        ProcessEventResult::DoNothing
+        // Update scroll state in current_window_state
+        // OptionF32 needs to be set, not incremented
+        use azul_core::geom::OptionF32;
+        let current_x = self
+            .current_window_state
+            .mouse_state
+            .scroll_x
+            .into_option()
+            .unwrap_or(0.0);
+        let current_y = self
+            .current_window_state
+            .mouse_state
+            .scroll_y
+            .into_option()
+            .unwrap_or(0.0);
+        self.current_window_state.mouse_state.scroll_x = OptionF32::Some(current_x + delta_x);
+        self.current_window_state.mouse_state.scroll_y = OptionF32::Some(current_y + delta_y);
+
+        // TODO: If we have a layout_window, update scroll positions for scrollable nodes
+        // For now, trigger a scroll render
+        if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            ProcessEventResult::DoNothing
+        }
     }
 
     /// Dispatch key down callbacks.
