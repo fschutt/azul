@@ -57,14 +57,22 @@ impl MacOSWindow {
         let hit_test_result = self.perform_hit_test(position);
 
         // Dispatch callbacks for clicked nodes
-        // TODO: Implement callback dispatch once App infrastructure is ready
-        // For now, just track hit node for focus management
         if let Some(hit_node) = hit_test_result {
             self.last_hovered_node = Some(hit_node);
-            // let callback_result = self.dispatch_mouse_down_callbacks(hit_node, button, position,
-            // app_data, fc_cache); return self.
-            // process_callback_result(callback_result);
-            return EventProcessResult::Redraw;
+
+            // Borrow app_data and fc_cache for callback dispatch
+            let mut app_data_borrowed = self.app_data.borrow_mut();
+            let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+            let callback_result = self.dispatch_mouse_down_callbacks(
+                hit_node,
+                button,
+                position,
+                &mut *app_data_borrowed,
+                &mut *fc_cache_borrowed,
+            );
+
+            return self.process_callback_result_to_event_result(callback_result);
         }
 
         EventProcessResult::DoNothing
@@ -91,12 +99,19 @@ impl MacOSWindow {
         let hit_test_result = self.perform_hit_test(position);
 
         // Dispatch callbacks
-        // TODO: Implement callback dispatch once App infrastructure is ready
         if let Some(hit_node) = hit_test_result {
-            // let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position,
-            // app_data, fc_cache); return self.
-            // process_callback_result(callback_result);
-            return EventProcessResult::Redraw;
+            let mut app_data_borrowed = self.app_data.borrow_mut();
+            let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+            let callback_result = self.dispatch_mouse_up_callbacks(
+                hit_node,
+                button,
+                position,
+                &mut *app_data_borrowed,
+                &mut *fc_cache_borrowed,
+            );
+
+            return self.process_callback_result_to_event_result(callback_result);
         }
 
         EventProcessResult::DoNothing
@@ -118,10 +133,18 @@ impl MacOSWindow {
             // Dispatch hover callbacks if node changed
             if self.last_hovered_node != Some(hit_node) {
                 self.last_hovered_node = Some(hit_node);
-                // TODO: Implement callback dispatch once App infrastructure is ready
-                // let callback_result = self.dispatch_hover_callbacks(hit_node, position, app_data,
-                // fc_cache); return self.process_callback_result(callback_result);
-                return EventProcessResult::Redraw;
+
+                let mut app_data_borrowed = self.app_data.borrow_mut();
+                let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+                let callback_result = self.dispatch_hover_callbacks(
+                    hit_node,
+                    position,
+                    &mut *app_data_borrowed,
+                    &mut *fc_cache_borrowed,
+                );
+
+                return self.process_callback_result_to_event_result(callback_result);
             }
         } else {
             self.last_hovered_node = None;
@@ -423,7 +446,7 @@ impl MacOSWindow {
             );
 
             // Process callback result
-            result = result.max(self.process_callback_result(callback_result, app_data, fc_cache));
+            result = result.max(self.process_callback_result(callback_result));
         }
 
         result
@@ -502,7 +525,7 @@ impl MacOSWindow {
                 &self.renderer_resources,
             );
 
-            result = result.max(self.process_callback_result(callback_result, app_data, fc_cache));
+            result = result.max(self.process_callback_result(callback_result));
         }
 
         result
@@ -576,7 +599,7 @@ impl MacOSWindow {
                 &self.renderer_resources,
             );
 
-            result = result.max(self.process_callback_result(callback_result, app_data, fc_cache));
+            result = result.max(self.process_callback_result(callback_result));
         }
 
         result
@@ -648,7 +671,10 @@ impl MacOSWindow {
     }
 
     /// Convert ProcessEventResult to EventProcessResult.
-    fn process_callback_result(&mut self, result: ProcessEventResult) -> EventProcessResult {
+    fn process_callback_result_to_event_result(
+        &mut self,
+        result: ProcessEventResult,
+    ) -> EventProcessResult {
         match result {
             ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
             ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
@@ -674,12 +700,10 @@ impl MacOSWindow {
         Ok(())
     }
 
-    /// Process callback result and convert to ProcessEventResult.
+    /// Process callback result from invoke_single_callback and convert to ProcessEventResult.
     fn process_callback_result(
         &mut self,
         result: azul_layout::callbacks::CallCallbacksResult,
-        app_data: &mut azul_core::refany::RefAny,
-        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
         use azul_core::callbacks::Update;
 
@@ -729,8 +753,8 @@ impl MacOSWindow {
         // Process Update screen command
         match result.callbacks_update_screen {
             Update::RefreshDom => {
-                // Regenerate layout from layout callback
-                if let Err(e) = self.regenerate_layout(app_data, fc_cache) {
+                // Regenerate layout from layout callback (uses stored app_data/fc_cache)
+                if let Err(e) = self.regenerate_layout() {
                     eprintln!("Layout regeneration error: {}", e);
                 }
                 event_result =
@@ -738,7 +762,7 @@ impl MacOSWindow {
             }
             Update::RefreshDomAllWindows => {
                 // Regenerate layout for this window, caller should handle other windows
-                if let Err(e) = self.regenerate_layout(app_data, fc_cache) {
+                if let Err(e) = self.regenerate_layout() {
                     eprintln!("Layout regeneration error: {}", e);
                 }
                 event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);

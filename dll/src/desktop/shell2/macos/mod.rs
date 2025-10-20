@@ -490,6 +490,16 @@ pub struct MacOSWindow {
 
     /// OpenGL context pointer with compiled SVG and FXAA shaders
     pub(crate) gl_context_ptr: azul_core::gl::OptionGlContextPtr,
+
+    // Application-level shared state
+    /// Shared application data (used by callbacks, shared across windows)
+    app_data: std::sync::Arc<std::cell::RefCell<azul_core::refany::RefAny>>,
+
+    /// Shared font cache (shared across windows to cache font loading)
+    fc_cache: std::sync::Arc<std::cell::RefCell<rust_fontconfig::FcFontCache>>,
+
+    /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
+    frame_needs_regeneration: bool,
 }
 
 impl MacOSWindow {
@@ -776,6 +786,13 @@ impl MacOSWindow {
             }
         }
 
+        // Initialize shared application data (will be replaced by App later)
+        let app_data =
+            std::sync::Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::default()));
+        let fc_cache = std::sync::Arc::new(std::cell::RefCell::new(
+            rust_fontconfig::FcFontCache::default(),
+        ));
+
         Ok(Self {
             window,
             backend,
@@ -798,6 +815,9 @@ impl MacOSWindow {
             document_id,
             id_namespace,
             gl_context_ptr,
+            app_data,
+            fc_cache,
+            frame_needs_regeneration: false,
         })
     }
 
@@ -808,17 +828,17 @@ impl MacOSWindow {
     /// - The window is resized
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
-    pub fn regenerate_layout(
-        &mut self,
-        app_data: &mut azul_core::refany::RefAny,
-        fc_cache: &mut rust_fontconfig::FcFontCache,
-    ) -> Result<(), String> {
+    pub fn regenerate_layout(&mut self) -> Result<(), String> {
         use azul_core::callbacks::LayoutCallback;
 
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
+        // Borrow app_data and fc_cache from Arc<RefCell<>>
+        let mut app_data_borrowed = self.app_data.borrow_mut();
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
         // Update layout_window's fc_cache with the shared one from App
-        layout_window.font_manager.fc_cache = fc_cache.clone();
+        layout_window.font_manager.fc_cache = fc_cache_borrowed.clone();
 
         // 1. Call layout_callback to get styled_dom
         let mut callback_info = azul_core::callbacks::LayoutCallbackInfo {
@@ -828,10 +848,10 @@ impl MacOSWindow {
         };
 
         let styled_dom = match &self.current_window_state.layout_callback {
-            LayoutCallback::Raw(inner) => (inner.cb)(app_data, &mut callback_info),
+            LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
             LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
                 &mut marshaled.marshal_data.clone(),
-                app_data,
+                &mut *app_data_borrowed,
                 &mut callback_info,
             ),
         };
@@ -855,14 +875,27 @@ impl MacOSWindow {
             Vec::new(), // No resource updates for now
         );
 
-        // 4. Generate frame
-        crate::desktop::wr_translate2::generate_frame(
-            layout_window,
-            &mut self.render_api,
-            true, // Display list was rebuilt
-        );
+        // 4. Mark that frame needs regeneration (will be called once at event processing end)
+        self.frame_needs_regeneration = true;
 
         Ok(())
+    }
+
+    /// Generate frame if needed and reset flag
+    pub fn generate_frame_if_needed(&mut self) {
+        if !self.frame_needs_regeneration {
+            return;
+        }
+
+        if let Some(ref mut layout_window) = self.layout_window {
+            crate::desktop::wr_translate2::generate_frame(
+                layout_window,
+                &mut self.render_api,
+                true, // Display list was rebuilt
+            );
+        }
+
+        self.frame_needs_regeneration = false;
     }
 
     /// Perform GPU scrolling - updates scroll transforms without full relayout
