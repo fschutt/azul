@@ -63,20 +63,22 @@ pub use common::{
 // Platform-specific window type selection
 cfg_if::cfg_if! {
     if #[cfg(target_os = "macos")] {
-        // TODO: Implement in Phase 2
-        // pub use macos::MacOSWindow as Window;
-        pub use stub::StubWindow as Window;
+        pub use macos::MacOSWindow as Window;
+        pub use macos::MacOSEvent as WindowEvent;
     } else if #[cfg(target_os = "windows")] {
         // TODO: Implement in Phase 4
         // pub use windows::Win32Window as Window;
         pub use stub::StubWindow as Window;
+        pub use stub::StubEvent as WindowEvent;
     } else if #[cfg(target_os = "linux")] {
         // TODO: Implement in Phase 3 (X11) and Phase 5 (Wayland)
         // pub use linux::LinuxWindow as Window;
         pub use stub::StubWindow as Window;
+        pub use stub::StubEvent as WindowEvent;
     } else {
         // Unknown platform - use stub
         pub use stub::StubWindow as Window;
+        pub use stub::StubEvent as WindowEvent;
     }
 }
 
