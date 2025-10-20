@@ -2,6 +2,7 @@
 
 use azul_core::{
     callbacks::LayoutCallbackInfo,
+    dom::{DomId, NodeId},
     events::{EventFilter, MouseButton, NodesToCheck, ProcessEventResult, SyntheticEvent},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::{CursorTypeHitTest, FullHitTest},
@@ -11,7 +12,10 @@ use azul_core::{
     },
 };
 use azul_layout::{
-    callbacks::CallbackInfo, solver3::display_list::DisplayList, window::LayoutWindow,
+    callbacks::CallbackInfo,
+    scroll::{ScrollbarComponent, ScrollbarHit, ScrollbarOrientation},
+    solver3::display_list::DisplayList,
+    window::LayoutWindow,
     window_state::WindowState,
 };
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
@@ -31,6 +35,9 @@ pub enum EventProcessResult {
     /// Window should close
     CloseWindow,
 }
+
+// NOTE: ScrollbarDragState is now imported from azul_layout::ScrollbarDragState
+// (was previously defined here as duplicate)
 
 impl MacOSWindow {
     /// Process a mouse button down event.

@@ -500,6 +500,9 @@ pub struct MacOSWindow {
 
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     frame_needs_regeneration: bool,
+
+    /// Current scrollbar drag state (if dragging a scrollbar thumb)
+    scrollbar_drag_state: Option<azul_layout::ScrollbarDragState>,
 }
 
 impl MacOSWindow {
@@ -818,6 +821,7 @@ impl MacOSWindow {
             app_data,
             fc_cache,
             frame_needs_regeneration: false,
+            scrollbar_drag_state: None,
         })
     }
 

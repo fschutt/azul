@@ -59,6 +59,87 @@ pub struct ScrollbarState {
     pub track_rect: LogicalRect,
 }
 
+impl ScrollbarState {
+    /// Determine which component was hit at the given local position (relative to track_rect origin)
+    pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
+        match self.orientation {
+            ScrollbarOrientation::Vertical => {
+                let button_height = self.base_size;
+                
+                // Top button
+                if local_pos.y < button_height {
+                    return ScrollbarComponent::TopButton;
+                }
+                
+                // Bottom button
+                let track_height = self.track_rect.size.height;
+                if local_pos.y > track_height - button_height {
+                    return ScrollbarComponent::BottomButton;
+                }
+                
+                // Calculate thumb bounds
+                let track_height_usable = track_height - 2.0 * button_height;
+                let thumb_height = track_height_usable * self.thumb_size_ratio;
+                let thumb_y_start = button_height 
+                    + (track_height_usable - thumb_height) * self.thumb_position_ratio;
+                let thumb_y_end = thumb_y_start + thumb_height;
+                
+                // Check if inside thumb
+                if local_pos.y >= thumb_y_start && local_pos.y <= thumb_y_end {
+                    ScrollbarComponent::Thumb
+                } else {
+                    ScrollbarComponent::Track
+                }
+            }
+            ScrollbarOrientation::Horizontal => {
+                let button_width = self.base_size;
+                
+                // Left button
+                if local_pos.x < button_width {
+                    return ScrollbarComponent::TopButton;
+                }
+                
+                // Right button
+                let track_width = self.track_rect.size.width;
+                if local_pos.x > track_width - button_width {
+                    return ScrollbarComponent::BottomButton;
+                }
+                
+                // Calculate thumb bounds
+                let track_width_usable = track_width - 2.0 * button_width;
+                let thumb_width = track_width_usable * self.thumb_size_ratio;
+                let thumb_x_start = button_width 
+                    + (track_width_usable - thumb_width) * self.thumb_position_ratio;
+                let thumb_x_end = thumb_x_start + thumb_width;
+                
+                // Check if inside thumb
+                if local_pos.x >= thumb_x_start && local_pos.x <= thumb_x_end {
+                    ScrollbarComponent::Thumb
+                } else {
+                    ScrollbarComponent::Track
+                }
+            }
+        }
+    }
+
+    // NOTE: This method is deprecated - WebRender hit-testing is used instead
+    // /// Check if a global position is inside this scrollbar's track
+    // pub fn contains(&self, global_pos: LogicalPosition) -> bool {
+    //     self.track_rect.contains(global_pos)
+    // }
+}
+
+/// Result of a scrollbar hit-test
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollbarHit {
+    pub dom_id: DomId,
+    pub node_id: NodeId,
+    pub orientation: ScrollbarOrientation,
+    pub component: ScrollbarComponent,
+    pub local_position: LogicalPosition, // Position relative to track_rect origin
+    pub global_position: LogicalPosition, // Original global position
+}
+
 // ============================================================================
 // Core Scroll Manager
 // ============================================================================
@@ -501,6 +582,48 @@ impl ScrollManager {
     ) -> impl Iterator<Item = ((DomId, NodeId, ScrollbarOrientation), &ScrollbarState)> + '_ {
         self.scrollbar_states.iter().map(|(k, v)| (*k, v))
     }
+
+    // ========================================================================
+    // Scrollbar Hit-Testing
+    // ========================================================================
+
+    // NOTE: This method is deprecated - WebRender hit-testing is used instead
+    // /// Perform hit-testing for scrollbars at the given global position.
+    // /// Returns the first scrollbar hit (highest z-order).
+    // pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
+    //     // Iterate in reverse order to hit top-most scrollbars first
+    //     for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
+    //     {
+    //         if !scrollbar_state.visible {
+    //             continue;
+    //         }
+    //
+    //         // Check if position is inside scrollbar track
+    //         if !scrollbar_state.contains(global_pos) {
+    //             continue;
+    //         }
+    //
+    //         // Calculate local position relative to track origin
+    //         let local_pos = LogicalPosition::new(
+    //             global_pos.x - scrollbar_state.track_rect.origin.x,
+    //             global_pos.y - scrollbar_state.track_rect.origin.y,
+    //         );
+    //
+    //         // Determine which component was hit
+    //         let component = scrollbar_state.hit_test_component(local_pos);
+    //
+    //         return Some(ScrollbarHit {
+    //             dom_id: *dom_id,
+    //             node_id: *node_id,
+    //             orientation: *orientation,
+    //             component,
+    //             local_position: local_pos,
+    //             global_position: global_pos,
+    //         });
+    //     }
+    //
+    //     None
+    // }
 }
 
 // ============================================================================

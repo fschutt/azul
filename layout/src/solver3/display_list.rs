@@ -128,6 +128,9 @@ pub enum DisplayListItem {
         /// If present, the renderer will use this key to look up dynamic opacity.
         /// If None, the alpha channel of `color` is used directly.
         opacity_key: Option<azul_core::resources::OpacityKey>,
+        /// Optional hit-test ID for WebRender hit-testing.
+        /// If present, allows event handlers to identify which scrollbar component was clicked.
+        hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
     },
 
     /// An embedded IFrame that references a child DOM with its own display list.
@@ -218,6 +221,7 @@ impl DisplayListBuilder {
         color: ColorU,
         orientation: ScrollbarOrientation,
         opacity_key: Option<azul_core::resources::OpacityKey>,
+        hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
     ) {
         if color.a > 0 || opacity_key.is_some() {
             // Optimization: Don't draw fully transparent items without opacity keys.
@@ -226,6 +230,7 @@ impl DisplayListBuilder {
                 color,
                 orientation,
                 opacity_key,
+                hit_id,
             });
         }
     }
@@ -815,11 +820,18 @@ where
                 ),
                 size: LogicalSize::new(scrollbar_info.scrollbar_width, paint_rect.size.height),
             };
+            
+            // Generate hit-test ID for vertical scrollbar thumb
+            let hit_id = node_id.map(|nid| {
+                azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid)
+            });
+            
             builder.push_scrollbar(
                 sb_bounds,
                 ColorU::new(192, 192, 192, 255),
                 ScrollbarOrientation::Vertical,
                 opacity_key,
+                hit_id,
             );
         }
         if scrollbar_info.needs_horizontal {
@@ -840,11 +852,18 @@ where
                 ),
                 size: LogicalSize::new(paint_rect.size.width, scrollbar_info.scrollbar_height),
             };
+            
+            // Generate hit-test ID for horizontal scrollbar thumb
+            let hit_id = node_id.map(|nid| {
+                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid)
+            });
+            
             builder.push_scrollbar(
                 sb_bounds,
                 ColorU::new(192, 192, 192, 255),
                 ScrollbarOrientation::Horizontal,
                 opacity_key,
+                hit_id,
             );
         }
 

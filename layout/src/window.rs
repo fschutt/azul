@@ -130,10 +130,10 @@ pub struct DomLayoutResult {
 
 /// State for tracking scrollbar drag interaction
 #[derive(Debug, Clone)]
-struct ScrollbarDragState {
-    hit_id: ScrollbarHitId,
-    initial_mouse_pos: LogicalPosition,
-    initial_scroll_offset: LogicalPosition,
+pub struct ScrollbarDragState {
+    pub hit_id: ScrollbarHitId,
+    pub initial_mouse_pos: LogicalPosition,
+    pub initial_scroll_offset: LogicalPosition,
 }
 
 /// A window-level layout manager that encapsulates all layout state and caching.
