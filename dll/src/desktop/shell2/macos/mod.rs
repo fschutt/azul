@@ -791,7 +791,7 @@ impl MacOSWindow {
 
         // Initialize shared application data (will be replaced by App later)
         let app_data =
-            std::sync::Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::default()));
+            std::sync::Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
         let fc_cache = std::sync::Arc::new(std::cell::RefCell::new(
             rust_fontconfig::FcFontCache::default(),
         ));
@@ -845,11 +845,16 @@ impl MacOSWindow {
         layout_window.font_manager.fc_cache = fc_cache_borrowed.clone();
 
         // 1. Call layout_callback to get styled_dom
-        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo {
-            window_id: 0, // TODO: proper window ID tracking
-            window_state: self.current_window_state.clone().into(),
-            layout_window_ptr: layout_window as *mut _,
-        };
+        let empty_image_cache = azul_core::resources::ImageCache::default();
+        let empty_gl_context: azul_core::gl::OptionGlContextPtr = None.into();
+
+        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
+            self.current_window_state.size.clone(),
+            self.current_window_state.theme,
+            &empty_image_cache,
+            &empty_gl_context,
+            &*fc_cache_borrowed,
+        );
 
         let styled_dom = match &self.current_window_state.layout_callback {
             LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
@@ -866,7 +871,7 @@ impl MacOSWindow {
                 styled_dom,
                 &self.current_window_state,
                 &self.renderer_resources,
-                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &mut None, // No debug messages for now
             )
             .map_err(|e| format!("Layout error: {:?}", e))?;
@@ -933,7 +938,7 @@ impl MacOSWindow {
         // 1. Create scroll event and process it
         let scroll_event = ScrollEvent {
             dom_id: dom_id_typed,
-            node_id: NodeId::new(node_id_typed),
+            node_id: NodeId::new(node_id_typed as usize),
             delta: LogicalPosition::new(delta_x, delta_y),
             source: EventSource::User,
             duration: None, // Instant scroll
@@ -941,14 +946,18 @@ impl MacOSWindow {
         };
 
         // Apply scroll using scroll_by instead of apply_scroll_event
-        layout_window
-            .scroll_states
-            .scroll_by(
-                scroll_event.dom_id,
-                scroll_event.node_id,
-                scroll_event.delta.x,
-                scroll_event.delta.y,
-            );
+        layout_window.scroll_states.scroll_by(
+            scroll_event.dom_id,
+            scroll_event.node_id,
+            scroll_event.delta,
+            scroll_event
+                .duration
+                .unwrap_or(azul_core::task::Duration::System(
+                    azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
+                )),
+            scroll_event.easing,
+            std::time::Instant::now(),
+        );
 
         // 2. Recalculate scrollbar states after scroll update
         // This updates scrollbar thumb positions based on new scroll offsets

@@ -59,9 +59,8 @@ impl MacOSWindow {
 
         // Check each hit item for scrollbar tag
         for item in &hit_result.items {
-            let (tag, _) = item.tag;
             if let Some(scrollbar_id) =
-                crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(tag)
+                crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(item.tag)
             {
                 return Some(scrollbar_id);
             }
@@ -174,19 +173,8 @@ impl MacOSWindow {
         if let Some(hit_node) = hit_test_result {
             self.last_hovered_node = Some(hit_node);
 
-            // Borrow app_data and fc_cache for callback dispatch
-            let callback_result = {
-                let mut app_data_borrowed = self.app_data.borrow_mut();
-                let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-                self.dispatch_mouse_down_callbacks(
-                    hit_node,
-                    button,
-                    position,
-                    &mut *app_data_borrowed,
-                    &mut *fc_cache_borrowed,
-                )
-            };
+            // Extract necessary data before borrowing
+            let callback_result = self.dispatch_mouse_down_callbacks(hit_node, button, position);
 
             return self.process_callback_result_to_event_result(callback_result);
         }
@@ -222,18 +210,7 @@ impl MacOSWindow {
 
         // Dispatch callbacks
         if let Some(hit_node) = hit_test_result {
-            let callback_result = {
-                let mut app_data_borrowed = self.app_data.borrow_mut();
-                let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-                self.dispatch_mouse_up_callbacks(
-                    hit_node,
-                    button,
-                    position,
-                    &mut *app_data_borrowed,
-                    &mut *fc_cache_borrowed,
-                )
-            };
+            let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position);
 
             return self.process_callback_result_to_event_result(callback_result);
         }
@@ -263,17 +240,7 @@ impl MacOSWindow {
             if self.last_hovered_node != Some(hit_node) {
                 self.last_hovered_node = Some(hit_node);
 
-                let callback_result = {
-                    let mut app_data_borrowed = self.app_data.borrow_mut();
-                    let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-                    self.dispatch_hover_callbacks(
-                        hit_node,
-                        position,
-                        &mut *app_data_borrowed,
-                        &mut *fc_cache_borrowed,
-                    )
-                };
+                let callback_result = self.dispatch_hover_callbacks(hit_node, position);
 
                 return self.process_callback_result_to_event_result(callback_result);
             }
@@ -377,7 +344,7 @@ impl MacOSWindow {
     }
 
     /// Perform hit testing at given position using WebRender hit-testing API.
-    fn perform_hit_test(&self, position: LogicalPosition) -> Option<HitTestNode> {
+    fn perform_hit_test(&mut self, position: LogicalPosition) -> Option<HitTestNode> {
         use azul_core::window::CursorPosition;
 
         let layout_window = self.layout_window.as_ref()?;
@@ -404,12 +371,12 @@ impl MacOSWindow {
             .hovered_nodes
             .iter()
             .flat_map(|(dom_id, ht)| {
-                ht.regular_hit_test_nodes.keys().next().and_then(|node_id| {
-                    let node_id_value = node_id.into_crate_internal()?;
-                    Some(HitTestNode {
+                ht.regular_hit_test_nodes.keys().next().map(|node_id| {
+                    let node_id_value = node_id.index();
+                    HitTestNode {
                         dom_id: dom_id.inner as u64,
                         node_id: node_id_value as u64,
-                    })
+                    }
                 })
             })
             .next()
@@ -503,8 +470,6 @@ impl MacOSWindow {
         node: HitTestNode,
         button: MouseButton,
         position: LogicalPosition,
-        app_data: &mut azul_core::refany::RefAny,
-        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
         use azul_core::{
             dom::{DomId, NodeId},
@@ -519,7 +484,7 @@ impl MacOSWindow {
         let dom_id = DomId {
             inner: node.dom_id as usize,
         };
-        let node_id = match NodeId::from_crate_internal(node.node_id as u32) {
+        let node_id = match NodeId::from_usize(node.node_id as usize) {
             Some(nid) => nid,
             None => return ProcessEventResult::DoNothing,
         };
@@ -551,15 +516,18 @@ impl MacOSWindow {
 
         let mut result = ProcessEventResult::DoNothing;
 
+        // Borrow RefCells once before the loop
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
         // Iterate through callbacks and invoke matching ones
-        for callback_data in node_data.callbacks.as_container().iter() {
+        for callback_data in node_data.get_callbacks().as_container().iter() {
             if callback_data.event != event_filter {
                 continue;
             }
 
             // Convert CoreCallback to Callback
             let mut callback = azul_layout::callbacks::Callback {
-                cb: callback_data.callback.cb,
+                cb: unsafe { std::mem::transmute(callback_data.callback.cb) },
             };
 
             // Invoke callback
@@ -569,7 +537,7 @@ impl MacOSWindow {
                 &azul_core::window::RawWindowHandle::Unsupported, // TODO: proper window handle
                 &self.gl_context_ptr,
                 &mut self.image_cache,
-                fc_cache,
+                &mut *fc_cache_borrowed,
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,
@@ -589,8 +557,6 @@ impl MacOSWindow {
         node: HitTestNode,
         button: MouseButton,
         position: LogicalPosition,
-        app_data: &mut azul_core::refany::RefAny,
-        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
         use azul_core::{
             dom::{DomId, NodeId},
@@ -605,7 +571,7 @@ impl MacOSWindow {
         let dom_id = DomId {
             inner: node.dom_id as usize,
         };
-        let node_id = match NodeId::from_crate_internal(node.node_id as u32) {
+        let node_id = match NodeId::from_usize(node.node_id as usize) {
             Some(nid) => nid,
             None => return ProcessEventResult::DoNothing,
         };
@@ -634,13 +600,16 @@ impl MacOSWindow {
 
         let mut result = ProcessEventResult::DoNothing;
 
-        for callback_data in node_data.callbacks.as_container().iter() {
+        // Borrow RefCells once before the loop
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+        for callback_data in node_data.get_callbacks().as_container().iter() {
             if callback_data.event != event_filter {
                 continue;
             }
 
             let mut callback = azul_layout::callbacks::Callback {
-                cb: callback_data.callback.cb,
+                cb: unsafe { std::mem::transmute(callback_data.callback.cb) },
             };
 
             let callback_result = layout_window.invoke_single_callback(
@@ -649,7 +618,7 @@ impl MacOSWindow {
                 &azul_core::window::RawWindowHandle::Unsupported,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
-                fc_cache,
+                &mut *fc_cache_borrowed,
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,
@@ -667,8 +636,6 @@ impl MacOSWindow {
         &mut self,
         node: HitTestNode,
         position: LogicalPosition,
-        app_data: &mut azul_core::refany::RefAny,
-        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
         use azul_core::{
             dom::{DomId, NodeId},
@@ -683,7 +650,7 @@ impl MacOSWindow {
         let dom_id = DomId {
             inner: node.dom_id as usize,
         };
-        let node_id = match NodeId::from_crate_internal(node.node_id as u32) {
+        let node_id = match NodeId::from_usize(node.node_id as usize) {
             Some(nid) => nid,
             None => return ProcessEventResult::DoNothing,
         };
@@ -708,13 +675,16 @@ impl MacOSWindow {
 
         let mut result = ProcessEventResult::DoNothing;
 
-        for callback_data in node_data.callbacks.as_container().iter() {
+        // Borrow RefCells once before the loop
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+        for callback_data in node_data.get_callbacks().as_container().iter() {
             if callback_data.event != event_filter {
                 continue;
             }
 
             let mut callback = azul_layout::callbacks::Callback {
-                cb: callback_data.callback.cb,
+                cb: unsafe { std::mem::transmute(callback_data.callback.cb) },
             };
 
             let callback_result = layout_window.invoke_single_callback(
@@ -723,7 +693,7 @@ impl MacOSWindow {
                 &azul_core::window::RawWindowHandle::Unsupported,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
-                fc_cache,
+                &mut *fc_cache_borrowed,
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,

@@ -209,7 +209,7 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
 
     let (tag_value, _) = tag;
     let component_type = (tag_value >> 62) & 0x3;
-    let dom_id_value = ((tag_value >> 32) & 0x3FFFFFFF) as u32;
+    let dom_id_value = ((tag_value >> 32) & 0x3FFFFFFF) as usize;
     let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
 
     let dom_id = DomId {
@@ -566,49 +566,17 @@ pub fn wr_translate_border_radius(
     // The "w / h" is necessary to convert percentage-based values into pixels, for example
     // "border-radius: 50%;"
 
-    let top_left_px_h = top_left
-        .and_then(|tl| tl.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(w);
-    let top_left_px_v = top_left
-        .and_then(|tl| tl.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(h);
+    let top_left_px_h = top_left.to_pixels(w);
+    let top_left_px_v = top_left.to_pixels(h);
 
-    let top_right_px_h = top_right
-        .and_then(|tr| tr.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(w);
-    let top_right_px_v = top_right
-        .and_then(|tr| tr.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(h);
+    let top_right_px_h = top_right.to_pixels(w);
+    let top_right_px_v = top_right.to_pixels(h);
 
-    let bottom_left_px_h = bottom_left
-        .and_then(|bl| bl.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(w);
-    let bottom_left_px_v = bottom_left
-        .and_then(|bl| bl.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(h);
+    let bottom_left_px_h = bottom_left.to_pixels(w);
+    let bottom_left_px_v = bottom_left.to_pixels(h);
 
-    let bottom_right_px_h = bottom_right
-        .and_then(|br| br.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(w);
-    let bottom_right_px_v = bottom_right
-        .and_then(|br| br.get_property_or_default())
-        .unwrap_or_default()
-        .inner
-        .to_pixels(h);
+    let bottom_right_px_h = bottom_right.to_pixels(w);
+    let bottom_right_px_v = bottom_right.to_pixels(h);
 
     WrBorderRadius {
         top_left: WrLayoutSize::new(top_left_px_h as f32, top_left_px_v as f32),
@@ -619,8 +587,15 @@ pub fn wr_translate_border_radius(
 }
 
 #[inline]
+const fn wr_translate_id_namespace(
+    ns: azul_core::resources::IdNamespace,
+) -> webrender::api::IdNamespace {
+    webrender::api::IdNamespace(ns.0)
+}
+
+#[inline]
 pub fn wr_translate_font_instance_key(key: FontInstanceKey) -> WrFontInstanceKey {
-    WrFontInstanceKey::from_bytes(key.data)
+    WrFontInstanceKey(wr_translate_id_namespace(key.namespace), key.key)
 }
 
 #[inline]
@@ -647,24 +622,26 @@ fn wr_translate_font_render_mode(
 fn wr_translate_font_instance_flags(
     flags: azul_core::resources::FontInstanceFlags,
 ) -> webrender::api::FontInstanceFlags {
+    use azul_core::resources::*;
+
     let mut wr_flags = webrender::api::FontInstanceFlags::empty();
 
-    if flags.contains(azul_core::resources::FontInstanceFlags::SYNTHETIC_BOLD) {
+    if flags & FONT_INSTANCE_FLAG_SYNTHETIC_BOLD != 0 {
         wr_flags |= webrender::api::FontInstanceFlags::SYNTHETIC_BOLD;
     }
-    if flags.contains(azul_core::resources::FontInstanceFlags::EMBEDDED_BITMAPS) {
+    if flags & FONT_INSTANCE_FLAG_EMBEDDED_BITMAPS != 0 {
         wr_flags |= webrender::api::FontInstanceFlags::EMBEDDED_BITMAPS;
     }
-    if flags.contains(azul_core::resources::FontInstanceFlags::SUBPIXEL_BGR) {
+    if flags & FONT_INSTANCE_FLAG_SUBPIXEL_BGR != 0 {
         wr_flags |= webrender::api::FontInstanceFlags::SUBPIXEL_BGR;
     }
-    if flags.contains(azul_core::resources::FontInstanceFlags::TRANSPOSE) {
+    if flags & FONT_INSTANCE_FLAG_TRANSPOSE != 0 {
         wr_flags |= webrender::api::FontInstanceFlags::TRANSPOSE;
     }
-    if flags.contains(azul_core::resources::FontInstanceFlags::FLIP_X) {
+    if flags & FONT_INSTANCE_FLAG_FLIP_X != 0 {
         wr_flags |= webrender::api::FontInstanceFlags::FLIP_X;
     }
-    if flags.contains(azul_core::resources::FontInstanceFlags::FLIP_Y) {
+    if flags & FONT_INSTANCE_FLAG_FLIP_Y != 0 {
         wr_flags |= webrender::api::FontInstanceFlags::FLIP_Y;
     }
 
@@ -681,4 +658,3 @@ pub fn wr_translate_layouted_glyphs(glyphs: &[GlyphInstance]) -> Vec<WrGlyphInst
         })
         .collect()
 }
-

@@ -5,21 +5,23 @@
 
 use azul_core::{
     geom::LogicalSize,
-    resources::{FontInstanceKey, GlyphOptions},
+    resources::{FontInstanceKey, GlyphOptions, PrimitiveFlags},
     ui_solver::GlyphInstance,
 };
-use azul_css::props::{
-    basic::color::ColorU, style::border_radius::StyleBorderRadius,
-};
+use azul_css::props::{basic::color::ColorU, style::border_radius::StyleBorderRadius};
 use azul_layout::solver3::display_list::DisplayList;
-use webrender::api::{
-    units::{DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
-    BorderRadius as WrBorderRadius, ClipId as WrClipId, ClipMode as WrClipMode, ColorF,
-    CommonItemProperties, ComplexClipRegion as WrComplexClipRegion,
-    DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, PipelineId, SpaceAndClipInfo,
-    SpatialId,
+use webrender::{
+    api::{
+        units::{DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
+        BorderRadius as WrBorderRadius, ClipId as WrClipId, ClipMode as WrClipMode, ColorF,
+        CommonItemProperties, ComplexClipRegion as WrComplexClipRegion,
+        DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ItemTag, PipelineId,
+        SpaceAndClipInfo, SpatialId,
+    },
+    Transaction,
 };
-use webrender::Transaction;
+
+use crate::desktop::wr_translate2::wr_translate_border_radius;
 
 /// Translate an Azul DisplayList to WebRender Transaction
 pub fn translate_displaylist_to_wr(
@@ -30,7 +32,7 @@ pub fn translate_displaylist_to_wr(
     use azul_core::geom::LogicalRect;
     use azul_layout::solver3::display_list::DisplayListItem;
 
-    use crate::desktop::wr_translate2::{wr_translate_border_radius, wr_translate_scrollbar_hit_id};
+    use crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id;
 
     let mut txn = Transaction::new();
     let device_rect = DeviceIntRect::from_size(viewport_size);
@@ -43,7 +45,7 @@ pub fn translate_displaylist_to_wr(
 
     // Clip stack management (for PushClip/PopClip)
     let mut clip_stack: Vec<WrClipId> = vec![root_clip_id];
-    
+
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
@@ -72,39 +74,39 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
 
                 // Handle border_radius by creating clip region
-                if let Some(radii) = border_radius {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(bounds.origin.x, bounds.origin.y),
-                        azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
+                let logical_rect = LogicalRect::new(
+                    azul_core::geom::LogicalPosition::new(bounds.origin.x, bounds.origin.y),
+                    azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
+                );
+                let wr_border_radius = wr_translate_border_radius(
+                    *border_radius,
+                    azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
+                );
+
+                if !wr_border_radius.is_zero() {
+                    let new_clip_id = define_border_radius_clip(
+                        &mut builder,
+                        logical_rect,
+                        wr_border_radius,
+                        current_spatial_id(),
+                        current_clip_id(),
                     );
-                    let wr_border_radius = wr_translate_border_radius(
-                        *radii,
-                        azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
-                    );
-                    
-                    if !wr_border_radius.is_zero() {
-                        let clip_id = define_border_radius_clip(
-                            &mut builder,
-                            logical_rect,
-                            wr_border_radius,
-                            current_spatial_id(),
-                            current_clip_id(),
-                        );
-                        
-                        let info_clipped = CommonItemProperties {
-                            clip_rect: rect,
-                            spatial_id: current_spatial_id(),
-                            flags: Default::default(),
-                        };
-                        
-                        builder.push_rect(&info_clipped, rect, color_f);
-                        continue;
-                    }
+
+                    let info_clipped = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_id: new_clip_id,
+                        spatial_id: current_spatial_id(),
+                        flags: Default::default(),
+                    };
+
+                    builder.push_rect(&info_clipped, rect, color_f);
+                    continue;
                 }
 
                 builder.push_rect(&info, rect, color_f);
@@ -128,6 +130,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
@@ -149,6 +152,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
@@ -170,6 +174,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
@@ -203,19 +208,18 @@ pub fn translate_displaylist_to_wr(
                     color.a as f32 / 255.0,
                 );
 
-                let mut info = CommonItemProperties {
+                let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
 
-                // Attach hit-test tag if present
-                if let Some(scrollbar_hit_id) = hit_id {
-                    let (tag, _) = wr_translate_scrollbar_hit_id(*scrollbar_hit_id);
-                    info.hit_info = Some((tag, 0));
-                }
-
                 builder.push_rect(&info, rect, color_f);
+
+                // TODO: Hit-testing for scrollbars needs separate API
+                // The crates.io version 0.62.2 doesn't support hit_info field
+                // May need to use push_hit_test or similar method
             }
 
             DisplayListItem::PushClip {
@@ -226,26 +230,51 @@ pub fn translate_displaylist_to_wr(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
-                
-                // Handle rounded corners if border_radius present
-                if let Some(radii) = border_radius {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(bounds.origin.x, bounds.origin.y),
-                        azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
-                    );
+
+                // Handle rounded corners if border_radius is non-zero
+                if !border_radius.is_zero() {
+                    // Convert layout BorderRadius to StyleBorderRadius for translation
+                    let style_border_radius =
+                        azul_css::props::style::border_radius::StyleBorderRadius {
+                            top_left: azul_css::props::basic::PixelValue {
+                                metric: azul_css::props::basic::SizeMetric::Px,
+                                number: azul_css::props::basic::FloatValue::new(
+                                    border_radius.top_left,
+                                ),
+                            },
+                            top_right: azul_css::props::basic::PixelValue {
+                                metric: azul_css::props::basic::SizeMetric::Px,
+                                number: azul_css::props::basic::FloatValue::new(
+                                    border_radius.top_right,
+                                ),
+                            },
+                            bottom_left: azul_css::props::basic::PixelValue {
+                                metric: azul_css::props::basic::SizeMetric::Px,
+                                number: azul_css::props::basic::FloatValue::new(
+                                    border_radius.bottom_left,
+                                ),
+                            },
+                            bottom_right: azul_css::props::basic::PixelValue {
+                                metric: azul_css::props::basic::SizeMetric::Px,
+                                number: azul_css::props::basic::FloatValue::new(
+                                    border_radius.bottom_right,
+                                ),
+                            },
+                        };
+
                     let wr_border_radius = wr_translate_border_radius(
-                        *radii,
+                        style_border_radius,
                         azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
                     );
-                    
+
                     let new_clip_id = define_border_radius_clip(
                         &mut builder,
-                        logical_rect,
+                        *bounds,
                         wr_border_radius,
                         current_spatial_id(),
                         current_clip_id(),
                     );
-                    
+
                     clip_stack.push(new_clip_id);
                 } else {
                     // Rectangular clip
@@ -289,49 +318,40 @@ pub fn translate_displaylist_to_wr(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
-                let mut info = CommonItemProperties {
+
+                let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
-                
-                // Attach tag for DOM node hit-testing
-                if let Some(node_tag) = tag {
-                    // Encode NodeId into ItemTag
-                    info.hit_info = Some((*node_tag, 0));
-                }
-                
-                // Push invisible rect for hit-testing
+
+                // TODO: Hit-testing for DOM nodes needs separate API
+                // The crates.io version 0.62.2 doesn't support hit_info field
+                // Push invisible rect for now (hit-testing may work via other means)
                 builder.push_rect(&info, rect, ColorF::TRANSPARENT);
             }
 
             DisplayListItem::Text {
-                bounds,
-                font_instance_key,
-                color,
                 glyphs,
-                glyph_options,
+                font,
+                color,
+                clip_rect,
             } => {
                 let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
+                    LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
+                    LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
                 );
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
+                    clip_id: current_clip_id(),
                     spatial_id: current_spatial_id(),
                     flags: Default::default(),
                 };
 
                 // Use push_text helper
-                push_text(
-                    &mut builder,
-                    &info,
-                    glyphs,
-                    *font_instance_key,
-                    *color,
-                    *glyph_options,
-                );
+                push_text(&mut builder, &info, glyphs, font, *color);
             }
 
             DisplayListItem::Image { .. } => {
@@ -346,7 +366,14 @@ pub fn translate_displaylist_to_wr(
 
     // Finalize and set display list
     let (_, dl) = builder.finalize();
-    txn.set_display_list(Epoch(0), dl);
+    let layout_size = LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32);
+    txn.set_display_list(
+        Epoch(0),
+        None, // background color
+        layout_size,
+        (pipeline_id, dl),
+        true, // preserve frame state
+    );
 
     Ok(txn)
 }
@@ -432,22 +459,10 @@ fn push_text(
     builder: &mut WrDisplayListBuilder,
     info: &CommonItemProperties,
     glyphs: &[GlyphInstance],
-    font_instance_key: FontInstanceKey,
+    font: &azul_layout::text3::cache::FontRef,
     color: ColorU,
-    glyph_options: Option<GlyphOptions>,
 ) {
-    use crate::desktop::wr_translate2::{
-        wr_translate_color_u, wr_translate_font_instance_key, wr_translate_glyph_options,
-        wr_translate_layouted_glyphs,
-    };
-
-    builder.push_text(
-        &info,
-        info.clip_rect,
-        &wr_translate_layouted_glyphs(glyphs),
-        wr_translate_font_instance_key(font_instance_key),
-        wr_translate_color_u(color).into(),
-        glyph_options.map(wr_translate_glyph_options),
-    );
+    // TODO: Need to resolve FontRef to FontInstanceKey via font cache
+    // For now, skip text rendering
+    // This requires access to the font cache to map FontRef -> FontInstanceKey
 }
-
