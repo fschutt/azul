@@ -41,10 +41,72 @@ pub fn translate_displaylist_to_wr(
     for item in &display_list.items {
         match item {
             DisplayListItem::Rect { bounds, color, border_radius } => {
-                let space_and_clip = SpaceAndClipInfo {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, bounds.size.height),
+                );
+                let color_f = ColorF::new(
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                );
+                
+                let info = CommonItemProperties {
+                    clip_rect: rect,
                     spatial_id,
-                    clip_id,
+                    flags: Default::default(),
                 };
+                
+                // TODO: Handle border_radius
+                builder.push_rect(&info, rect, color_f);
+            }
+            
+            DisplayListItem::SelectionRect { bounds, border_radius, color } => {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, bounds.size.height),
+                );
+                let color_f = ColorF::new(
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                );
+                
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    spatial_id,
+                    flags: Default::default(),
+                };
+                
+                builder.push_rect(&info, rect, color_f);
+            }
+            
+            DisplayListItem::CursorRect { bounds, color } => {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, bounds.size.height),
+                );
+                let color_f = ColorF::new(
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                );
+                
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    spatial_id,
+                    flags: Default::default(),
+                };
+                
+                builder.push_rect(&info, rect, color_f);
+            }
+            
+            DisplayListItem::Border { bounds, color, width, border_radius } => {
+                // TODO: Implement proper border rendering
+                // For now, just draw as rect outline
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
@@ -66,10 +128,6 @@ pub fn translate_displaylist_to_wr(
             }
             
             DisplayListItem::ScrollBar { bounds, color, orientation, opacity_key, hit_id } => {
-                let space_and_clip = SpaceAndClipInfo {
-                    spatial_id,
-                    clip_id,
-                };
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
@@ -96,6 +154,30 @@ pub fn translate_displaylist_to_wr(
                 builder.push_rect(&info, rect, color_f);
             }
             
+            DisplayListItem::PushClip { bounds, border_radius } => {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, bounds.size.height),
+                );
+                // TODO: Handle rounded corners with border_radius
+                // For now just rectangular clip
+                let _new_clip_id = builder.define_clip_rect(spatial_id, rect);
+                // Note: We'd need to track clip stack to use new_clip_id
+            }
+            
+            DisplayListItem::PopClip => {
+                // TODO: Pop clip from stack
+            }
+            
+            DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+                // TODO: Implement scroll frames
+                // Need to create new spatial_id and clip_id
+            }
+            
+            DisplayListItem::PopScrollFrame => {
+                // TODO: Pop scroll frame from stack
+            }
+            
             DisplayListItem::HitTestArea { bounds, tag } => {
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
@@ -109,8 +191,16 @@ pub fn translate_displaylist_to_wr(
                 // TODO: Attach tag for DOM node hit-testing
             }
             
-            _ => {
-                // TODO: Implement other DisplayListItem variants
+            DisplayListItem::Text { .. } => {
+                // TODO: Implement text rendering
+            }
+            
+            DisplayListItem::Image { .. } => {
+                // TODO: Implement image rendering
+            }
+            
+            DisplayListItem::IFrame { .. } => {
+                // TODO: Implement iframe embedding
             }
         }
     }
