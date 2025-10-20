@@ -505,3 +505,180 @@ pub fn generate_frame(
 
     render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
 }
+
+// ========== Additional Translation Functions ==========
+
+use azul_core::{
+    geom::LogicalSize,
+    resources::{FontInstanceKey, GlyphOptions},
+    ui_solver::GlyphInstance,
+};
+use azul_css::props::{
+    basic::color::{ColorF as CssColorF, ColorU as CssColorU},
+    style::border_radius::StyleBorderRadius,
+};
+use webrender::api::{
+    units::LayoutSize as WrLayoutSize, BorderRadius as WrBorderRadius, ColorF as WrColorF,
+    ColorU as WrColorU, FontInstanceKey as WrFontInstanceKey, GlyphInstance as WrGlyphInstance,
+    GlyphOptions as WrGlyphOptions,
+};
+
+#[inline(always)]
+pub const fn wr_translate_color_u(input: CssColorU) -> WrColorU {
+    WrColorU {
+        r: input.r,
+        g: input.g,
+        b: input.b,
+        a: input.a,
+    }
+}
+
+#[inline(always)]
+pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
+    WrColorF {
+        r: input.r,
+        g: input.g,
+        b: input.b,
+        a: input.a,
+    }
+}
+
+#[inline]
+pub fn wr_translate_logical_size(size: LogicalSize) -> WrLayoutSize {
+    WrLayoutSize::new(size.width, size.height)
+}
+
+#[inline]
+pub fn wr_translate_border_radius(
+    border_radius: StyleBorderRadius,
+    rect_size: LogicalSize,
+) -> WrBorderRadius {
+    let StyleBorderRadius {
+        top_left,
+        top_right,
+        bottom_left,
+        bottom_right,
+    } = border_radius;
+
+    let w = rect_size.width;
+    let h = rect_size.height;
+
+    // The "w / h" is necessary to convert percentage-based values into pixels, for example
+    // "border-radius: 50%;"
+
+    let top_left_px_h = top_left
+        .and_then(|tl| tl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let top_left_px_v = top_left
+        .and_then(|tl| tl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
+
+    let top_right_px_h = top_right
+        .and_then(|tr| tr.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let top_right_px_v = top_right
+        .and_then(|tr| tr.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
+
+    let bottom_left_px_h = bottom_left
+        .and_then(|bl| bl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let bottom_left_px_v = bottom_left
+        .and_then(|bl| bl.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
+
+    let bottom_right_px_h = bottom_right
+        .and_then(|br| br.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(w);
+    let bottom_right_px_v = bottom_right
+        .and_then(|br| br.get_property_or_default())
+        .unwrap_or_default()
+        .inner
+        .to_pixels(h);
+
+    WrBorderRadius {
+        top_left: WrLayoutSize::new(top_left_px_h as f32, top_left_px_v as f32),
+        top_right: WrLayoutSize::new(top_right_px_h as f32, top_right_px_v as f32),
+        bottom_left: WrLayoutSize::new(bottom_left_px_h as f32, bottom_left_px_v as f32),
+        bottom_right: WrLayoutSize::new(bottom_right_px_h as f32, bottom_right_px_v as f32),
+    }
+}
+
+#[inline]
+pub fn wr_translate_font_instance_key(key: FontInstanceKey) -> WrFontInstanceKey {
+    WrFontInstanceKey::from_bytes(key.data)
+}
+
+#[inline]
+pub fn wr_translate_glyph_options(opts: GlyphOptions) -> WrGlyphOptions {
+    WrGlyphOptions {
+        render_mode: wr_translate_font_render_mode(opts.render_mode),
+        flags: wr_translate_font_instance_flags(opts.flags),
+    }
+}
+
+#[inline]
+fn wr_translate_font_render_mode(
+    mode: azul_core::resources::FontRenderMode,
+) -> webrender::api::FontRenderMode {
+    use azul_core::resources::FontRenderMode::*;
+    match mode {
+        Mono => webrender::api::FontRenderMode::Mono,
+        Alpha => webrender::api::FontRenderMode::Alpha,
+        Subpixel => webrender::api::FontRenderMode::Subpixel,
+    }
+}
+
+#[inline]
+fn wr_translate_font_instance_flags(
+    flags: azul_core::resources::FontInstanceFlags,
+) -> webrender::api::FontInstanceFlags {
+    let mut wr_flags = webrender::api::FontInstanceFlags::empty();
+
+    if flags.contains(azul_core::resources::FontInstanceFlags::SYNTHETIC_BOLD) {
+        wr_flags |= webrender::api::FontInstanceFlags::SYNTHETIC_BOLD;
+    }
+    if flags.contains(azul_core::resources::FontInstanceFlags::EMBEDDED_BITMAPS) {
+        wr_flags |= webrender::api::FontInstanceFlags::EMBEDDED_BITMAPS;
+    }
+    if flags.contains(azul_core::resources::FontInstanceFlags::SUBPIXEL_BGR) {
+        wr_flags |= webrender::api::FontInstanceFlags::SUBPIXEL_BGR;
+    }
+    if flags.contains(azul_core::resources::FontInstanceFlags::TRANSPOSE) {
+        wr_flags |= webrender::api::FontInstanceFlags::TRANSPOSE;
+    }
+    if flags.contains(azul_core::resources::FontInstanceFlags::FLIP_X) {
+        wr_flags |= webrender::api::FontInstanceFlags::FLIP_X;
+    }
+    if flags.contains(azul_core::resources::FontInstanceFlags::FLIP_Y) {
+        wr_flags |= webrender::api::FontInstanceFlags::FLIP_Y;
+    }
+
+    wr_flags
+}
+
+#[inline]
+pub fn wr_translate_layouted_glyphs(glyphs: &[GlyphInstance]) -> Vec<WrGlyphInstance> {
+    glyphs
+        .iter()
+        .map(|g| WrGlyphInstance {
+            index: g.index,
+            point: webrender::api::units::LayoutPoint::new(g.point.x, g.point.y),
+        })
+        .collect()
+}
+
