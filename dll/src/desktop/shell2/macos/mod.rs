@@ -871,7 +871,11 @@ impl MacOSWindow {
             )
             .map_err(|e| format!("Layout error: {:?}", e))?;
 
-        // 3. Rebuild display list and send to WebRender (stub for now)
+        // 3. Calculate scrollbar states based on new layout
+        // This updates scrollbar geometry (thumb position/size ratios, visibility)
+        layout_window.scroll_states.calculate_scrollbar_states();
+
+        // 4. Rebuild display list and send to WebRender (stub for now)
         crate::desktop::wr_translate2::rebuild_display_list(
             layout_window,
             &mut self.render_api,
@@ -879,7 +883,7 @@ impl MacOSWindow {
             Vec::new(), // No resource updates for now
         );
 
-        // 4. Mark that frame needs regeneration (will be called once at event processing end)
+        // 5. Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
         Ok(())
@@ -941,14 +945,18 @@ impl MacOSWindow {
             .apply_scroll_event(scroll_event)
             .map_err(|e| format!("Scroll error: {:?}", e))?;
 
-        // 2. Update WebRender scroll layers and GPU transforms
+        // 2. Recalculate scrollbar states after scroll update
+        // This updates scrollbar thumb positions based on new scroll offsets
+        layout_window.scroll_states.calculate_scrollbar_states();
+
+        // 3. Update WebRender scroll layers and GPU transforms
         let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
 
         // Scroll all nodes in the scroll manager to WebRender
         // This updates external scroll IDs with new offsets
         self.scroll_all_nodes(&layout_window.scroll_states, &mut txn);
 
-        // Synchronize GPU-animated values (transforms, opacities)
+        // Synchronize GPU-animated values (transforms, opacities, scrollbar positions)
         // Note: We need mutable access for gpu_state_manager updates
         self.synchronize_gpu_values(layout_window, &mut txn);
 
