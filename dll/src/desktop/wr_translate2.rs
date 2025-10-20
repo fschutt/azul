@@ -185,18 +185,16 @@ pub fn wr_translate_scrollbar_hit_id(
     hit_id: azul_core::hit_test::ScrollbarHitId,
 ) -> (webrender::api::ItemTag, webrender::api::units::LayoutPoint) {
     use azul_core::hit_test::ScrollbarHitId;
-    
+
     let (dom_id, node_id, component_type) = match hit_id {
         ScrollbarHitId::VerticalTrack(dom_id, node_id) => (dom_id, node_id, 0u64),
         ScrollbarHitId::VerticalThumb(dom_id, node_id) => (dom_id, node_id, 1u64),
         ScrollbarHitId::HorizontalTrack(dom_id, node_id) => (dom_id, node_id, 2u64),
         ScrollbarHitId::HorizontalThumb(dom_id, node_id) => (dom_id, node_id, 3u64),
     };
-    
-    let tag = (dom_id.inner as u64) << 32 
-            | (node_id.index() as u64) 
-            | (component_type << 62);
-    
+
+    let tag = (dom_id.inner as u64) << 32 | (node_id.index() as u64) | (component_type << 62);
+
     // Return tag and a dummy scroll_id (not used for scrollbars)
     (
         webrender::api::ItemTag(tag),
@@ -210,16 +208,18 @@ pub fn wr_translate_scrollbar_hit_id(
 pub fn translate_item_tag_to_scrollbar_hit_id(
     tag: webrender::api::ItemTag,
 ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-    use azul_core::{dom::DomId, id::NodeId, hit_test::ScrollbarHitId};
-    
+    use azul_core::{dom::DomId, hit_test::ScrollbarHitId, id::NodeId};
+
     let tag_value = tag.0;
     let component_type = (tag_value >> 62) & 0x3;
     let dom_id_value = ((tag_value >> 32) & 0x3FFFFFFF) as u32;
     let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
-    
-    let dom_id = DomId { inner: dom_id_value };
+
+    let dom_id = DomId {
+        inner: dom_id_value,
+    };
     let node_id = NodeId::new(node_id_value);
-    
+
     match component_type {
         0 => Some(ScrollbarHitId::VerticalTrack(dom_id, node_id)),
         1 => Some(ScrollbarHitId::VerticalThumb(dom_id, node_id)),

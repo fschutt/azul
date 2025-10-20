@@ -820,12 +820,11 @@ where
                 ),
                 size: LogicalSize::new(scrollbar_info.scrollbar_width, paint_rect.size.height),
             };
-            
+
             // Generate hit-test ID for vertical scrollbar thumb
-            let hit_id = node_id.map(|nid| {
-                azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid)
-            });
-            
+            let hit_id = node_id
+                .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
+
             builder.push_scrollbar(
                 sb_bounds,
                 ColorU::new(192, 192, 192, 255),
@@ -852,12 +851,11 @@ where
                 ),
                 size: LogicalSize::new(paint_rect.size.width, scrollbar_info.scrollbar_height),
             };
-            
+
             // Generate hit-test ID for horizontal scrollbar thumb
-            let hit_id = node_id.map(|nid| {
-                azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid)
-            });
-            
+            let hit_id = node_id
+                .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
+
             builder.push_scrollbar(
                 sb_bounds,
                 ColorU::new(192, 192, 192, 255),

@@ -60,30 +60,31 @@ pub struct ScrollbarState {
 }
 
 impl ScrollbarState {
-    /// Determine which component was hit at the given local position (relative to track_rect origin)
+    /// Determine which component was hit at the given local position (relative to track_rect
+    /// origin)
     pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
         match self.orientation {
             ScrollbarOrientation::Vertical => {
                 let button_height = self.base_size;
-                
+
                 // Top button
                 if local_pos.y < button_height {
                     return ScrollbarComponent::TopButton;
                 }
-                
+
                 // Bottom button
                 let track_height = self.track_rect.size.height;
                 if local_pos.y > track_height - button_height {
                     return ScrollbarComponent::BottomButton;
                 }
-                
+
                 // Calculate thumb bounds
                 let track_height_usable = track_height - 2.0 * button_height;
                 let thumb_height = track_height_usable * self.thumb_size_ratio;
-                let thumb_y_start = button_height 
+                let thumb_y_start = button_height
                     + (track_height_usable - thumb_height) * self.thumb_position_ratio;
                 let thumb_y_end = thumb_y_start + thumb_height;
-                
+
                 // Check if inside thumb
                 if local_pos.y >= thumb_y_start && local_pos.y <= thumb_y_end {
                     ScrollbarComponent::Thumb
@@ -93,25 +94,25 @@ impl ScrollbarState {
             }
             ScrollbarOrientation::Horizontal => {
                 let button_width = self.base_size;
-                
+
                 // Left button
                 if local_pos.x < button_width {
                     return ScrollbarComponent::TopButton;
                 }
-                
+
                 // Right button
                 let track_width = self.track_rect.size.width;
                 if local_pos.x > track_width - button_width {
                     return ScrollbarComponent::BottomButton;
                 }
-                
+
                 // Calculate thumb bounds
                 let track_width_usable = track_width - 2.0 * button_width;
                 let thumb_width = track_width_usable * self.thumb_size_ratio;
-                let thumb_x_start = button_width 
-                    + (track_width_usable - thumb_width) * self.thumb_position_ratio;
+                let thumb_x_start =
+                    button_width + (track_width_usable - thumb_width) * self.thumb_position_ratio;
                 let thumb_x_end = thumb_x_start + thumb_width;
-                
+
                 // Check if inside thumb
                 if local_pos.x >= thumb_x_start && local_pos.x <= thumb_x_end {
                     ScrollbarComponent::Thumb
@@ -592,8 +593,8 @@ impl ScrollManager {
     // /// Returns the first scrollbar hit (highest z-order).
     // pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
     //     // Iterate in reverse order to hit top-most scrollbars first
-    //     for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
-    //     {
+    //     for ((dom_id, node_id, orientation), scrollbar_state) in
+    // self.scrollbar_states.iter().rev()     {
     //         if !scrollbar_state.visible {
     //             continue;
     //         }
