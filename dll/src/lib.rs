@@ -11,7 +11,8 @@ pub mod desktop;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 
-pub mod extra;
+// TODO: Re-enable extra after fixing API compatibility
+// pub mod extra;
 pub mod str;
 
 pub mod azul_impl {
@@ -21,11 +22,14 @@ pub mod azul_impl {
     pub use super::desktop::*;
 }
 
-use core::ffi::c_void;
+// Temporarily disabled due to API changes
+// use core::ffi::c_void;
 #[cfg(all(
     feature = "python-extension",
     feature = "link-dynamic",
     not(feature = "link-static")
 ))]
 pub mod python;
-pub mod widgets;
+// TODO: Re-enable widgets after fixing API compatibility
+// pub mod widgets;
+

@@ -59,12 +59,11 @@ impl MacOSWindow {
 
         // Check each hit item for scrollbar tag
         for item in &hit_result.items {
-            if let Some((tag, _)) = item.tag {
-                if let Some(scrollbar_id) =
-                    crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(tag)
-                {
-                    return Some(scrollbar_id);
-                }
+            let (tag, _) = item.tag;
+            if let Some(scrollbar_id) =
+                crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(tag)
+            {
+                return Some(scrollbar_id);
             }
         }
 
@@ -176,16 +175,18 @@ impl MacOSWindow {
             self.last_hovered_node = Some(hit_node);
 
             // Borrow app_data and fc_cache for callback dispatch
-            let mut app_data_borrowed = self.app_data.borrow_mut();
-            let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+            let callback_result = {
+                let mut app_data_borrowed = self.app_data.borrow_mut();
+                let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
-            let callback_result = self.dispatch_mouse_down_callbacks(
-                hit_node,
-                button,
-                position,
-                &mut *app_data_borrowed,
-                &mut *fc_cache_borrowed,
-            );
+                self.dispatch_mouse_down_callbacks(
+                    hit_node,
+                    button,
+                    position,
+                    &mut *app_data_borrowed,
+                    &mut *fc_cache_borrowed,
+                )
+            };
 
             return self.process_callback_result_to_event_result(callback_result);
         }
@@ -221,16 +222,18 @@ impl MacOSWindow {
 
         // Dispatch callbacks
         if let Some(hit_node) = hit_test_result {
-            let mut app_data_borrowed = self.app_data.borrow_mut();
-            let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+            let callback_result = {
+                let mut app_data_borrowed = self.app_data.borrow_mut();
+                let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
-            let callback_result = self.dispatch_mouse_up_callbacks(
-                hit_node,
-                button,
-                position,
-                &mut *app_data_borrowed,
-                &mut *fc_cache_borrowed,
-            );
+                self.dispatch_mouse_up_callbacks(
+                    hit_node,
+                    button,
+                    position,
+                    &mut *app_data_borrowed,
+                    &mut *fc_cache_borrowed,
+                )
+            };
 
             return self.process_callback_result_to_event_result(callback_result);
         }
@@ -260,15 +263,17 @@ impl MacOSWindow {
             if self.last_hovered_node != Some(hit_node) {
                 self.last_hovered_node = Some(hit_node);
 
-                let mut app_data_borrowed = self.app_data.borrow_mut();
-                let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+                let callback_result = {
+                    let mut app_data_borrowed = self.app_data.borrow_mut();
+                    let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
-                let callback_result = self.dispatch_hover_callbacks(
-                    hit_node,
-                    position,
-                    &mut *app_data_borrowed,
-                    &mut *fc_cache_borrowed,
-                );
+                    self.dispatch_hover_callbacks(
+                        hit_node,
+                        position,
+                        &mut *app_data_borrowed,
+                        &mut *fc_cache_borrowed,
+                    )
+                };
 
                 return self.process_callback_result_to_event_result(callback_result);
             }
@@ -364,7 +369,7 @@ impl MacOSWindow {
 
             if let Some(hit_node) = hit_test_result {
                 let callback_result = self.dispatch_file_drop_callbacks(hit_node, paths);
-                return self.process_callback_result(callback_result);
+                return self.process_callback_result_to_event_result(callback_result);
             }
         }
 
@@ -561,11 +566,11 @@ impl MacOSWindow {
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut callback_data.data.clone(),
-                &azul_core::window::RawWindowHandle::default(), // TODO: proper window handle
+                &azul_core::window::RawWindowHandle::Unsupported, // TODO: proper window handle
                 &self.gl_context_ptr,
                 &mut self.image_cache,
                 fc_cache,
-                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,
                 &self.renderer_resources,
@@ -641,11 +646,11 @@ impl MacOSWindow {
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut callback_data.data.clone(),
-                &azul_core::window::RawWindowHandle::default(),
+                &azul_core::window::RawWindowHandle::Unsupported,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
                 fc_cache,
-                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,
                 &self.renderer_resources,
@@ -715,11 +720,11 @@ impl MacOSWindow {
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut callback_data.data.clone(),
-                &azul_core::window::RawWindowHandle::default(),
+                &azul_core::window::RawWindowHandle::Unsupported,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
                 fc_cache,
-                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,
                 &self.renderer_resources,
@@ -854,7 +859,7 @@ impl MacOSWindow {
 
         // Handle focus changes
         if let Some(new_focus) = result.update_focused_node {
-            self.current_window_state.focused_node = Some(new_focus);
+            self.current_window_state.focused_node = new_focus;
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 

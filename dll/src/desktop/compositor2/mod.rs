@@ -39,13 +39,7 @@ pub fn translate_displaylist_to_wr(
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
     let spatial_id = SpatialId::root_scroll_node(pipeline_id);
-    let root_clip_id = builder.define_clip_rect(
-        spatial_id,
-        LayoutRect::from_size(LayoutSize::new(
-            viewport_size.width as f32,
-            viewport_size.height as f32,
-        )),
-    );
+    let root_clip_id = WrClipId::root(pipeline_id);
 
     // Clip stack management (for PushClip/PopClip)
     let mut clip_stack: Vec<WrClipId> = vec![root_clip_id];
@@ -255,7 +249,13 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.push(new_clip_id);
                 } else {
                     // Rectangular clip
-                    let new_clip_id = builder.define_clip_rect(current_spatial_id(), rect);
+                    let new_clip_id = builder.define_clip_rect(
+                        &SpaceAndClipInfo {
+                            spatial_id: current_spatial_id(),
+                            clip_id: current_clip_id(),
+                        },
+                        rect,
+                    );
                     clip_stack.push(new_clip_id);
                 }
             }
@@ -406,10 +406,19 @@ fn define_border_radius_clip(
     let wr_layout_rect = LayoutRect::from_size(wr_layout_size);
 
     let clip = if wr_border_radius.is_zero() {
-        builder.define_clip_rect(rect_spatial_id, wr_layout_rect)
+        builder.define_clip_rect(
+            &SpaceAndClipInfo {
+                spatial_id: rect_spatial_id,
+                clip_id: parent_clip_id,
+            },
+            wr_layout_rect,
+        )
     } else {
         builder.define_clip_rounded_rect(
-            rect_spatial_id,
+            &SpaceAndClipInfo {
+                spatial_id: rect_spatial_id,
+                clip_id: parent_clip_id,
+            },
             WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
         )
     };
