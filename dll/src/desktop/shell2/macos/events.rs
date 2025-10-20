@@ -57,9 +57,14 @@ impl MacOSWindow {
         let hit_test_result = self.perform_hit_test(position);
 
         // Dispatch callbacks for clicked nodes
+        // TODO: Implement callback dispatch once App infrastructure is ready
+        // For now, just track hit node for focus management
         if let Some(hit_node) = hit_test_result {
-            let callback_result = self.dispatch_mouse_down_callbacks(hit_node, button, position);
-            return self.process_callback_result(callback_result);
+            self.last_hovered_node = Some(hit_node);
+            // let callback_result = self.dispatch_mouse_down_callbacks(hit_node, button, position,
+            // app_data, fc_cache); return self.
+            // process_callback_result(callback_result);
+            return EventProcessResult::Redraw;
         }
 
         EventProcessResult::DoNothing
@@ -86,9 +91,12 @@ impl MacOSWindow {
         let hit_test_result = self.perform_hit_test(position);
 
         // Dispatch callbacks
+        // TODO: Implement callback dispatch once App infrastructure is ready
         if let Some(hit_node) = hit_test_result {
-            let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position);
-            return self.process_callback_result(callback_result);
+            // let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position,
+            // app_data, fc_cache); return self.
+            // process_callback_result(callback_result);
+            return EventProcessResult::Redraw;
         }
 
         EventProcessResult::DoNothing
@@ -110,8 +118,10 @@ impl MacOSWindow {
             // Dispatch hover callbacks if node changed
             if self.last_hovered_node != Some(hit_node) {
                 self.last_hovered_node = Some(hit_node);
-                let callback_result = self.dispatch_hover_callbacks(hit_node, position);
-                return self.process_callback_result(callback_result);
+                // TODO: Implement callback dispatch once App infrastructure is ready
+                // let callback_result = self.dispatch_hover_callbacks(hit_node, position, app_data,
+                // fc_cache); return self.process_callback_result(callback_result);
+                return EventProcessResult::Redraw;
             }
         } else {
             self.last_hovered_node = None;
@@ -339,16 +349,84 @@ impl MacOSWindow {
         node: HitTestNode,
         button: MouseButton,
         position: LogicalPosition,
+        app_data: &mut azul_core::refany::RefAny,
+        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
-        // TODO: Implement callback dispatch using LayoutWindow::invoke_single_callback
-        // This requires:
-        // 1. Looking up callbacks registered for the hit node
-        // 2. Filtering by MouseDown event type
-        // 3. Creating CallbackInfo with proper context
-        // 4. Invoking callbacks and processing results
-        //
-        // For now, we trigger a redraw for any click
-        ProcessEventResult::ShouldReRenderCurrentWindow
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::{EventFilter, HoverEventFilter},
+        };
+
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let dom_id = DomId {
+            inner: node.dom_id as usize,
+        };
+        let node_id = match NodeId::from_crate_internal(node.node_id as u32) {
+            Some(nid) => nid,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        // Get layout result for this DOM
+        let layout_result = match layout_window.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        // Get node data to access callbacks
+        let node_data = match layout_result
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(node_id)
+        {
+            Some(nd) => nd,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        // Filter callbacks by event type (MouseDown)
+        let event_filter = match button {
+            MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseDown),
+            MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseDown),
+            _ => EventFilter::Hover(HoverEventFilter::MouseDown),
+        };
+
+        let mut result = ProcessEventResult::DoNothing;
+
+        // Iterate through callbacks and invoke matching ones
+        for callback_data in node_data.callbacks.as_container().iter() {
+            if callback_data.event != event_filter {
+                continue;
+            }
+
+            // Convert CoreCallback to Callback
+            let mut callback = azul_layout::callbacks::Callback {
+                cb: callback_data.callback.cb,
+            };
+
+            // Invoke callback
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data.clone(),
+                &azul_core::window::RawWindowHandle::default(), // TODO: proper window handle
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                fc_cache,
+                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            // Process callback result
+            result = result.max(self.process_callback_result(callback_result, app_data, fc_cache));
+        }
+
+        result
     }
 
     /// Dispatch mouse up callbacks to hit node.
@@ -357,9 +435,77 @@ impl MacOSWindow {
         node: HitTestNode,
         button: MouseButton,
         position: LogicalPosition,
+        app_data: &mut azul_core::refany::RefAny,
+        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
-        // TODO: Look up callbacks for node, filter by MouseUp event
-        ProcessEventResult::DoNothing
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::{EventFilter, HoverEventFilter},
+        };
+
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let dom_id = DomId {
+            inner: node.dom_id as usize,
+        };
+        let node_id = match NodeId::from_crate_internal(node.node_id as u32) {
+            Some(nid) => nid,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let layout_result = match layout_window.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let node_data = match layout_result
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(node_id)
+        {
+            Some(nd) => nd,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let event_filter = match button {
+            MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+            MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
+            _ => EventFilter::Hover(HoverEventFilter::MouseUp),
+        };
+
+        let mut result = ProcessEventResult::DoNothing;
+
+        for callback_data in node_data.callbacks.as_container().iter() {
+            if callback_data.event != event_filter {
+                continue;
+            }
+
+            let mut callback = azul_layout::callbacks::Callback {
+                cb: callback_data.callback.cb,
+            };
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data.clone(),
+                &azul_core::window::RawWindowHandle::default(),
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                fc_cache,
+                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            result = result.max(self.process_callback_result(callback_result, app_data, fc_cache));
+        }
+
+        result
     }
 
     /// Dispatch hover callbacks to hit node.
@@ -367,9 +513,73 @@ impl MacOSWindow {
         &mut self,
         node: HitTestNode,
         position: LogicalPosition,
+        app_data: &mut azul_core::refany::RefAny,
+        fc_cache: &mut rust_fontconfig::FcFontCache,
     ) -> ProcessEventResult {
-        // TODO: Look up callbacks for node, filter by Hover event
-        ProcessEventResult::DoNothing
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::{EventFilter, HoverEventFilter},
+        };
+
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let dom_id = DomId {
+            inner: node.dom_id as usize,
+        };
+        let node_id = match NodeId::from_crate_internal(node.node_id as u32) {
+            Some(nid) => nid,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let layout_result = match layout_window.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        let node_data = match layout_result
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(node_id)
+        {
+            Some(nd) => nd,
+            None => return ProcessEventResult::DoNothing,
+        };
+
+        // Check for MouseOver callback
+        let event_filter = EventFilter::Hover(HoverEventFilter::MouseOver);
+
+        let mut result = ProcessEventResult::DoNothing;
+
+        for callback_data in node_data.callbacks.as_container().iter() {
+            if callback_data.event != event_filter {
+                continue;
+            }
+
+            let mut callback = azul_layout::callbacks::Callback {
+                cb: callback_data.callback.cb,
+            };
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data.clone(),
+                &azul_core::window::RawWindowHandle::default(),
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                fc_cache,
+                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            result = result.max(self.process_callback_result(callback_result, app_data, fc_cache));
+        }
+
+        result
     }
 
     /// Dispatch scroll callbacks to hit node.
@@ -462,6 +672,81 @@ impl MacOSWindow {
         // TODO: Notify WebRender compositor of new size
         // TODO: Resize GL viewport or CPU framebuffer
         Ok(())
+    }
+
+    /// Process callback result and convert to ProcessEventResult.
+    fn process_callback_result(
+        &mut self,
+        result: azul_layout::callbacks::CallCallbacksResult,
+        app_data: &mut azul_core::refany::RefAny,
+        fc_cache: &mut rust_fontconfig::FcFontCache,
+    ) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+
+        let mut event_result = ProcessEventResult::DoNothing;
+
+        // Handle window state modifications
+        if let Some(modified_state) = result.modified_window_state {
+            self.current_window_state.title = modified_state.title;
+            self.current_window_state.size = modified_state.size;
+            self.current_window_state.position = modified_state.position;
+            self.current_window_state.flags = modified_state.flags;
+            self.current_window_state.background_color = modified_state.background_color;
+
+            // Check if window should close
+            if modified_state.flags.is_about_to_close {
+                self.is_open = false;
+                return ProcessEventResult::DoNothing;
+            }
+
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle focus changes
+        if let Some(new_focus) = result.update_focused_node {
+            self.current_window_state.focused_node = Some(new_focus);
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle image updates
+        if result.images_changed.is_some() || result.image_masks_changed.is_some() {
+            // TODO: Update image cache and send to WebRender
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle timers
+        if result.timers.is_some() || result.timers_removed.is_some() {
+            // TODO: Start/stop timers
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle threads
+        if result.threads.is_some() || result.threads_removed.is_some() {
+            // TODO: Start/stop threads
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Process Update screen command
+        match result.callbacks_update_screen {
+            Update::RefreshDom => {
+                // Regenerate layout from layout callback
+                if let Err(e) = self.regenerate_layout(app_data, fc_cache) {
+                    eprintln!("Layout regeneration error: {}", e);
+                }
+                event_result =
+                    event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            }
+            Update::RefreshDomAllWindows => {
+                // Regenerate layout for this window, caller should handle other windows
+                if let Err(e) = self.regenerate_layout(app_data, fc_cache) {
+                    eprintln!("Layout regeneration error: {}", e);
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+            }
+            Update::DoNothing => {}
+        }
+
+        event_result
     }
 }
 

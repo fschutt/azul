@@ -909,10 +909,11 @@ impl MacOSWindow {
 
         // Scroll all nodes in the scroll manager to WebRender
         // This updates external scroll IDs with new offsets
-        self.scroll_all_nodes(&mut layout_window.scroll_states, &mut txn);
+        self.scroll_all_nodes(&layout_window.scroll_states, &mut txn);
 
         // Synchronize GPU-animated values (transforms, opacities)
-        self.synchronize_gpu_values(&layout_window, &mut txn);
+        // Note: We need mutable access for gpu_state_manager updates
+        self.synchronize_gpu_values(layout_window, &mut txn);
 
         // Send transaction and generate frame (without rebuilding display list)
         self.render_api.send_transaction(
@@ -945,15 +946,117 @@ impl MacOSWindow {
     /// Internal: Synchronize GPU-animated values to WebRender
     fn synchronize_gpu_values(
         &mut self,
-        layout_window: &azul_layout::window::LayoutWindow,
+        layout_window: &mut azul_layout::window::LayoutWindow,
         txn: &mut crate::desktop::wr_translate2::WrTransaction,
     ) {
-        // TODO: Implement GPU value synchronization
-        // For each layout_result in layout_window.layout_results:
-        // 1. Collect transform keys and values
-        // 2. Collect opacity keys and values
-        // 3. Create DynamicProperties
-        // 4. Call txn.update_dynamic_properties()
+        use webrender::api::{
+            DynamicProperties as WrDynamicProperties, PropertyBindingKey as WrPropertyBindingKey,
+            PropertyValue as WrPropertyValue,
+        };
+
+        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+
+        // Update scrollbar transforms using GpuStateManager
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            layout_window.gpu_state_manager.update_scrollbar_transforms(
+                *dom_id,
+                &layout_window.scroll_states,
+                &layout_result.layout_tree,
+            );
+        }
+
+        // Collect all transform keys and values from GPU caches
+        let transforms = layout_window
+            .gpu_state_manager
+            .caches
+            .values()
+            .flat_map(|gpu_cache| {
+                gpu_cache
+                    .transform_keys
+                    .iter()
+                    .filter_map(|(node_id, key)| {
+                        let mut value = gpu_cache.current_transform_values.get(node_id)?.clone();
+                        value.scale_for_dpi(dpi);
+                        Some((key, value))
+                    })
+            })
+            .map(|(k, v)| WrPropertyValue {
+                key: WrPropertyBindingKey::new(k.id as u64),
+                value: self.wr_translate_layout_transform(&v),
+            })
+            .collect::<Vec<_>>();
+
+        // Collect all opacity keys and values (including scrollbar opacities)
+        let floats = layout_window
+            .gpu_state_manager
+            .caches
+            .values()
+            .flat_map(|gpu_cache| {
+                // Regular opacity values
+                let mut opacity_values = gpu_cache
+                    .opacity_keys
+                    .iter()
+                    .filter_map(|(node_id, key)| {
+                        let value = gpu_cache.current_opacity_values.get(node_id)?;
+                        Some((key, *value))
+                    })
+                    .collect::<Vec<_>>();
+
+                // Vertical scrollbar opacities
+                opacity_values.extend(gpu_cache.scrollbar_v_opacity_keys.iter().filter_map(
+                    |(key_tuple, key)| {
+                        let value = gpu_cache.scrollbar_v_opacity_values.get(key_tuple)?;
+                        Some((key, *value))
+                    },
+                ));
+
+                // Horizontal scrollbar opacities
+                opacity_values.extend(gpu_cache.scrollbar_h_opacity_keys.iter().filter_map(
+                    |(key_tuple, key)| {
+                        let value = gpu_cache.scrollbar_h_opacity_values.get(key_tuple)?;
+                        Some((key, *value))
+                    },
+                ));
+
+                opacity_values.into_iter()
+            })
+            .map(|(k, v)| WrPropertyValue {
+                key: WrPropertyBindingKey::new(k.id as u64),
+                value: v,
+            })
+            .collect::<Vec<_>>();
+
+        // Update dynamic properties in WebRender
+        txn.update_dynamic_properties(WrDynamicProperties {
+            transforms,
+            floats,
+            colors: Vec::new(), // No color animations for now
+        });
+    }
+
+    /// Helper: Translate ComputedTransform3D to WebRender LayoutTransform
+    fn wr_translate_layout_transform(
+        &self,
+        transform: &azul_core::transform::ComputedTransform3D,
+    ) -> webrender::api::units::LayoutTransform {
+        webrender::api::units::LayoutTransform::new(
+            transform.m11,
+            transform.m12,
+            transform.m13,
+            transform.m14,
+            transform.m21,
+            transform.m22,
+            transform.m23,
+            transform.m24,
+            transform.m31,
+            transform.m32,
+            transform.m33,
+            transform.m34,
+            transform.m41,
+            transform.m42,
+            transform.m43,
+            transform.m44,
+        )
     }
 
     fn sync_window_state(&mut self) {
