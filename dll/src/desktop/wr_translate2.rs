@@ -195,11 +195,8 @@ pub fn wr_translate_scrollbar_hit_id(
 
     let tag = (dom_id.inner as u64) << 32 | (node_id.index() as u64) | (component_type << 62);
 
-    // Return tag and a dummy scroll_id (not used for scrollbars)
-    (
-        webrender::api::ItemTag(tag),
-        webrender::api::units::LayoutPoint::zero(),
-    )
+    // Return tag as (u64, u16) tuple
+    ((tag, 0), webrender::api::units::LayoutPoint::zero())
 }
 
 /// Translate WebRender ItemTag back to ScrollbarHitId
@@ -210,7 +207,7 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
 ) -> Option<azul_core::hit_test::ScrollbarHitId> {
     use azul_core::{dom::DomId, hit_test::ScrollbarHitId, id::NodeId};
 
-    let tag_value = tag.0;
+    let (tag_value, _) = tag;
     let component_type = (tag_value >> 62) & 0x3;
     let dom_id_value = ((tag_value >> 32) & 0x3FFFFFFF) as u32;
     let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
@@ -409,21 +406,54 @@ pub fn rebuild_display_list(
     image_cache: &ImageCache,
     resources: Vec<ResourceUpdate>,
 ) {
-    // TODO: Implement full display list translation
-    // 1. Iterate through layout_window.layout_results
-    // 2. For each DomId, get cached display list
-    // 3. Translate to WebRender format using compositor2
-    // 4. Set display list for each pipeline (DomId = PipelineId)
-    // 5. Update resources
-
+    use webrender::api::units::DeviceIntSize;
+    
     let mut txn = WrTransaction::new();
 
-    // For now, just create empty transaction
-    // In full implementation:
-    // - txn.set_display_list(...) for each DOM
-    // - txn.update_resources(...) for images/fonts
+    // Get viewport size for display list translation
+    let physical_size = layout_window.current_window_state.size.get_physical_size();
+    let viewport_size = DeviceIntSize::new(
+        physical_size.width as i32,
+        physical_size.height as i32,
+    );
 
-    render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+    // Translate display lists for all DOMs (root + iframes)
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        if let Some(display_list) = &layout_result.display_list {
+            // DomId maps to PipelineId namespace
+            let pipeline_id = wr_translate_pipeline_id(PipelineId(
+                dom_id.inner as u32,
+                layout_window.document_id.id,
+            ));
+
+            // Translate Azul DisplayList to WebRender Transaction
+            match crate::desktop::compositor2::translate_displaylist_to_wr(
+                display_list,
+                pipeline_id,
+                viewport_size,
+            ) {
+                Ok(dl_txn) => {
+                    // Merge display list transaction into main transaction
+                    // Note: WebRender Transaction doesn't support merging,
+                    // so we need to rebuild the transaction with display list
+                    // For now, just send it separately
+                    render_api.send_transaction(
+                        wr_translate_document_id(layout_window.document_id),
+                        dl_txn,
+                    );
+                }
+                Err(e) => {
+                    eprintln!("[rebuild_display_list] Error translating display list for DOM {}: {}", dom_id.inner, e);
+                }
+            }
+        }
+    }
+
+    // Update resources (images, fonts)
+    if !resources.is_empty() {
+        txn.update_resources(resources);
+        render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+    }
 }
 
 /// Generate a new WebRender frame

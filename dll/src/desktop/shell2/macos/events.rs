@@ -40,6 +40,108 @@ pub enum EventProcessResult {
 // (was previously defined here as duplicate)
 
 impl MacOSWindow {
+    /// Query WebRender hit-tester for scrollbar hits
+    fn perform_scrollbar_hit_test(
+        &self,
+        position: LogicalPosition,
+    ) -> Option<azul_core::hit_test::ScrollbarHitId> {
+        use crate::desktop::wr_translate2::AsyncHitTester;
+        use webrender::api::units::WorldPoint;
+        
+        let hit_tester = match &self.hit_tester {
+            AsyncHitTester::Resolved(ht) => ht,
+            _ => return None,
+        };
+
+        let world_point = WorldPoint::new(position.x, position.y);
+        let hit_result = hit_tester.hit_test(None, world_point);
+
+        // Check each hit item for scrollbar tag
+        for item in &hit_result.items {
+            if let Some((tag, _)) = item.tag {
+                if let Some(scrollbar_id) = 
+                    crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(tag) 
+                {
+                    return Some(scrollbar_id);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Handle scrollbar click (thumb or track)
+    fn handle_scrollbar_click(
+        &mut self,
+        hit_id: azul_core::hit_test::ScrollbarHitId,
+        position: LogicalPosition,
+    ) -> EventProcessResult {
+        use azul_core::hit_test::ScrollbarHitId;
+        
+        match hit_id {
+            ScrollbarHitId::VerticalThumb(dom_id, node_id) 
+            | ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
+                // Start drag
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return EventProcessResult::DoNothing,
+                };
+
+                let scroll_offset = layout_window
+                    .scroll_states
+                    .get_current_offset(dom_id, node_id)
+                    .unwrap_or_default();
+
+                self.scrollbar_drag_state = Some(azul_layout::ScrollbarDragState {
+                    hit_id,
+                    initial_mouse_pos: position,
+                    initial_scroll_offset: scroll_offset,
+                });
+
+                EventProcessResult::RequestRedraw
+            }
+            
+            ScrollbarHitId::VerticalTrack(dom_id, node_id) 
+            | ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
+                // TODO: Jump scroll to clicked position
+                EventProcessResult::DoNothing
+            }
+        }
+    }
+
+    /// Handle scrollbar drag (continuous thumb movement)
+    fn handle_scrollbar_drag(&mut self, current_pos: LogicalPosition) -> EventProcessResult {
+        let drag_state = match &self.scrollbar_drag_state {
+            Some(ds) => ds.clone(),
+            None => return EventProcessResult::DoNothing,
+        };
+
+        use azul_core::hit_test::ScrollbarHitId;
+        let (dom_id, node_id) = match drag_state.hit_id {
+            ScrollbarHitId::VerticalThumb(d, n) | ScrollbarHitId::VerticalTrack(d, n) => (d, n),
+            ScrollbarHitId::HorizontalThumb(d, n) | ScrollbarHitId::HorizontalTrack(d, n) => (d, n),
+        };
+
+        // Calculate scroll delta from drag delta
+        let delta = LogicalPosition::new(
+            current_pos.x - drag_state.initial_mouse_pos.x,
+            current_pos.y - drag_state.initial_mouse_pos.y,
+        );
+
+        // Use gpu_scroll to update scroll position
+        if let Err(e) = self.gpu_scroll(
+            dom_id.inner as u64,
+            node_id.index() as u64,
+            delta.x,
+            delta.y,
+        ) {
+            eprintln!("Scrollbar drag failed: {}", e);
+            return EventProcessResult::DoNothing;
+        }
+
+        EventProcessResult::RequestRedraw
+    }
+
     /// Process a mouse button down event.
     pub(crate) fn handle_mouse_down(
         &mut self,
@@ -58,6 +160,11 @@ impl MacOSWindow {
             MouseButton::Right => self.current_window_state.mouse_state.right_down = true,
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = true,
             _ => {}
+        }
+
+        // Check for scrollbar hit FIRST
+        if let Some(scrollbar_hit_id) = self.perform_scrollbar_hit_test(position) {
+            return self.handle_scrollbar_click(scrollbar_hit_id, position);
         }
 
         // Perform hit testing to find which node was clicked
@@ -102,6 +209,12 @@ impl MacOSWindow {
             _ => {}
         }
 
+        // End scrollbar drag if active
+        if self.scrollbar_drag_state.is_some() {
+            self.scrollbar_drag_state = None;
+            return EventProcessResult::RequestRedraw;
+        }
+
         // Perform hit testing
         let hit_test_result = self.perform_hit_test(position);
 
@@ -131,6 +244,11 @@ impl MacOSWindow {
 
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+
+        // Handle active scrollbar drag
+        if self.scrollbar_drag_state.is_some() {
+            return self.handle_scrollbar_drag(position);
+        }
 
         // Update hover state
         let hit_test_result = self.perform_hit_test(position);
