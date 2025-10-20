@@ -16,11 +16,15 @@ use std::{
 use azul_core::menu::Menu;
 use azul_layout::window_state::{FullWindowState, WindowCreateOptions, WindowState};
 use objc2::{
-    define_class, msg_send_id,
+    define_class,
+    msg_send_id,
     rc::{Allocated, Retained},
     runtime::ProtocolObject,
     AnyThread, // For alloc() method
-    ClassType, DeclaredClass, MainThreadMarker, MainThreadOnly,
+    ClassType,
+    DeclaredClass,
+    MainThreadMarker,
+    MainThreadOnly,
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
@@ -29,8 +33,7 @@ use objc2_app_kit::{
     NSOpenGLView, NSResponder, NSScreen, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize,
-    NSString,
+    ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
 };
 
 use crate::desktop::shell2::common::{
@@ -38,7 +41,9 @@ use crate::desktop::shell2::common::{
     WindowProperties,
 };
 
+mod events;
 mod gl;
+
 use gl::GlFunctions;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -140,6 +145,59 @@ define_class!(
             }
 
             self.ivars().needs_reshape.set(false);
+        }
+
+        // ===== Event Handling =====
+
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            // Event will be handled by MacOSWindow via NSApplication event loop
+            // This method is required for the view to accept mouse events
+        }
+
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(mouseDragged:))]
+        fn mouse_dragged(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(rightMouseDown:))]
+        fn right_mouse_down(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(rightMouseUp:))]
+        fn right_mouse_up(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(scrollWheel:))]
+        fn scroll_wheel(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(keyUp:))]
+        fn key_up(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(flagsChanged:))]
+        fn flags_changed(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
         }
 
         #[unsafe(method_id(initWithFrame:pixelFormat:))]
@@ -257,6 +315,58 @@ define_class!(
             true
         }
 
+        // ===== Event Handling =====
+
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            // Event will be handled by MacOSWindow
+        }
+
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(mouseDragged:))]
+        fn mouse_dragged(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(rightMouseDown:))]
+        fn right_mouse_down(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(rightMouseUp:))]
+        fn right_mouse_up(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(scrollWheel:))]
+        fn scroll_wheel(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(keyUp:))]
+        fn key_up(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
+        #[unsafe(method(flagsChanged:))]
+        fn flags_changed(&self, event: &NSEvent) {
+            // Event handled by MacOSWindow
+        }
+
         #[unsafe(method_id(initWithFrame:))]
         fn init_with_frame(
             this: Allocated<Self>,
@@ -337,6 +447,12 @@ pub struct MacOSWindow {
 
     /// Current window state
     current_window_state: FullWindowState,
+
+    /// Last hovered node (for hover state tracking)
+    last_hovered_node: Option<events::HitTestNode>,
+
+    /// LayoutWindow integration (for UI callbacks and display list)
+    layout_window: Option<azul_layout::window::LayoutWindow>,
 }
 
 impl MacOSWindow {
@@ -381,10 +497,9 @@ impl MacOSWindow {
                 pixelFormat: &*pixel_format,
             ]
         };
-        
-        let gl_view = gl_view.ok_or_else(|| {
-            WindowError::PlatformError("Failed to create GLView".into())
-        })?;
+
+        let gl_view =
+            gl_view.ok_or_else(|| WindowError::PlatformError("Failed to create GLView".into()))?;
 
         // Get OpenGL context
         let gl_context =
@@ -399,7 +514,8 @@ impl MacOSWindow {
 
     /// Create CPU view
     fn create_cpu_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<CPUView> {
-        let view: Option<Retained<CPUView>> = unsafe { msg_send_id![CPUView::alloc(mtm), initWithFrame: frame] };
+        let view: Option<Retained<CPUView>> =
+            unsafe { msg_send_id![CPUView::alloc(mtm), initWithFrame: frame] };
         view.expect("Failed to create CPUView")
     }
 
@@ -535,6 +651,8 @@ impl MacOSWindow {
             mtm,
             previous_window_state: None,
             current_window_state,
+            last_hovered_node: None,
+            layout_window: None, // TODO: Initialize with LayoutWindow from options
         })
     }
 
@@ -632,6 +750,49 @@ impl MacOSWindow {
         // Synchronize with OS
         self.sync_window_state();
     }
+
+    /// Process an NSEvent and dispatch to appropriate handler
+    fn process_event(&mut self, event: &NSEvent, macos_event: &MacOSEvent) {
+        use azul_core::events::MouseButton;
+
+        match event.r#type() {
+            NSEventType::LeftMouseDown => {
+                let _ = self.handle_mouse_down(event, MouseButton::Left);
+            }
+            NSEventType::LeftMouseUp => {
+                let _ = self.handle_mouse_up(event, MouseButton::Left);
+            }
+            NSEventType::RightMouseDown => {
+                let _ = self.handle_mouse_down(event, MouseButton::Right);
+            }
+            NSEventType::RightMouseUp => {
+                let _ = self.handle_mouse_up(event, MouseButton::Right);
+            }
+            NSEventType::OtherMouseDown => {
+                let _ = self.handle_mouse_down(event, MouseButton::Middle);
+            }
+            NSEventType::OtherMouseUp => {
+                let _ = self.handle_mouse_up(event, MouseButton::Middle);
+            }
+            NSEventType::MouseMoved
+            | NSEventType::LeftMouseDragged
+            | NSEventType::RightMouseDragged => {
+                let _ = self.handle_mouse_move(event);
+            }
+            NSEventType::ScrollWheel => {
+                let _ = self.handle_scroll_wheel(event);
+            }
+            NSEventType::KeyDown => {
+                let _ = self.handle_key_down(event);
+            }
+            NSEventType::KeyUp => {
+                let _ = self.handle_key_up(event);
+            }
+            _ => {
+                // Other events not handled yet
+            }
+        }
+    }
 }
 
 impl PlatformWindow for MacOSWindow {
@@ -694,13 +855,66 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
-        // TODO: Implement event polling
-        None
+        let app = NSApplication::sharedApplication(self.mtm);
+
+        // Poll event (non-blocking)
+        let event = unsafe {
+            app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                NSEventMask::Any,
+                None, // No wait time = non-blocking
+                objc2_foundation::NSDefaultRunLoopMode,
+                true,
+            )
+        };
+
+        if let Some(event) = event {
+            // Convert and process event
+            let macos_event = MacOSEvent::from_nsevent(&event);
+
+            // Dispatch event to handlers
+            self.process_event(&event, &macos_event);
+
+            // Forward event to system
+            unsafe {
+                app.sendEvent(&event);
+            }
+
+            Some(macos_event)
+        } else {
+            None
+        }
     }
 
     fn wait_event(&mut self) -> Option<Self::EventType> {
-        // TODO: Implement event waiting
-        None
+        let app = NSApplication::sharedApplication(self.mtm);
+
+        // Wait for event (blocking)
+        let event = unsafe {
+            app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                NSEventMask::Any,
+                Some(&objc2_foundation::NSDate::distantFuture()), // Wait indefinitely
+                objc2_foundation::NSDefaultRunLoopMode,
+                true,
+            )
+        };
+
+        if let Some(event) = event {
+            // Convert and process event
+            let macos_event = MacOSEvent::from_nsevent(&event);
+
+            // Dispatch event to handlers
+            self.process_event(&event, &macos_event);
+
+            // Forward event to system
+            unsafe {
+                app.sendEvent(&event);
+            }
+
+            Some(macos_event)
+        } else {
+            // Window closed
+            None
+        }
     }
 
     fn get_render_context(&self) -> RenderContext {

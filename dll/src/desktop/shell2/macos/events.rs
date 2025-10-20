@@ -1,0 +1,436 @@
+//! macOS Event handling - converts NSEvent to Azul events and dispatches callbacks.
+
+use azul_core::{
+    callbacks::LayoutCallbackInfo,
+    events::{EventFilter, MouseButton, NodesToCheck, ProcessEventResult, SyntheticEvent},
+    geom::{LogicalPosition, PhysicalPositionI32},
+    hit_test::{CursorTypeHitTest, FullHitTest},
+    window::{
+        CursorPosition, KeyboardState, MouseCursorType, MouseState, OptionMouseCursorType,
+        VirtualKeyCode, WindowFrame,
+    },
+};
+use azul_layout::{
+    callbacks::CallbackInfo, solver3::display_list::DisplayList, window::LayoutWindow,
+    window_state::WindowState,
+};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
+use objc2_foundation::NSPoint;
+
+use super::MacOSWindow;
+
+/// Result of processing an event - determines whether to redraw, update layout, etc.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventProcessResult {
+    /// No action needed
+    DoNothing,
+    /// Request redraw (present() will be called)
+    RequestRedraw,
+    /// Layout changed, need full rebuild
+    RegenerateDisplayList,
+    /// Window should close
+    CloseWindow,
+}
+
+impl MacOSWindow {
+    /// Process a mouse button down event.
+    pub(crate) fn handle_mouse_down(
+        &mut self,
+        event: &NSEvent,
+        button: MouseButton,
+    ) -> EventProcessResult {
+        let location = unsafe { event.locationInWindow() };
+        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+
+        // Update mouse state
+        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+
+        // Set appropriate button flag
+        match button {
+            MouseButton::Left => self.current_window_state.mouse_state.left_down = true,
+            MouseButton::Right => self.current_window_state.mouse_state.right_down = true,
+            MouseButton::Middle => self.current_window_state.mouse_state.middle_down = true,
+            _ => {}
+        }
+
+        // Perform hit testing to find which node was clicked
+        let hit_test_result = self.perform_hit_test(position);
+
+        // Dispatch callbacks for clicked nodes
+        if let Some(hit_node) = hit_test_result {
+            let callback_result = self.dispatch_mouse_down_callbacks(hit_node, button, position);
+            return self.process_callback_result(callback_result);
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process a mouse button up event.
+    pub(crate) fn handle_mouse_up(
+        &mut self,
+        event: &NSEvent,
+        button: MouseButton,
+    ) -> EventProcessResult {
+        let location = unsafe { event.locationInWindow() };
+        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+
+        // Update mouse state - clear appropriate button flag
+        match button {
+            MouseButton::Left => self.current_window_state.mouse_state.left_down = false,
+            MouseButton::Right => self.current_window_state.mouse_state.right_down = false,
+            MouseButton::Middle => self.current_window_state.mouse_state.middle_down = false,
+            _ => {}
+        }
+
+        // Perform hit testing
+        let hit_test_result = self.perform_hit_test(position);
+
+        // Dispatch callbacks
+        if let Some(hit_node) = hit_test_result {
+            let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position);
+            return self.process_callback_result(callback_result);
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process a mouse move event.
+    pub(crate) fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
+        let location = unsafe { event.locationInWindow() };
+        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+
+        // Update mouse state
+        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+
+        // Update hover state
+        let hit_test_result = self.perform_hit_test(position);
+
+        // Check if hovered node changed
+        if let Some(hit_node) = hit_test_result {
+            // Dispatch hover callbacks if node changed
+            if self.last_hovered_node != Some(hit_node) {
+                self.last_hovered_node = Some(hit_node);
+                let callback_result = self.dispatch_hover_callbacks(hit_node, position);
+                return self.process_callback_result(callback_result);
+            }
+        } else {
+            self.last_hovered_node = None;
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process a scroll wheel event.
+    pub(crate) fn handle_scroll_wheel(&mut self, event: &NSEvent) -> EventProcessResult {
+        let delta_x = unsafe { event.scrollingDeltaX() };
+        let delta_y = unsafe { event.scrollingDeltaY() };
+        let has_precise = unsafe { event.hasPreciseScrollingDeltas() };
+
+        let location = unsafe { event.locationInWindow() };
+        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+
+        // Perform hit testing to find scrollable node
+        let hit_test_result = self.perform_hit_test(position);
+
+        if let Some(hit_node) = hit_test_result {
+            let callback_result =
+                self.dispatch_scroll_callbacks(hit_node, delta_x as f32, delta_y as f32, position);
+            return self.process_callback_result(callback_result);
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process a key down event.
+    pub(crate) fn handle_key_down(&mut self, event: &NSEvent) -> EventProcessResult {
+        let key_code = unsafe { event.keyCode() };
+        let modifiers = unsafe { event.modifierFlags() };
+
+        // Update keyboard state
+        self.update_keyboard_state(key_code, modifiers, true);
+
+        // Convert to VirtualKeyCode
+        if let Some(vk) = self.convert_keycode(key_code) {
+            let callback_result = self.dispatch_key_down_callbacks(vk, modifiers);
+            return self.process_callback_result(callback_result);
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process a key up event.
+    pub(crate) fn handle_key_up(&mut self, event: &NSEvent) -> EventProcessResult {
+        let key_code = unsafe { event.keyCode() };
+        let modifiers = unsafe { event.modifierFlags() };
+
+        // Update keyboard state
+        self.update_keyboard_state(key_code, modifiers, false);
+
+        // Convert to VirtualKeyCode
+        if let Some(vk) = self.convert_keycode(key_code) {
+            let callback_result = self.dispatch_key_up_callbacks(vk, modifiers);
+            return self.process_callback_result(callback_result);
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process a window resize event.
+    pub(crate) fn handle_resize(&mut self, new_width: f64, new_height: f64) -> EventProcessResult {
+        use azul_core::geom::LogicalSize;
+
+        let new_size = LogicalSize {
+            width: new_width as f32,
+            height: new_height as f32,
+        };
+
+        // Update window state
+        self.current_window_state.size.dimensions = new_size;
+
+        // Notify compositor of resize
+        if let Err(e) = self.handle_compositor_resize() {
+            eprintln!("Compositor resize failed: {}", e);
+        }
+
+        // Resize requires full display list rebuild
+        EventProcessResult::RegenerateDisplayList
+    }
+
+    /// Process a file drop event.
+    pub(crate) fn handle_file_drop(&mut self, paths: Vec<String>) -> EventProcessResult {
+        // Find node under cursor for file drop target
+        if let CursorPosition::InWindow(pos) = self.current_window_state.mouse_state.cursor_position
+        {
+            let hit_test_result = self.perform_hit_test(pos);
+
+            if let Some(hit_node) = hit_test_result {
+                let callback_result = self.dispatch_file_drop_callbacks(hit_node, paths);
+                return self.process_callback_result(callback_result);
+            }
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Perform hit testing at given position.
+    fn perform_hit_test(&self, position: LogicalPosition) -> Option<HitTestNode> {
+        // TODO: Implement actual hit testing against display list
+        // For now, return None (no hit)
+        None
+    }
+
+    /// Convert macOS keycode to VirtualKeyCode.
+    fn convert_keycode(&self, keycode: u16) -> Option<VirtualKeyCode> {
+        // macOS keycodes: https://eastmanreference.com/complete-list-of-applescript-key-codes
+        match keycode {
+            0x00 => Some(VirtualKeyCode::A),
+            0x01 => Some(VirtualKeyCode::S),
+            0x02 => Some(VirtualKeyCode::D),
+            0x03 => Some(VirtualKeyCode::F),
+            0x04 => Some(VirtualKeyCode::H),
+            0x05 => Some(VirtualKeyCode::G),
+            0x06 => Some(VirtualKeyCode::Z),
+            0x07 => Some(VirtualKeyCode::X),
+            0x08 => Some(VirtualKeyCode::C),
+            0x09 => Some(VirtualKeyCode::V),
+            0x0B => Some(VirtualKeyCode::B),
+            0x0C => Some(VirtualKeyCode::Q),
+            0x0D => Some(VirtualKeyCode::W),
+            0x0E => Some(VirtualKeyCode::E),
+            0x0F => Some(VirtualKeyCode::R),
+            0x10 => Some(VirtualKeyCode::Y),
+            0x11 => Some(VirtualKeyCode::T),
+            0x12 => Some(VirtualKeyCode::Key1),
+            0x13 => Some(VirtualKeyCode::Key2),
+            0x14 => Some(VirtualKeyCode::Key3),
+            0x15 => Some(VirtualKeyCode::Key4),
+            0x16 => Some(VirtualKeyCode::Key6),
+            0x17 => Some(VirtualKeyCode::Key5),
+            0x18 => Some(VirtualKeyCode::Equals),
+            0x19 => Some(VirtualKeyCode::Key9),
+            0x1A => Some(VirtualKeyCode::Key7),
+            0x1B => Some(VirtualKeyCode::Minus),
+            0x1C => Some(VirtualKeyCode::Key8),
+            0x1D => Some(VirtualKeyCode::Key0),
+            0x1E => Some(VirtualKeyCode::RBracket),
+            0x1F => Some(VirtualKeyCode::O),
+            0x20 => Some(VirtualKeyCode::U),
+            0x21 => Some(VirtualKeyCode::LBracket),
+            0x22 => Some(VirtualKeyCode::I),
+            0x23 => Some(VirtualKeyCode::P),
+            0x24 => Some(VirtualKeyCode::Return),
+            0x25 => Some(VirtualKeyCode::L),
+            0x26 => Some(VirtualKeyCode::J),
+            0x27 => Some(VirtualKeyCode::Apostrophe),
+            0x28 => Some(VirtualKeyCode::K),
+            0x29 => Some(VirtualKeyCode::Semicolon),
+            0x2A => Some(VirtualKeyCode::Backslash),
+            0x2B => Some(VirtualKeyCode::Comma),
+            0x2C => Some(VirtualKeyCode::Slash),
+            0x2D => Some(VirtualKeyCode::N),
+            0x2E => Some(VirtualKeyCode::M),
+            0x2F => Some(VirtualKeyCode::Period),
+            0x30 => Some(VirtualKeyCode::Tab),
+            0x31 => Some(VirtualKeyCode::Space),
+            0x32 => Some(VirtualKeyCode::Grave),
+            0x33 => Some(VirtualKeyCode::Back),
+            0x35 => Some(VirtualKeyCode::Escape),
+            0x37 => Some(VirtualKeyCode::LWin), // Command
+            0x38 => Some(VirtualKeyCode::LShift),
+            0x39 => Some(VirtualKeyCode::Capital), // Caps Lock
+            0x3A => Some(VirtualKeyCode::LAlt),    // Option
+            0x3B => Some(VirtualKeyCode::LControl),
+            0x3C => Some(VirtualKeyCode::RShift),
+            0x3D => Some(VirtualKeyCode::RAlt),
+            0x3E => Some(VirtualKeyCode::RControl),
+            0x7B => Some(VirtualKeyCode::Left),
+            0x7C => Some(VirtualKeyCode::Right),
+            0x7D => Some(VirtualKeyCode::Down),
+            0x7E => Some(VirtualKeyCode::Up),
+            _ => None,
+        }
+    }
+
+    /// Update keyboard state from event.
+    fn update_keyboard_state(
+        &mut self,
+        keycode: u16,
+        modifiers: NSEventModifierFlags,
+        is_down: bool,
+    ) {
+        // TODO: Update self.current_window_state.keyboard_state
+    }
+
+    /// Dispatch mouse down callbacks to hit node.
+    fn dispatch_mouse_down_callbacks(
+        &mut self,
+        node: HitTestNode,
+        button: MouseButton,
+        position: LogicalPosition,
+    ) -> ProcessEventResult {
+        // TODO: Look up callbacks for node, filter by MouseDown event
+        // TODO: Call LayoutWindow::call_callbacks()
+        ProcessEventResult::DoNothing
+    }
+
+    /// Dispatch mouse up callbacks to hit node.
+    fn dispatch_mouse_up_callbacks(
+        &mut self,
+        node: HitTestNode,
+        button: MouseButton,
+        position: LogicalPosition,
+    ) -> ProcessEventResult {
+        // TODO: Look up callbacks for node, filter by MouseUp event
+        ProcessEventResult::DoNothing
+    }
+
+    /// Dispatch hover callbacks to hit node.
+    fn dispatch_hover_callbacks(
+        &mut self,
+        node: HitTestNode,
+        position: LogicalPosition,
+    ) -> ProcessEventResult {
+        // TODO: Look up callbacks for node, filter by Hover event
+        ProcessEventResult::DoNothing
+    }
+
+    /// Dispatch scroll callbacks to hit node.
+    fn dispatch_scroll_callbacks(
+        &mut self,
+        node: HitTestNode,
+        delta_x: f32,
+        delta_y: f32,
+        position: LogicalPosition,
+    ) -> ProcessEventResult {
+        // TODO: Look up callbacks for node, filter by Scroll event
+        ProcessEventResult::DoNothing
+    }
+
+    /// Dispatch key down callbacks.
+    fn dispatch_key_down_callbacks(
+        &mut self,
+        key: VirtualKeyCode,
+        modifiers: NSEventModifierFlags,
+    ) -> ProcessEventResult {
+        // TODO: Filter window-level key callbacks
+        ProcessEventResult::DoNothing
+    }
+
+    /// Dispatch key up callbacks.
+    fn dispatch_key_up_callbacks(
+        &mut self,
+        key: VirtualKeyCode,
+        modifiers: NSEventModifierFlags,
+    ) -> ProcessEventResult {
+        // TODO: Filter window-level key callbacks
+        ProcessEventResult::DoNothing
+    }
+
+    /// Dispatch file drop callbacks to hit node.
+    fn dispatch_file_drop_callbacks(
+        &mut self,
+        node: HitTestNode,
+        paths: Vec<String>,
+    ) -> ProcessEventResult {
+        // TODO: Look up callbacks for node, filter by FileDrop event
+        ProcessEventResult::DoNothing
+    }
+
+    /// Convert ProcessEventResult to EventProcessResult.
+    fn process_callback_result(&mut self, result: ProcessEventResult) -> EventProcessResult {
+        match result {
+            ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RegenerateDisplayList
+            }
+            ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RegenerateDisplayList
+            }
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RegenerateDisplayList
+            }
+            ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RegenerateDisplayList
+            }
+        }
+    }
+
+    /// Handle compositor resize notification.
+    fn handle_compositor_resize(&mut self) -> Result<(), String> {
+        // TODO: Notify WebRender compositor of new size
+        // TODO: Resize GL viewport or CPU framebuffer
+        Ok(())
+    }
+}
+
+/// Temporary hit test node structure (placeholder).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct HitTestNode {
+    pub dom_id: u64,
+    pub node_id: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keycode_conversion() {
+        // Test some basic keycodes
+        assert_eq!(Some(VirtualKeyCode::A), convert_keycode_test(0x00));
+        assert_eq!(Some(VirtualKeyCode::Return), convert_keycode_test(0x24));
+        assert_eq!(Some(VirtualKeyCode::Space), convert_keycode_test(0x31));
+        assert_eq!(None, convert_keycode_test(0xFF)); // Invalid
+    }
+
+    fn convert_keycode_test(keycode: u16) -> Option<VirtualKeyCode> {
+        // Helper for testing keycode conversion without MacOSWindow instance
+        match keycode {
+            0x00 => Some(VirtualKeyCode::A),
+            0x24 => Some(VirtualKeyCode::Return),
+            0x31 => Some(VirtualKeyCode::Space),
+            _ => None,
+        }
+    }
+}
