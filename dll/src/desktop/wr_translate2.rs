@@ -157,6 +157,23 @@ pub fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipelineId {
     WrPipelineId(pipeline_id.0, pipeline_id.1)
 }
 
+/// Translate ExternalScrollId from azul-core to WebRender
+pub fn wr_translate_external_scroll_id(
+    scroll_id: azul_core::hit_test::ExternalScrollId,
+) -> webrender::api::ExternalScrollId {
+    webrender::api::ExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
+}
+
+/// Translate LogicalPosition from azul-core to WebRender LayoutPoint
+pub fn wr_translate_logical_position(
+    pos: azul_core::geom::LogicalPosition,
+) -> webrender::api::units::LayoutPoint {
+    webrender::api::units::LayoutPoint::new(pos.x, pos.y)
+}
+
+/// Re-export ScrollClamping from webrender
+pub use webrender::api::ScrollClamping;
+
 /// Perform WebRender-based hit testing
 ///
 /// This is the main hit-testing function that uses WebRender's hit tester to determine

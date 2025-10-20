@@ -168,7 +168,7 @@ impl MacOSWindow {
         if let Some(hit_node) = hit_test_result {
             let callback_result =
                 self.dispatch_scroll_callbacks(hit_node, delta_x as f32, delta_y as f32, position);
-            return self.process_callback_result(callback_result);
+            return self.process_callback_result_to_event_result(callback_result);
         }
 
         EventProcessResult::DoNothing
@@ -185,7 +185,7 @@ impl MacOSWindow {
         // Convert to VirtualKeyCode
         if let Some(vk) = self.convert_keycode(key_code) {
             let callback_result = self.dispatch_key_down_callbacks(vk, modifiers);
-            return self.process_callback_result(callback_result);
+            return self.process_callback_result_to_event_result(callback_result);
         }
 
         EventProcessResult::DoNothing
@@ -202,7 +202,7 @@ impl MacOSWindow {
         // Convert to VirtualKeyCode
         if let Some(vk) = self.convert_keycode(key_code) {
             let callback_result = self.dispatch_key_up_callbacks(vk, modifiers);
-            return self.process_callback_result(callback_result);
+            return self.process_callback_result_to_event_result(callback_result);
         }
 
         EventProcessResult::DoNothing

@@ -969,11 +969,22 @@ impl MacOSWindow {
         scroll_manager: &azul_layout::scroll::ScrollManager,
         txn: &mut crate::desktop::wr_translate2::WrTransaction,
     ) {
-        // TODO: Implement once we have external_scroll_id mapping
-        // For each scroll state in scroll_manager:
-        // 1. Get external_scroll_id from layout_result
-        // 2. Call txn.scroll_node_with_id(offset, external_scroll_id,
-        //    ScrollClamping::ToContentBounds)
+        use crate::desktop::wr_translate2::{
+            wr_translate_external_scroll_id, wr_translate_logical_position, ScrollClamping,
+        };
+
+        // Iterate over all scroll states and update WebRender scroll layers
+        for ((dom_id, node_id), external_scroll_id) in scroll_manager.iter_external_scroll_ids() {
+            // Get current scroll offset
+            if let Some(offset) = scroll_manager.get_current_offset(dom_id, node_id) {
+                // Translate to WebRender types and send scroll command
+                txn.scroll_node_with_id(
+                    wr_translate_logical_position(offset),
+                    wr_translate_external_scroll_id(external_scroll_id),
+                    ScrollClamping::ToContentBounds,
+                );
+            }
+        }
     }
 
     /// Internal: Synchronize GPU-animated values to WebRender
