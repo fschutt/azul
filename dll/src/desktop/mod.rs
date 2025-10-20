@@ -37,6 +37,9 @@ pub mod resources {
 mod logging;
 // mod wr_translate;
 
+/// New compositor integration for shell2 - WebRender bridge
+pub mod compositor2;
+
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
     pub use azul_layout::text3::*;

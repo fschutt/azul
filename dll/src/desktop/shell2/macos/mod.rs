@@ -8,15 +8,19 @@
 //!
 //! Note: macOS uses static linking for system frameworks (standard approach).
 
-use std::rc::Rc;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use azul_core::menu::Menu;
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use azul_layout::window_state::{FullWindowState, WindowCreateOptions, WindowState};
 use objc2::{
     define_class, msg_send_id,
     rc::{Allocated, Retained},
     runtime::ProtocolObject,
-    ClassType, DefinedClass, MainThreadOnly,
+    AnyThread, // For alloc() method
+    ClassType, DeclaredClass, MainThreadMarker, MainThreadOnly,
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
@@ -25,7 +29,7 @@ use objc2_app_kit::{
     NSOpenGLView, NSResponder, NSScreen, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    ns_string, MainThreadMarker, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize,
+    ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize,
     NSString,
 };
 
@@ -48,10 +52,10 @@ pub enum RenderBackend {
 // ============================================================================
 
 /// Instance variables for GLView
-#[derive(Debug)]
 pub struct GLViewIvars {
-    gl_functions: Option<Rc<gl_context_loader::GenericGlContext>>,
-    needs_reshape: bool,
+    gl_functions: RefCell<Option<Rc<gl_context_loader::GenericGlContext>>>,
+    needs_reshape: Cell<bool>,
+    mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
 }
 
 define_class!(
@@ -65,12 +69,22 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _rect: NSRect) {
             // Get GL functions from ivars
-            if let Some(ref gl) = self.ivars().gl_functions {
+            if let Some(ref gl_context) = *self.ivars().gl_functions.borrow() {
                 unsafe {
-                    // Clear to blue color
-                    if let (Some(clear_color), Some(clear)) = (gl.glClearColor, gl.glClear) {
-                        clear_color(0.2, 0.3, 0.8, 1.0); // Blue background
-                        clear(0x00004000); // GL_COLOR_BUFFER_BIT
+                    // Cast function pointers to proper types
+                    type GlClearColorFn = unsafe extern "C" fn(f32, f32, f32, f32);
+                    type GlClearFn = unsafe extern "C" fn(u32);
+
+                    // Clear to blue color (0.2, 0.3, 0.8, 1.0)
+                    if !gl_context.glClearColor.is_null() {
+                        let clear_color: GlClearColorFn = std::mem::transmute(gl_context.glClearColor);
+                        clear_color(0.2, 0.3, 0.8, 1.0);
+                    }
+
+                    // Clear color buffer (GL_COLOR_BUFFER_BIT = 0x00004000)
+                    if !gl_context.glClear.is_null() {
+                        let clear: GlClearFn = std::mem::transmute(gl_context.glClear);
+                        clear(0x00004000);
                     }
                 }
             }
@@ -88,8 +102,8 @@ define_class!(
             // Load GL functions via dlopen
             match GlFunctions::initialize() {
                 Ok(functions) => {
-                    *self.ivars().gl_functions = Some(functions.get_context());
-                    *self.ivars().needs_reshape = true;
+                    *self.ivars().gl_functions.borrow_mut() = Some(functions.get_context());
+                    self.ivars().needs_reshape.set(true);
                 }
                 Err(e) => {
                     eprintln!("Failed to load GL functions: {}", e);
@@ -99,10 +113,12 @@ define_class!(
 
         #[unsafe(method(reshape))]
         fn reshape(&self) {
+            let mtm = self.ivars().mtm;
+
             // Update context
             unsafe {
                 if let Some(context) = self.openGLContext() {
-                    context.update();
+                    context.update(mtm);
                 }
             }
 
@@ -111,15 +127,19 @@ define_class!(
             let width = bounds.size.width as i32;
             let height = bounds.size.height as i32;
 
-            if let Some(ref gl) = self.ivars().gl_functions {
+            if let Some(ref gl_context) = *self.ivars().gl_functions.borrow() {
                 unsafe {
-                    if let Some(viewport) = gl.glViewport {
+                    // Cast function pointer to proper type
+                    type GlViewportFn = unsafe extern "C" fn(i32, i32, i32, i32);
+
+                    if !gl_context.glViewport.is_null() {
+                        let viewport: GlViewportFn = std::mem::transmute(gl_context.glViewport);
                         viewport(0, 0, width, height);
                     }
                 }
             }
 
-            *self.ivars().needs_reshape = false;
+            self.ivars().needs_reshape.set(false);
         }
 
         #[unsafe(method_id(initWithFrame:pixelFormat:))]
@@ -128,9 +148,13 @@ define_class!(
             frame: NSRect,
             pixel_format: Option<&NSOpenGLPixelFormat>,
         ) -> Option<Retained<Self>> {
+            // Get MainThreadMarker - we're guaranteed to be on main thread in init
+            let mtm = MainThreadMarker::new().expect("init must be called on main thread");
+
             let this = this.set_ivars(GLViewIvars {
-                gl_functions: None,
-                needs_reshape: true,
+                gl_functions: RefCell::new(None),
+                needs_reshape: Cell::new(true),
+                mtm,
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
@@ -144,12 +168,12 @@ define_class!(
 // ============================================================================
 
 /// Instance variables for CPUView
-#[derive(Debug)]
 pub struct CPUViewIvars {
-    framebuffer: Vec<u8>,
-    width: usize,
-    height: usize,
-    needs_redraw: bool,
+    framebuffer: RefCell<Vec<u8>>,
+    width: Cell<usize>,
+    height: Cell<usize>,
+    needs_redraw: Cell<bool>,
+    mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
 }
 
 define_class!(
@@ -169,30 +193,39 @@ define_class!(
             let ivars = self.ivars();
 
             // Resize framebuffer if needed
-            if ivars.width != width || ivars.height != height {
-                *ivars.width = width;
-                *ivars.height = height;
-                ivars.framebuffer.resize(width * height * 4, 0);
+            let current_width = ivars.width.get();
+            let current_height = ivars.height.get();
+
+            if current_width != width || current_height != height {
+                ivars.width.set(width);
+                ivars.height.set(height);
+                ivars.framebuffer.borrow_mut().resize(width * height * 4, 0);
             }
 
             // Render blue gradient to framebuffer
-            for y in 0..height {
-                for x in 0..width {
-                    let idx = (y * width + x) * 4;
-                    ivars.framebuffer[idx] = (x * 128 / width.max(1)) as u8; // R
-                    ivars.framebuffer[idx + 1] = (y * 128 / height.max(1)) as u8; // G
-                    ivars.framebuffer[idx + 2] = 255; // B - Blue
-                    ivars.framebuffer[idx + 3] = 255; // A
+            {
+                let mut framebuffer = ivars.framebuffer.borrow_mut();
+                for y in 0..height {
+                    for x in 0..width {
+                        let idx = (y * width + x) * 4;
+                        framebuffer[idx] = (x * 128 / width.max(1)) as u8; // R
+                        framebuffer[idx + 1] = (y * 128 / height.max(1)) as u8; // G
+                        framebuffer[idx + 2] = 255; // B - Blue
+                        framebuffer[idx + 3] = 255; // A
+                    }
                 }
             }
 
             // Blit framebuffer to window
             unsafe {
-                let mtm = MainThreadMarker::new_unchecked();
-                let data = NSData::with_bytes(&ivars.framebuffer);
+                let mtm = ivars.mtm; // Get mtm from ivars
+                let framebuffer = ivars.framebuffer.borrow();
+
+                // Use NSData::with_bytes to wrap our framebuffer
+                let data = NSData::with_bytes(&framebuffer[..]);
 
                 if let Some(bitmap) = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
-                    mtm.alloc(),
+                    NSBitmapImageRep::alloc(),
                     std::ptr::null_mut(),
                     width as isize,
                     height as isize,
@@ -204,16 +237,17 @@ define_class!(
                     (width * 4) as isize,
                     32,
                 ) {
+                    // Copy framebuffer data to bitmap
                     std::ptr::copy_nonoverlapping(
-                        data.bytes().as_ptr(),
+                        framebuffer.as_ptr(),
                         bitmap.bitmapData(),
-                        ivars.framebuffer.len(),
+                        framebuffer.len(),
                     );
 
-                    if let Some(image) = NSImage::initWithSize(mtm.alloc(), bounds.size) {
-                        image.addRepresentation(&bitmap);
-                        image.drawInRect(bounds);
-                    }
+                    // Create image and draw
+                    let image = NSImage::initWithSize(NSImage::alloc(), bounds.size);
+                    image.addRepresentation(&bitmap);
+                    image.drawInRect(bounds);
                 }
             }
         }
@@ -228,11 +262,15 @@ define_class!(
             this: Allocated<Self>,
             frame: NSRect,
         ) -> Option<Retained<Self>> {
+            // Get MainThreadMarker - we're guaranteed to be on main thread in init
+            let mtm = MainThreadMarker::new().expect("init must be called on main thread");
+
             let this = this.set_ivars(CPUViewIvars {
-                framebuffer: Vec::new(),
-                width: 0,
-                height: 0,
-                needs_redraw: true,
+                framebuffer: RefCell::new(Vec::new()),
+                width: Cell::new(0),
+                height: Cell::new(0),
+                needs_redraw: Cell::new(true),
+                mtm,
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -260,8 +298,12 @@ fn create_opengl_pixel_format(
         0,  // Null terminator
     ];
 
-    unsafe { NSOpenGLPixelFormat::initWithAttributes(mtm.alloc(), attrs.as_ptr()) }
-        .ok_or_else(|| WindowError::ContextCreationFailed)
+    // Note: NSOpenGLPixelFormat::initWithAttributes expects NonNull<u32> in objc2-app-kit 0.3.2
+    unsafe {
+        let attrs_ptr = std::ptr::NonNull::new_unchecked(attrs.as_ptr() as *mut u32);
+        NSOpenGLPixelFormat::initWithAttributes(NSOpenGLPixelFormat::alloc(), attrs_ptr)
+            .ok_or_else(|| WindowError::ContextCreationFailed)
+    }
 }
 
 // ============================================================================
@@ -289,6 +331,12 @@ pub struct MacOSWindow {
 
     /// Main thread marker (required for AppKit)
     mtm: MainThreadMarker,
+
+    /// Window state from previous frame (for diff detection)
+    previous_window_state: Option<FullWindowState>,
+
+    /// Current window state
+    current_window_state: FullWindowState,
 }
 
 impl MacOSWindow {
@@ -303,13 +351,13 @@ impl MacOSWindow {
             }
         }
 
-        // 2. Check options.renderer
-        if let Some(renderer_opts) = &options.renderer {
-            // If HW acceleration explicitly disabled -> CPU
-            if let Some(hw_accel) = renderer_opts.hw_accel {
-                if !hw_accel {
-                    return RenderBackend::CPU;
-                }
+        // 2. Check options.renderer - if it's Some, check hw_accel field
+        use azul_core::window::{HwAcceleration, OptionRendererOptions};
+        if let Some(renderer) = options.renderer.as_option() {
+            match renderer.hw_accel {
+                HwAcceleration::Disabled => return RenderBackend::CPU,
+                HwAcceleration::Enabled => return RenderBackend::OpenGL,
+                HwAcceleration::DontCare => {} // Continue to default
             }
         }
 
@@ -326,14 +374,17 @@ impl MacOSWindow {
         let pixel_format = create_opengl_pixel_format(mtm)?;
 
         // Create GLView
-        let gl_view = unsafe {
+        let gl_view: Option<Retained<GLView>> = unsafe {
             msg_send_id![
-                mtm.alloc::<GLView>(),
+                GLView::alloc(mtm),
                 initWithFrame: frame,
-                pixelFormat: Some(&pixel_format),
+                pixelFormat: &*pixel_format,
             ]
-        }
-        .ok_or_else(|| WindowError::PlatformError("Failed to create GLView".into()))?;
+        };
+        
+        let gl_view = gl_view.ok_or_else(|| {
+            WindowError::PlatformError("Failed to create GLView".into())
+        })?;
 
         // Get OpenGL context
         let gl_context =
@@ -348,8 +399,8 @@ impl MacOSWindow {
 
     /// Create CPU view
     fn create_cpu_view(frame: NSRect, mtm: MainThreadMarker) -> Retained<CPUView> {
-        unsafe { msg_send_id![mtm.alloc::<CPUView>(), initWithFrame: frame] }
-            .expect("Failed to create CPUView")
+        let view: Option<Retained<CPUView>> = unsafe { msg_send_id![CPUView::alloc(mtm), initWithFrame: frame] };
+        view.expect("Failed to create CPUView")
     }
 
     /// Create a new macOS window with given options.
@@ -424,19 +475,54 @@ impl MacOSWindow {
         window.setTitle(&title);
 
         // Set content view (either GL or CPU)
-        let content_view: &NSView = if let Some(ref gl) = gl_view {
-            unsafe { std::mem::transmute(&**gl) }
+        // SAFE: Both GLView and CPUView inherit from NSView, so we can upcast safely
+        if let Some(ref gl) = gl_view {
+            unsafe {
+                // GLView is a subclass of NSView, so we can use it as NSView
+                let view_ptr = Retained::as_ptr(gl) as *const NSView;
+                let view_ref = &*view_ptr;
+                window.setContentView(Some(view_ref));
+            }
         } else if let Some(ref cpu) = cpu_view {
-            unsafe { std::mem::transmute(&**cpu) }
+            unsafe {
+                // CPUView is a subclass of NSView, so we can use it as NSView
+                let view_ptr = Retained::as_ptr(cpu) as *const NSView;
+                let view_ref = &*view_ptr;
+                window.setContentView(Some(view_ref));
+            }
         } else {
             return Err(WindowError::PlatformError("No content view created".into()));
-        };
+        }
 
         unsafe {
-            window.setContentView(Some(content_view));
             window.center();
             window.makeKeyAndOrderFront(None);
         }
+
+        // Initialize window states
+        let current_window_state = FullWindowState {
+            title: options.state.title.clone(),
+            size: options.state.size,
+            position: options.state.position,
+            flags: options.state.flags,
+            theme: options.state.theme,
+            debug_state: options.state.debug_state,
+            keyboard_state: Default::default(),
+            mouse_state: Default::default(),
+            touch_state: Default::default(),
+            ime_position: options.state.ime_position,
+            platform_specific_options: options.state.platform_specific_options.clone(),
+            renderer_options: options.state.renderer_options,
+            background_color: options.state.background_color,
+            layout_callback: options.state.layout_callback,
+            close_callback: options.state.close_callback.clone(),
+            monitor: options.state.monitor,
+            hovered_file: None,
+            dropped_file: None,
+            focused_node: None,
+            last_hit_test: azul_layout::hit_test::FullHitTest::empty(None),
+            selections: Default::default(),
+        };
 
         Ok(Self {
             window,
@@ -447,7 +533,104 @@ impl MacOSWindow {
             cpu_view,
             is_open: true,
             mtm,
+            previous_window_state: None,
+            current_window_state,
         })
+    }
+
+    /// Synchronize window state with the OS based on diff between previous and current state
+    fn sync_window_state(&mut self) {
+        let previous = match &self.previous_window_state {
+            Some(prev) => prev,
+            None => return, // First frame, nothing to sync
+        };
+
+        let current = &self.current_window_state;
+
+        // Title changed?
+        if previous.title != current.title {
+            let title = NSString::from_str(&current.title);
+            self.window.setTitle(&title);
+        }
+
+        // Size changed?
+        if previous.size.dimensions != current.size.dimensions {
+            let size = NSSize::new(
+                current.size.dimensions.width as f64,
+                current.size.dimensions.height as f64,
+            );
+            unsafe {
+                self.window.setContentSize(size);
+            }
+        }
+
+        // Position changed?
+        if previous.position != current.position {
+            use azul_core::window::WindowPosition;
+            match current.position {
+                WindowPosition::Initialized(pos) => {
+                    let origin = NSPoint::new(pos.x as f64, pos.y as f64);
+                    unsafe {
+                        self.window.setFrameTopLeftPoint(origin);
+                    }
+                }
+                WindowPosition::Uninitialized => {}
+            }
+        }
+
+        // Window flags changed?
+        if previous.flags != current.flags {
+            let mut style_mask = NSWindowStyleMask::Titled;
+
+            if current.flags.is_resizable {
+                style_mask |= NSWindowStyleMask::Resizable;
+            }
+            if current.flags.has_decorations {
+                style_mask |= NSWindowStyleMask::Closable | NSWindowStyleMask::Miniaturizable;
+            }
+
+            self.window.setStyleMask(style_mask);
+        }
+
+        // Visibility changed?
+        if previous.flags.is_visible != current.flags.is_visible {
+            if current.flags.is_visible {
+                self.window.makeKeyAndOrderFront(None);
+            } else {
+                self.window.orderOut(None);
+            }
+        }
+    }
+
+    /// Update window state at the end of each frame (before rendering)
+    ///
+    /// This should be called after all callbacks have been processed but before
+    /// `present()` is called. It prepares for the next frame by moving current
+    /// state to previous state.
+    pub fn update_window_state(&mut self, new_state: WindowState) {
+        // Save current state as previous for next frame's diff
+        self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Update current state from new WindowState
+        self.current_window_state.title = new_state.title;
+        self.current_window_state.size = new_state.size;
+        self.current_window_state.position = new_state.position;
+        self.current_window_state.flags = new_state.flags;
+        self.current_window_state.theme = new_state.theme;
+        self.current_window_state.debug_state = new_state.debug_state;
+        self.current_window_state.keyboard_state = new_state.keyboard_state;
+        self.current_window_state.mouse_state = new_state.mouse_state;
+        self.current_window_state.touch_state = new_state.touch_state;
+        self.current_window_state.ime_position = new_state.ime_position;
+        self.current_window_state.platform_specific_options = new_state.platform_specific_options;
+        self.current_window_state.renderer_options = new_state.renderer_options;
+        self.current_window_state.background_color = new_state.background_color;
+        self.current_window_state.layout_callback = new_state.layout_callback;
+        self.current_window_state.close_callback = new_state.close_callback;
+        self.current_window_state.monitor = new_state.monitor;
+
+        // Synchronize with OS
+        self.sync_window_state();
     }
 }
 
@@ -478,25 +661,34 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
+        // Update current_window_state based on properties
         if let Some(title) = props.title {
-            let ns_title = NSString::from_str(&title);
-            self.window.setTitle(&ns_title);
+            self.current_window_state.title = title.into();
         }
 
         if let Some(size) = props.size {
-            let new_size = NSSize::new(size.width as f64, size.height as f64);
-            let mut frame = self.window.frame();
-            frame.size = new_size;
-            self.window.setFrame_display(frame, true);
+            use azul_core::geom::LogicalSize;
+            // Get actual DPI scale from window
+            let scale_factor = unsafe {
+                self.window
+                    .screen()
+                    .map(|screen| screen.backingScaleFactor())
+                    .unwrap_or(1.0)
+            };
+
+            // Convert PhysicalSize to LogicalSize using actual DPI
+            self.current_window_state.size.dimensions = LogicalSize {
+                width: (size.width as f64 / scale_factor) as f32,
+                height: (size.height as f64 / scale_factor) as f32,
+            };
         }
 
         if let Some(visible) = props.visible {
-            if visible {
-                self.window.makeKeyAndOrderFront(None);
-            } else {
-                self.window.orderOut(None);
-            }
+            self.current_window_state.flags.is_visible = visible;
         }
+
+        // Synchronize changes with the OS
+        self.sync_window_state();
 
         Ok(())
     }
@@ -513,13 +705,17 @@ impl PlatformWindow for MacOSWindow {
 
     fn get_render_context(&self) -> RenderContext {
         match self.backend {
-            RenderBackend::OpenGL => RenderContext::OpenGL {
-                context: self
+            RenderBackend::OpenGL => {
+                let context_ptr = self
                     .gl_context
                     .as_ref()
-                    .map(|ctx| ctx.as_ptr() as *mut _)
-                    .unwrap_or(std::ptr::null_mut()),
-            },
+                    .map(|ctx| Retained::as_ptr(ctx) as *mut _)
+                    .unwrap_or(std::ptr::null_mut());
+
+                RenderContext::OpenGL {
+                    context: context_ptr,
+                }
+            }
             RenderBackend::CPU => RenderContext::CPU,
         }
     }
