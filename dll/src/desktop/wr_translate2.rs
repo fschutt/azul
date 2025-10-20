@@ -3,7 +3,7 @@
 //! This module provides translations between azul-core types and WebRender types,
 //! plus hit-testing integration. Simplified version of wr_translate.rs for shell2.
 
-use alloc::sync::Arc;
+use alloc::{collections::BTreeMap, sync::Arc};
 use core::mem;
 use std::{cell::RefCell, rc::Rc};
 
@@ -166,7 +166,7 @@ pub fn fullhittest_new_webrender(
     wr_hittester: &dyn WrApiHitTester,
     document_id: DocumentId,
     old_focus_node: Option<DomNodeId>,
-    layout_results: &[&DomLayoutResult],
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
     cursor_position: &CursorPosition,
     hidpi_factor: f32,
 ) -> FullHitTest {
@@ -202,7 +202,7 @@ pub fn fullhittest_new_webrender(
                 document_id.id,
             );
 
-            let layout_result = match layout_results.get(dom_id.inner) {
+            let layout_result = match layout_results.get(dom_id) {
                 Some(s) => s,
                 None => break,
             };
@@ -313,4 +313,90 @@ pub fn fullhittest_new_webrender(
     }
 
     ret
+}
+
+// ==================== DISPLAY LIST TRANSLATION STUBS ====================
+//
+// These functions are stubs for now and will be fully implemented later.
+// They provide the basic structure for translating azul layout results
+// to WebRender display lists and managing frames.
+
+use azul_core::resources::{ImageCache, ResourceUpdate};
+use azul_layout::window::LayoutWindow;
+
+/// Rebuild display list from layout results and send to WebRender
+///
+/// This is a stub - full implementation will translate DomLayoutResult
+/// display lists to WebRender format using compositor2.
+pub fn rebuild_display_list(
+    layout_window: &mut LayoutWindow,
+    render_api: &mut WrRenderApi,
+    image_cache: &ImageCache,
+    resources: Vec<ResourceUpdate>,
+) {
+    // TODO: Implement full display list translation
+    // 1. Iterate through layout_window.layout_results
+    // 2. For each DomId, get cached display list
+    // 3. Translate to WebRender format using compositor2
+    // 4. Set display list for each pipeline (DomId = PipelineId)
+    // 5. Update resources
+
+    let mut txn = WrTransaction::new();
+
+    // For now, just create empty transaction
+    // In full implementation:
+    // - txn.set_display_list(...) for each DOM
+    // - txn.update_resources(...) for images/fonts
+
+    render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+}
+
+/// Generate a new WebRender frame
+///
+/// This function sets up the scene and tells WebRender to render.
+/// Uses DomId-based pipeline management for iframe support.
+pub fn generate_frame(
+    layout_window: &mut LayoutWindow,
+    render_api: &mut WrRenderApi,
+    display_list_was_rebuilt: bool,
+) {
+    use webrender::api::units::{
+        DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
+        DeviceIntSize as WrDeviceIntSize,
+    };
+
+    let physical_size = layout_window.current_window_state.size.get_physical_size();
+    let framebuffer_size =
+        WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+
+    // Don't render if window is minimized (width/height = 0)
+    if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
+        return;
+    }
+
+    let mut txn = WrTransaction::new();
+
+    // Set root pipeline to root DOM (DomId::ROOT_ID which is 0)
+    let root_pipeline_id = PipelineId(0, layout_window.document_id.id);
+    txn.set_root_pipeline(wr_translate_pipeline_id(root_pipeline_id));
+
+    // Set document view (framebuffer size)
+    txn.set_document_view(WrDeviceIntRect::from_origin_and_size(
+        WrDeviceIntPoint::new(0, 0),
+        framebuffer_size,
+    ));
+
+    // TODO: Scroll all nodes - requires scroll_states integration
+    // scroll_all_nodes(&mut layout_window.scroll_states, &mut txn);
+
+    // TODO: Synchronize GPU values (transforms, opacities, etc.)
+    // synchronize_gpu_values(&layout_window.layout_results, &dpi_factor, &mut txn);
+
+    if !display_list_was_rebuilt {
+        txn.skip_scene_builder(); // Optimization: skip scene rebuild if DL unchanged
+    }
+
+    txn.generate_frame(0);
+
+    render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
 }

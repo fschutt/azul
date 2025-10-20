@@ -214,48 +214,41 @@ impl MacOSWindow {
 
     /// Perform hit testing at given position using WebRender hit-testing API.
     fn perform_hit_test(&self, position: LogicalPosition) -> Option<HitTestNode> {
-        // TODO: Once LayoutWindow is properly initialized, get layout_results from it
-        // For now, return placeholder (root node)
-        if self.layout_window.is_some() {
-            Some(HitTestNode {
-                dom_id: 0,
-                node_id: 0,
-            })
-        } else {
-            None
+        use azul_core::window::CursorPosition;
+
+        let layout_window = self.layout_window.as_ref()?;
+
+        // Early return if no layout results
+        if layout_window.layout_results.is_empty() {
+            return None;
         }
 
-        // Full implementation when LayoutWindow is available:
-        /*
         let cursor_position = CursorPosition::InWindow(position);
 
-        let layout_results = if let Some(ref layout_window) = self.layout_window {
-            // Convert BTreeMap to Vec for hit-testing API
-            layout_window.layout_results.values().collect::<Vec<_>>()
-        } else {
-            return None;
-        };
-
+        // Use layout_results directly (BTreeMap)
         let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
             &*self.hit_tester.resolve(),
             self.document_id,
             self.current_window_state.focused_node,
-            &layout_results,
+            &layout_window.layout_results,
             &cursor_position,
             self.current_window_state.size.get_hidpi_factor(),
         );
 
         // Extract first hovered node from hit test result
-        hit_test.hovered_nodes.iter()
+        hit_test
+            .hovered_nodes
+            .iter()
             .flat_map(|(dom_id, ht)| {
-                ht.regular_hit_test_nodes.keys().next()
-                    .map(|node_id| HitTestNode {
+                ht.regular_hit_test_nodes.keys().next().and_then(|node_id| {
+                    let node_id_value = node_id.into_crate_internal()?;
+                    Some(HitTestNode {
                         dom_id: dom_id.inner as u64,
-                        node_id: node_id.into_crate_internal()? as u64,
+                        node_id: node_id_value as u64,
                     })
+                })
             })
             .next()
-        */
     }
 
     /// Convert macOS keycode to VirtualKeyCode.

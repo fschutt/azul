@@ -465,6 +465,13 @@ pub struct MacOSWindow {
     /// Menu state (for hash-based diff updates)
     menu_state: menu::MenuState,
 
+    // Resource caches for LayoutWindow
+    /// Image cache for texture management
+    image_cache: azul_core::resources::ImageCache,
+
+    /// Renderer resources (GPU textures, etc.)
+    renderer_resources: azul_core::resources::RendererResources,
+
     // WebRender infrastructure for proper hit-testing and rendering
     /// Main render API for registering fonts, images, display lists
     pub(crate) render_api: webrender::RenderApi,
@@ -743,10 +750,23 @@ impl MacOSWindow {
             selections: Default::default(),
         };
 
-        // Initialize LayoutWindow with hit-test closure
-        // TODO: This needs actual app data, image cache, font cache, etc.
-        // For now, create a minimal LayoutWindow structure
-        let layout_window = None; // Will be initialized when we have full app data integration
+        // Initialize resource caches
+        let image_cache = azul_core::resources::ImageCache::default();
+        let renderer_resources = azul_core::resources::RendererResources::default();
+
+        // Initialize LayoutWindow (fc_cache will be passed from App later)
+        // For now, use a temporary cache that will be replaced on first layout
+        let temp_fc_cache = rust_fontconfig::FcFontCache::default();
+        let mut layout_window =
+            azul_layout::window::LayoutWindow::new(temp_fc_cache).map_err(|e| {
+                WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
+            })?;
+
+        // Set document_id and id_namespace for this window
+        layout_window.document_id = document_id;
+        layout_window.id_namespace = id_namespace;
+        layout_window.current_window_state = current_window_state.clone();
+        layout_window.renderer_type = Some(renderer_type);
 
         // Clear OpenGL context after initialization
         if gl_context.is_some() {
@@ -768,8 +788,10 @@ impl MacOSWindow {
             previous_window_state: None,
             current_window_state,
             last_hovered_node: None,
-            layout_window,
+            layout_window: Some(layout_window),
             menu_state: menu::MenuState::new(),
+            image_cache,
+            renderer_resources,
             render_api,
             renderer: Some(renderer),
             hit_tester: AsyncHitTester::Resolved(hit_tester),
@@ -786,14 +808,60 @@ impl MacOSWindow {
     /// - The window is resized
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
-    pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        // TODO: Implement full layout regeneration
-        // This requires:
-        // 1. Calling layout_callback to get styled_dom
-        // 2. layout_window.layout_and_generate_display_list()
-        // 3. Updating display list for rendering
-        //
-        // For now, just return Ok
+    pub fn regenerate_layout(
+        &mut self,
+        app_data: &mut azul_core::refany::RefAny,
+        fc_cache: &mut rust_fontconfig::FcFontCache,
+    ) -> Result<(), String> {
+        use azul_core::callbacks::LayoutCallback;
+
+        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+
+        // Update layout_window's fc_cache with the shared one from App
+        layout_window.font_manager.fc_cache = fc_cache.clone();
+
+        // 1. Call layout_callback to get styled_dom
+        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo {
+            window_id: 0, // TODO: proper window ID tracking
+            window_state: self.current_window_state.clone().into(),
+            layout_window_ptr: layout_window as *mut _,
+        };
+
+        let styled_dom = match &self.current_window_state.layout_callback {
+            LayoutCallback::Raw(inner) => (inner.cb)(app_data, &mut callback_info),
+            LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
+                &mut marshaled.marshal_data.clone(),
+                app_data,
+                &mut callback_info,
+            ),
+        };
+
+        // 2. Perform layout with solver3
+        layout_window
+            .layout_and_generate_display_list(
+                styled_dom,
+                &self.current_window_state,
+                &self.renderer_resources,
+                &azul_layout::callbacks::ExternalSystemCallbacks::default(),
+                &mut None, // No debug messages for now
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+
+        // 3. Rebuild display list and send to WebRender (stub for now)
+        crate::desktop::wr_translate2::rebuild_display_list(
+            layout_window,
+            &mut self.render_api,
+            &self.image_cache,
+            Vec::new(), // No resource updates for now
+        );
+
+        // 4. Generate frame
+        crate::desktop::wr_translate2::generate_frame(
+            layout_window,
+            &mut self.render_api,
+            true, // Display list was rebuilt
+        );
+
         Ok(())
     }
 
@@ -805,15 +873,87 @@ impl MacOSWindow {
         delta_x: f32,
         delta_y: f32,
     ) -> Result<(), String> {
-        // TODO: Implement GPU scrolling
-        // This requires:
-        // 1. Getting current scroll position from layout_window
-        // 2. Updating scroll position by delta
-        // 3. Updating GPU transforms (WebRender scroll layers)
-        // 4. Triggering a redraw without relayout
-        //
-        // For now, just trigger a redraw
+        use std::time::Duration;
+
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::{EasingFunction, EventSource},
+            geom::LogicalPosition,
+        };
+        use azul_layout::scroll::ScrollEvent;
+
+        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+
+        let dom_id_typed = DomId {
+            inner: dom_id as usize,
+        };
+        let node_id_typed = node_id as u32; // NodeId is u32 in scroll system
+
+        // 1. Create scroll event and process it
+        let scroll_event = ScrollEvent {
+            dom_id: dom_id_typed,
+            node_id: node_id_typed,
+            delta: LogicalPosition::new(delta_x, delta_y),
+            source: EventSource::User,
+            duration: None, // Instant scroll
+            easing: EasingFunction::Linear,
+        };
+
+        layout_window
+            .scroll_states
+            .apply_scroll_event(scroll_event)
+            .map_err(|e| format!("Scroll error: {:?}", e))?;
+
+        // 2. Update WebRender scroll layers and GPU transforms
+        let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
+
+        // Scroll all nodes in the scroll manager to WebRender
+        // This updates external scroll IDs with new offsets
+        self.scroll_all_nodes(&mut layout_window.scroll_states, &mut txn);
+
+        // Synchronize GPU-animated values (transforms, opacities)
+        self.synchronize_gpu_values(&layout_window, &mut txn);
+
+        // Send transaction and generate frame (without rebuilding display list)
+        self.render_api.send_transaction(
+            crate::desktop::wr_translate2::wr_translate_document_id(self.document_id),
+            txn,
+        );
+
+        crate::desktop::wr_translate2::generate_frame(
+            layout_window,
+            &mut self.render_api,
+            false, // Display list not rebuilt, just transforms updated
+        );
+
         Ok(())
+    }
+
+    /// Internal: Scroll all nodes to WebRender
+    fn scroll_all_nodes(
+        &mut self,
+        scroll_manager: &azul_layout::scroll::ScrollManager,
+        txn: &mut crate::desktop::wr_translate2::WrTransaction,
+    ) {
+        // TODO: Implement once we have external_scroll_id mapping
+        // For each scroll state in scroll_manager:
+        // 1. Get external_scroll_id from layout_result
+        // 2. Call txn.scroll_node_with_id(offset, external_scroll_id,
+        //    ScrollClamping::ToContentBounds)
+    }
+
+    /// Internal: Synchronize GPU-animated values to WebRender
+    fn synchronize_gpu_values(
+        &mut self,
+        layout_window: &azul_layout::window::LayoutWindow,
+        txn: &mut crate::desktop::wr_translate2::WrTransaction,
+    ) {
+        // TODO: Implement GPU value synchronization
+        // For each layout_result in layout_window.layout_results:
+        // 1. Collect transform keys and values
+        // 2. Collect opacity keys and values
+        // 3. Create DynamicProperties
+        // 4. Call txn.update_dynamic_properties()
     }
 
     fn sync_window_state(&mut self) {
