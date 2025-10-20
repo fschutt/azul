@@ -1,12 +1,9 @@
-<h2>Why Azul?</h2>
+## Why Azul?
 
-<p>
-    In order to understand why Azul forces the separation of data model,
-    model-to-view function and callbacks, you have to understand the problem with nearly
-    every other toolkit. In other toolkits, your app would look roughly like this:
-</p>
+In order to understand why Azul forces the separation of the data model, model-to-view function, and callbacks, you have to understand the problem with nearly every other toolkit. In other toolkits, your app would look roughly like this:
 
-<code class="expand">class MyApp extends othertoolkit.App:
+```python
+class MyApp(othertoolkit.App):
     self.button = Button(...)
     self.text_input = TextInput(...)
     self.output = Label(...)
@@ -22,193 +19,116 @@
         calculated = do_somthing_with_input(input)
         self.output.setText(calculated)
         self.text_input.setText("")
-</code>
+```
 
-<p>This example is simple, but there are already a couple of problems:</p>
-<br/>
-<ol>
-    <li><p>The application data has to store UI objects in order to access them from callbacks: You do not care about the UI objects, you only care about the input data, but you have to carry them around in order to get access to the <code>text_input.getText()</code></p></li>
-    <br/>
-    <li><p>You need to remember to reset the text input after calculation and update the UI. Forget one <code>setText</code> call and the UI will be out of sync. Other functions might expect the UI to be in a certain state (i.e. the text input is expected to be empty before calling function <code>foo()</code>)</p></li>
-    <br/>
-    <li><p>Removing and exchanging UI objects on state changes becomes very hard.
-        Some frameworks auto-delete children objects, which means you need to make sure that no other objects are holding references to <code>self.text_input</code></p></li>
-    <br/>
-    <li><p>The state is not easily testable because there are a lot of stateful calls changing
-    your UI objects. Other classes might unexpectedly change UI objecs in their parent classes -
-    not to speak of multithreading</p></li>
-    <br/>
-    <li><p>Layout and hierarchies become a pain, even using "layout managers", there is little room for exchanging layout managers (i.e. switching from a horizontal layout to a vertical layout one at runtime)</p></li>
-    <br/>
-    <li><p>Your inheritance hierarchy is bound to the visual hierarchy of objects the screen. This works for linear hierarchies (i.e. <code>SideBarPanel extends Sidebar extends App</code>), but not for non-linear ones (SideBar has to interact with MainTable). Redesigning your App will force you to refactor inheritance hierarchies, which takes time.</p></li>
-    <br/>
-    <li><p>Most of the code is run on startup, leading to both bad startup time and less flexibility when for example switching screens in a single-page application</p></li>
-    <br/>
-    <li><p>Because of the inheritance and because you need to store UI objects inside of your class, you've created a hard dependency on the toolkit. Should you ever want to migrate away from the toolkit, it will be painful since your code could depend on functionality inherited from the GUI toolkit.</p></li>
-    <br/>
-    <li><p>Callbacks can only access data from the <code>MyApp</code> class, not from any other UI classes. If multiple, unrelated UI objects need to talk to each other,
-        you need superclasses or references to the least common "parent object" in an inheritance hierarchy</p></li>
-</ol>
+This example is simple, but there are already a couple of problems:
 
-<br/>
-<h2>IMGUI is not the solution</h2>
+1.  **The application data has to store UI objects in order to access them from callbacks:** You do not care about the UI objects, you only care about the input data, but you have to carry them around in order to get access to the `text_input.getText()`.
 
-<p>
-    Solutions such as Immediate Mode GUI "solve" this problem by hiding the
-    data binding to the callback in a closure-with-captured-arguments instead
-    of a class-with-state-and-functions: The form is different, but the
-    operation is the same.
-</p>
+2.  **You need to remember to reset the text input after calculation and update the UI.** Forget one `setText` call and the UI will be out of sync. Other functions might expect the UI to be in a certain state (i.e. the text input is expected to be empty before calling function `foo()`).
 
-<p>
-    A closure is just an anonymous (non-nameable) function on an
-    anonymous (non-nameable) struct which contains all captured variables.
-    The effect is the same as a class-with-methods and on top of that,
-    it provides even less layout flexibility than even object-oriented code.
-</p>
+3.  **Removing and exchanging UI objects on state changes becomes very hard.** Some frameworks auto-delete children objects, which means you need to make sure that no other objects are holding references to `self.text_input`.
 
+4.  **The state is not easily testable** because there are a lot of stateful calls changing your UI objects. Other classes might unexpectedly change UI objects in their parent classes - not to speak of multithreading.
 
-<p>
-    Immediate Mode GUI solves the synchronization problem, but it fails at
-    the other two problems. It doesn't solve the problem and the
-    performance tradeoffs are - usually - immense.
-</p>
+5.  **Layout and hierarchies become a pain.** Even using "layout managers," there is little room for exchanging layout managers (i.e. switching from a horizontal layout to a vertical layout one at runtime).
 
-<br/>
-<h2>The trifecta of UI toolkits</h2>
+6.  **Your inheritance hierarchy is bound to the visual hierarchy of objects on the screen.** This works for linear hierarchies (i.e. `SideBarPanel extends Sidebar extends App`), but not for non-linear ones (SideBar has to interact with MainTable). Redesigning your App will force you to refactor inheritance hierarchies, which takes time.
 
-<p>
-    Any toolkit has to at least solve the three following problems in order
-    to be more than just a "rendering library":
-</p>
+7.  **Most of the code is run on startup**, leading to both bad startup time and less flexibility when for example switching screens in a single-page application.
 
-<br/>
-<ol>
-    <li><p><strong>Data Access / Model-View separation: </strong> Somehow the callback needs access to both the data model (i.e. the class) and the stateful UI object (to scrape the text out), but at the same time the "model" should be separate from the UI so that logic functions do not depend on view data.</p></li>
-    <li><p><strong>Synchronization:</strong> It is very easy for the visual UI state and the data model to go out of sync. Solutions are "Observer patterns" (callbacks that run when something changes), React-like reconciliation or "just redraw everything" (IMGUI)</p></li>
-    <li><p><strong>Inter-widget communication: </strong> Most toolkits assume that the widget hierarchy and the inheritance (or function call) hierarchy are the same. If two UI objects that have no common parent have to talk to each other, you now have a massive problem.</p></li>
-</ol>
+8.  **Because of the inheritance and because you need to store UI objects inside of your class, you've created a hard dependency on the toolkit.** Should you ever want to migrate away from the toolkit, it will be painful since your code could depend on functionality inherited from the GUI toolkit.
 
-<p>
-    Many toolkits do not solve these problems at all, instead
-    shoving the responsibility onto the application programmer
-    (aka. "not my job"). The result of such "freedom" to design
-    any application style is often sub-par, but enjoys a large
-    popularity because it secures the job of whoever first wrote the application.
-</p>
+9.  **Callbacks can only access data from the `MyApp` class, not from any other UI classes.** If multiple, unrelated UI objects need to talk to each other, you need superclasses or references to the least common "parent object" in an inheritance hierarchy.
 
-<br/>
-<h2>Serializing the UI hierachy</h2>
+## IMGUI is not the solution
 
-<p>
-    So what would a "proper" toolkit look like? As computers got faster and
-    rendering methods evolved, both browsers and UI toolkits moved away
-    from a direct render-to-screen to a display-list or a "list of commands"
-    for the renderer. Often times this command list is batched or computed
-    against the last frame to minimize changes - while there is a small overhead,
-    it is almost unnoticable.
-</p>
-<p>
-    The next problem is that widget-specific data has to be either stored
-    on the programmer side (in the application, using inheritance or traits)
-    or in the framework (either using data attributes or - worse -
-    global state modifying functions such as synchronous
-    <code>setColor(RED); draw(); swap();</code> calls).
-</p>
-<p>
-    So the only real "sane" way is to serialize the entire UI hierarchy
-    and then perform layout, state and cache analysis in the toolkit.
-    A good comparison is to compare XML to function call stacks - compare:
-</p>
+Solutions such as Immediate Mode GUI (IMGUI) "solve" this problem by hiding the data binding to the callback in a closure-with-captured-arguments instead of a class-with-state-and-functions: The form is different, but the operation is the same.
 
-<code class="expand">&lt;div class="parent"&gt;
-    &lt;div class="child"&gt;&lt;/div&gt;
-    &lt;div class="child"&gt;&lt;/div&gt;
-    &lt;div class="child"&gt;&lt;/div&gt;
-&lt;/div&gt;</code>
+A closure is just an anonymous (non-nameable) function on an anonymous (non-nameable) struct which contains all captured variables. The effect is the same as a class-with-methods and on top of that, it provides even less layout flexibility than even object-oriented code.
 
-    <p>with:</p>
+Immediate Mode GUI solves the synchronization problem, but it fails at the other two problems. It doesn't solve the problem and the performance tradeoffs are - usually - immense.
 
-<code class="expand">div(class="parent", children = [
+## The trifecta of UI toolkits
+
+Any toolkit has to at least solve the three following problems in order to be more than just a "rendering library":
+
+1.  **Data Access / Model-View separation:** Somehow the callback needs access to both the data model (i.e. the class) and the stateful UI object (to scrape the text out), but at the same time the "model" should be separate from the UI so that logic functions do not depend on view data.
+
+2.  **Synchronization:** It is very easy for the visual UI state and the data model to go out of sync. Solutions are "Observer patterns" (callbacks that run when something changes), React-like reconciliation or "just redraw everything" (IMGUI).
+
+3.  **Inter-widget communication:** Most toolkits assume that the widget hierarchy and the inheritance (or function call) hierarchy are the same. If two UI objects that have no common parent have to talk to each other, you now have a massive problem.
+
+Many toolkits do not solve these problems at all, instead shoving the responsibility onto the application programmer (aka. "not my job"). The result of such "freedom" to design any application style is often sub-par, but enjoys a large popularity because it secures the job of whoever first wrote the application.
+
+## Serializing the UI hierarchy
+
+So what would a "proper" toolkit look like? As computers got faster and rendering methods evolved, both browsers and UI toolkits moved away from a direct render-to-screen to a display-list or a "list of commands" for the renderer. Often times this command list is batched or computed against the last frame to minimize changes - while there is a small overhead, it is almost unnoticeable.
+
+The next problem is that widget-specific data has to be either stored on the programmer side (in the application, using inheritance or traits) or in the framework (either using data attributes or - worse - global state modifying functions such as synchronous `setColor(RED); draw(); swap();` calls).
+
+So the only real "sane" way is to serialize the entire UI hierarchy and then perform layout, state and cache analysis in the toolkit. A good comparison is to compare XML to function call stacks - compare:
+
+```xml
+<div class="parent">
+    <div class="child"></div>
+    <div class="child"></div>
+    <div class="child"></div>
+</div>
+```
+
+with:
+
+```python
+div(class="parent", children = [
     div(class="child")
     div(class="child")
     div(class="child")
-])</code>
+])
+```
 
-<p>
-    Composing UI hierarchies via functions makes much more
-    sense than composing UI hierarchies via inheritance
-    because the latter is often language-specific and not
-    supported in all languages, whereas functions are language
-    agnostic. Additionally you can render UI nodes in parallel:
-</p>
+Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via inheritance because the latter is often language-specific and not supported in all languages, whereas functions are language agnostic. Additionally you can render UI nodes in parallel:
 
-<code class="expand">let children = data_collection
+```rust
+let children = data_collection
     .par_iter()
     .map(|object| render_ui(object))
     .collect();
 
-return parent.with_children(children);</code>
+return parent.with_children(children);
+```
 
-<br/>
-<h2>Data access: A question of format and locality</h2>
+## Data access: A question of format and locality
 
-<p>
-    Great, so we need to serialize the UI into a tree structure.
-    But where do we store our widget data? And in what format?
-</p>
-<p>
-    Inheritance-based toolkits only allow one format: You have to
-    inherit from a UI object and then construct your application
-    as a series of UI objects. Azul however, stores the application
-    data as an implementation-agnostinc <code>RefAny</code> struct:
-    similar to <code>PyObject</code> or Javascripts <code>Object</code>
-    it just stores "some data", but the toolkit doesn't know what the
-    type is. You can upcast your data and wrap it in a <code>RefAny</code>
-    via <code>RefAny::new</code> and then get immutable or mutable
-    access again via <code>.downcast_ref()</code> or <code>.downcast_mut()</code>,
-    respectively:
-</p>
+Great, so we need to serialize the UI into a tree structure. But where do we store our widget data? And in what format?
 
-<code class="expand">let data = RefAny::new(5);
-let data_ref = data.downcast_ref::&lt;usize&gt;();
-println!("{}", data); // prints "5"</code>
+Inheritance-based toolkits only allow one format: You have to inherit from a UI object and then construct your application as a series of UI objects. Azul however, stores the application data as an implementation-agnostic `RefAny` struct: similar to `PyObject` or Javascripts `Object` it just stores "some data", but the toolkit doesn't know what the type is. You can upcast your data and wrap it in a `RefAny` via `RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` or `.downcast_mut()`, respectively:
 
-<p>
-    In Python, this process is transparent to the user,
-    since every Python object is already wrapped in an opaque,
-    reference-counted type, so it would look like this:
-</p>
+```rust
+let data = RefAny::new(5);
+let data_ref = data.downcast_ref::<usize>();
+println!("{}", data); // prints "5"
+```
 
-<code class="expand">data = RefAny(5); // RefAny&lt;PyObject&lt;PyInteger&gt;&gt;
-print(str(data._py_data)) // prints "5"</code>
+In Python, this process is transparent to the user, since every Python object is already wrapped in an opaque, reference-counted type, so it would look like this:
 
-<p>
-    While Rust only knows about the <code>RefAny</code>, the Python bindings
-    automatically perform the front-and-back conversion from python objects.
-    Both the object type and immutable / mutable reference count is checked
-    at runtime: When all references to a <code>RefAny</code> are deleted, the internal
-    object is deleted, too.
-</p>
+```python
+data = RefAny(5); # RefAny<PyObject<PyInteger>>
+print(str(data._py_data)) # prints "5"
+```
 
-<p>Azul can store <code>RefAny</code> data in three locations:</p>
+While Rust only knows about the `RefAny`, the Python bindings automatically perform the front-and-back conversion from python objects. Both the object type and immutable / mutable reference count is checked at runtime: When all references to a `RefAny` are deleted, the internal object is deleted, too.
 
-<br/>
-<ol>
-    <li><p><strong>Callback-local data:</strong> Data is stored directly on the callback: other callbacks cannot access this</p></li>
-    <li><p><strong>Widget-local data:</strong>Stored on the UI XML nodes as a <code>dataset</code> property: Callbacks can have shared access to this data via <code>callback.get_dataset(node_id)</code>: but only if they know the <code>NodeId</code> that the dataset is attached to.</p></li>
-    <li><p><strong>Application-global data:</strong>Stored inside the <code>App</code> struct: all layout callbacks are rendered from this data.</p></li>
-</ol>
+Azul can store `RefAny` data in three locations:
 
-<p>
-    A useful property is that <code>RefAny</code> structs can contain both callbacks
-    and <code>RefAny</code> types themselves (nested <code>RefAny</code>). This way
-    you can implement user-provided functionality by simply creating some fields and
-    wrapper-methods that "wrap" a user-provided <code>RefAny</code> and a callback
-    to be called when your custom event is ready:
-</p>
+1.  **Callback-local data:** Data is stored directly on the callback: other callbacks cannot access this.
+2.  **Widget-local data:** Stored on the UI XML nodes as a `dataset` property: Callbacks can have shared access to this data via `callback.get_dataset(node_id)`: but only if they know the `NodeId` that the dataset is attached to.
+3.  **Application-global data:** Stored inside the `App` struct: all layout callbacks are rendered from this data.
 
-<code class="expand">class MyWidget:
+A useful property is that `RefAny` structs can contain both callbacks and `RefAny` types themselves (nested `RefAny`). This way you can implement user-provided functionality by simply creating some fields and wrapper-methods that "wrap" a user-provided `RefAny` and a callback to be called when your custom event is ready:
+
+```python
+class MyWidget:
     def __init__():
         self.on_text_clicked = None
 
@@ -255,26 +175,16 @@ def _handle_event(data, callbackinfo):
 
     # return the result of the user-provided callback to Azul
     return result
-</code>
+```
 
-<p>
-    The important part is that you can now customize the callback type
-    (including the return type) and invoke the callback with extra data
-    in order to do pre- and post-processing of user callbacks.
-</p>
+The important part is that you can now customize the callback type (including the return type) and invoke the callback with extra data in order to do pre- and post-processing of user callbacks.
 
-<br/>
-<h2>Backreferences</h2>
+## Backreferences
 
-<p>
-    The programming pattern that naturally emerges from this architecture
-    are "backreferences" or: the lower-level widget (<code>Dom.div</code>,
-    <code>TextInput</code>, etc.) can take optional function pointers and
-    data references to higher-level widgets (such as <code>NumberInput</code>,
-    <code>EMailInput</code>), which then perform validation for you.
-</p>
+The programming pattern that naturally emerges from this architecture are "backreferences" or: the lower-level widget (`Dom.div`, `TextInput`, etc.) can take optional function pointers and data references to higher-level widgets (such as `NumberInput`, `EMailInput`), which then perform validation for you.
 
-<code class="expand">class TextInput:
+```python
+class TextInput:
     text: String
     # "backreference" to user-provided callback + data
     user_focus_lost_callback: Optional[tuple(data, callback)]
@@ -308,9 +218,10 @@ def _on_focus_lost(data, callbackinfo):
 
     # invoke the user-provided callback with the extra information
     return (user_cb[1])(user_cb[0], self.string)
-</code>
+```
 
-<code class="expand">class NumberInput:
+```python
+class NumberInput:
     number: Integer
     # "backreference" to user-provided callback + data
     on_number_input: Optional[tuple(data, callback)]
@@ -338,9 +249,10 @@ def _validate_text_input_as_number(data, callbackinfo, string):
     # string has now been validated as a number
     # optionally can also validate min / max input, etc.
     (data.on_number_input[1])(data.on_number_input[0], callbackinfo, number)
-</code>
+```
 
-<code class="expand">class MyApplication:
+```python
+class MyApplication:
     user_age: None
 
     def __init__(initial_age):
@@ -358,63 +270,32 @@ def _on_age_input(data, callbackinfo, new_age):
         return Update.DoNothing
     else:
         data.user_age = new_age
-        return Update.RefreshDom</code>
-<code class="expand">app = App(MyApplication(18), AppConfig(LayoutSolver.Default))
+        return Update.RefreshDom
+```
+
+```python
+app = App(MyApplication(18), AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(layoutFunc))
-</code>
+```
 
-<p>For the sake of brevity the code uses <code>RefAny(self)</code> to create
-    new <code>RefAny</code> references. All built-in widgets use extra
-    classes such as <code>TextInputOnClickedData</code>, <code>TextInputOnFocusLostData</code>
-    to separate the <code>TextInput</code> from the data it has to carry
-    even further.
-</p>
+For the sake of brevity the code uses `RefAny(self)` to create new `RefAny` references. All built-in widgets use extra classes such as `TextInputOnClickedData`, `TextInputOnFocusLostData` to separate the `TextInput` from the data it has to carry even further.
 
-<p>
-    When the user presses the "TAB" or "shift + TAB" key, the current
-    field loses focus and thereby tirgges an <code>On.FocusLost</code>
-    and <code>On.FocusReceived</code> event. If it isn't already
-    clear from reading the code, here is how the event "travels" through
-    the classes (from the low-level <code>on_focus_lost</code> to the
-    high-level <code>on_age_input</code>):
-</p>
+When the user presses the "TAB" or "shift + TAB" key, the current field loses focus and thereby triggers an `On.FocusLost` and `On.FocusReceived` event. If it isn't already clear from reading the code, here is how the event "travels" through the classes (from the low-level `on_focus_lost` to the high-level `on_age_input`):
 
-<code class="expand">1. _on_focus_lost(&mut RefAny&lt;TextInput&gt;)
-2. _validate_text_input_as_number(&mut RefAny&lt;NumberInput&gt;, string)
-3. _on_age_input(&mut RefAny&lt;MyApplication&gt;, number)
-</code>
+```
+1. _on_focus_lost(&mut RefAny<TextInput>)
+2. _validate_text_input_as_number(&mut RefAny<NumberInput>, string)
+3. _on_age_input(&mut RefAny<MyApplication>, number)
+```
 
-<p>
-    The closer you get to the application, the more custom your function callback
-    types will be. Note that the only "state" that gets passed into callbacks is
-    via function arguments. Functional programmers can see this as an
-    "application" of function parameters: the actual core state management
-    is hidden completely.
-</p>
+The closer you get to the application, the more custom your function callback types will be. Note that the only "state" that gets passed into callbacks is via function arguments. Functional programmers can see this as an "application" of function parameters: the actual core state management is hidden completely.
 
-<br/>
-<h2>Non-linear widget hierarchies</h2>
+## Non-linear widget hierarchies
 
-<p>
-    Let's take the example of a node graph: Draggable nodes can be added and removed,
-    contain text, number and color inputs, check- and radio boxes, contain inputs and outputs
-    (which need to validate their input and output types when they are connected).
-</p>
+Let's take the example of a node graph: Draggable nodes can be added and removed, contain text, number and color inputs, check- and radio boxes, contain inputs and outputs (which need to validate their input and output types when they are connected).
 
-<p>
-    Node graphs are pretty much a litmus test to how flexible your UI toolkit is:
-    In any object-oriented toolkit you will get problems designing the hierachy here.
-</p>
+Node graphs are pretty much a litmus test to how flexible your UI toolkit is: In any object-oriented toolkit you will get problems designing the hierarchy here.
 
-<br/>
-<img src="https://docs.unrealengine.com/Images/ProgrammingAndScripting/Blueprints/UserGuide/Nodes/SelectNode.jpg" style="width:100%;"/>
+![Node graph example](https://docs.unrealengine.com/Images/ProgrammingAndScripting/Blueprints/UserGuide/Nodes/SelectNode.jpg)
 
-<p>
-    Azul includess a built-in <code>NodeGraph</code> as a default widget, so let's
-    take a look at the implementation:
-</p>
-
-<br/>
-<br/>
-
-<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
+Azul includes a built-in `NodeGraph` as a default widget, so let's take a look at the implementation.
