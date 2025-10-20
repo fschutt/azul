@@ -45,9 +45,10 @@ impl MacOSWindow {
         &self,
         position: LogicalPosition,
     ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-        use crate::desktop::wr_translate2::AsyncHitTester;
         use webrender::api::units::WorldPoint;
-        
+
+        use crate::desktop::wr_translate2::AsyncHitTester;
+
         let hit_tester = match &self.hit_tester {
             AsyncHitTester::Resolved(ht) => ht,
             _ => return None,
@@ -59,8 +60,8 @@ impl MacOSWindow {
         // Check each hit item for scrollbar tag
         for item in &hit_result.items {
             if let Some((tag, _)) = item.tag {
-                if let Some(scrollbar_id) = 
-                    crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(tag) 
+                if let Some(scrollbar_id) =
+                    crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(tag)
                 {
                     return Some(scrollbar_id);
                 }
@@ -77,9 +78,9 @@ impl MacOSWindow {
         position: LogicalPosition,
     ) -> EventProcessResult {
         use azul_core::hit_test::ScrollbarHitId;
-        
+
         match hit_id {
-            ScrollbarHitId::VerticalThumb(dom_id, node_id) 
+            ScrollbarHitId::VerticalThumb(dom_id, node_id)
             | ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
                 // Start drag
                 let layout_window = match self.layout_window.as_ref() {
@@ -100,8 +101,8 @@ impl MacOSWindow {
 
                 EventProcessResult::RequestRedraw
             }
-            
-            ScrollbarHitId::VerticalTrack(dom_id, node_id) 
+
+            ScrollbarHitId::VerticalTrack(dom_id, node_id)
             | ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
                 // TODO: Jump scroll to clicked position
                 EventProcessResult::DoNothing

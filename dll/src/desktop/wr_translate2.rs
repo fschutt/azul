@@ -407,15 +407,12 @@ pub fn rebuild_display_list(
     resources: Vec<ResourceUpdate>,
 ) {
     use webrender::api::units::DeviceIntSize;
-    
+
     let mut txn = WrTransaction::new();
 
     // Get viewport size for display list translation
     let physical_size = layout_window.current_window_state.size.get_physical_size();
-    let viewport_size = DeviceIntSize::new(
-        physical_size.width as i32,
-        physical_size.height as i32,
-    );
+    let viewport_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
     // Translate display lists for all DOMs (root + iframes)
     for (dom_id, layout_result) in &layout_window.layout_results {
@@ -443,7 +440,10 @@ pub fn rebuild_display_list(
                     );
                 }
                 Err(e) => {
-                    eprintln!("[rebuild_display_list] Error translating display list for DOM {}: {}", dom_id.inner, e);
+                    eprintln!(
+                        "[rebuild_display_list] Error translating display list for DOM {}: {}",
+                        dom_id.inner, e
+                    );
                 }
             }
         }
