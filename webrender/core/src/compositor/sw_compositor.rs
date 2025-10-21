@@ -14,8 +14,6 @@ use std::{
     thread,
 };
 
-use gleam::{gl, gl::Gl};
-
 use crate::{
     api::{units::*, ColorDepth, ColorF, ExternalImageId, ImageRendering, YuvRangedColorSpace},
     device::Device,

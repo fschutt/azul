@@ -23,7 +23,6 @@ bitflags = "2"
 byteorder = "1.0"
 euclid = "0.22.10"
 fxhash = "0.2.1"
-gleam = "0.15.0"
 lazy_static = "1"
 log = "0.4"
 num-traits = "0.2"
@@ -35,6 +34,7 @@ api = { version = "0.62.0", path = "../api", package = "webrender_api" }
 webrender_build = { path = "../build" }
 glyph_rasterizer = { version = "0.1.0", path = "../glyph", package = "wr_azul_glyph_rasterizer", default-features = false }
 azul-layout = { path = "../../layout" }
+azul-core = { path = "../../core" }
 svg_fmt = "0.4"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
 etagere = "0.2.13"

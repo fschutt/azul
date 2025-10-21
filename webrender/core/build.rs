@@ -1,7 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
+#![allow(unused)]
 // Simplified build script for in-process WebRender
 // Shader compilation happens at runtime instead of build-time
 // For sw_compositor, we'll integrate pure-Rust SWGL shaders later
@@ -136,7 +136,7 @@ fn write_optimized_shaders(
     // for the GL version we expect to be used on the target platform. If a different GL
     // version is used we will simply fall back to the unoptimized shaders.
     let shader_versions = match env::var("CARGO_CFG_TARGET_OS").as_ref().map(|s| &**s) {
-        Ok("android") | Ok("windows") => [ShaderVersion::Gles],
+        Ok("android") | Ok("windows") => [ShaderVersion::GlEs],
         _ => [ShaderVersion::Gl],
     };
 
@@ -146,7 +146,7 @@ fn write_optimized_shaders(
         if gl_version != ShaderVersion::Gl {
             flags.remove(ShaderFeatureFlags::GL);
         }
-        if gl_version != ShaderVersion::Gles {
+        if gl_version != ShaderVersion::GlEs {
             flags.remove(ShaderFeatureFlags::GLES);
             flags.remove(ShaderFeatureFlags::TEXTURE_EXTERNAL);
         }
@@ -176,7 +176,7 @@ fn write_optimized_shaders(
             println!("Optimizing shader {:?}", shader);
             let target = match shader.gl_version {
                 ShaderVersion::Gl => glslopt::Target::OpenGl,
-                ShaderVersion::Gles => glslopt::Target::OpenGles30,
+                ShaderVersion::GlEs => glslopt::Target::OpenGles30,
             };
             let glslopt_ctx = glslopt::Context::new(target);
 

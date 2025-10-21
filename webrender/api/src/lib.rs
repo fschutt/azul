@@ -12,7 +12,12 @@
 //! there.
 
 #![cfg_attr(feature = "nightly", feature(nonzero))]
-#![allow(clippy::float_cmp, clippy::too_many_arguments)]
+#![allow(
+    clippy::float_cmp,
+    clippy::too_many_arguments,
+    unused,
+    mismatched_lifetime_syntaxes
+)]
 #![allow(clippy::unreadable_literal, clippy::new_without_default)]
 
 pub extern crate crossbeam_channel;

@@ -21,10 +21,10 @@ fn validate_shaders() {
 
     let resources = BuiltInResources::default();
     let vs_validator =
-        ShaderValidator::new(VERTEX_SHADER, ShaderSpec::Gles3, Output::Essl, &resources).unwrap();
+        ShaderValidator::new(VERTEX_SHADER, ShaderSpec::GlEs3, Output::Essl, &resources).unwrap();
 
     let fs_validator =
-        ShaderValidator::new(FRAGMENT_SHADER, ShaderSpec::Gles3, Output::Essl, &resources).unwrap();
+        ShaderValidator::new(FRAGMENT_SHADER, ShaderSpec::GlEs3, Output::Essl, &resources).unwrap();
 
     for (shader, configs) in get_shader_features(ShaderFeatureFlags::GLES) {
         for config in configs {
@@ -33,7 +33,7 @@ fn validate_shaders() {
                 .filter(|f| !f.is_empty())
                 .collect::<Vec<_>>();
 
-            let (vs, fs) = build_shader_strings(ShaderVersion::Gles, &features, shader, &|f| {
+            let (vs, fs) = build_shader_strings(ShaderVersion::GlEs, &features, shader, &|f| {
                 webrender::get_unoptimized_shader_source(f, None)
             });
 

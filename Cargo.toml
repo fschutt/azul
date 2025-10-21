@@ -12,3 +12,4 @@ members = [
 
 [workspace.dependencies]
 glean = "60.5.0"
+gleam = "0.15.1"

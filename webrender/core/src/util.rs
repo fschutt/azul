@@ -61,10 +61,10 @@ impl<'a, T> VecEntry<'a, T> {
 
 pub trait VecHelper<T> {
     /// Growns the vector by a single entry, returning the allocation.
-    fn alloc(&mut self) -> Allocation<T>;
+    fn alloc(&mut self) -> Allocation<'_, T>;
     /// Either returns an existing elemenet, or grows the vector by one.
     /// Doesn't expect indices to be higher than the current length.
-    fn entry(&mut self, index: usize) -> VecEntry<T>;
+    fn entry(&mut self, index: usize) -> VecEntry<'_, T>;
 
     /// Equivalent to `mem::replace(&mut vec, Vec::new())`
     fn take(&mut self) -> Self;
@@ -76,7 +76,7 @@ pub trait VecHelper<T> {
 }
 
 impl<T> VecHelper<T> for Vec<T> {
-    fn alloc(&mut self) -> Allocation<T> {
+    fn alloc(&mut self) -> Allocation<'_, T> {
         let index = self.len();
         if self.capacity() == index {
             self.reserve(1);
@@ -84,7 +84,7 @@ impl<T> VecHelper<T> for Vec<T> {
         Allocation { vec: self, index }
     }
 
-    fn entry(&mut self, index: usize) -> VecEntry<T> {
+    fn entry(&mut self, index: usize) -> VecEntry<'_, T> {
         if index < self.len() {
             VecEntry::Occupied(unsafe { self.get_unchecked_mut(index) })
         } else {
@@ -1048,7 +1048,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         }
     }
 
-    pub fn to_transform(&self) -> Cow<Transform3D<f32, Src, Dst>> {
+    pub fn to_transform(&self) -> Cow<'_, Transform3D<f32, Src, Dst>> {
         match *self {
             FastTransform::Offset(offset) => {
                 Cow::Owned(Transform3D::translation(offset.x, offset.y, 0.0))

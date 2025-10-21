@@ -695,17 +695,16 @@ impl MacOSWindow {
             }
         };
 
-        let wr_renderer = webrender::Renderer::new(
+        let (mut renderer, sender) = webrender::create_webrender_instance(
             gl_funcs.clone(),
             Box::new(Notifier {}),
             default_renderer_options(&options),
-            WR_SHADER_CACHE,
+            None, // shaders cache
         )
         .map_err(|e| {
             WindowError::PlatformError(format!("WebRender initialization failed: {:?}", e))
         })?;
 
-        let (mut renderer, sender) = wr_renderer;
         renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
         let mut render_api = sender.create_api();
@@ -1005,10 +1004,17 @@ impl MacOSWindow {
             // Get current scroll offset
             if let Some(offset) = scroll_manager.get_current_offset(dom_id, node_id) {
                 // Translate to WebRender types and send scroll command
-                txn.scroll_node_with_id(
-                    wr_translate_logical_position(offset),
+                let scroll_offset = wr_translate_logical_position(offset);
+                let sampled_offset = webrender::api::SampledScrollOffset {
+                    offset: webrender::api::units::LayoutVector2D::new(
+                        -scroll_offset.x,
+                        -scroll_offset.y,
+                    ),
+                    generation: 0, // Use 0 for now, proper generation tracking can be added later
+                };
+                txn.set_scroll_offsets(
                     wr_translate_external_scroll_id(external_scroll_id),
-                    ScrollClamping::ToContentBounds,
+                    vec![sampled_offset],
                 );
             }
         }
@@ -1097,7 +1103,7 @@ impl MacOSWindow {
             .collect::<Vec<_>>();
 
         // Update dynamic properties in WebRender
-        txn.update_dynamic_properties(WrDynamicProperties {
+        txn.append_dynamic_properties(WrDynamicProperties {
             transforms,
             floats,
             colors: Vec::new(), // No color animations for now

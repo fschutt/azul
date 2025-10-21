@@ -290,15 +290,15 @@ where
         self.resources.get_mut(key)
     }
 
-    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V> {
         self.resources.entry(key)
     }
 
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         self.resources.iter()
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         self.resources.iter_mut()
     }
 
@@ -528,7 +528,7 @@ impl ResourceCache {
 
         let texture_cache = TextureCache::new_for_testing(4096, ImageFormat::RGBA8);
         let workers = Arc::new(ThreadPoolBuilder::new().build().unwrap());
-        let glyph_rasterizer = GlyphRasterizer::new(workers, None, true);
+        let glyph_rasterizer = GlyphRasterizer::new(workers, true);
         let cached_glyphs = GlyphCache::new();
         let fonts = SharedFontResources::new(IdNamespace(0));
         let picture_textures =
@@ -1338,8 +1338,8 @@ impl ResourceCache {
         let cached_glyphs = &mut self.cached_glyphs;
         let texture_cache = &mut self.texture_cache;
 
-        self.glyph_rasterizer.resolve_glyphs(
-            |job, can_use_r8_format| {
+        self.glyph_rasterizer
+            .resolve_glyphs(|job, can_use_r8_format| {
                 let GlyphRasterJob { font, key, result } = job;
                 let glyph_key_cache = cached_glyphs.get_glyph_key_cache_for_font_mut(&*font);
                 let glyph_info = match result {
@@ -1376,9 +1376,7 @@ impl ResourceCache {
                     }
                 };
                 glyph_key_cache.insert(key, glyph_info);
-            },
-            profile,
-        );
+            });
 
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
         self.update_texture_cache(gpu_cache);

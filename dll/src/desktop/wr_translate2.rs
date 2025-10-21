@@ -20,7 +20,7 @@ use webrender::{
         DocumentId as WrDocumentId, HitTesterRequest as WrHitTesterRequest,
         PipelineId as WrPipelineId, RenderNotifier as WrRenderNotifier,
     },
-    RendererOptions as WrRendererOptions,
+    WebRenderOptions as WrRendererOptions,
 };
 // Re-exports for convenience
 pub use webrender::{
@@ -64,7 +64,7 @@ impl WrRenderNotifier for Notifier {
         _: WrDocumentId,
         _scrolled: bool,
         _composite_needed: bool,
-        _render_time: Option<u64>,
+        _frame_publish_id: webrender::api::FramePublishId,
     ) {
     }
 }
@@ -83,7 +83,6 @@ pub fn default_renderer_options(
         use_optimized_shaders: true,
         enable_aa: true,
         enable_subpixel_aa: true,
-        force_subpixel_aa: true,
         clear_color: WrColorF {
             r: options.state.background_color.r as f32 / 255.0,
             g: options.state.background_color.g as f32 / 255.0,
@@ -106,7 +105,6 @@ impl webrender::api::ExternalImageHandler for Compositor {
         &mut self,
         key: webrender::api::ExternalImageId,
         _channel_index: u8,
-        _rendering: webrender::api::ImageRendering,
     ) -> webrender::api::ExternalImage {
         use webrender::api::{
             units::{DevicePoint as WrDevicePoint, TexelRect as WrTexelRect},
@@ -226,8 +224,13 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
     }
 }
 
-/// Re-export ScrollClamping from webrender
-pub use webrender::api::ScrollClamping;
+/// ScrollClamping is no longer part of WebRender API
+/// Keeping as stub for compatibility
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ScrollClamping {
+    ToContentBounds,
+    NoClamping,
+}
 
 /// Perform WebRender-based hit testing
 ///
@@ -280,13 +283,10 @@ pub fn fullhittest_new_webrender(
             };
 
             // Perform WebRender hit test at cursor position
-            let wr_result = wr_hittester.hit_test(
-                Some(wr_translate_pipeline_id(pipeline_id)),
-                WrWorldPoint::new(
-                    cursor_relative_to_dom.x * hidpi_factor,
-                    cursor_relative_to_dom.y * hidpi_factor,
-                ),
-            );
+            let wr_result = wr_hittester.hit_test(WrWorldPoint::new(
+                cursor_relative_to_dom.x * hidpi_factor,
+                cursor_relative_to_dom.y * hidpi_factor,
+            ));
 
             // Convert WebRender hit test results to azul hit test items
             let hit_items = wr_result
@@ -302,19 +302,15 @@ pub fn fullhittest_new_webrender(
                         .node_id
                         .into_crate_internal()?;
 
-                    let relative_to_item = LogicalPosition::new(
-                        i.point_relative_to_item.x / hidpi_factor,
-                        i.point_relative_to_item.y / hidpi_factor,
-                    );
-
+                    // WebRender no longer provides point_relative_to_item or point_in_viewport
+                    // We use the cursor position directly
                     Some((
                         node_id,
                         HitTestItem {
-                            point_in_viewport: LogicalPosition::new(
-                                i.point_in_viewport.x / hidpi_factor,
-                                i.point_in_viewport.y / hidpi_factor,
-                            ),
-                            point_relative_to_item: relative_to_item,
+                            point_in_viewport: *cursor_relative_to_dom,
+                            point_relative_to_item: *cursor_relative_to_dom, /* TODO: Calculate
+                                                                              * relative to item
+                                                                              * rect */
                             is_iframe_hit: None, // TODO: Re-enable iframe support when needed
                             is_focusable: layout_result
                                 .styled_dom

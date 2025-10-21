@@ -46,10 +46,10 @@ pub fn translate_displaylist_to_wr(
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
     let spatial_id = SpatialId::root_scroll_node(pipeline_id);
-    let root_clip_id = WrClipChainId::root(pipeline_id);
+    let root_clip_chain_id = WrClipChainId::INVALID;
 
     // Clip stack management (for PushClip/PopClip)
-    let mut clip_stack: Vec<WrClipChainId> = vec![root_clip_id];
+    let mut clip_stack: Vec<WrClipChainId> = vec![root_clip_chain_id];
 
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
@@ -254,14 +254,15 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.push(new_clip_id);
                 } else {
                     // Rectangular clip
-                    let new_clip_id = builder.define_clip_rect(
-                        &SpaceAndClipInfo {
-                            spatial_id: *spatial_stack.last().unwrap(),
-                            clip_chain_id: *clip_stack.last().unwrap(),
-                        },
-                        rect,
-                    );
-                    clip_stack.push(new_clip_id);
+                    let clip_id = builder.define_clip_rect(*spatial_stack.last().unwrap(), rect);
+                    // Create a clip chain from the clip id
+                    let parent = if *clip_stack.last().unwrap() == WrClipChainId::INVALID {
+                        None
+                    } else {
+                        Some(*clip_stack.last().unwrap())
+                    };
+                    let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
+                    clip_stack.push(new_clip_chain_id);
                 }
             }
 
@@ -424,25 +425,22 @@ fn define_border_radius_clip(
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
     let wr_layout_rect = LayoutRect::from_size(wr_layout_size);
 
-    let clip = if wr_border_radius.is_zero() {
-        builder.define_clip_rect(
-            &SpaceAndClipInfo {
-                spatial_id: rect_spatial_id,
-                clip_chain_id: parent_clip_chain_id,
-            },
-            wr_layout_rect,
-        )
+    let clip_id = if wr_border_radius.is_zero() {
+        builder.define_clip_rect(rect_spatial_id, wr_layout_rect)
     } else {
         builder.define_clip_rounded_rect(
-            &SpaceAndClipInfo {
-                spatial_id: rect_spatial_id,
-                clip_chain_id: parent_clip_chain_id,
-            },
+            rect_spatial_id,
             WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
         )
     };
 
-    clip
+    // Create a clip chain from the clip id
+    let parent = if parent_clip_chain_id == WrClipChainId::INVALID {
+        None
+    } else {
+        Some(parent_clip_chain_id)
+    };
+    builder.define_clip_chain(parent, vec![clip_id])
 }
 
 /// Push text to display list
@@ -457,15 +455,14 @@ fn push_text(
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
 ) {
-    use azul_core::resources::StyleFontFamily;
-    use azul_css::props::basic::style::StyleFontFamilyVec;
+    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
 
     use crate::desktop::wr_translate2::wr_translate_layouted_glyphs;
 
     // Look up FontKey from the FontRef
     // The font should already be registered in renderer_resources
     let font_family_vec = StyleFontFamilyVec::from(vec![StyleFontFamily::Ref(font.clone())]);
-    let font_families_hash = azul_core::resources::StyleFontFamiliesHash::new(&font_family_vec);
+    let font_families_hash = azul_core::styled_dom::StyleFontFamiliesHash::new(&font_family_vec);
 
     let font_family_hash = match renderer_resources
         .font_families_map

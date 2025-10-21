@@ -21,6 +21,7 @@ use api::{
     channel::unbounded_channel, units::*, BlobImageHandler, ColorF, CrashAnnotator, DocumentId,
     FontRenderMode, IdNamespace, ImageBufferKind, ImageFormat, RenderNotifier, VoidPtrToSizeFn,
 };
+use azul_core::gl::GenericGlContext;
 use glyph_rasterizer::{GlyphRasterThread, GlyphRasterizer, SharedFontResources};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -293,7 +294,7 @@ impl Default for WebRenderOptions {
 /// ```
 /// [WebRenderOptions]: struct.WebRenderOptions.html
 pub fn create_webrender_instance(
-    gl: Rc<dyn gl::Gl>,
+    gl: Rc<GenericGlContext>,
     notifier: Box<dyn RenderNotifier>,
     mut options: WebRenderOptions,
     shaders: Option<&SharedShaders>,

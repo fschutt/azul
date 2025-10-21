@@ -290,7 +290,7 @@ where
     }
 
     /// Begin writing a specific number of blocks
-    pub fn write_blocks(&mut self, block_count: usize) -> GpuBufferWriter<T> {
+    pub fn write_blocks(&mut self, block_count: usize) -> GpuBufferWriter<'_, T> {
         assert!(block_count <= MAX_VERTEX_TEXTURE_WIDTH);
 
         if (self.data.len() % MAX_VERTEX_TEXTURE_WIDTH) + block_count > MAX_VERTEX_TEXTURE_WIDTH {

@@ -7,10 +7,8 @@
 extern crate core;
 #[macro_use]
 extern crate alloc;
-extern crate libm;
 #[macro_use]
 extern crate azul_css;
-extern crate gl_context_loader;
 
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
@@ -36,6 +34,8 @@ pub mod events;
 pub mod geom;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
 pub mod gl;
+/// OpenGL constants
+pub mod glconst;
 /// GPU value synchronization (colors, transforms) for WebRender preparation
 pub mod gpu;
 /// Hit-testing module

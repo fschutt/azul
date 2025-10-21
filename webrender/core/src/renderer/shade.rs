@@ -5,8 +5,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use api::{units::DeviceSize, ImageBufferKind};
+use azul_core::gl::GlType;
 use euclid::default::Transform3D;
-use gleam::gl::GlType;
 use glyph_rasterizer::GlyphFormat;
 use time::precise_time_ns;
 use webrender_build::shader::{get_shader_features, ShaderFeatureFlags, ShaderFeatures};
@@ -51,11 +51,11 @@ fn get_feature_string(
 fn has_platform_support(kind: ImageBufferKind, device: &Device) -> bool {
     match (kind, device.gl().get_type()) {
         (ImageBufferKind::Texture2D, _) => true,
-        (ImageBufferKind::TextureRect, GlType::Gles) => false,
+        (ImageBufferKind::TextureRect, GlType::GlEs) => false,
         (ImageBufferKind::TextureRect, GlType::Gl) => true,
-        (ImageBufferKind::TextureExternal, GlType::Gles) => true,
+        (ImageBufferKind::TextureExternal, GlType::GlEs) => true,
         (ImageBufferKind::TextureExternal, GlType::Gl) => false,
-        (ImageBufferKind::TextureExternalBT709, GlType::Gles) => {
+        (ImageBufferKind::TextureExternalBT709, GlType::GlEs) => {
             device.supports_extension("GL_EXT_YUV_target")
         }
         (ImageBufferKind::TextureExternalBT709, GlType::Gl) => false,
@@ -633,6 +633,8 @@ impl Shaders {
         gl_type: GlType,
         options: &WebRenderOptions,
     ) -> Result<Self, ShaderError> {
+        use azul_core::gl;
+
         // We have to pass a profile around a bunch but we aren't recording the initialization
         // so use a dummy one.
         let profile = &mut TransactionProfile::new();
@@ -1499,7 +1501,7 @@ fn get_shader_feature_flags(
 ) -> ShaderFeatureFlags {
     match gl_type {
         GlType::Gl => ShaderFeatureFlags::GL,
-        GlType::Gles => {
+        GlType::GlEs => {
             let mut flags = ShaderFeatureFlags::GLES;
             flags |= match texture_external_version {
                 TextureExternalVersion::ESSL3 => ShaderFeatureFlags::TEXTURE_EXTERNAL,

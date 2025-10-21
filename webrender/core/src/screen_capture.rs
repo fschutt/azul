@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use api::{units::*, ImageBufferKind, ImageFormat};
-use gleam::gl::GlType;
+use azul_core::gl::GlType;
 
 use crate::{
     device::{Device, DrawTarget, ReadTarget, Texture, TextureFilter, PBO},
@@ -370,7 +370,7 @@ impl AsyncScreenshotGrabber {
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         use AsyncScreenshotGrabberMode::*;
 
-        let is_angle = cfg!(windows) && gl_type == GlType::Gles;
+        let is_angle = cfg!(windows) && matches!(gl_type, GlType::GlEs);
 
         if self.mode == CompositionRecorder && !is_angle {
             // This is a non-ANGLE configuration. in this case, the recorded frames were captured

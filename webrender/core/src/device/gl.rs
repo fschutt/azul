@@ -26,8 +26,8 @@ use api::{
     ImageDescriptor, ImageFormat, ImageRendering, IntParameter, MixBlendMode, Parameter,
     VoidPtrToSizeFn,
 };
+use azul_core::{gl, gl::GenericGlContext};
 use euclid::default::Transform3D;
-use gleam::gl;
 use log::Level;
 use smallvec::SmallVec;
 use webrender_build::shader::{
@@ -176,10 +176,10 @@ fn supports_extension(extensions: &[String], extension: &str) -> bool {
     extensions.iter().any(|s| s == extension)
 }
 
-fn get_shader_version(gl: &dyn gl::Gl) -> ShaderVersion {
+fn get_shader_version(gl: &GenericGlContext) -> ShaderVersion {
     match gl.get_type() {
         gl::GlType::Gl => ShaderVersion::Gl,
-        gl::GlType::Gles => ShaderVersion::Gles,
+        gl::GlType::GlEs => ShaderVersion::GlEs,
     }
 }
 
@@ -225,7 +225,7 @@ impl VertexAttribute {
         divisor: gl::GLuint,
         stride: gl::GLint,
         offset: gl::GLuint,
-        gl: &dyn gl::Gl,
+        gl: &GenericGlContext,
     ) {
         gl.enable_vertex_attrib_array(attr_index);
         gl.vertex_attrib_divisor(attr_index, divisor);
@@ -295,7 +295,7 @@ impl VertexDescriptor {
         attributes: &[VertexAttribute],
         start_index: usize,
         divisor: u32,
-        gl: &dyn gl::Gl,
+        gl: &GenericGlContext,
         vbo: VBOId,
     ) {
         vbo.bind(gl);
@@ -310,7 +310,7 @@ impl VertexDescriptor {
         }
     }
 
-    fn bind(&self, gl: &dyn gl::Gl, main: VBOId, instance: VBOId, instance_divisor: u32) {
+    fn bind(&self, gl: &GenericGlContext, main: VBOId, instance: VBOId, instance_divisor: u32) {
         Self::bind_attributes(self.vertex_attributes, 0, 0, gl, main);
 
         if !self.instance_attributes.is_empty() {
@@ -326,19 +326,19 @@ impl VertexDescriptor {
 }
 
 impl VBOId {
-    fn bind(&self, gl: &dyn gl::Gl) {
+    fn bind(&self, gl: &GenericGlContext) {
         gl.bind_buffer(gl::ARRAY_BUFFER, self.0);
     }
 }
 
 impl IBOId {
-    fn bind(&self, gl: &dyn gl::Gl) {
+    fn bind(&self, gl: &GenericGlContext) {
         gl.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.0);
     }
 }
 
 impl FBOId {
-    fn bind(&self, gl: &dyn gl::Gl, target: FBOTarget) {
+    fn bind(&self, gl: &GenericGlContext, target: FBOTarget) {
         let target = match target {
             FBOTarget::Read => gl::READ_FRAMEBUFFER,
             FBOTarget::Draw => gl::DRAW_FRAMEBUFFER,
@@ -1060,11 +1060,11 @@ impl StrideAlignment {
 const RESERVE_DEPTH_BITS: i32 = 2;
 
 pub struct Device {
-    gl: Rc<dyn gl::Gl>,
+    gl: Rc<GenericGlContext>,
 
     /// If non-None, |gl| points to a profiling wrapper, and this points to the
     /// underling Gl instance.
-    base_gl: Option<Rc<dyn gl::Gl>>,
+    base_gl: Option<Rc<GenericGlContext>>,
 
     // device state
     bound_textures: [gl::GLuint; 16],
@@ -1426,7 +1426,7 @@ fn is_mali_valhall(renderer_name: &str) -> bool {
 
 impl Device {
     pub fn new(
-        mut gl: Rc<dyn gl::Gl>,
+        mut gl: Rc<GenericGlContext>,
         crash_annotator: Option<Box<dyn CrashAnnotator>>,
         resource_override_path: Option<PathBuf>,
         use_optimized_shaders: bool,
@@ -1463,23 +1463,6 @@ impl Device {
         let mut extensions = Vec::new();
         for i in 0..extension_count {
             extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
-        }
-
-        // On debug builds, assert that each GL call is error-free. We don't do
-        // this on release builds because the synchronous call can stall the
-        // pipeline.
-        // We block this on Mali Valhall GPUs as the extension's functions always return
-        // GL_OUT_OF_MEMORY, causing us to panic in debug builds.
-        let supports_khr_debug =
-            supports_extension(&extensions, "GL_KHR_debug") && !is_mali_valhall(&renderer_name);
-        if panic_on_gl_error || cfg!(debug_assertions) {
-            gl = gl::ErrorReactingGl::wrap(gl, move |gl, name, code| {
-                if supports_khr_debug {
-                    Self::log_driver_messages(gl);
-                }
-                error!("Caught GL error {:x} at {}", code, name);
-                panic!("Caught GL error {:x} at {}", code, name);
-            });
         }
 
         if supports_extension(&extensions, "GL_ANGLE_provoking_vertex") {
@@ -1540,8 +1523,11 @@ impl Device {
             gl.get_integer_v(gl::MINOR_VERSION, &mut gl_version[1..2]);
         }
         info!(
-            "GL context {:?} {}.{}",
-            gl.get_type(),
+            "GL context {} {}.{}",
+            match gl.get_type() {
+                gl::GlType::GlEs => "GlEs",
+                gl::GlType::Gl => "Gl",
+            },
             gl_version[0],
             gl_version[1]
         );
@@ -1551,7 +1537,7 @@ impl Device {
             && !cfg!(target_os = "macos")
             && match gl.get_type() {
                 gl::GlType::Gl => supports_extension(&extensions, "GL_ARB_texture_storage"),
-                gl::GlType::Gles => true,
+                gl::GlType::GlEs => true,
             };
 
         // The GL_EXT_texture_format_BGRA8888 extension allows us to use BGRA as an internal format
@@ -1574,7 +1560,7 @@ impl Device {
                     gl_version >= [3, 3]
                         || supports_extension(&extensions, "GL_ARB_texture_swizzle")
                 }
-                gl::GlType::Gles => true,
+                gl::GlType::GlEs => true,
             };
 
         let (
@@ -1612,7 +1598,7 @@ impl Device {
             // glTexStorage is always supported in GLES 3, but because the GL_EXT_texture_storage
             // extension is supported we can use glTexStorage with BGRA8 as the internal format.
             // Prefer BGRA textures over RGBA.
-            gl::GlType::Gles if supports_texture_storage_with_gles_bgra => (
+            gl::GlType::GlEs if supports_texture_storage_with_gles_bgra => (
                 TextureFormatPair::from(ImageFormat::BGRA8),
                 TextureFormatPair {
                     internal: gl::BGRA8_EXT,
@@ -1625,7 +1611,7 @@ impl Device {
             // BGRA is not supported as an internal format with glTexStorage, therefore we will
             // use RGBA textures instead and pretend BGRA data is RGBA when uploading.
             // The swizzling will happen at the texture unit.
-            gl::GlType::Gles if supports_texture_swizzle => (
+            gl::GlType::GlEs if supports_texture_swizzle => (
                 TextureFormatPair::from(ImageFormat::RGBA8),
                 TextureFormatPair {
                     internal: gl::RGBA8,
@@ -1638,7 +1624,7 @@ impl Device {
             // BGRA is not supported as an internal format with glTexStorage, and we cannot use
             // swizzling either. Therefore prefer BGRA textures over RGBA, but use glTexImage
             // to initialize BGRA textures. glTexStorage can still be used for other formats.
-            gl::GlType::Gles if supports_gles_bgra && !avoid_tex_image => (
+            gl::GlType::GlEs if supports_gles_bgra && !avoid_tex_image => (
                 TextureFormatPair::from(ImageFormat::BGRA8),
                 TextureFormatPair::from(gl::BGRA_EXT),
                 gl::UNSIGNED_BYTE,
@@ -1648,7 +1634,7 @@ impl Device {
             // Neither BGRA or swizzling are supported. GLES does not allow format conversion
             // during upload so we must use RGBA textures and pretend BGRA data is RGBA when
             // uploading. Images may be rendered incorrectly as a result.
-            gl::GlType::Gles => {
+            gl::GlType::GlEs => {
                 warn!(
                     "Neither BGRA or texture swizzling are supported. Images may be rendered \
                      incorrectly."
@@ -1705,8 +1691,8 @@ impl Device {
             renderer_name.starts_with("PowerVR Rogue G6430") && cfg!(target_arch = "x86");
         let supports_color_buffer_float = match gl.get_type() {
             gl::GlType::Gl => true,
-            gl::GlType::Gles if is_x86_powervr_rogue_g6430 => false,
-            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_color_buffer_float"),
+            gl::GlType::GlEs if is_x86_powervr_rogue_g6430 => false,
+            gl::GlType::GlEs => supports_extension(&extensions, "GL_EXT_color_buffer_float"),
         };
 
         let is_adreno = renderer_name.starts_with("Adreno");
@@ -1733,7 +1719,7 @@ impl Device {
                 supports_extension(&extensions, "GL_ARB_blend_func_extended")
                     && supports_extension(&extensions, "GL_ARB_explicit_attrib_location")
             }
-            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_blend_func_extended"),
+            gl::GlType::GlEs => supports_extension(&extensions, "GL_EXT_blend_func_extended"),
         };
 
         // Software webrender relies on the unoptimized shader source.
@@ -1800,7 +1786,7 @@ impl Device {
             gl::GlType::Gl => {
                 supports_extension(&extensions, "GL_ARB_shader_storage_buffer_object")
             }
-            gl::GlType::Gles => gl_version >= [3, 1],
+            gl::GlType::GlEs => gl_version >= [3, 1],
         };
 
         // SWGL uses swgl_clipMask() instead of implementing clip-masking in shaders.
@@ -1931,7 +1917,7 @@ impl Device {
                 supports_buffer_storage,
                 supports_advanced_blend_equation,
                 supports_dual_source_blending,
-                supports_khr_debug,
+                supports_khr_debug: false,
                 supports_texture_swizzle,
                 supports_nonzero_pbo_offsets,
                 supports_texture_usage,
@@ -1992,11 +1978,11 @@ impl Device {
         }
     }
 
-    pub fn gl(&self) -> &dyn gl::Gl {
+    pub fn gl(&self) -> &GenericGlContext {
         &*self.gl
     }
 
-    pub fn rc_gl(&self) -> &Rc<dyn gl::Gl> {
+    pub fn rc_gl(&self) -> &Rc<GenericGlContext> {
         &self.gl
     }
 
@@ -2195,24 +2181,7 @@ impl Device {
         let being_profiled = profiler::thread_is_being_profiled();
         let using_wrapper = self.base_gl.is_some();
 
-        // We can usually unwind driver stacks on x86 so we don't need to manually instrument
-        // gl calls there. Timestamps can be pretty expensive on Windows (2us each and perhaps
-        // an opportunity to be descheduled?) which makes the profiles gathered with this
-        // turned on less useful so only profile on ARM.
-        if cfg!(any(target_arch = "arm", target_arch = "aarch64"))
-            && being_profiled
-            && !using_wrapper
-        {
-            fn note(name: &str, duration: Duration) {
-                profiler::add_text_marker("OpenGL Calls", name, duration);
-            }
-            let threshold = Duration::from_millis(1);
-            let wrapped = gl::ProfilingGl::wrap(self.gl.clone(), threshold, note);
-            let base = mem::replace(&mut self.gl, wrapped);
-            self.base_gl = Some(base);
-        } else if !being_profiled && using_wrapper {
-            self.gl = self.base_gl.take().unwrap();
-        }
+        self.gl = self.base_gl.take().unwrap();
 
         // Retrieve the currently set FBO.
         let mut default_read_fbo = [0];
@@ -3253,7 +3222,7 @@ impl Device {
         let buf_ptr = match self.gl.get_type() {
             gl::GlType::Gl => self.gl.map_buffer(gl::PIXEL_PACK_BUFFER, gl::READ_ONLY),
 
-            gl::GlType::Gles => self.gl.map_buffer_range(
+            gl::GlType::GlEs => self.gl.map_buffer_range(
                 gl::PIXEL_PACK_BUFFER,
                 0,
                 pbo.reserved_size as _,
@@ -3560,7 +3529,12 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         vbo.bind(self.gl());
-        gl::buffer_data(self.gl(), gl::ARRAY_BUFFER, vertices, usage_hint.to_gl());
+        self.gl().buffer_data_untyped(
+            gl::ARRAY_BUFFER,
+            (vertices.len() * mem::size_of::<V>()) as _,
+            vertices.as_ptr() as *const _,
+            usage_hint.to_gl(),
+        );
     }
 
     pub fn create_vao_with_new_instances(
@@ -3614,7 +3588,7 @@ impl Device {
 
                 let ptr = match self.gl.get_type() {
                     gl::GlType::Gl => self.gl.map_buffer(target, gl::WRITE_ONLY),
-                    gl::GlType::Gles => {
+                    gl::GlType::GlEs => {
                         self.gl
                             .map_buffer_range(target, 0, size as _, gl::MAP_WRITE_BIT)
                     }
@@ -3651,12 +3625,12 @@ impl Device {
         debug_assert_eq!(self.bound_vao, vao.id);
 
         vao.ibo_id.bind(self.gl());
-        gl::buffer_data(
-            self.gl(),
+        self.gl().buffer_data_untyped(
             gl::ELEMENT_ARRAY_BUFFER,
-            indices,
+            (indices.len() * size_of::<I>()) as _,
+            indices.as_ptr() as *const _,
             usage_hint.to_gl(),
-        );
+        )
     }
 
     pub fn draw_triangles_u16(&mut self, first_vertex: i32, index_count: i32) {
@@ -4060,7 +4034,7 @@ impl Device {
         }
     }
 
-    fn log_driver_messages(gl: &dyn gl::Gl) {
+    fn log_driver_messages(gl: &GenericGlContext) {
         for msg in gl.get_debug_messages() {
             let level = match msg.severity {
                 gl::DEBUG_SEVERITY_HIGH => Level::Error,

@@ -605,7 +605,7 @@ impl GlyphRasterizer {
         }
     }
 
-    pub fn resolve_glyphs<F, G>(&mut self, mut handle: F)
+    pub fn resolve_glyphs<F>(&mut self, mut handle: F)
     where
         F: FnMut(GlyphRasterJob, bool),
     {

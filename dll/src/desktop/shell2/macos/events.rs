@@ -68,7 +68,7 @@ impl MacOSWindow {
         };
 
         let world_point = WorldPoint::new(position.x, position.y);
-        let hit_result = hit_tester.hit_test(None, world_point);
+        let hit_result = hit_tester.hit_test(world_point);
 
         // Check each hit item for scrollbar tag
         for item in &hit_result.items {

@@ -44,7 +44,9 @@ doesn't only contain trivial geometry, it can also store another
 #![allow(
     clippy::unreadable_literal,
     clippy::new_without_default,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    unexpected_cfgs,
+    unused
 )]
 
 // Cribbed from the |matches| crate, for simplicity.
@@ -143,7 +145,6 @@ extern crate bincode;
 extern crate byteorder;
 pub extern crate euclid;
 extern crate fxhash;
-extern crate gleam;
 extern crate num_traits;
 extern crate plane_split;
 extern crate rayon;

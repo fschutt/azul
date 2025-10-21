@@ -16,11 +16,12 @@ use azul_css::{
     AzString, StringVec, U8Vec,
 };
 pub use gl_context_loader::{
-    ctypes::*, GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat,
-    GLint, GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid,
+    ctypes::*, gl, GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum,
+    GLfloat, GLint, GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64,
+    GLvoid, GenericGlContext, GlType,
 };
-use gl_context_loader::{gl, GenericGlContext, GlType};
 
+pub use crate::glconst::*;
 use crate::{
     geom::PhysicalSizeU32,
     hit_test::DocumentId,

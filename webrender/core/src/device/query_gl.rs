@@ -4,7 +4,7 @@
 
 use std::{mem, rc::Rc};
 
-use gleam::gl;
+use azul_core::{gl, gl::GenericGlContext};
 
 use crate::{device::GpuFrameId, profiler::GpuProfileTag};
 
@@ -66,7 +66,7 @@ impl<T> QuerySet<T> {
 }
 
 pub struct GpuFrameProfile {
-    gl: Rc<dyn gl::Gl>,
+    gl: Rc<GenericGlContext>,
     timers: QuerySet<GpuTimer>,
     samplers: QuerySet<GpuSampler>,
     frame_id: GpuFrameId,
@@ -75,7 +75,7 @@ pub struct GpuFrameProfile {
 }
 
 impl GpuFrameProfile {
-    fn new(gl: Rc<dyn gl::Gl>, debug_method: GpuDebugMethod) -> Self {
+    fn new(gl: Rc<GenericGlContext>, debug_method: GpuDebugMethod) -> Self {
         GpuFrameProfile {
             gl,
             timers: QuerySet::new(),
@@ -185,14 +185,14 @@ impl Drop for GpuFrameProfile {
 const NUM_PROFILE_FRAMES: usize = 4;
 
 pub struct GpuProfiler {
-    gl: Rc<dyn gl::Gl>,
+    gl: Rc<GenericGlContext>,
     frames: [GpuFrameProfile; NUM_PROFILE_FRAMES],
     next_frame: usize,
     debug_method: GpuDebugMethod,
 }
 
 impl GpuProfiler {
-    pub fn new(gl: Rc<dyn gl::Gl>, debug_method: GpuDebugMethod) -> Self {
+    pub fn new(gl: Rc<GenericGlContext>, debug_method: GpuDebugMethod) -> Self {
         let f = || GpuFrameProfile::new(Rc::clone(&gl), debug_method);
 
         let frames = [f(), f(), f(), f()];
@@ -271,11 +271,11 @@ impl GpuProfiler {
 
 #[must_use]
 pub struct GpuMarker {
-    gl: Option<(Rc<dyn gl::Gl>, GpuDebugMethod)>,
+    gl: Option<(Rc<GenericGlContext>, GpuDebugMethod)>,
 }
 
 impl GpuMarker {
-    fn new(gl: &Rc<dyn gl::Gl>, message: &str, debug_method: GpuDebugMethod) -> Self {
+    fn new(gl: &Rc<GenericGlContext>, message: &str, debug_method: GpuDebugMethod) -> Self {
         let gl = match debug_method {
             GpuDebugMethod::KHR => {
                 gl.push_debug_group_khr(gl::DEBUG_SOURCE_APPLICATION, 0, message);
@@ -290,7 +290,7 @@ impl GpuMarker {
         GpuMarker { gl }
     }
 
-    fn fire(gl: &Rc<dyn gl::Gl>, message: &str, debug_method: GpuDebugMethod) {
+    fn fire(gl: &Rc<GenericGlContext>, message: &str, debug_method: GpuDebugMethod) {
         match debug_method {
             GpuDebugMethod::KHR => gl.debug_message_insert_khr(
                 gl::DEBUG_SOURCE_APPLICATION,

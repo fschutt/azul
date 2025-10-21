@@ -235,7 +235,7 @@ impl RenderTaskGraphBuilder {
     }
 
     /// Add a new task to the graph.
-    pub fn add(&mut self) -> RenderTaskAllocation {
+    pub fn add(&mut self) -> RenderTaskAllocation<'_> {
         // Assume every task is a root to start with
         self.roots.insert(RenderTaskId {
             index: self.tasks.len() as u32,

@@ -1,5 +1,5 @@
 //! Main entry point for the documentation generation and management tool.
-
+#![allow(unused)]
 use std::{env, fs, path::PathBuf};
 
 use anyhow::Context;

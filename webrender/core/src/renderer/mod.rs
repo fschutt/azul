@@ -56,8 +56,8 @@ use api::{
     ExternalImageType, FramePublishId, ImageBufferKind, ImageFormat, ImageRendering, MixBlendMode,
     NotificationRequest, PipelineId, PremultipliedColorF, RenderReasons,
 };
+use azul_core::gl;
 use euclid::{default, rect, Scale, Transform3D};
-use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
 use init::*;
 use time::precise_time_ns;

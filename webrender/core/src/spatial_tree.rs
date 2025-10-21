@@ -116,7 +116,7 @@ impl ops::Not for VisibleFace {
 /// a spatial node, whether during scene or frame building
 pub trait SpatialNodeContainer {
     /// Get the common information for a given spatial node
-    fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo;
+    fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo<'_>;
 }
 
 enum StoreElement<T> {
@@ -221,7 +221,7 @@ pub struct SceneSpatialTree {
 }
 
 impl SpatialNodeContainer for SceneSpatialTree {
-    fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo {
+    fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo<'_> {
         let node = &self.spatial_nodes[index.0 as usize];
 
         SpatialNodeInfo {
@@ -796,7 +796,7 @@ enum TransformScroll {
 }
 
 impl SpatialNodeContainer for SpatialTree {
-    fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo {
+    fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo<'_> {
         let node = self.get_spatial_node(index);
 
         SpatialNodeInfo {

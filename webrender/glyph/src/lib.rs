@@ -1,7 +1,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, you can obtain one at http://mozilla.org/MPL/2.0/. */
-
+#![allow(unused)]
 //! A pure-Rust glyph rasterizer for WebRender.
 //!
 //! This crate serves as an API-compatible, drop-in replacement for the official
@@ -87,42 +87,85 @@ impl SharedFontResources {
     }
 }
 
-/// Font key mapping (stub)
+/// Font key mapping with namespace tracking
 #[derive(Clone)]
-pub struct FontKeyMap;
+pub struct FontKeyMap {
+    // Maps external key to internal shared key
+    key_map: Arc<RwLock<HashMap<FontKey, FontKey>>>,
+    // Tracks which namespace owns which keys
+    namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontKey>>>>,
+}
 
 impl FontKeyMap {
     pub fn new() -> Self {
-        FontKeyMap
+        FontKeyMap {
+            key_map: Arc::new(RwLock::new(HashMap::new())),
+            namespace_map: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub fn map_key(&self, key: &FontKey) -> FontKey {
-        *key
+        self.key_map
+            .read()
+            .unwrap()
+            .get(key)
+            .copied()
+            .unwrap_or(*key)
     }
 
-    pub fn add_key(&mut self, _key: FontKey) -> Option<FontKey> {
-        Some(_key)
+    pub fn add_key(&mut self, key: FontKey) -> Option<FontKey> {
+        let mut map = self.key_map.write().unwrap();
+        if map.contains_key(&key) {
+            return None; // Already exists
+        }
+
+        // Track namespace ownership
+        let namespace = key.0;
+        let mut ns_map = self.namespace_map.write().unwrap();
+        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+
+        map.insert(key, key);
+        Some(key)
     }
 
-    pub fn delete_key(&mut self, _key: &FontKey) -> Option<FontKey> {
-        Some(*_key)
+    pub fn delete_key(&mut self, key: &FontKey) -> Option<FontKey> {
+        let removed = self.key_map.write().unwrap().remove(key);
+        if removed.is_some() {
+            // Remove from namespace tracking
+            let namespace = key.0;
+            if let Some(keys) = self.namespace_map.write().unwrap().get_mut(&namespace) {
+                keys.retain(|k| k != key);
+            }
+        }
+        removed
     }
 
-    pub fn clear_namespace(&mut self, _namespace: IdNamespace) -> Vec<FontKey> {
-        Vec::new() // Stub - would filter by namespace and return deleted keys
+    pub fn clear_namespace(&mut self, namespace: IdNamespace) -> Vec<FontKey> {
+        let mut ns_map = self.namespace_map.write().unwrap();
+        let keys = ns_map.remove(&namespace).unwrap_or_default();
+
+        // Remove all keys from this namespace
+        let mut map = self.key_map.write().unwrap();
+        for key in &keys {
+            map.remove(key);
+        }
+
+        keys
     }
 }
 
-/// Font templates storage - stores pre-parsed fonts
+/// Font templates storage - stores pre-parsed fonts with namespace tracking
 #[derive(Clone)]
 pub struct FontTemplates {
     parsed_fonts: Arc<RwLock<HashMap<FontKey, Arc<azul_layout::font::parsed::ParsedFont>>>>,
+    namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontKey>>>>,
 }
 
 impl FontTemplates {
     pub fn new() -> Self {
         FontTemplates {
             parsed_fonts: Arc::new(RwLock::new(HashMap::new())),
+            namespace_map: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -131,22 +174,50 @@ impl FontTemplates {
         key: FontKey,
         parsed_font: Arc<azul_layout::font::parsed::ParsedFont>,
     ) {
+        // Track namespace ownership
+        let namespace = key.0;
+        let mut ns_map = self.namespace_map.write().unwrap();
+        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+
         self.parsed_fonts.write().unwrap().insert(key, parsed_font);
     }
 
     pub fn delete_font(&mut self, key: &FontKey) {
-        self.parsed_fonts.write().unwrap().remove(key);
+        if self.parsed_fonts.write().unwrap().remove(key).is_some() {
+            // Remove from namespace tracking
+            let namespace = key.0;
+            if let Some(keys) = self.namespace_map.write().unwrap().get_mut(&namespace) {
+                keys.retain(|k| k != key);
+            }
+        }
     }
 
     pub fn delete_fonts(&mut self, keys: &[FontKey]) {
         let mut fonts = self.parsed_fonts.write().unwrap();
+        let mut ns_map = self.namespace_map.write().unwrap();
+
         for key in keys {
-            fonts.remove(key);
+            if fonts.remove(key).is_some() {
+                // Remove from namespace tracking
+                let namespace = key.0;
+                if let Some(ns_keys) = ns_map.get_mut(&namespace) {
+                    ns_keys.retain(|k| k != key);
+                }
+            }
         }
     }
 
-    pub fn clear_namespace(&mut self, _namespace: IdNamespace) -> Vec<FontKey> {
-        Vec::new()
+    pub fn clear_namespace(&mut self, namespace: IdNamespace) -> Vec<FontKey> {
+        let mut ns_map = self.namespace_map.write().unwrap();
+        let keys = ns_map.remove(&namespace).unwrap_or_default();
+
+        // Remove all fonts from this namespace
+        let mut fonts = self.parsed_fonts.write().unwrap();
+        for key in &keys {
+            fonts.remove(key);
+        }
+
+        keys
     }
 
     pub fn has_font(&self, key: &FontKey) -> bool {
@@ -159,7 +230,7 @@ impl FontTemplates {
 
     pub fn lock(
         &self,
-    ) -> std::sync::RwLockReadGuard<HashMap<FontKey, Arc<azul_layout::font::parsed::ParsedFont>>>
+    ) -> std::sync::RwLockReadGuard<'_, HashMap<FontKey, Arc<azul_layout::font::parsed::ParsedFont>>>
     {
         self.parsed_fonts.read().unwrap()
     }
@@ -169,42 +240,87 @@ impl FontTemplates {
     }
 }
 
-/// Font instance mapping (stub)
+/// Font instance mapping with namespace tracking
 #[derive(Clone)]
-pub struct FontInstanceMap;
+pub struct FontInstanceMap {
+    // Maps external key to internal shared key
+    key_map: Arc<RwLock<HashMap<FontInstanceKey, FontInstanceKey>>>,
+    // Tracks which namespace owns which instance keys
+    namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontInstanceKey>>>>,
+}
 
 impl FontInstanceMap {
     pub fn new() -> Self {
-        FontInstanceMap
+        FontInstanceMap {
+            key_map: Arc::new(RwLock::new(HashMap::new())),
+            namespace_map: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub fn map_key(&self, key: &FontInstanceKey) -> FontInstanceKey {
-        *key
+        self.key_map
+            .read()
+            .unwrap()
+            .get(key)
+            .copied()
+            .unwrap_or(*key)
     }
 
-    pub fn add_key(&mut self, _base: Arc<BaseFontInstance>) -> Option<FontInstanceKey> {
-        Some(_base.instance_key)
+    pub fn add_key(&mut self, base: Arc<BaseFontInstance>) -> Option<FontInstanceKey> {
+        let key = base.instance_key;
+        let mut map = self.key_map.write().unwrap();
+
+        if map.contains_key(&key) {
+            return None; // Already exists
+        }
+
+        // Track namespace ownership
+        let namespace = key.0;
+        let mut ns_map = self.namespace_map.write().unwrap();
+        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+
+        map.insert(key, key);
+        Some(key)
     }
 
-    pub fn delete_key(&mut self, _key: &FontInstanceKey) -> Option<FontInstanceKey> {
-        Some(*_key)
+    pub fn delete_key(&mut self, key: &FontInstanceKey) -> Option<FontInstanceKey> {
+        let removed = self.key_map.write().unwrap().remove(key);
+        if removed.is_some() {
+            // Remove from namespace tracking
+            let namespace = key.0;
+            if let Some(keys) = self.namespace_map.write().unwrap().get_mut(&namespace) {
+                keys.retain(|k| k != key);
+            }
+        }
+        removed
     }
 
-    pub fn clear_namespace(&mut self, _namespace: IdNamespace) -> Vec<FontInstanceKey> {
-        Vec::new()
+    pub fn clear_namespace(&mut self, namespace: IdNamespace) -> Vec<FontInstanceKey> {
+        let mut ns_map = self.namespace_map.write().unwrap();
+        let keys = ns_map.remove(&namespace).unwrap_or_default();
+
+        // Remove all keys from this namespace
+        let mut map = self.key_map.write().unwrap();
+        for key in &keys {
+            map.remove(key);
+        }
+
+        keys
     }
 }
 
-/// Font instance data storage (stub)
+/// Font instance data storage with namespace tracking
 #[derive(Clone)]
 pub struct FontInstanceData {
     instances: Arc<RwLock<HashMap<FontInstanceKey, Arc<BaseFontInstance>>>>,
+    namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontInstanceKey>>>>,
 }
 
 impl FontInstanceData {
     pub fn new() -> Self {
         FontInstanceData {
             instances: Arc::new(RwLock::new(HashMap::new())),
+            namespace_map: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -213,25 +329,75 @@ impl FontInstanceData {
     }
 
     pub fn add_font_instance(&mut self, base: Arc<BaseFontInstance>) {
-        self.instances
-            .write()
-            .unwrap()
-            .insert(base.instance_key, base);
+        let key = base.instance_key;
+        let namespace = key.0;
+
+        // Track namespace ownership
+        let mut ns_map = self.namespace_map.write().unwrap();
+        ns_map.entry(namespace).or_insert_with(Vec::new).push(key);
+
+        self.instances.write().unwrap().insert(key, base);
     }
 
     pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
-        self.instances.write().unwrap().remove(&key);
+        if self.instances.write().unwrap().remove(&key).is_some() {
+            // Remove from namespace tracking
+            let namespace = key.0;
+            if let Some(keys) = self.namespace_map.write().unwrap().get_mut(&namespace) {
+                keys.retain(|k| k != &key);
+            }
+        }
     }
 
     pub fn delete_font_instances(&mut self, keys: &[FontInstanceKey]) {
         let mut instances = self.instances.write().unwrap();
+        let mut ns_map = self.namespace_map.write().unwrap();
+
         for key in keys {
-            instances.remove(key);
+            if instances.remove(key).is_some() {
+                // Remove from namespace tracking
+                let namespace = key.0;
+                if let Some(ns_keys) = ns_map.get_mut(&namespace) {
+                    ns_keys.retain(|k| k != key);
+                }
+            }
         }
     }
 
-    pub fn clear_namespace(&mut self, _namespace: IdNamespace) {
-        // Stub - would filter by namespace
+    pub fn clear_namespace(&mut self, namespace: IdNamespace) {
+        let mut ns_map = self.namespace_map.write().unwrap();
+        if let Some(keys) = ns_map.remove(&namespace) {
+            // Remove all instances from this namespace
+            let mut instances = self.instances.write().unwrap();
+            for key in keys {
+                instances.remove(&key);
+            }
+        }
+    }
+}
+
+// Implement BlobImageResources trait for SharedFontResources
+impl api::BlobImageResources for SharedFontResources {
+    fn get_font_data(&self, key: FontKey) -> Option<api::FontTemplate> {
+        // Return parsed font as Raw template for compatibility
+        self.templates.get_font(&key).map(|parsed_font| {
+            // For blob rasterization, we need to provide the font data
+            // Since we have Arc<ParsedFont>, we can't easily convert back to bytes
+            // Return a dummy template - blob rasterization should use parsed fonts directly
+            api::FontTemplate::Raw(Arc::new(Vec::new()), 0)
+        })
+    }
+
+    fn get_font_instance_data(&self, key: FontInstanceKey) -> Option<api::FontInstanceData> {
+        self.instances
+            .get_font_instance(key)
+            .map(|base| api::FontInstanceData {
+                font_key: base.font_key,
+                size: base.size.into(),
+                options: Some(base.options.clone()),
+                platform_options: base.platform_options.clone(),
+                variations: base.variations.clone(),
+            })
     }
 }
 

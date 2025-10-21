@@ -160,8 +160,8 @@ impl ApiResources {
                         mem::take(&mut instance.platform_options),
                         mem::take(&mut instance.variations),
                     ));
-                    if let Some(shared_instance) = self.fonts.instance_keys.add_key(base) {
-                        self.fonts.instances.add_font_instance(shared_instance);
+                    if let Some(_shared_key) = self.fonts.instance_keys.add_key(base.clone()) {
+                        self.fonts.instances.add_font_instance(base);
                     }
                 }
                 ResourceUpdate::DeleteFont(_key) => {
