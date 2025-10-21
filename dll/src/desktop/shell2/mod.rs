@@ -53,12 +53,17 @@ pub mod linux;
 // Always available for testing
 pub mod stub;
 
+// Main event loop implementation
+pub mod run;
+
 // Re-export common types
 pub use common::{
     select_compositor_mode, Compositor, CompositorError, CompositorMode, CpuCompositor, DlError,
     DynamicLibrary, PlatformWindow, RenderContext, SystemCapabilities, WindowError,
     WindowProperties,
 };
+// Re-export run function
+pub use run::run;
 
 // Platform-specific window type selection
 cfg_if::cfg_if! {

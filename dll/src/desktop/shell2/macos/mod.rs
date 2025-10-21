@@ -1362,6 +1362,62 @@ impl MacOSWindow {
             }
         }
     }
+
+    /// Set the mouse cursor to a specific system cursor
+    ///
+    /// # Cursor Types (macOS)
+    /// - "arrow" - Standard arrow
+    /// - "ibeam" - I-beam text cursor
+    /// - "crosshair" - Crosshair
+    /// - "pointing_hand" - Pointing hand (link cursor)
+    /// - "resize_left_right" - Horizontal resize
+    /// - "resize_up_down" - Vertical resize
+    /// - "open_hand" - Open hand (grab)
+    /// - "closed_hand" - Closed hand (grabbing)
+    /// - "disappearing_item" - Disappearing item (poof)
+    pub fn set_cursor(&self, cursor_type: &str) {
+        use objc2_app_kit::NSCursor;
+
+        unsafe {
+            let cursor = match cursor_type {
+                "arrow" => NSCursor::arrowCursor(),
+                "ibeam" | "text" => NSCursor::IBeamCursor(),
+                "crosshair" => NSCursor::crosshairCursor(),
+                "pointing_hand" | "pointer" | "hand" => NSCursor::pointingHandCursor(),
+                "resize_left_right" | "ew-resize" => NSCursor::resizeLeftRightCursor(),
+                "resize_up_down" | "ns-resize" => NSCursor::resizeUpDownCursor(),
+                "open_hand" | "grab" => NSCursor::openHandCursor(),
+                "closed_hand" | "grabbing" => NSCursor::closedHandCursor(),
+                "disappearing_item" | "no-drop" => NSCursor::disappearingItemCursor(),
+                "drag_copy" | "copy" => NSCursor::dragCopyCursor(),
+                "drag_link" | "alias" => NSCursor::dragLinkCursor(),
+                "operation_not_allowed" | "not-allowed" => NSCursor::operationNotAllowedCursor(),
+                _ => NSCursor::arrowCursor(), // Default fallback
+            };
+            cursor.set();
+        }
+    }
+
+    /// Hide the mouse cursor
+    pub fn hide_cursor(&self) {
+        use objc2_app_kit::NSCursor;
+        unsafe {
+            NSCursor::hide();
+        }
+    }
+
+    /// Show the mouse cursor
+    pub fn show_cursor(&self) {
+        use objc2_app_kit::NSCursor;
+        unsafe {
+            NSCursor::unhide();
+        }
+    }
+
+    /// Reset cursor to default arrow
+    pub fn reset_cursor(&self) {
+        self.set_cursor("arrow");
+    }
 }
 
 impl PlatformWindow for MacOSWindow {

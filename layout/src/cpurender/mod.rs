@@ -103,18 +103,47 @@ fn render_display_list(
             }
             DisplayListItem::Border {
                 bounds,
-                color,
-                width,
+                widths,
+                colors,
+                styles,
                 border_radius,
             } => {
+                // Simplified: Use top border as representative for CPU rendering
+                use azul_css::css::CssPropertyValue;
+
+                let width = widths
+                    .top
+                    .and_then(|w| w.get_property().cloned())
+                    .map(|w| w.inner.to_pixels(0.0))
+                    .unwrap_or(0.0);
+
+                let color = colors
+                    .top
+                    .and_then(|c| c.get_property().cloned())
+                    .map(|c| c.inner)
+                    .unwrap_or(ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    });
+
+                // Convert StyleBorderRadius to BorderRadius for rendering
+                let simple_radius = BorderRadius {
+                    top_left: border_radius.top_left.to_pixels(bounds.size.width),
+                    top_right: border_radius.top_right.to_pixels(bounds.size.width),
+                    bottom_left: border_radius.bottom_left.to_pixels(bounds.size.width),
+                    bottom_right: border_radius.bottom_right.to_pixels(bounds.size.width),
+                };
+
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_border(
                     pixmap,
                     bounds,
-                    *color,
-                    *width,
-                    border_radius,
+                    color,
+                    width,
+                    &simple_radius,
                     *transform,
                     *clip,
                     dpi_factor,

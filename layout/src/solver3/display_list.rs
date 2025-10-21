@@ -53,6 +53,12 @@ use azul_css::{
         basic::{ColorU, FontRef},
         layout::{LayoutOverflow, LayoutPosition},
         property::{CssProperty, CssPropertyType},
+        style::{
+            border_radius::StyleBorderRadius, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+            LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
+        },
     },
     LayoutDebugMessage,
 };
@@ -62,7 +68,7 @@ use crate::{
         getters::{
             get_background_color, get_border_info, get_border_radius, get_caret_style,
             get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout, get_selection_style,
-            get_z_index, BorderInfo, CaretStyle, SelectionStyle,
+            get_style_border_radius, get_z_index, BorderInfo, CaretStyle, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -74,6 +80,33 @@ use crate::{
         UnifiedLayout,
     },
 };
+
+/// Border widths for all four sides
+#[derive(Debug, Clone, Copy)]
+pub struct StyleBorderWidths {
+    pub top: Option<CssPropertyValue<LayoutBorderTopWidth>>,
+    pub right: Option<CssPropertyValue<LayoutBorderRightWidth>>,
+    pub bottom: Option<CssPropertyValue<LayoutBorderBottomWidth>>,
+    pub left: Option<CssPropertyValue<LayoutBorderLeftWidth>>,
+}
+
+/// Border colors for all four sides
+#[derive(Debug, Clone, Copy)]
+pub struct StyleBorderColors {
+    pub top: Option<CssPropertyValue<StyleBorderTopColor>>,
+    pub right: Option<CssPropertyValue<StyleBorderRightColor>>,
+    pub bottom: Option<CssPropertyValue<StyleBorderBottomColor>>,
+    pub left: Option<CssPropertyValue<StyleBorderLeftColor>>,
+}
+
+/// Border styles for all four sides
+#[derive(Debug, Clone, Copy)]
+pub struct StyleBorderStyles {
+    pub top: Option<CssPropertyValue<StyleBorderTopStyle>>,
+    pub right: Option<CssPropertyValue<StyleBorderRightStyle>>,
+    pub bottom: Option<CssPropertyValue<StyleBorderBottomStyle>>,
+    pub left: Option<CssPropertyValue<StyleBorderLeftStyle>>,
+}
 
 /// The final, renderer-agnostic output of the layout engine.
 ///
@@ -105,9 +138,10 @@ pub enum DisplayListItem {
     },
     Border {
         bounds: LogicalRect,
-        color: ColorU,
-        width: f32,
-        border_radius: BorderRadius,
+        widths: StyleBorderWidths,
+        colors: StyleBorderColors,
+        styles: StyleBorderStyles,
+        border_radius: StyleBorderRadius,
     },
     Text {
         glyphs: Vec<GlyphInstance>,
@@ -293,15 +327,30 @@ impl DisplayListBuilder {
     pub fn push_border(
         &mut self,
         bounds: LogicalRect,
-        color: ColorU,
-        width: f32,
-        border_radius: BorderRadius,
+        widths: StyleBorderWidths,
+        colors: StyleBorderColors,
+        styles: StyleBorderStyles,
+        border_radius: StyleBorderRadius,
     ) {
-        if color.a > 0 && width > 0.0 {
+        // Check if any border side is visible
+        let has_visible_border = {
+            let has_width = widths.top.is_some()
+                || widths.right.is_some()
+                || widths.bottom.is_some()
+                || widths.left.is_some();
+            let has_style = styles.top.is_some()
+                || styles.right.is_some()
+                || styles.bottom.is_some()
+                || styles.left.is_some();
+            has_width && has_style
+        };
+
+        if has_visible_border {
             self.items.push(DisplayListItem::Border {
                 bounds,
-                color,
-                width,
+                widths,
+                colors,
+                styles,
                 border_radius,
             });
         }
@@ -748,16 +797,23 @@ where
             let styled_node_state = self.get_styled_node_state(dom_id);
             let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
-            let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-            builder.push_rect(paint_rect, bg_color, border_radius);
+            // Get both versions: simple BorderRadius for rect clipping and StyleBorderRadius for
+            // border rendering
+            let simple_border_radius =
+                get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let style_border_radius =
+                get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+
+            builder.push_rect(paint_rect, bg_color, simple_border_radius);
             builder.push_border(
                 paint_rect,
-                border_info.color,
-                border_info.width,
-                border_radius,
+                border_info.widths,
+                border_info.colors,
+                border_info.styles,
+                style_border_radius,
             );
-            border_radius
+            simple_border_radius
         } else {
             BorderRadius::default()
         };

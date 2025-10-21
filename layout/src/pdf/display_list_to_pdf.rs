@@ -157,10 +157,31 @@ fn convert_display_list_item(
 
         DisplayListItem::Border {
             bounds,
-            color,
-            width,
+            widths,
+            colors,
+            styles,
             border_radius,
         } => {
+            // Simplified: Use top border as representative for PDF rendering
+            use azul_css::css::CssPropertyValue;
+
+            let width = widths
+                .top
+                .and_then(|w| w.get_property().cloned())
+                .map(|w| w.inner.to_pixels(0.0))
+                .unwrap_or(0.0);
+
+            let color = colors
+                .top
+                .and_then(|c| c.get_property().cloned())
+                .map(|c| c.inner)
+                .unwrap_or(ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                });
+
             // Border rendering
             ops.push(PdfOp::SaveState);
 
@@ -182,9 +203,9 @@ fn convert_display_list_item(
             });
             ops.push(PdfOp::ClosePath);
 
-            ops.push(PdfOp::SetLineWidth { width: *width });
+            ops.push(PdfOp::SetLineWidth { width });
             ops.push(PdfOp::SetStrokeColor {
-                color: PdfColor::from(*color),
+                color: PdfColor::from(color),
             });
             ops.push(PdfOp::Stroke);
 

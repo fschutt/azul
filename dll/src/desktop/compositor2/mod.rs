@@ -164,11 +164,11 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::Border {
                 bounds,
-                color,
-                width,
+                widths,
+                colors,
+                styles,
                 border_radius,
             } => {
-                // Use proper border rendering from wr_translate.rs
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
@@ -181,15 +181,21 @@ pub fn translate_displaylist_to_wr(
                     flags: Default::default(),
                 };
 
-                // TODO: Implement full border support with StyleBorderWidths/Colors/Styles
-                // For now, render as simple rect
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
-                builder.push_rect(&info, rect, color_f);
+                // Use full border rendering with per-side widths, colors, and styles
+                let rect_size = azul_core::geom::LogicalSize::new(rect.width(), rect.height());
+
+                if let Some((border_widths, border_details)) =
+                    crate::desktop::wr_translate2::get_webrender_border(
+                        rect_size,
+                        *border_radius,
+                        *widths,
+                        *colors,
+                        *styles,
+                        1.0, // TODO: Pass actual HiDPI factor
+                    )
+                {
+                    builder.push_border(&info, rect, border_widths, border_details);
+                }
             }
 
             DisplayListItem::ScrollBar {

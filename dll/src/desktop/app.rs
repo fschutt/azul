@@ -162,25 +162,13 @@ impl App {
     /// the main application window.
     #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
-        // TODO: Implement shell2 run loop
-        // For now just print a message
-        println!("shell2: Would open window");
-        println!("shell2: Main event loop not yet implemented");
+        // Use shell2 for new implementation
+        let err = crate::desktop::shell2::run(self.config.clone(), root_window);
 
-        // Old shell code (commented out until shell2 is complete):
-        // #[cfg(target_os = "windows")]
-        // let err = crate::desktop::shell::win32::run(self, root_window);
-
-        // #[cfg(target_os = "linux")]
-        // let err = crate::desktop::shell::x11::run(self, root_window);
-
-        // #[cfg(target_os = "macos")]
-        // let err = crate::desktop::shell::appkit::run(self, root_window);
-
-        // if let Err(e) = err {
-        //     crate::desktop::dialogs::msg_box(&format!("{:?}", e));
-        //     println!("{:?}", e);
-        // }
+        if let Err(e) = err {
+            crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
+            eprintln!("Application error: {:?}", e);
+        }
     }
 }
 

@@ -101,7 +101,57 @@ get_css_property!(
 
 // Complex Property Getters
 
-/// Get border radius for all four corners
+/// Get border radius for all four corners (raw CSS property values)
+pub fn get_style_border_radius(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> azul_css::props::style::border_radius::StyleBorderRadius {
+    use azul_css::props::{basic::PixelValue, style::border_radius::StyleBorderRadius};
+
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    let top_left = styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_top_left_radius(node_data, &node_id, node_state)
+        .and_then(|br| br.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default();
+
+    let top_right = styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_top_right_radius(node_data, &node_id, node_state)
+        .and_then(|br| br.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default();
+
+    let bottom_right = styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_bottom_right_radius(node_data, &node_id, node_state)
+        .and_then(|br| br.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default();
+
+    let bottom_left = styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_bottom_left_radius(node_data, &node_id, node_state)
+        .and_then(|br| br.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default();
+
+    StyleBorderRadius {
+        top_left,
+        top_right,
+        bottom_right,
+        bottom_left,
+    }
+}
+
+/// Get border radius for all four corners (resolved to pixels)
 pub fn get_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -185,8 +235,9 @@ pub fn get_background_color(
 
 /// Information about border rendering
 pub struct BorderInfo {
-    pub width: f32,
-    pub color: ColorU,
+    pub widths: crate::solver3::display_list::StyleBorderWidths,
+    pub colors: crate::solver3::display_list::StyleBorderColors,
+    pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
 pub fn get_border_info<T: ParsedFontTrait>(
@@ -194,32 +245,87 @@ pub fn get_border_info<T: ParsedFontTrait>(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> BorderInfo {
+    use crate::solver3::display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths};
+
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
-    // Get border width (using top border as representative, could average all sides)
-    let width = styled_dom
-        .css_property_cache
-        .ptr
-        .get_border_top_width(node_data, &node_id, node_state)
-        .and_then(|w| w.get_property().cloned())
-        .map(|w| w.inner.to_pixels(0.0))
-        .unwrap_or(0.0);
+    // Get all border widths
+    let widths = StyleBorderWidths {
+        top: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_top_width(node_data, &node_id, node_state)
+            .cloned(),
+        right: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_right_width(node_data, &node_id, node_state)
+            .cloned(),
+        bottom: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_bottom_width(node_data, &node_id, node_state)
+            .cloned(),
+        left: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_left_width(node_data, &node_id, node_state)
+            .cloned(),
+    };
 
-    // Get border color (using top border as representative)
-    let color = styled_dom
-        .css_property_cache
-        .ptr
-        .get_border_top_color(node_data, &node_id, node_state)
-        .and_then(|c| c.get_property().cloned())
-        .map(|c| c.inner)
-        .unwrap_or(ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        });
+    // Get all border colors
+    let colors = StyleBorderColors {
+        top: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_top_color(node_data, &node_id, node_state)
+            .cloned(),
+        right: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_right_color(node_data, &node_id, node_state)
+            .cloned(),
+        bottom: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_bottom_color(node_data, &node_id, node_state)
+            .cloned(),
+        left: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_left_color(node_data, &node_id, node_state)
+            .cloned(),
+    };
 
-    BorderInfo { width, color }
+    // Get all border styles
+    let styles = StyleBorderStyles {
+        top: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_top_style(node_data, &node_id, node_state)
+            .cloned(),
+        right: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_right_style(node_data, &node_id, node_state)
+            .cloned(),
+        bottom: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_bottom_style(node_data, &node_id, node_state)
+            .cloned(),
+        left: styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_left_style(node_data, &node_id, node_state)
+            .cloned(),
+    };
+
+    BorderInfo {
+        widths,
+        colors,
+        styles,
+    }
 }
 
 // Selection and Caret Styling

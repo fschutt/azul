@@ -670,3 +670,199 @@ pub fn wr_translate_layouted_glyphs(glyphs: &[GlyphInstance]) -> Vec<WrGlyphInst
         })
         .collect()
 }
+
+/// Translate border radius from azul-css to WebRender
+
+/// Translate border style from azul-css to WebRender
+#[inline]
+fn wr_translate_border_style(
+    style: azul_css::props::style::border::BorderStyle,
+) -> webrender::api::BorderStyle {
+    use azul_css::props::style::border::BorderStyle::*;
+    match style {
+        None => webrender::api::BorderStyle::None,
+        Solid => webrender::api::BorderStyle::Solid,
+        Double => webrender::api::BorderStyle::Double,
+        Dotted => webrender::api::BorderStyle::Dotted,
+        Dashed => webrender::api::BorderStyle::Dashed,
+        Hidden => webrender::api::BorderStyle::Hidden,
+        Groove => webrender::api::BorderStyle::Groove,
+        Ridge => webrender::api::BorderStyle::Ridge,
+        Inset => webrender::api::BorderStyle::Inset,
+        Outset => webrender::api::BorderStyle::Outset,
+    }
+}
+
+/// Get WebRender border from Azul border properties
+/// Returns None if no border should be rendered
+pub fn get_webrender_border(
+    rect_size: azul_core::geom::LogicalSize,
+    radii: azul_css::props::style::border_radius::StyleBorderRadius,
+    widths: azul_layout::solver3::display_list::StyleBorderWidths,
+    colors: azul_layout::solver3::display_list::StyleBorderColors,
+    styles: azul_layout::solver3::display_list::StyleBorderStyles,
+    hidpi: f32,
+) -> Option<(
+    webrender::api::units::LayoutSideOffsets,
+    webrender::api::BorderDetails,
+)> {
+    use azul_css::{css::CssPropertyValue, props::basic::color::ColorU};
+    use webrender::api::{
+        units::LayoutSideOffsets as WrLayoutSideOffsets, BorderDetails as WrBorderDetails,
+        BorderRadius as WrBorderRadius, BorderSide as WrBorderSide, NormalBorder as WrNormalBorder,
+    };
+
+    let (width_top, width_right, width_bottom, width_left) = (
+        widths
+            .top
+            .and_then(|w| w.get_property().cloned())
+            .map(|w| w.inner),
+        widths
+            .right
+            .and_then(|w| w.get_property().cloned())
+            .map(|w| w.inner),
+        widths
+            .bottom
+            .and_then(|w| w.get_property().cloned())
+            .map(|w| w.inner),
+        widths
+            .left
+            .and_then(|w| w.get_property().cloned())
+            .map(|w| w.inner),
+    );
+
+    let (style_top, style_right, style_bottom, style_left) = (
+        styles
+            .top
+            .and_then(|s| s.get_property().cloned())
+            .map(|s| s.inner),
+        styles
+            .right
+            .and_then(|s| s.get_property().cloned())
+            .map(|s| s.inner),
+        styles
+            .bottom
+            .and_then(|s| s.get_property().cloned())
+            .map(|s| s.inner),
+        styles
+            .left
+            .and_then(|s| s.get_property().cloned())
+            .map(|s| s.inner),
+    );
+
+    let no_border_style = style_top.is_none()
+        && style_right.is_none()
+        && style_bottom.is_none()
+        && style_left.is_none();
+
+    let no_border_width = width_top.is_none()
+        && width_right.is_none()
+        && width_bottom.is_none()
+        && width_left.is_none();
+
+    // border has all borders set to border: none; or all border-widths set to none
+    if no_border_style || no_border_width {
+        return None;
+    }
+
+    let has_no_border_radius = radii.top_left.to_pixels(rect_size.width) == 0.0
+        && radii.top_right.to_pixels(rect_size.width) == 0.0
+        && radii.bottom_left.to_pixels(rect_size.width) == 0.0
+        && radii.bottom_right.to_pixels(rect_size.width) == 0.0;
+
+    let (color_top, color_right, color_bottom, color_left) = (
+        colors
+            .top
+            .and_then(|ct| ct.get_property().cloned())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        colors
+            .right
+            .and_then(|cr| cr.get_property().cloned())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        colors
+            .bottom
+            .and_then(|cb| cb.get_property().cloned())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        colors
+            .left
+            .and_then(|cl| cl.get_property().cloned())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+    );
+
+    // NOTE: if the HiDPI factor is not set to an even number, this will result
+    // in uneven border widths. In order to reduce this bug, we multiply the border width
+    // with the HiDPI factor, then round the result (to get an even number), then divide again
+    let border_widths = WrLayoutSideOffsets::new(
+        width_top
+            .map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi)
+            .unwrap_or(0.0),
+        width_right
+            .map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi)
+            .unwrap_or(0.0),
+        width_bottom
+            .map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi)
+            .unwrap_or(0.0),
+        width_left
+            .map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi)
+            .unwrap_or(0.0),
+    );
+
+    let border_details = WrBorderDetails::Normal(WrNormalBorder {
+        top: WrBorderSide {
+            color: wr_translate_color_u(color_top).into(),
+            style: style_top
+                .map(wr_translate_border_style)
+                .unwrap_or(webrender::api::BorderStyle::None),
+        },
+        left: WrBorderSide {
+            color: wr_translate_color_u(color_left).into(),
+            style: style_left
+                .map(wr_translate_border_style)
+                .unwrap_or(webrender::api::BorderStyle::None),
+        },
+        right: WrBorderSide {
+            color: wr_translate_color_u(color_right).into(),
+            style: style_right
+                .map(wr_translate_border_style)
+                .unwrap_or(webrender::api::BorderStyle::None),
+        },
+        bottom: WrBorderSide {
+            color: wr_translate_color_u(color_bottom).into(),
+            style: style_bottom
+                .map(wr_translate_border_style)
+                .unwrap_or(webrender::api::BorderStyle::None),
+        },
+        radius: if has_no_border_radius {
+            WrBorderRadius::zero()
+        } else {
+            wr_translate_border_radius(radii, rect_size)
+        },
+        do_aa: true,
+    });
+
+    Some((border_widths, border_details))
+}
