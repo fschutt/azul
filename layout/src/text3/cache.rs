@@ -53,14 +53,14 @@ pub trait FontLoaderTrait<T: ParsedFontTrait>: Send + core::fmt::Debug {
 
 // Font loading and management
 pub trait FontProviderTrait<T: ParsedFontTrait> {
-    fn load_font(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError>;
+    fn load_font(&self, font_selector: &FontSelector) -> Result<Arc<T>, LayoutError>;
 }
 
 #[derive(Debug)]
 pub struct FontManager<T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub fc_cache: FcFontCache,
     pub parsed_fonts: Mutex<HashMap<FontId, Arc<T>>>,
-    pub font_ref_to_id_cache: Mutex<HashMap<FontRef, FontId>>,
+    pub font_selector_to_id_cache: Mutex<HashMap<FontSelector, FontId>>,
     // Default: System font loader
     // (loads fonts from file - can be intercepted for mocking in tests)
     pub font_loader: Arc<Q>,
@@ -72,17 +72,17 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
             fc_cache,
             parsed_fonts: Mutex::new(HashMap::new()),
             font_loader: loader,
-            font_ref_to_id_cache: Mutex::new(HashMap::new()),
+            font_selector_to_id_cache: Mutex::new(HashMap::new()),
         })
     }
 }
 
 // FontManager with proper rust-fontconfig fallback
 impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontManager<T, Q> {
-    fn load_font(&self, font_ref: &FontRef) -> Result<Arc<T>, LayoutError> {
+    fn load_font(&self, font_selector: &FontSelector) -> Result<Arc<T>, LayoutError> {
         // Check cache first
-        if let Ok(c) = self.font_ref_to_id_cache.lock() {
-            if let Some(cached_id) = c.get(font_ref) {
+        if let Ok(c) = self.font_selector_to_id_cache.lock() {
+            if let Some(cached_id) = c.get(font_selector) {
                 let fonts = self.parsed_fonts.lock().unwrap();
                 if let Some(font) = fonts.get(cached_id) {
                     return Ok(font.clone());
@@ -92,14 +92,14 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
 
         // Query fontconfig
         let pattern = FcPattern {
-            name: Some(font_ref.family.clone()),
-            weight: font_ref.weight,
-            italic: if font_ref.style == FontStyle::Italic {
+            name: Some(font_selector.family.clone()),
+            weight: font_selector.weight,
+            italic: if font_selector.style == FontStyle::Italic {
                 PatternMatch::True
             } else {
                 PatternMatch::DontCare
             },
-            oblique: if font_ref.style == FontStyle::Oblique {
+            oblique: if font_selector.style == FontStyle::Oblique {
                 PatternMatch::True
             } else {
                 PatternMatch::DontCare
@@ -111,10 +111,10 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
         let fc_match = self.fc_cache.query(&pattern, &mut trace).ok_or_else(|| {
             eprintln!(
                 "[FontManager] Font not found: '{}' (weight: {:?}, style: {:?})",
-                font_ref.family, font_ref.weight, font_ref.style
+                font_selector.family, font_selector.weight, font_selector.style
             );
             eprintln!("[FontManager] FontConfig trace: {:?}", trace);
-            LayoutError::FontNotFound(font_ref.clone())
+            LayoutError::FontNotFound(font_selector.clone())
         })?;
 
         // Load font if not cached
@@ -124,7 +124,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
                 let font_bytes = self
                     .fc_cache
                     .get_font_bytes(&fc_match.id)
-                    .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
+                    .ok_or_else(|| LayoutError::FontNotFound(font_selector.clone()))?;
 
                 let font_index = 0; // Default
                 let parsed = self.font_loader.load_font(&font_bytes, font_index)?;
@@ -135,8 +135,8 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
 
         // Update ref cache
         {
-            let mut ref_cache = self.font_ref_to_id_cache.lock().unwrap();
-            ref_cache.insert(font_ref.clone(), fc_match.id.clone());
+            let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
+            ref_cache.insert(font_selector.clone(), fc_match.id.clone());
         }
 
         let fonts = self.parsed_fonts.lock().unwrap();
@@ -152,7 +152,7 @@ pub enum LayoutError {
     #[error("Shaping failed: {0}")]
     ShapingError(String),
     #[error("Font not found: {0:?}")]
-    FontNotFound(FontRef),
+    FontNotFound(FontSelector),
     #[error("Invalid text input: {0}")]
     InvalidText(String),
     #[error("Hyphenation failed: {0}")]
@@ -360,18 +360,21 @@ pub struct VisualRun<'a> {
 }
 
 // Font and styling types
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FontRef {
+
+/// A selector for loading fonts from the font cache.
+/// Used by FontManager to query fontconfig and load font files.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontSelector {
     pub family: String,
     pub weight: FcWeight,
     pub style: FontStyle,
     pub unicode_ranges: Vec<UnicodeRange>,
 }
 
-impl FontRef {
-    pub fn invalid() -> Self {
+impl Default for FontSelector {
+    fn default() -> Self {
         Self {
-            family: "unknown".to_string(),
+            family: "serif".to_string(),
             weight: FcWeight::Normal,
             style: FontStyle::Normal,
             unicode_ranges: Vec::new(),
@@ -379,25 +382,22 @@ impl FontRef {
     }
 }
 
-impl Hash for FontRef {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // Hash the String field directly.
-        self.family.hash(state);
+/// A reference to a font for rendering, identified by its hash.
+/// This hash corresponds to ParsedFont::hash and is used to look up
+/// the actual font data in the renderer's font cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontRef {
+    /// The hash of the ParsedFont. 0 means invalid/unknown font.
+    pub font_hash: u64,
+}
 
-        // Hash the FcWeight by casting the enum to its integer representation.
-        (self.weight as u32).hash(state);
+impl FontRef {
+    pub fn invalid() -> Self {
+        Self { font_hash: 0 }
+    }
 
-        // Hash the FontStyle by casting the enum to its integer representation.
-        (self.style as u8).hash(state);
-
-        // It is important to hash the length of the Vec to avoid collisions.
-        self.unicode_ranges.len().hash(state);
-
-        // Manually hash each element in the Vec since UnicodeRange doesn't implement Hash.
-        for range in &self.unicode_ranges {
-            range.start.hash(state);
-            range.end.hash(state);
-        }
+    pub fn from_hash(font_hash: u64) -> Self {
+        Self { font_hash }
     }
 }
 
@@ -1494,19 +1494,14 @@ impl Default for Spacing {
 
 impl Default for FontRef {
     fn default() -> Self {
-        Self {
-            family: "serif".to_string(),
-            weight: FcWeight::Normal,
-            style: FontStyle::Normal,
-            unicode_ranges: Vec::new(),
-        }
+        Self::invalid()
     }
 }
 
 /// Style properties with vertical text support
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
-    pub font_ref: FontRef,
+    pub font_selector: FontSelector,
     pub font_size_px: f32,
     pub color: ColorU,
     pub letter_spacing: Spacing,
@@ -1542,7 +1537,7 @@ impl Default for StyleProperties {
         const FONT_SIZE: f32 = 16.0;
         const TAB_SIZE: f32 = 8.0;
         Self {
-            font_ref: FontRef::default(),
+            font_selector: FontSelector::default(),
             font_size_px: FONT_SIZE,
             color: ColorU::default(),
             letter_spacing: Spacing::default(), // Px(0)
@@ -1566,7 +1561,7 @@ impl Default for StyleProperties {
 
 impl Hash for StyleProperties {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.font_ref.hash(state);
+        self.font_selector.hash(state);
         self.color.hash(state);
         self.text_decoration.hash(state);
         self.font_features.hash(state);
@@ -1705,7 +1700,7 @@ pub struct StyleOverride {
 
 #[derive(Debug, Clone, Default)]
 pub struct PartialStyleProperties {
-    pub font_ref: Option<FontRef>,
+    pub font_selector: Option<FontSelector>,
     pub font_size_px: Option<f32>,
     pub color: Option<ColorU>,
     pub letter_spacing: Option<Spacing>,
@@ -1727,7 +1722,7 @@ pub struct PartialStyleProperties {
 
 impl Hash for PartialStyleProperties {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.font_ref.hash(state);
+        self.font_selector.hash(state);
         self.font_size_px.map(|f| f.to_bits()).hash(state);
         self.color.hash(state);
         self.letter_spacing.hash(state);
@@ -1758,7 +1753,7 @@ impl Hash for PartialStyleProperties {
 
 impl PartialEq for PartialStyleProperties {
     fn eq(&self, other: &Self) -> bool {
-        self.font_ref == other.font_ref &&
+        self.font_selector == other.font_selector &&
         self.font_size_px.map(|f| f.to_bits()) == other.font_size_px.map(|f| f.to_bits()) &&
         self.color == other.color &&
         self.letter_spacing == other.letter_spacing &&
@@ -1784,8 +1779,8 @@ impl Eq for PartialStyleProperties {}
 impl StyleProperties {
     fn apply_override(&self, partial: &PartialStyleProperties) -> Self {
         let mut new_style = self.clone();
-        if let Some(val) = &partial.font_ref {
-            new_style.font_ref = val.clone();
+        if let Some(val) = &partial.font_selector {
+            new_style.font_selector = val.clone();
         }
         if let Some(val) = partial.font_size_px {
             new_style.font_size_px = val;
@@ -2120,6 +2115,10 @@ pub struct UnifiedLayout<T: ParsedFontTrait> {
     pub bounds: Rect,
     /// Information about content that did not fit.
     pub overflow: OverflowInfo<T>,
+    /// Map of font hashes to the actual parsed fonts used in this layout.
+    /// This allows the renderer to register all fonts needed for this layout
+    /// after the layout is complete, avoiding the need to pre-register fonts.
+    pub used_fonts: std::collections::BTreeMap<u64, Arc<T>>,
 }
 
 impl<T: ParsedFontTrait> UnifiedLayout<T> {
@@ -2928,6 +2927,34 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         }
         cursor
     }
+
+    /// Collects all unique fonts used in this layout into the used_fonts map.
+    /// This should be called after the layout is complete to populate the font cache.
+    pub fn collect_used_fonts(&mut self) {
+        use std::collections::BTreeMap;
+
+        let mut fonts: BTreeMap<u64, Arc<T>> = BTreeMap::new();
+
+        for item in &self.items {
+            match &item.item {
+                ShapedItem::Cluster(cluster) => {
+                    for glyph in &cluster.glyphs {
+                        let hash = glyph.font.get_hash();
+                        fonts.entry(hash).or_insert_with(|| glyph.font.clone());
+                    }
+                }
+                ShapedItem::CombinedBlock { glyphs, .. } => {
+                    for glyph in glyphs {
+                        let hash = glyph.font.get_hash();
+                        fonts.entry(hash).or_insert_with(|| glyph.font.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.used_fonts = fonts;
+    }
 }
 
 fn get_baseline_for_item<T: ParsedFontTrait>(item: &ShapedItem<T>) -> Option<f32> {
@@ -3512,23 +3539,23 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 };
 
                 // Try to load the requested font, fall back to default if not found
-                let font = match font_provider.load_font(&style.font_ref) {
+                let font = match font_provider.load_font(&style.font_selector) {
                     Ok(f) => f,
                     Err(LayoutError::FontNotFound(_)) => {
                         // Try generic fallbacks
                         let fallback_fonts = ["sans-serif", "serif", "monospace", "system-ui"];
                         let mut loaded_font = None;
                         for fallback in &fallback_fonts {
-                            let fallback_ref = FontRef {
+                            let fallback_selector = FontSelector {
                                 family: fallback.to_string(),
                                 weight: rust_fontconfig::FcWeight::Normal,
                                 style: FontStyle::Normal,
                                 unicode_ranges: vec![],
                             };
-                            if let Ok(f) = font_provider.load_font(&fallback_ref) {
+                            if let Ok(f) = font_provider.load_font(&fallback_selector) {
                                 eprintln!(
                                     "[TextLayout] Using fallback font '{}' for '{}'",
-                                    fallback, style.font_ref.family
+                                    fallback, style.font_selector.family
                                 );
                                 loaded_font = Some(f);
                                 break;
@@ -3539,7 +3566,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                         if loaded_font.is_none() {
                             eprintln!(
                                 "[TextLayout] No font available for '{}', skipping text",
-                                style.font_ref.family
+                                style.font_selector.family
                             );
                             continue;
                         }
@@ -3613,7 +3640,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 source,
                 text,
             } => {
-                let font: Arc<T> = font_provider.load_font(&style.font_ref)?;
+                let font: Arc<T> = font_provider.load_font(&style.font_selector)?;
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
@@ -4118,11 +4145,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         "--- [DEBUG] Exiting perform_fragment_layout, positioned {} items ---",
         positioned_items.len()
     );
-    Ok(UnifiedLayout {
+    let mut layout = UnifiedLayout {
         items: positioned_items,
         bounds: layout_bounds,
         overflow: OverflowInfo::default(),
-    })
+        used_fonts: std::collections::BTreeMap::new(),
+    };
+
+    // Collect all fonts used in this layout
+    layout.collect_used_fonts();
+
+    Ok(layout)
 }
 
 /// Breaks a single line of items to fit within the given geometric constraints,
@@ -5334,7 +5367,7 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
     let mut all_shaped_glyphs = Vec::new();
 
     for run in visual_runs {
-        let font = font_provider.load_font(&run.style.font_ref)?;
+        let font = font_provider.load_font(&run.style.font_selector)?;
 
         let direction = if run.bidi_level.is_rtl() {
             Direction::Rtl

@@ -373,7 +373,7 @@ pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> St
         .unwrap_or(font_size * 1.2);
 
     StyleProperties {
-        font_ref: crate::text3::cache::FontRef {
+        font_selector: crate::text3::cache::FontSelector {
             family: font_family_name,
             weight: rust_fontconfig::FcWeight::Normal, // Stub for now
             style: crate::text3::cache::FontStyle::Normal, // Stub for now

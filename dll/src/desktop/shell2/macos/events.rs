@@ -804,7 +804,6 @@ impl MacOSWindow {
         position: LogicalPosition,
     ) -> ProcessEventResult {
         // Update scroll state in current_window_state
-        // OptionF32 needs to be set, not incremented
         use azul_css::OptionF32;
         let current_x = self
             .current_window_state
@@ -821,10 +820,22 @@ impl MacOSWindow {
         self.current_window_state.mouse_state.scroll_x = OptionF32::Some(current_x + delta_x);
         self.current_window_state.mouse_state.scroll_y = OptionF32::Some(current_y + delta_y);
 
-        // TODO: If we have a layout_window, update scroll positions for scrollable nodes
-        // For now, trigger a scroll render
+        // Perform GPU scroll if delta is significant
         if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 {
-            ProcessEventResult::ShouldReRenderCurrentWindow
+            // Call gpu_scroll to update scroll positions without full relayout
+            if let Err(e) = self.gpu_scroll(
+                node.dom_id,
+                node.node_id,
+                -delta_x, // Invert for natural scrolling (macOS convention)
+                -delta_y,
+            ) {
+                eprintln!("[Scroll] gpu_scroll failed: {}", e);
+                // Fallback: trigger full re-render
+                return ProcessEventResult::ShouldReRenderCurrentWindow;
+            }
+
+            // GPU scroll succeeded, frame already generated (GPU-only, no DOM rebuild)
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
         } else {
             ProcessEventResult::DoNothing
         }

@@ -55,6 +55,7 @@ pub(super) fn kp_layout<T: ParsedFontTrait>(
             items: Vec::new(),
             bounds: Rect::default(),
             overflow: OverflowInfo::default(),
+            used_fonts: std::collections::BTreeMap::new(),
         });
     }
 
@@ -65,7 +66,10 @@ pub(super) fn kp_layout<T: ParsedFontTrait>(
     let breaks = find_optimal_breakpoints(&nodes, constraints);
 
     // --- Step 3: Use breakpoints to build and position the final lines ---
-    let final_layout = position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
+    let mut final_layout = position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
+
+    // --- Step 4: Collect all fonts used in this layout ---
+    final_layout.collect_used_fonts();
 
     Ok(final_layout)
 }
@@ -424,6 +428,7 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
         items: positioned_items,
         bounds,
         overflow: OverflowInfo::default(),
+        used_fonts: std::collections::BTreeMap::new(),
     }
 }
 

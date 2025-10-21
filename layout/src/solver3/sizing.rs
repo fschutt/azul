@@ -357,7 +357,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             let style_props = get_style_properties(ctx.styled_dom, dom_id);
             ctx.debug_log(&format!(
                 "Root node has text: '{}', font: {}",
-                text, style_props.font_ref.family
+                text, style_props.font_selector.family
             ));
             content.push(InlineContent::Text(StyledRun {
                 text,

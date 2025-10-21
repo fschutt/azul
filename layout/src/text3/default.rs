@@ -10,9 +10,10 @@ use rust_fontconfig::FcFontCache;
 // Imports from the layout engine's module
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontLoaderTrait, FontManager, FontRef, Glyph, GlyphOrientation,
-        GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, StyleProperties,
-        TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
+        BidiLevel, Direction, FontLoaderTrait, FontManager, FontRef, FontSelector, Glyph,
+        GlyphOrientation, GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point,
+        StyleProperties, TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics,
+        WritingMode,
     },
     script::Script, // estimate_script_and_language removed with text2
 };
@@ -43,9 +44,11 @@ impl PathLoader {
     ) -> Result<Arc<ParsedFont>, LayoutError> {
         println!("[PathLoader] Accessing font file at: {:?}", path);
         let font_bytes = std::fs::read(path).map_err(|e| {
-            LayoutError::FontNotFound(FontRef {
+            LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
-                ..FontRef::invalid()
+                weight: rust_fontconfig::FcWeight::Normal,
+                style: crate::text3::cache::FontStyle::Normal,
+                unicode_ranges: Vec::new(),
             })
         })?;
         self.load_font(&font_bytes, font_index)
