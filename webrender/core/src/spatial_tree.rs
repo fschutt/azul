@@ -17,7 +17,7 @@ use crate::util::{FastTransform, LayoutToWorldFastTransform, MatrixHelpers, Scal
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use crate::util::TransformedRectKind;
-use peek_poke::PeekPoke;
+
 
 
 /// An id that identifies coordinate systems in the SpatialTree. Each
@@ -25,15 +25,11 @@ use peek_poke::PeekPoke;
 /// system are the same or are in the same axis-aligned space. This allows
 /// for optimizing mask generation.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CoordinateSystemId(pub u32);
 
 /// A node in the hierarchy of coordinate system
 /// transforms.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CoordinateSystem {
     pub transform: LayoutTransform,
     pub world_transform: LayoutToWorldTransform,
@@ -52,9 +48,7 @@ impl CoordinateSystem {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, Hash, MallocSizeOf, PartialEq, PeekPoke, Default)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Default)]
 pub struct SpatialNodeIndex(pub u32);
 
 impl SpatialNodeIndex {
@@ -118,15 +112,11 @@ pub trait SpatialNodeContainer {
     fn get_node_info(&self, index: SpatialNodeIndex) -> SpatialNodeInfo;
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 enum StoreElement<T> {
     Empty,
     Occupied(T),
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Store<T> {
     elements: Vec<StoreElement<T>>,
     free_indices: Vec<usize>,
@@ -195,8 +185,6 @@ impl<T> ops::IndexMut<usize> for Store<T> {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct SpatialNodeEntry {
     index: usize,
     last_used: u64,
@@ -205,8 +193,6 @@ struct SpatialNodeEntry {
 /// The representation of the spatial tree during scene building, which is
 /// mostly write-only, with a small number of queries for snapping,
 /// picture cache building
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SceneSpatialTree {
     /// Nodes which determine the positions (offsets and transforms) for primitives
     /// and clips.
@@ -602,8 +588,6 @@ impl SceneSpatialTree {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum SpatialTreeUpdate {
     Insert {
         index: usize,
@@ -625,8 +609,6 @@ pub enum SpatialTreeUpdate {
 // TODO(gw): During the initial scaffolding work, this is the exact same as previous
 //           behavior - that is, a complete list of new spatial nodes. In future, this
 //           will instead be a list of deltas to apply to the frame spatial tree.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialTreeUpdates {
     root_reference_frame_index: SpatialNodeIndex,
     updates: Vec<SpatialTreeUpdate>,
@@ -643,8 +625,6 @@ impl SpatialTreeUpdates {
 
 /// Represents the spatial tree during frame building, which is mostly
 /// read-only, apart from the tree update at the start of the frame
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialTree {
     /// Nodes which determine the positions (offsets and transforms) for primitives
     /// and clips.
@@ -662,8 +642,6 @@ pub struct SpatialTree {
 }
 
 #[derive(Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TransformUpdateState {
     pub parent_reference_frame_transform: LayoutToWorldFastTransform,
     pub parent_accumulated_scroll_offset: LayoutVector2D,
@@ -1171,7 +1149,6 @@ impl SpatialTree {
             return;
         }
 
-        profile_scope!("update_tree");
         self.coord_systems.clear();
         self.coord_systems.push(CoordinateSystem::root());
 
@@ -1248,7 +1225,6 @@ impl SpatialTree {
     }
 
     pub fn build_transform_palette(&self, memory: &FrameMemory) -> TransformPalette {
-        profile_scope!("build_transform_palette");
         TransformPalette::new(self.spatial_nodes.len(), memory)
     }
 

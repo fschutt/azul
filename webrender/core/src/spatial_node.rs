@@ -20,8 +20,6 @@ use crate::util::{LayoutFastTransform, MatrixHelpers, ScaleOffset, TransformedRe
 //            by Gecko - they were primarily useful for Servo. So we should plan to remove
 //            them completely.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum SpatialNodeUidKind {
     /// The root node of the entire spatial tree
     Root,
@@ -37,8 +35,6 @@ pub enum SpatialNodeUidKind {
 
 /// A unique identifier for a spatial node, that is stable across display lists
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialNodeUid {
     /// The unique key for a given pipeline for this uid
     pub kind: SpatialNodeUidKind,
@@ -98,8 +94,6 @@ impl SpatialNodeUid {
 /// change, that means the rest of the fields in a spatial node will end up with
 /// the same result
 #[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialNodeDescriptor {
     /// The type of this node and any data associated with that node type.
     pub node_type: SpatialNodeType,
@@ -109,8 +103,6 @@ pub struct SpatialNodeDescriptor {
 }
 
 #[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum SpatialNodeType {
     /// A special kind of node that adjusts its position based on the position
     /// of its parent node and a given set of sticky positioning offset bounds.
@@ -142,8 +134,6 @@ pub struct SpatialNodeInfo<'a> {
 
 /// Scene building specific representation of a spatial node, which is a much
 /// lighter subset of a full spatial node constructed and used for frame building
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(PartialEq)]
 pub struct SceneSpatialNode {
     /// Snapping scale/offset relative to the coordinate system. If None, then
@@ -254,8 +244,6 @@ impl SceneSpatialNode {
 }
 
 /// Contains information common among all types of SpatialTree nodes.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialNode {
     /// The scale/offset of the viewport for this spatial node, relative to the
     /// coordinate system. Includes any accumulated scrolling offsets from nodes
@@ -766,8 +754,6 @@ impl SpatialNode {
 /// Defines whether we have an implicit scroll frame for a pipeline root,
 /// or an explicitly defined scroll frame from the display list.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ScrollFrameKind {
     PipelineRoot {
         is_root_pipeline: bool,
@@ -776,8 +762,6 @@ pub enum ScrollFrameKind {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ScrollFrameInfo {
     /// The rectangle of the viewport of this scroll frame. This is important for
     /// positioning of items inside child StickyFrames.
@@ -879,8 +863,6 @@ impl ScrollFrameInfo {
 
 /// Contains information about reference frames.
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ReferenceFrameInfo {
     /// The source transform and perspective matrices provided by the stacking context
     /// that forms this reference frame. We maintain the property binding information
@@ -901,8 +883,6 @@ pub struct ReferenceFrameInfo {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct StickyFrameInfo {
   pub margins: SideOffsets2D<Option<f32>, LayoutPixel>,
   pub frame_rect: LayoutRect,

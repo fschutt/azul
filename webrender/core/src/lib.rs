@@ -61,20 +61,25 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate malloc_size_of_derive;
-#[cfg(any(feature = "serde"))]
-#[macro_use]
-extern crate serde;
-#[macro_use]
-extern crate tracy_rs;
-#[macro_use]
 extern crate derive_more;
-extern crate malloc_size_of;
 extern crate svg_fmt;
 
 #[macro_use]
 mod profiler;
 mod telemetry;
+
+// Stub for malloc_size_of since we removed the dependency
+pub struct MallocSizeOfOps;
+
+impl MallocSizeOfOps {
+    pub fn new<F, G>(_size_of: F, _enclosing_size_of: Option<G>) -> Self 
+    where 
+        F: Fn(*const std::ffi::c_void) -> usize,
+        G: Fn(*const std::ffi::c_void) -> usize,
+    {
+        MallocSizeOfOps
+    }
+}
 
 mod batch;
 mod border;

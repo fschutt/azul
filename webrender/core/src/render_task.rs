@@ -47,8 +47,6 @@ fn render_task_sanity_check(size: &DeviceIntSize) {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskAddress(pub i32);
 
 impl Into<RenderTaskAddress> for RenderTaskId {
@@ -60,8 +58,6 @@ impl Into<RenderTaskAddress> for RenderTaskId {
 /// A render task location that targets a persistent output buffer which
 /// will be retained over multiple frames.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum StaticRenderTaskSurface {
     /// The output of the `RenderTask` will be persisted beyond this frame, and
     /// thus should be drawn into the `TextureCache`.
@@ -86,8 +82,6 @@ pub enum StaticRenderTaskSurface {
 
 /// Identifies the output buffer location for a given `RenderTask`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum RenderTaskLocation {
     // Towards the beginning of the frame, most task locations are typically not
     // known yet, in which case they are set to one of the following variants:
@@ -149,15 +143,11 @@ impl RenderTaskLocation {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CachedTask {
     pub target_kind: RenderTargetKind,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CacheMaskTask {
     pub actual_rect: DeviceRect,
     pub root_spatial_node_index: SpatialNodeIndex,
@@ -167,8 +157,6 @@ pub struct CacheMaskTask {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipRegionTask {
     pub local_pos: LayoutPoint,
     pub device_pixel_scale: DevicePixelScale,
@@ -176,16 +164,12 @@ pub struct ClipRegionTask {
     pub clear_to_one: bool,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct EmptyTask {
     pub content_origin: DevicePoint,
     pub device_pixel_scale: DevicePixelScale,
     pub raster_spatial_node_index: SpatialNodeIndex,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimTask {
     pub pattern: PatternKind,
     pub pattern_input: PatternShaderInput,
@@ -200,8 +184,6 @@ pub struct PrimTask {
     pub texture_input: RenderTaskId,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TileCompositeTask {
     pub clear_color: ColorF,
     pub scissor_rect: DeviceIntRect,
@@ -210,8 +192,6 @@ pub struct TileCompositeTask {
     pub sub_rect_offset: DeviceIntVector2D,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureTask {
     pub can_merge: bool,
     pub content_origin: DevicePoint,
@@ -249,8 +229,6 @@ impl PictureTask {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlurTask {
     pub blur_std_deviation: f32,
     pub target_kind: RenderTargetKind,
@@ -279,23 +257,17 @@ impl BlurTask {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ScalingTask {
     pub target_kind: RenderTargetKind,
     pub padding: DeviceIntSideOffsets,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BorderTask {
     pub instances: Vec<BorderInstance>,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlitTask {
     pub source: RenderTaskId,
     // Normalized rect within the source task to blit from
@@ -303,8 +275,6 @@ pub struct BlitTask {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct LineDecorationTask {
     pub wavy_line_thickness: f32,
     pub style: LineStyle,
@@ -313,8 +283,6 @@ pub struct LineDecorationTask {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum SvgFilterInfo {
     Blend(MixBlendMode),
     Flood(ColorF),
@@ -331,16 +299,12 @@ pub enum SvgFilterInfo {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SvgFilterTask {
     pub info: SvgFilterInfo,
     pub extra_gpu_cache_handle: Option<GpuCacheHandle>,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SVGFEFilterTask {
     pub node: FilterGraphNode,
     pub op: FilterGraphOp,
@@ -348,8 +312,6 @@ pub struct SVGFEFilterTask {
     pub extra_gpu_cache_handle: Option<GpuCacheHandle>,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ReadbackTask {
     // The offset of the rect that needs to be read back, in the
     // device space of the surface that will be read back from.
@@ -359,14 +321,10 @@ pub struct ReadbackTask {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskData {
     pub data: [f32; FLOATS_PER_RENDER_TASK_INFO],
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum RenderTaskKind {
     Image(ImageRequest),
     Cached(CachedTask),
@@ -1007,24 +965,18 @@ impl BlurTaskKey {
 // types of render tasks.
 pub type TaskDependencies = SmallVec<[RenderTaskId;2]>;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct MaskSubPass {
     pub clip_node_range: ClipNodeRange,
     pub prim_spatial_node_index: SpatialNodeIndex,
     pub prim_address_f: GpuBufferAddress,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum SubPass {
     Masks {
         masks: MaskSubPass,
     },
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTask {
     pub location: RenderTaskLocation,
     pub children: TaskDependencies,
@@ -2752,8 +2704,6 @@ impl RenderTask {
         target_rect: DeviceIntRect,
         gpu_cache: &mut GpuCache,
     ) {
-        profile_scope!("write_gpu_blocks");
-
         self.kind.write_gpu_blocks(gpu_cache);
 
         if self.cache_handle.is_some() {

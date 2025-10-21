@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{SideOffsets2D, Angle};
-use peek_poke::PeekPoke;
+
 use std::ops::Not;
 // local imports
 use crate::font;
@@ -36,7 +36,7 @@ pub type ItemTag = (u64, u16);
 pub type ItemKey = u16;
 
 #[repr(C)]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Deserialize, MallocSizeOf, Serialize, PeekPoke)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct PrimitiveFlags(u8);
 
 bitflags! {
@@ -78,7 +78,7 @@ impl Default for PrimitiveFlags {
 
 /// A grouping of fields a lot of display items need, just to avoid
 /// repeating these over and over in this file.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct CommonItemProperties {
     /// Bounds of the display item to clip to. Many items are logically
     /// infinite, and rely on this clip_rect to define their bounds
@@ -113,7 +113,7 @@ impl CommonItemProperties {
 /// Note: this is a separate struct from `PrimitiveInfo` because
 /// it needs indirectional mapping during the DL flattening phase,
 /// turning into `ScrollNodeAndClipChain`.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct SpaceAndClipInfo {
     pub spatial_id: SpatialId,
     pub clip_chain_id: ClipChainId,
@@ -135,7 +135,7 @@ impl SpaceAndClipInfo {
 /// display list. The content itself is arbitrary and opaque to WR, the only thing that matters
 /// is that it's unique and stable between display lists.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke, Default, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Default, Eq, Hash)]
 pub struct SpatialTreeItemKey {
     key0: u64,
     key1: u64,
@@ -151,7 +151,7 @@ impl SpatialTreeItemKey {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum SpatialTreeItem {
     ScrollFrame(ScrollFrameDescriptor),
     ReferenceFrame(ReferenceFrameDescriptor),
@@ -160,7 +160,7 @@ pub enum SpatialTreeItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum DisplayItem {
     // These are the "real content" display items
     Rectangle(RectangleDisplayItem),
@@ -249,7 +249,7 @@ pub enum DebugDisplayItem {
     PopAllShadows,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ImageMaskClipDisplayItem {
     pub id: ClipId,
     pub spatial_id: SpatialId,
@@ -257,14 +257,14 @@ pub struct ImageMaskClipDisplayItem {
     pub fill_rule: FillRule,
 } // IMPLICIT points: Vec<LayoutPoint>
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RectClipDisplayItem {
     pub id: ClipId,
     pub spatial_id: SpatialId,
     pub clip_rect: LayoutRect,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RoundedRectClipDisplayItem {
     pub id: ClipId,
     pub spatial_id: SpatialId,
@@ -273,7 +273,7 @@ pub struct RoundedRectClipDisplayItem {
 
 /// The minimum and maximum allowable offset for a sticky frame in a single dimension.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct StickyOffsetBounds {
     /// The minimum offset for this frame, typically a negative value, which specifies how
     /// far in the negative direction the sticky frame can offset its contents in this
@@ -292,7 +292,7 @@ impl StickyOffsetBounds {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct StickyFrameDescriptor {
     pub id: SpatialId,
     pub parent_spatial_id: SpatialId,
@@ -329,7 +329,7 @@ pub struct StickyFrameDescriptor {
     pub transform: Option<PropertyBinding<LayoutTransform>>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ScrollFrameDescriptor {
     /// The id of the space this scroll frame creates
     pub scroll_frame_id: SpatialId,
@@ -354,7 +354,7 @@ pub struct ScrollFrameDescriptor {
 }
 
 /// A solid or an animating color to draw (may not actually be a rectangle due to complex clips)
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RectangleDisplayItem {
     pub common: CommonItemProperties,
     pub bounds: LayoutRect,
@@ -363,7 +363,7 @@ pub struct RectangleDisplayItem {
 
 /// Clears all colors from the area, making it possible to cut holes in the window.
 /// (useful for things like the macos frosted-glass effect).
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ClearRectangleDisplayItem {
     pub common: CommonItemProperties,
     pub bounds: LayoutRect,
@@ -372,7 +372,7 @@ pub struct ClearRectangleDisplayItem {
 /// A minimal hit-testable item for the parent browser's convenience, and is
 /// slimmer than a RectangleDisplayItem (no color). The existence of this as a
 /// distinct item also makes it easier to inspect/debug display items.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct HitTestDisplayItem {
     pub rect: LayoutRect,
     pub clip_chain_id: ClipChainId,
@@ -381,7 +381,7 @@ pub struct HitTestDisplayItem {
     pub tag: ItemTag,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct LineDisplayItem {
     pub common: CommonItemProperties,
     /// We need a separate rect from common.clip_rect to encode cute
@@ -403,14 +403,14 @@ pub struct LineDisplayItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
 pub enum LineOrientation {
     Vertical,
     Horizontal,
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
 pub enum LineStyle {
     Solid,
     Dotted,
@@ -418,7 +418,7 @@ pub enum LineStyle {
     Wavy,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct TextDisplayItem {
     pub common: CommonItemProperties,
     /// The area all the glyphs should be found in. Strictly speaking this isn't
@@ -435,7 +435,7 @@ pub struct TextDisplayItem {
     pub ref_frame_offset: LayoutVector2D,
 } // IMPLICIT: glyphs: Vec<font::GlyphInstance>
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct NormalBorder {
     pub left: BorderSide,
     pub right: BorderSide,
@@ -494,7 +494,7 @@ impl NormalBorder {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq, Serialize, Deserialize, Eq, Hash, PeekPoke)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub enum RepeatMode {
     Stretch,
     Repeat,
@@ -502,7 +502,7 @@ pub enum RepeatMode {
     Space,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum NinePatchBorderSource {
     Image(ImageKey, ImageRendering),
     Gradient(Gradient),
@@ -510,7 +510,7 @@ pub enum NinePatchBorderSource {
     ConicGradient(ConicGradient),
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct NinePatchBorder {
     /// Describes what to use as the 9-patch source image. If this is an image,
     /// it will be stretched to fill the size given by width x height.
@@ -544,13 +544,13 @@ pub struct NinePatchBorder {
     pub repeat_vertical: RepeatMode,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderDetails {
     Normal(NormalBorder),
     NinePatch(NinePatchBorder),
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BorderDisplayItem {
     pub common: CommonItemProperties,
     pub bounds: LayoutRect,
@@ -559,14 +559,14 @@ pub struct BorderDisplayItem {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BorderRadiusKind {
     Uniform,
     NonUniform,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderRadius {
     pub top_left: LayoutSize,
     pub top_right: LayoutSize,
@@ -586,14 +586,14 @@ impl Default for BorderRadius {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BorderSide {
     pub color: ColorF,
     pub style: BorderStyle,
 }
 
 #[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Hash, Eq, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Hash, Eq)]
 pub enum BorderStyle {
     None = 0,
     Solid = 1,
@@ -614,13 +614,13 @@ impl BorderStyle {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
     Outset = 0,
     Inset = 1,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BoxShadowDisplayItem {
     pub common: CommonItemProperties,
     pub box_bounds: LayoutRect,
@@ -632,7 +632,7 @@ pub struct BoxShadowDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct PushShadowDisplayItem {
     pub space_and_clip: SpaceAndClipInfo,
     pub shadow: Shadow,
@@ -640,7 +640,7 @@ pub struct PushShadowDisplayItem {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Shadow {
     pub offset: LayoutVector2D,
     pub color: ColorF,
@@ -648,13 +648,13 @@ pub struct Shadow {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, Hash, Eq, MallocSizeOf, PartialEq, Serialize, Deserialize, Ord, PartialOrd, PeekPoke)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum ExtendMode {
     Clamp,
     Repeat,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Gradient {
     pub start_point: LayoutPoint,
     pub end_point: LayoutPoint,
@@ -671,7 +671,7 @@ impl Gradient {
 }
 
 /// The area
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct GradientDisplayItem {
     /// NOTE: common.clip_rect is the area the gradient covers
     pub common: CommonItemProperties,
@@ -687,13 +687,13 @@ pub struct GradientDisplayItem {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradient {
     pub center: LayoutPoint,
     pub radius: LayoutSize,
@@ -711,7 +711,7 @@ impl RadialGradient {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ConicGradient {
     pub center: LayoutPoint,
     pub angle: f32,
@@ -731,13 +731,13 @@ impl ConicGradient {
 }
 
 /// Just an abstraction for bundling up a bunch of clips into a "super clip".
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ClipChainItem {
     pub id: ClipChainId,
     pub parent: Option<ClipChainId>,
 } // IMPLICIT clip_ids: Vec<ClipId>
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradientDisplayItem {
     pub common: CommonItemProperties,
     /// The area to tile the gradient over (first tile starts at origin of this rect)
@@ -749,7 +749,7 @@ pub struct RadialGradientDisplayItem {
     pub tile_spacing: LayoutSize,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ConicGradientDisplayItem {
     pub common: CommonItemProperties,
     /// The area to tile the gradient over (first tile starts at origin of this rect)
@@ -762,24 +762,24 @@ pub struct ConicGradientDisplayItem {
 }
 
 /// Renders a filtered region of its backdrop
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BackdropFilterDisplayItem {
     pub common: CommonItemProperties,
 }
 // IMPLICIT: filters: Vec<FilterOp>, filter_datas: Vec<FilterData>, filter_primitives: Vec<FilterPrimitive>
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ReferenceFrameDisplayListItem {
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ReferenceFrameDescriptor {
     pub origin: LayoutPoint,
     pub parent_spatial_id: SpatialId,
     pub reference_frame: ReferenceFrame,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum ReferenceFrameKind {
     /// A normal transform matrix, may contain perspective (the CSS transform property)
     Transform {
@@ -800,7 +800,7 @@ pub enum ReferenceFrameKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum Rotation {
     Degree0,
     Degree90,
@@ -835,7 +835,7 @@ impl Rotation {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum ReferenceTransformBinding {
     /// Standard reference frame which contains a precomputed transform.
     Static {
@@ -864,7 +864,7 @@ impl Default for ReferenceTransformBinding {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ReferenceFrame {
     pub kind: ReferenceFrameKind,
     pub transform_style: TransformStyle,
@@ -876,7 +876,7 @@ pub struct ReferenceFrame {
     pub key: SpatialTreeItemKey,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct PushStackingContextDisplayItem {
     pub origin: LayoutPoint,
     pub spatial_id: SpatialId,
@@ -885,7 +885,7 @@ pub struct PushStackingContextDisplayItem {
     pub stacking_context: StackingContext,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct StackingContext {
     pub transform_style: TransformStyle,
     pub mix_blend_mode: MixBlendMode,
@@ -896,7 +896,7 @@ pub struct StackingContext {
 // IMPLICIT: filters: Vec<FilterOp>, filter_datas: Vec<FilterData>, filter_primitives: Vec<FilterPrimitive>
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum TransformStyle {
     Flat = 0,
     Preserve3D = 1,
@@ -908,7 +908,7 @@ pub enum TransformStyle {
 /// when we want to cache the output, and performance is
 /// important. Note that this is a performance hint only,
 /// which WR may choose to ignore.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, MallocSizeOf, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[repr(u8)]
 pub enum RasterSpace {
     // Rasterize in local-space, applying supplied scale to primitives.
@@ -949,7 +949,7 @@ impl Hash for RasterSpace {
 }
 
 #[repr(C)]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Deserialize, MallocSizeOf, Serialize, PeekPoke)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct StackingContextFlags(u8);
 
 bitflags! {
@@ -981,7 +981,7 @@ impl Default for StackingContextFlags {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum MixBlendMode {
     Normal = 0,
     Multiply = 1,
@@ -1003,7 +1003,7 @@ pub enum MixBlendMode {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ColorSpace {
     Srgb,
     LinearRgb,
@@ -1011,7 +1011,7 @@ pub enum ColorSpace {
 
 /// Available composite operoations for the composite filter primitive
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum CompositeOperator {
     Over,
     In,
@@ -1039,7 +1039,7 @@ impl CompositeOperator {
 
 /// An input to a SVG filter primitive.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FilterPrimitiveInput {
     /// The input is the original graphic that the filter is being applied to.
     Original,
@@ -1062,7 +1062,7 @@ impl FilterPrimitiveInput {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BlendPrimitive {
     pub input1: FilterPrimitiveInput,
     pub input2: FilterPrimitiveInput,
@@ -1070,7 +1070,7 @@ pub struct BlendPrimitive {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct FloodPrimitive {
     pub color: ColorF,
 }
@@ -1085,7 +1085,7 @@ impl FloodPrimitive {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct BlurPrimitive {
     pub input: FilterPrimitiveInput,
     pub width: f32,
@@ -1093,7 +1093,7 @@ pub struct BlurPrimitive {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct OpacityPrimitive {
     pub input: FilterPrimitiveInput,
     pub opacity: f32,
@@ -1107,41 +1107,41 @@ impl OpacityPrimitive {
 
 /// cbindgen:derive-eq=false
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ColorMatrixPrimitive {
     pub input: FilterPrimitiveInput,
     pub matrix: [f32; 20],
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct DropShadowPrimitive {
     pub input: FilterPrimitiveInput,
     pub shadow: Shadow,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ComponentTransferPrimitive {
     pub input: FilterPrimitiveInput,
     // Component transfer data is stored in FilterData.
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct IdentityPrimitive {
     pub input: FilterPrimitiveInput,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct OffsetPrimitive {
     pub input: FilterPrimitiveInput,
     pub offset: LayoutVector2D,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct CompositePrimitive {
     pub input1: FilterPrimitiveInput,
     pub input2: FilterPrimitiveInput,
@@ -1151,7 +1151,7 @@ pub struct CompositePrimitive {
 /// See: https://github.com/eqrion/cbindgen/issues/9
 /// cbindgen:derive-eq=false
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum FilterPrimitiveKind {
     Identity(IdentityPrimitive),
     Blend(BlendPrimitive),
@@ -1197,7 +1197,7 @@ impl FilterPrimitiveKind {
 /// See: https://github.com/eqrion/cbindgen/issues/9
 /// cbindgen:derive-eq=false
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct FilterPrimitive {
     pub kind: FilterPrimitiveKind,
     pub color_space: ColorSpace,
@@ -1210,7 +1210,7 @@ impl FilterPrimitive {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum FilterOpGraphPictureBufferId {
     #[default]
     /// empty slot in feMerge inputs
@@ -1220,14 +1220,14 @@ pub enum FilterOpGraphPictureBufferId {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct FilterOpGraphPictureReference {
     /// Id of the picture in question in a namespace unique to this filter DAG
     pub buffer_id: FilterOpGraphPictureBufferId,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct FilterOpGraphNode {
     /// True if color_interpolation_filter == LinearRgb; shader will convert
     /// sRGB texture pixel colors on load and convert back on store, for correct
@@ -1250,7 +1250,7 @@ pub struct FilterOpGraphNode {
 pub const SVGFE_GRAPH_MAX: usize = 256;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum FilterOp {
     /// Filter that does no transformation of the colors, needed for
     /// debug purposes, and is the default value in impl_default_for_enums.
@@ -1707,7 +1707,7 @@ pub enum FilterOp {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub enum ComponentTransferFuncType {
   Identity = 0,
   Table = 1,
@@ -1804,7 +1804,7 @@ impl FilterData {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct IframeDisplayItem {
     pub bounds: LayoutRect,
     pub clip_rect: LayoutRect,
@@ -1817,7 +1817,7 @@ pub struct IframeDisplayItem {
 /// the image as necessary. While RepeatingImageDisplayItem could otherwise provide
 /// a superset of the functionality, it has been problematic inferring the desired
 /// repetition properties when snapping changes the size of the primitive.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ImageDisplayItem {
     pub common: CommonItemProperties,
     /// The area to tile the image over (first tile starts at origin of this rect)
@@ -1833,7 +1833,7 @@ pub struct ImageDisplayItem {
 
 /// This describes a background-image and its tiling. It repeats in a grid to fill
 /// the specified area.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RepeatingImageDisplayItem {
     pub common: CommonItemProperties,
     /// The area to tile the image over (first tile starts at origin of this rect)
@@ -1852,20 +1852,20 @@ pub struct RepeatingImageDisplayItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ImageRendering {
     Auto = 0,
     CrispEdges = 1,
     Pixelated = 2,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum AlphaType {
     Alpha = 0,
     PremultipliedAlpha = 1,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct YuvImageDisplayItem {
     pub common: CommonItemProperties,
     pub bounds: LayoutRect,
@@ -1877,7 +1877,7 @@ pub struct YuvImageDisplayItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvColorSpace {
     Rec601 = 0,
     Rec709 = 1,
@@ -1886,14 +1886,14 @@ pub enum YuvColorSpace {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ColorRange {
     Limited = 0,
     Full = 1,
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvRangedColorSpace {
     Rec601Narrow = 0,
     Rec601Full = 1,
@@ -1930,7 +1930,7 @@ impl YuvColorSpace {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvData {
     NV12(ImageKey, ImageKey), // (Y channel, CbCr interleaved channel)
     P010(ImageKey, ImageKey), // (Y channel, CbCr interleaved channel)
@@ -1951,7 +1951,7 @@ impl YuvData {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum YuvFormat {
     // These enum values need to be kept in sync with yuv.glsl.
     NV12 = 0,
@@ -1972,7 +1972,7 @@ impl YuvFormat {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ImageMask {
     pub image: ImageKey,
     pub rect: LayoutRect,
@@ -1986,7 +1986,7 @@ impl ImageMask {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq, Serialize, Deserialize, Eq, Hash, PeekPoke)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub enum ClipMode {
     Clip,    // Pixels inside the region are visible.
     ClipOut, // Pixels outside the region are visible.
@@ -2004,7 +2004,7 @@ impl Not for ClipMode {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: LayoutRect,
@@ -2100,7 +2100,7 @@ impl ComplexClipRegion {
 pub const POLYGON_CLIP_VERTEX_MAX: usize = 32;
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
 pub enum FillRule {
     Nonzero = 0x1, // Behaves as the SVG fill-rule definition for nonzero.
     Evenodd = 0x2, // Behaves as the SVG fill-rule definition for evenodd.
@@ -2125,7 +2125,7 @@ impl From<FillRule> for u8 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ClipChainId(pub u64, pub PipelineId);
 
 impl ClipChainId {
@@ -2133,7 +2133,7 @@ impl ClipChainId {
 }
 
 /// A reference to a clipping node defining how an item is clipped.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ClipId(pub usize, pub PipelineId);
 
 impl Default for ClipId {
@@ -2176,7 +2176,7 @@ impl ClipId {
 }
 
 /// A reference to a spatial node defining item positioning.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SpatialId(pub usize, PipelineId);
 
 const ROOT_REFERENCE_FRAME_SPATIAL_ID: usize = 0;
@@ -2207,7 +2207,7 @@ impl SpatialId {
 ///
 /// When setting display lists with the `preserve_frame_state` this id is used to preserve scroll
 /// offsets between different sets of SpatialNodes which are ScrollFrames.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
 

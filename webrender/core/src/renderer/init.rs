@@ -46,9 +46,7 @@ use std::{
     path::PathBuf,
 };
 
-use tracy_rs::register_thread_with_profiler;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use malloc_size_of::MallocSizeOfOps;
 
 /// Use this hint for all vertex data re-initialization. This allows
 /// the driver to better re-use RBOs internally.

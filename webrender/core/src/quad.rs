@@ -1095,7 +1095,6 @@ pub fn add_to_batch<F>(
 
 /// Classification result for a tile within a quad
 #[allow(dead_code)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QuadTileKind {
     // Clipped out - can be skipped
@@ -1106,7 +1105,6 @@ pub enum QuadTileKind {
     },
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Copy, Clone, Debug)]
 pub struct QuadTileInfo {
     rect: LayoutRect,
@@ -1124,7 +1122,6 @@ impl Default for QuadTileInfo {
 
 /// A helper struct for classifying a set of tiles within a quad depending on
 /// what strategy they can be used to draw them.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct QuadTileClassifier {
     buffer: [QuadTileInfo; MAX_TILES_PER_QUAD * MAX_TILES_PER_QUAD],
     mask_regions: Vec<LayoutRect>,

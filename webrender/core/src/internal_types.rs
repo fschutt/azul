@@ -26,7 +26,7 @@ use std::hash::BuildHasherDefault;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{UNIX_EPOCH, SystemTime};
-use peek_poke::PeekPoke;
+
 
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::CaptureConfig;
@@ -44,9 +44,7 @@ pub fn size_of_frame_vec<T>(vec: &FrameVec<T>) -> usize {
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 
-#[derive(Copy, Clone, Hash, MallocSizeOf, PartialEq, PartialOrd, Debug, Eq, Ord, PeekPoke)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Clone, Hash, PartialEq, PartialOrd, Debug, Eq, Ord)]
 pub struct FrameId(u64);
 
 impl FrameId {
@@ -104,9 +102,7 @@ impl ::std::ops::Sub<u64> for FrameId {
 /// decisions. As such, we use the `FrameId` for equality and comparison, since
 /// we should never have two `FrameStamps` with the same id but different
 /// timestamps.
-#[derive(Copy, Clone, Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Clone, Debug)]
 pub struct FrameStamp {
     id: FrameId,
     time: SystemTime,
@@ -177,7 +173,6 @@ impl FrameStamp {
 
 /// Custom field embedded inside the Polygon struct of the plane-split crate.
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PlaneSplitAnchor {
     pub spatial_node_index: SpatialNodeIndex,
     pub instance_index: PrimitiveInstanceIndex,
@@ -209,15 +204,12 @@ pub type PlaneSplitter = BspSplitter<PlaneSplitAnchor>;
 
 /// An index into the scene's list of plane splitters
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PlaneSplitterIndex(pub usize);
 
 /// An arbitrary number which we assume opacity is invisible below.
 const OPACITY_EPSILON: f32 = 0.001;
 
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FilterGraphPictureReference {
     /// Id of the picture in question in a namespace unique to this filter DAG,
     /// some are special values like
@@ -266,8 +258,6 @@ pub const SVGFE_CONVOLVE_VALUES_LIMIT: usize = SVGFE_CONVOLVE_DIAMETER_LIMIT *
     SVGFE_CONVOLVE_DIAMETER_LIMIT;
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum FilterGraphOp {
     /// Filter that copies the SourceGraphic image into the specified subregion,
     /// This is intentionally the only way to get SourceGraphic into the graph,
@@ -722,8 +712,6 @@ impl FilterGraphOp {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FilterGraphNode {
     /// Indicates this graph node was marked as necessary by the DAG optimizer
     pub kept_by_optimizer: bool,
@@ -766,8 +754,6 @@ impl From<FilterOpGraphNode> for FilterGraphNode {
 
 /// Equivalent to api::FilterOp with added internal information
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum Filter {
     Identity,
     Blur {
@@ -976,9 +962,7 @@ impl From<FilterOp> for Filter {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Clone, Copy, Debug, Eq, Hash, MallocSizeOf, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Swizzle {
     Rgba,
     Bgra,
@@ -991,9 +975,7 @@ impl Default for Swizzle {
 }
 
 /// Swizzle settings of the texture cache.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Clone, Copy, Debug, Eq, Hash, MallocSizeOf, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SwizzleSettings {
     /// Swizzle required on sampling a texture with BGRA8 format.
     pub bgra8_sampling_swizzle: Swizzle,
@@ -1008,8 +990,6 @@ pub struct SwizzleSettings {
 ///
 /// We never reuse IDs, so we use a u64 here to be safe.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CacheTextureId(pub u32);
 
 impl CacheTextureId {
@@ -1017,13 +997,9 @@ impl CacheTextureId {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct DeferredResolveIndex(pub u32);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureSourceExternal {
     pub index: DeferredResolveIndex,
     pub kind: ImageBufferKind,
@@ -1032,8 +1008,6 @@ pub struct TextureSourceExternal {
 
 /// Identifies the source of an input texture to a shader.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TextureSource {
     /// Equivalent to `None`, allowing us to avoid using `Option`s everywhere.
     Invalid,
@@ -1079,8 +1053,6 @@ impl TextureSource {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTargetInfo {
     pub has_depth: bool,
 }
@@ -1108,8 +1080,6 @@ pub struct TextureCacheAllocation {
 
 /// A little bit of extra information to make memory reports more useful
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TextureCacheCategory {
     Atlas,
     Standalone,
@@ -1393,8 +1363,6 @@ impl LayoutPrimitiveInfo {
 
 // In some cases (e.g. printing) a pipeline is referenced multiple times by
 // a parent display list. This allows us to distinguish between them.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone, PartialEq, Debug, Eq, Hash)]
 pub struct PipelineInstanceId(u32);
 

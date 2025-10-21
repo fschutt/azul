@@ -52,13 +52,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::u32;
 use crate::texture_cache::{TextureCache, TextureCacheHandle, Eviction, TargetShader};
 use crate::picture_textures::PictureTextures;
-use peek_poke::PeekPoke;
+
 
 // Counter for generating unique native surface ids
 static NEXT_NATIVE_SURFACE_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GlyphFetchResult {
     pub index_in_text_run: i32,
     pub uv_rect_address: GpuCacheAddress,
@@ -77,8 +75,6 @@ pub struct GlyphFetchResult {
 // we don't need to go through and update
 // various CPU-side structures.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CacheItem {
     pub texture_id: TextureSource,
     pub uv_rect_handle: GpuCacheHandle,
@@ -153,8 +149,6 @@ impl CachedImageData {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
@@ -174,9 +168,7 @@ enum State {
 /// Post scene building state.
 type RasterizedBlob = FastHashMap<TileOffset, RasterizedBlobImage>;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, PartialEq, PeekPoke, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct ImageGeneration(pub u32);
 
 impl ImageGeneration {
@@ -216,8 +208,6 @@ impl ImageTemplates {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CachedImageInfo {
     texture_cache_handle: TextureCacheHandle,
     dirty_rect: ImageDirtyRect,
@@ -238,8 +228,6 @@ impl Drop for CachedImageInfo {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ResourceClassCache<K: Hash + Eq, V, U: Default> {
     resources: FastHashMap<K, V>,
     pub user_data: U,
@@ -312,16 +300,12 @@ where
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CachedImageKey {
     pub rendering: ImageRendering,
     pub tile: Option<TileOffset>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ImageRequest {
     pub key: ImageKey,
     pub rendering: ImageRendering,
@@ -361,14 +345,10 @@ impl Into<CachedImageKey> for ImageRequest {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Clone, Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ImageCacheError {
     OverLimitSize,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 enum ImageResult {
     UntiledAuto(CachedImageInfo),
     Multi(ResourceClassCache<CachedImageKey, CachedImageInfo, ()>),
@@ -1264,7 +1244,6 @@ impl ResourceCache {
     }
 
     pub fn begin_frame(&mut self, stamp: FrameStamp, gpu_cache: &mut GpuCache, profile: &mut TransactionProfile) {
-        profile_scope!("begin_frame");
         debug_assert_eq!(self.state, State::Idle);
         self.state = State::AddResources;
         self.texture_cache.begin_frame(stamp, profile);
@@ -1292,7 +1271,6 @@ impl ResourceCache {
         gpu_cache: &mut GpuCache,
         profile: &mut TransactionProfile,
     ) {
-        profile_scope!("block_until_all_resources_added");
 
         debug_assert_eq!(self.state, State::AddResources);
         self.state = State::QueryResources;
@@ -1347,7 +1325,6 @@ impl ResourceCache {
     }
 
     fn update_texture_cache(&mut self, gpu_cache: &mut GpuCache) {
-        profile_scope!("update_texture_cache");
         for request in self.pending_image_requests.drain() {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
@@ -1581,7 +1558,6 @@ impl ResourceCache {
 
     pub fn end_frame(&mut self, profile: &mut TransactionProfile) {
         debug_assert_eq!(self.state, State::QueryResources);
-        profile_scope!("end_frame");
         self.state = State::Idle;
 
         // GC the render target pool, if it's currently > 64 MB in size.
@@ -1881,16 +1857,12 @@ impl Drop for ResourceCache {
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainFontTemplate {
     data: String,
     index: u32,
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainImageTemplate {
     data: String,
     descriptor: ImageDescriptor,
@@ -1899,8 +1871,6 @@ struct PlainImageTemplate {
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PlainResources {
     font_templates: FastHashMap<FontKey, PlainFontTemplate>,
     font_instances: Vec<BaseFontInstance>,

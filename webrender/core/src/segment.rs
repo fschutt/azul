@@ -68,9 +68,7 @@ const MAX_SEGMENTS: usize = 64;
 ///
 /// *Note*: the bit values have to match the shader logic in
 /// `write_transform_vertex()` function.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, MallocSizeOf)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub struct EdgeAaSegmentMask(u8);
 
 bitflags! {

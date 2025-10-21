@@ -24,15 +24,11 @@ extern crate bitflags;
 extern crate byteorder;
 #[cfg(feature = "nightly")]
 extern crate core;
-#[macro_use]
-extern crate malloc_size_of_derive;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate time;
 
-extern crate malloc_size_of;
-extern crate peek_poke;
 
 pub mod channel;
 mod color;
@@ -59,7 +55,7 @@ use crate::channel::Receiver;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::os::raw::c_void;
-use peek_poke::PeekPoke;
+
 
 /// Defined here for cbindgen
 pub const MAX_RENDER_TASK_SIZE: i32 = 16384;
@@ -107,7 +103,7 @@ impl Epoch {
 ///
 /// For example in Gecko each content process uses a separate id namespace.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, MallocSizeOf, PartialEq, Hash, Ord, PartialOrd, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[derive(Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
 
@@ -117,7 +113,7 @@ pub struct IdNamespace(pub u32);
 /// Each document will internally correspond to a single scene, and scenes are made of
 /// one or several pipelines.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct DocumentId {
     ///
     pub namespace_id: IdNamespace,
@@ -147,7 +143,7 @@ pub type PipelineSourceId = u32;
 /// From the point of view of WR, `PipelineId` is completely opaque and generic as long as
 /// it's clonable, serializable, comparable, and hashable.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
 impl Default for PipelineId {
@@ -228,7 +224,7 @@ pub struct SampledScrollOffset {
 /// See https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html
 /// for a definition of scroll-linked effect.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum HasScrollLinkedEffect {
     Yes,
     No,
@@ -404,7 +400,7 @@ impl Clone for NotificationRequest {
 
 /// A key to identify an animated property binding.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, Eq, Hash)]
 pub struct PropertyBindingId {
     pub namespace: IdNamespace,
     pub uid: u32,
@@ -428,7 +424,7 @@ impl PropertyBindingId {
 /// A unique key that is used for connecting animated property
 /// values to bindings in the display list.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct PropertyBindingKey<T> {
     ///
     pub id: PropertyBindingId,
@@ -467,7 +463,7 @@ impl<T> PropertyBindingKey<T> {
 /// used for the case where the animation is still in-delay phase
 /// (i.e. the animation doesn't produce any animation values).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum PropertyBinding<T> {
     /// Non-animated value.
     Value(T),
@@ -606,7 +602,7 @@ pub enum FloatParameter {
 
 /// Flags to track why we are rendering.
 #[repr(C)]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, Serialize)]
 pub struct RenderReasons(u32);
 
 bitflags! {
@@ -660,7 +656,7 @@ impl RenderReasons {
 
 /// Flags to enable/disable various builtin debugging tools.
 #[repr(C)]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, Serialize)]
 pub struct DebugFlags(u32);
 
 bitflags! {
@@ -748,7 +744,7 @@ impl core::fmt::Debug for DebugFlags {
 
 /// Information specific to a primitive type that
 /// uniquely identifies a primitive template by key.
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveKeyKind {
     /// Clear an existing rect, used for special effects on some platforms.
     Clear,

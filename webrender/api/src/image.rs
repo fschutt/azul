@@ -5,7 +5,7 @@
 #![deny(missing_docs)]
 
 use euclid::{size2, Box2D, num::Zero};
-use peek_poke::PeekPoke;
+
 use std::ops::{Add, Sub};
 use std::sync::Arc;
 // local imports
@@ -21,7 +21,7 @@ pub const DEFAULT_TILE_SIZE: TileSize = 512;
 /// This is used as a handle to reference images, and is used as the
 /// hash map key for the actual image storage in the `ResourceCache`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ImageKey(pub IdNamespace, pub u32);
 
 impl Default for ImageKey {
@@ -194,7 +194,7 @@ impl ImageFormat {
 
 /// Specifies the color depth of an image. Currently only used for YUV images.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ColorDepth {
     /// 8 bits image (most common)
     Color8,

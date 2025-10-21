@@ -38,9 +38,7 @@ impl BoxShadowKey {
 
 impl InternDebug for BoxShadowKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct BoxShadow {
     pub color: ColorU,
     pub blur_radius: Au,
@@ -198,9 +196,7 @@ impl InternablePrimitive for BoxShadow {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 pub struct BoxShadowData {
     pub color: ColorF,
     pub blur_radius: f32,
@@ -243,9 +239,7 @@ impl From<BoxShadowKey> for BoxShadowTemplate {
     }
 }
 
-#[derive(Debug, Clone, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone)]
 pub struct BoxShadowClipSource {
     // Parameters that define the shadow and are constant.
     pub shadow_radius: BorderRadius,
@@ -285,9 +279,7 @@ pub const MAX_BLUR_RADIUS: f32 = 300.;
 // A cache key that uniquely identifies a minimally sized
 // and blurred box-shadow rect that can be stored in the
 // texture cache and applied to clip-masks.
-#[derive(Debug, Clone, Eq, Hash, MallocSizeOf, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct BoxShadowCacheKey {
     pub blur_radius_dp: i32,
     pub clip_mode: BoxShadowClipMode,

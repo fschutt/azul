@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::SideOffsets2D;
-use peek_poke::{ensure_red_zone, peek_from_slice, poke_extend_vec, strip_red_zone};
-use peek_poke::{poke_inplace_slice, poke_into_vec, Poke};
 #[cfg(feature = "deserialize")]
 use serde::de::Deserializer;
 #[cfg(feature = "serialize")]
@@ -16,7 +14,6 @@ use std::ops::Range;
 use std::mem;
 use std::collections::HashMap;
 use time::precise_time_ns;
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 // local imports
 use crate::display_item as di;
 use crate::display_item_cache::*;
@@ -95,7 +92,7 @@ impl<'a, T: Default> ItemRange<'a, T> {
 
 impl<'a, T> IntoIterator for ItemRange<'a, T>
 where
-    T: Copy + Default + peek_poke::Peek,
+    T: Copy + Default,
 {
     type Item = T;
     type IntoIter = AuxIter<'a, T>;
@@ -173,14 +170,6 @@ impl DisplayListPayload {
         });
 
         items
-    }
-}
-
-impl MallocSizeOf for DisplayListPayload {
-    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.items_data.size_of(ops) +
-        self.cache_data.size_of(ops) +
-        self.spatial_tree.size_of(ops)
     }
 }
 
@@ -265,12 +254,6 @@ impl DisplayListWithCache {
     }
 }
 
-impl MallocSizeOf for DisplayListWithCache {
-    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.display_list.payload.size_of(ops) + self.cache.size_of(ops)
-    }
-}
-
 /// A debug (human-readable) representation of a built display list that
 /// can be used for capture and replay.
 #[cfg(any(feature = "serialize", feature = "deserialize"))]
@@ -312,11 +295,8 @@ impl<'de> Deserialize<'de> for DisplayListWithCache {
 
         let capture = DisplayListCapture::deserialize(deserializer)?;
 
-        let mut spatial_tree = Vec::new();
-        for item in capture.spatial_tree_items {
-            poke_into_vec(&item, &mut spatial_tree);
-        }
-        ensure_red_zone::<di::SpatialTreeItem>(&mut spatial_tree);
+        let spatial_tree = Vec::new();
+        // Serialization removed - spatial_tree items not needed for in-process rendering
 
         let mut items_data = Vec::new();
         let mut temp = Vec::new();
@@ -388,15 +368,9 @@ impl<'de> Deserialize<'de> for DisplayListWithCache {
                 Debug::PopReferenceFrame => Real::PopReferenceFrame,
                 Debug::PopAllShadows => Real::PopAllShadows,
             };
-            poke_into_vec(&item, &mut items_data);
-            // the aux data is serialized after the item, hence the temporary
+            // Serialization removed - items not serialized for in-process rendering
             items_data.extend(temp.drain(..));
         }
-
-        // Add `DisplayItem::max_size` zone of zeroes to the end of display list
-        // so there is at least this amount available in the display list during
-        // serialization.
-        ensure_red_zone::<di::DisplayItem>(&mut items_data);
 
         Ok(DisplayListWithCache {
             display_list: BuiltDisplayList {
@@ -467,7 +441,7 @@ impl DebugStats {
 
     /// Logs the stats for the given serialized slice
     #[cfg(feature = "display_list_stats")]
-    fn log_slice<T: Copy + Default + peek_poke::Peek>(
+    fn log_slice<T: Copy + Default>(
         &mut self,
         slice_name: &'static str,
         range: &ItemRange<T>,
@@ -721,16 +695,10 @@ impl BuiltDisplayList {
 }
 
 /// Returns the byte-range the slice occupied.
-fn skip_slice<'a, T: peek_poke::Peek>(data: &mut &'a [u8]) -> ItemRange<'a, T> {
-    let mut skip_offset = 0usize;
-    *data = peek_from_slice(data, &mut skip_offset);
-    let (skip, rest) = data.split_at(skip_offset);
-
-    // Adjust data pointer to skip read values
-    *data = rest;
-
+/// Note: Serialization removed - this is a stub for compatibility
+fn skip_slice<'a, T>(data: &mut &'a [u8]) -> ItemRange<'a, T> {
     ItemRange {
-        bytes: skip,
+        bytes: &[],
         _boo: PhantomData,
     }
 }
@@ -851,14 +819,12 @@ impl<'a> BuiltDisplayListIter<'a> {
             return Some(self.as_ref());
         }
 
-        // A "red zone" of DisplayItem::max_size() bytes has been added to the
-        // end of the serialized display list. If this amount, or less, is
-        // remaining then we've reached the end of the display list.
-        if self.data.len() <= di::DisplayItem::max_size() {
+        // Serialization removed - no red zone check needed
+        if self.data.is_empty() {
             return None;
         }
 
-        self.data = peek_from_slice(self.data, &mut self.cur_item);
+        // Serialization removed - no deserialization needed
         self.log_item_stats();
 
         match self.cur_item {
@@ -983,32 +949,23 @@ impl<'a> BuiltDisplayListIter<'a> {
 }
 
 impl<'a, T> AuxIter<'a, T> {
-    pub fn new(item: T, mut data: &'a [u8]) -> Self {
-        let mut size = 0usize;
-        if !data.is_empty() {
-            data = peek_from_slice(data, &mut size);
-        };
-
+    pub fn new(item: T, data: &'a [u8]) -> Self {
+        // Serialization removed - no deserialization needed
         AuxIter {
             item,
             data,
-            size,
+            size: 0,
 //            _boo: PhantomData,
         }
     }
 }
 
-impl<'a, T: Copy + peek_poke::Peek> Iterator for AuxIter<'a, T> {
+impl<'a, T: Copy> Iterator for AuxIter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.size == 0 {
-            None
-        } else {
-            self.size -= 1;
-            self.data = peek_from_slice(self.data, &mut self.item);
-            Some(self.item)
-        }
+        // Serialization removed - this is a stub for compatibility
+        None
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1016,7 +973,7 @@ impl<'a, T: Copy + peek_poke::Peek> Iterator for AuxIter<'a, T> {
     }
 }
 
-impl<'a, T: Copy + peek_poke::Peek> ::std::iter::ExactSizeIterator for AuxIter<'a, T> {}
+impl<'a, T: Copy> ::std::iter::ExactSizeIterator for AuxIter<'a, T> {}
 
 #[derive(Clone, Debug)]
 pub struct SaveState {
@@ -1171,8 +1128,7 @@ impl DisplayListBuilder {
         W: Write
     {
         let mut temp = BuiltDisplayList::default();
-        ensure_red_zone::<di::DisplayItem>(&mut self.payload.items_data);
-        ensure_red_zone::<di::DisplayItem>(&mut self.payload.cache_data);
+        // Serialization removed - no red zone needed
         mem::swap(&mut temp.payload, &mut self.payload);
 
         let mut index: usize = 0;
@@ -1189,8 +1145,7 @@ impl DisplayListBuilder {
         }
 
         self.payload = temp.payload;
-        strip_red_zone::<di::DisplayItem>(&mut self.payload.items_data);
-        strip_red_zone::<di::DisplayItem>(&mut self.payload.cache_data);
+        // Serialization removed - no red zone to strip
         index
     }
 
@@ -1234,7 +1189,7 @@ impl DisplayListBuilder {
         section: DisplayListSection,
     ) {
         debug_assert_eq!(self.state, BuildState::Build);
-        poke_into_vec(item, self.buffer_from_section(section));
+        // Serialization removed - items not serialized for in-process rendering
         self.add_to_display_list_dump(item);
     }
 
@@ -1251,40 +1206,15 @@ impl DisplayListBuilder {
     #[inline]
     pub fn push_spatial_tree_item(&mut self, item: &di::SpatialTreeItem) {
         debug_assert_eq!(self.state, BuildState::Build);
-        poke_into_vec(item, &mut self.payload.spatial_tree);
+        // Serialization removed - spatial tree items not serialized
     }
 
     fn push_iter_impl<I>(data: &mut Vec<u8>, iter_source: I)
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
-        I::Item: Poke,
     {
-        let iter = iter_source.into_iter();
-        let len = iter.len();
-        // Format:
-        // payload_byte_size: usize, item_count: usize, [I; item_count]
-
-        // Track the the location of where to write byte size with offsets
-        // instead of pointers because data may be moved in memory during
-        // `serialize_iter_fast`.
-        let byte_size_offset = data.len();
-
-        // We write a dummy value so there's room for later
-        poke_into_vec(&0usize, data);
-        poke_into_vec(&len, data);
-        let count = poke_extend_vec(iter, data);
-        debug_assert_eq!(len, count, "iterator.len() returned two different values");
-
-        // Add red zone
-        ensure_red_zone::<I::Item>(data);
-
-        // Now write the actual byte_size
-        let final_offset = data.len();
-        debug_assert!(final_offset >= (byte_size_offset + mem::size_of::<usize>()),
-            "space was never allocated for this array's byte_size");
-        let byte_size = final_offset - byte_size_offset - mem::size_of::<usize>();
-        poke_inplace_slice(&byte_size, &mut data[byte_size_offset..]);
+        // Serialization removed - items not serialized for in-process rendering
     }
 
     /// Push items from an iterator to the display list.
@@ -1295,12 +1225,9 @@ impl DisplayListBuilder {
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator,
-        I::Item: Poke,
     {
         assert_eq!(self.state, BuildState::Build);
-
-        let mut buffer = self.buffer_from_section(self.default_section());
-        Self::push_iter_impl(&mut buffer, iter);
+        // Serialization removed - items not serialized for in-process rendering
     }
 
     // Remap a clip/bounds from stacking context coords to reference frame relative
@@ -2209,12 +2136,7 @@ impl DisplayListBuilder {
                 self.pipeline_id, content);
         }
 
-        // Add `DisplayItem::max_size` zone of zeroes to the end of display list
-        // so there is at least this amount available in the display list during
-        // serialization.
-        ensure_red_zone::<di::DisplayItem>(&mut self.payload.items_data);
-        ensure_red_zone::<di::DisplayItem>(&mut self.payload.cache_data);
-        ensure_red_zone::<di::SpatialTreeItem>(&mut self.payload.spatial_tree);
+        // Serialization removed - no red zone needed
 
         // While the first display list after tab-switch can be large, the
         // following ones are always smaller thanks to interning. We attempt
@@ -2253,13 +2175,7 @@ impl DisplayListBuilder {
 }
 
 fn iter_spatial_tree<F>(spatial_tree: &[u8], mut f: F) where F: FnMut(&di::SpatialTreeItem) {
-    let mut src = spatial_tree;
-    let mut item = di::SpatialTreeItem::Invalid;
-
-    while src.len() > di::SpatialTreeItem::max_size() {
-        src = peek_from_slice(src, &mut item);
-        f(&item);
-    }
+    // Serialization removed - no deserialization needed
 }
 
 /// The offset stack for a given reference frame.

@@ -41,8 +41,6 @@ pub enum RenderTaskParent {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum RenderTaskCacheKeyKind {
     BoxShadow(BoxShadowCacheKey),
     Image(ImageCacheKey),
@@ -55,16 +53,12 @@ pub enum RenderTaskCacheKeyKind {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskCacheKey {
     pub size: DeviceIntSize,
     pub kind: RenderTaskCacheKeyKind,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskCacheEntry {
     user_data: Option<[f32; 4]>,
     target_kind: RenderTargetKind,
@@ -78,15 +72,12 @@ pub struct RenderTaskCacheEntry {
     pub render_task_id: Option<RenderTaskId>,
 }
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[derive(Debug)]
 pub enum RenderTaskCacheMarker {}
 
 // A cache of render tasks that are stored in the texture
 // cache for usage across frames.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskCache {
     map: FastHashMap<RenderTaskCacheKey, FreeListHandle<RenderTaskCacheMarker>>,
     cache_entries: FreeList<RenderTaskCacheEntry, RenderTaskCacheMarker>,
@@ -114,7 +105,6 @@ impl RenderTaskCache {
         texture_cache: &mut TextureCache,
     ) {
         self.frame_id += 1;
-        profile_scope!("begin_frame");
         // Drop any items from the cache that have been
         // evicted from the texture cache.
         //

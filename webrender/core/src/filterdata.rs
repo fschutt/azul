@@ -12,9 +12,7 @@ use api::{ComponentTransferFuncType};
 
 pub type FilterDataHandle = intern::Handle<FilterDataIntern>;
 
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SFilterDataComponent {
     Identity,
     Table(Vec<f32>),
@@ -85,9 +83,7 @@ impl SFilterDataComponent {
     }
 }
 
-#[derive(Debug, Clone, MallocSizeOf, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SFilterData {
     pub r_func: SFilterDataComponent,
     pub g_func: SFilterDataComponent,
@@ -95,9 +91,7 @@ pub struct SFilterData {
     pub a_func: SFilterDataComponent,
 }
 
-#[derive(Debug, Clone, MallocSizeOf, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SFilterDataKey {
     pub data: SFilterData,
 }
@@ -105,9 +99,7 @@ pub struct SFilterDataKey {
 impl intern::InternDebug for SFilterDataKey {}
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct SFilterDataTemplate {
     pub data: SFilterData,
     pub gpu_cache_handle: GpuCacheHandle,
@@ -154,7 +146,7 @@ impl SFilterDataTemplate {
     }
 }
 
-#[derive(Copy, Clone, Debug, MallocSizeOf)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]
 pub enum FilterDataIntern {}
 

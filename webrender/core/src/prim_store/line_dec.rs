@@ -21,9 +21,7 @@ use crate::prim_store::PrimitiveInstanceKind;
 /// Maximum resolution in device pixels at which line decorations are rasterized.
 pub const MAX_LINE_DECORATION_RESOLUTION: u32 = 4096;
 
-#[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LineDecorationCacheKey {
     pub style: LineStyle,
     pub orientation: LineOrientation,
@@ -32,9 +30,7 @@ pub struct LineDecorationCacheKey {
 }
 
 /// Identifying key for a line decoration.
-#[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LineDecoration {
     // If the cache_key is Some(..) it is a line decoration
     // that relies on a render task (e.g. wavy). If the
@@ -60,9 +56,7 @@ impl LineDecorationKey {
 
 impl intern::InternDebug for LineDecorationKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct LineDecorationData {
     pub cache_key: Option<LineDecorationCacheKey>,
     pub color: ColorF,

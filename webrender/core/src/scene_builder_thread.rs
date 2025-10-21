@@ -19,7 +19,6 @@ use crate::filterdata::FilterDataIntern;
 use glyph_rasterizer::SharedFontResources;
 use crate::intern::{Internable, Interner, UpdateList};
 use crate::internal_types::{FastHashMap, FastHashSet};
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::{ImageBorder, NormalBorderPrim};
 use crate::prim_store::gradient::{LinearGradient, RadialGradient, ConicGradient};
@@ -41,7 +40,6 @@ use std::thread;
 use std::time::Duration;
 
 fn rasterize_blobs(txn: &mut TransactionMsg, is_low_priority: bool, tile_pool: &mut api::BlobTilePool) {
-    profile_scope!("rasterize_blobs");
 
     if let Some(ref mut rasterizer) = txn.blob_rasterizer {
         let mut rasterized_blobs = rasterizer.rasterize(&txn.blob_requests, is_low_priority, tile_pool);
@@ -155,8 +153,6 @@ macro_rules! declare_interners {
         /// - GPU cache handles remain valid, reducing GPU cache updates.
         /// - Comparison of primitives and pictures between two
         ///   display lists is (a) fast (b) done during scene building.
-        #[cfg_attr(feature = "capture", derive(Serialize))]
-        #[cfg_attr(feature = "replay", derive(Deserialize))]
         #[derive(Default)]
         pub struct Interners {
             $(
@@ -526,7 +522,6 @@ impl SceneBuilderThread {
 
     /// Do the bulk of the work of the scene builder thread.
     fn process_transaction(&mut self, mut txn: TransactionMsg) -> Box<BuiltTransaction> {
-        profile_scope!("process_transaction");
 
         if let Some(ref hooks) = self.hooks {
             hooks.pre_scene_build();

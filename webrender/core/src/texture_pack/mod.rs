@@ -22,8 +22,6 @@ pub use etagere::AtlasAllocator as ShelfAllocator;
 
 /// ID of an allocation within a given allocator.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AllocId(pub u32);
 
 pub trait AtlasAllocator {
@@ -64,8 +62,6 @@ pub trait AtlasAllocatorList<TextureParameters> {
 }
 
 /// A number of 2D textures (single layer), with their own atlas allocator.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct TextureUnit<Allocator> {
     allocator: Allocator,
     handles: FastHashMap<AllocId, TextureCacheHandle>,
@@ -76,8 +72,6 @@ struct TextureUnit<Allocator> {
     delay_deallocation: bool,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AllocatorList<Allocator: AtlasAllocator, TextureParameters> {
     units: SmallVec<[TextureUnit<Allocator>; 1]>,
     size: i32,

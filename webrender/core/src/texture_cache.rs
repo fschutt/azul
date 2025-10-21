@@ -26,15 +26,12 @@ use std::cell::Cell;
 use std::mem;
 use std::rc::Rc;
 use euclid::size2;
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 
 /// Information about which shader will use the entry.
 ///
 /// For batching purposes, it's beneficial to group some items in their
 /// own textures if we know that they are used by a specific shader.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TargetShader {
     Default,
     Text,
@@ -46,8 +43,6 @@ pub const TEXTURE_REGION_DIMENSIONS: i32 = 512;
 /// Items in the texture cache can either be standalone textures,
 /// or a sub-rect inside the shared cache.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum EntryDetails {
     Standalone {
         /// Number of bytes this entry allocates
@@ -73,21 +68,15 @@ impl EntryDetails {
 }
 
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum AutoCacheEntryMarker {}
 
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ManualCacheEntryMarker {}
 
 // Stores information related to a single entry in the texture
 // cache. This is stored for each item whether it's in the shared
 // cache or a standalone texture.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CacheEntry {
     /// Size of the requested item, in device pixels. Does not include any
     /// padding for alignment that the allocator may have added to this entry's
@@ -117,11 +106,6 @@ pub struct CacheEntry {
 
     pub shader: TargetShader,
 }
-
-malloc_size_of::malloc_size_of_is_0!(
-    CacheEntry,
-    AutoCacheEntryMarker, ManualCacheEntryMarker
-);
 
 impl CacheEntry {
     // Create a new entry for a standalone texture.
@@ -190,9 +174,7 @@ impl CacheEntry {
 /// the cache handle needs to re-upload this item to the texture cache (see
 /// request() below).
 
-#[derive(MallocSizeOf,Clone,PartialEq,Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone,PartialEq,Debug)]
 pub enum TextureCacheHandle {
     /// A fresh handle.
     Empty,
@@ -212,8 +194,6 @@ impl TextureCacheHandle {
 
 /// Describes the eviction policy for a given entry in the texture cache.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum Eviction {
     /// The entry will be evicted under the normal rules (which differ between
     /// standalone and shared entries).
@@ -230,8 +210,6 @@ pub enum Eviction {
 // TextureCacheHandle updates. The notice may then be subsequently
 // checked to see if any of the updates using it have been evicted.
 #[derive(Clone, Debug, Default)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct EvictionNotice {
     evicted: Rc<Cell<bool>>,
 }
@@ -259,8 +237,6 @@ impl EvictionNotice {
 /// textures if one texture gets full.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 enum BudgetType {
     SharedColor8Linear,
     SharedColor8Nearest,
@@ -301,8 +277,6 @@ impl BudgetType {
 
 /// A set of lazily allocated, fixed size, texture arrays for each format the
 /// texture cache supports.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct SharedTextures {
     color8_nearest: AllocatorList<ShelfAllocator, TextureParameters>,
     alpha8_linear: AllocatorList<ShelfAllocator, TextureParameters>,
@@ -557,8 +531,6 @@ impl TextureCacheConfig {
 /// This means that the texture cache can be visualized, which is a good way to
 /// understand how it works. Enabling gfx.webrender.debug.texture-cache shows a
 /// live view of its contents in Firefox.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureCache {
     /// Set of texture arrays in different formats used for the shared cache.
     shared_textures: SharedTextures,
@@ -581,7 +553,6 @@ pub struct TextureCache {
 
     /// A list of allocations and updates that need to be applied to the texture
     /// cache in the rendering thread this frame.
-    #[cfg_attr(all(feature = "serde", any(feature = "capture", feature = "replay")), serde(skip))]
     pub pending_updates: TextureUpdateList,
 
     /// The current `FrameStamp`. Used for cache eviction policies.
@@ -697,7 +668,6 @@ impl TextureCache {
     /// Called at the beginning of each frame.
     pub fn begin_frame(&mut self, stamp: FrameStamp, profile: &mut TransactionProfile) {
         debug_assert!(!self.now.is_valid());
-        profile_scope!("begin_frame");
         self.now = stamp;
 
         // Texture cache eviction is done at the start of the frame. This ensures that
@@ -1554,8 +1524,6 @@ impl TextureCache {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureParameters {
     pub formats: TextureFormatPair<ImageFormat>,
     pub filter: TextureFilter,

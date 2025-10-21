@@ -27,9 +27,7 @@ use std::sync::Arc;
 use super::{storage, VectorKey};
 
 /// A run of glyphs, with associated font information.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TextRunKey {
     pub common: PrimKeyCommonData,
     pub font: FontInstance,
@@ -57,13 +55,10 @@ impl TextRunKey {
 
 impl intern::InternDebug for TextRunKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct TextRunTemplate {
     pub common: PrimTemplateCommonData,
     pub font: FontInstance,
-    #[ignore_malloc_size_of = "Measured via PrimaryArc"]
     pub glyphs: Arc<Vec<GlyphInstance>>,
 }
 
@@ -139,12 +134,9 @@ impl TextRunTemplate {
 
 pub type TextRunDataHandle = intern::Handle<TextRun>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct TextRun {
     pub font: FontInstance,
-    #[ignore_malloc_size_of = "Measured via PrimaryArc"]
     pub glyphs: Arc<Vec<GlyphInstance>>,
     pub shadow: bool,
     pub requested_raster_space: RasterSpace,
@@ -228,7 +220,6 @@ impl IsVisible for TextRun {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct TextRunPrimitive {
     pub used_font: FontInstance,
     pub glyph_keys_range: storage::Range<GlyphKey>,

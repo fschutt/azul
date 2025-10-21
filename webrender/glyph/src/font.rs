@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use crate::rasterizer::{FontInstance, GlyphKey, RasterizedGlyph, GlyphRasterResult, GlyphRasterError, GlyphFormat};
 use crate::types::FastHashMap;
-use api::{FontKey, FontRenderMode, FontTemplate, GlyphDimensions};
+use api::{FontKey, FontRenderMode, GlyphDimensions};
 
 use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
 use azul_core::resources::{GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo};
@@ -25,26 +25,27 @@ impl FontContext {
         }
     }
 
-    /// Adds a font from its raw byte data.
+    /// Adds a font directly from a parsed font.
+    ///
+    /// This avoids re-parsing the font since azul-layout has already parsed it.
+    pub fn add_font(&mut self, font_key: FontKey, parsed_font: Arc<ParsedFont>) {
+        if !self.fonts.contains_key(&font_key) {
+            self.fonts.insert(font_key, parsed_font);
+        }
+    }
+
+    /// Adds a font from raw bytes (for backward compatibility).
     ///
     /// The font is parsed by `azul-layout` and its outlines are stored for later rasterization.
-    pub fn add_font(&mut self, font_key: FontKey, template: Arc<FontTemplate>) {
+    pub fn add_font_from_bytes(&mut self, font_key: FontKey, bytes: &[u8], index: u32) {
         if self.fonts.contains_key(&font_key) {
             return;
         }
 
-        match &*template {
-            FontTemplate::Raw(bytes, index) => {
-                if let Some(parsed_font) = ParsedFont::from_bytes(bytes, *index as usize, true) {
-                    self.fonts.insert(font_key, Arc::new(parsed_font));
-                } else {
-                    log::error!("Failed to parse font for key {:?}", font_key);
-                }
-            }
-            FontTemplate::Native(_) => {
-                // Native font loading is platform-specific and not supported by this pure-Rust backend.
-                log::warn!("Native font handles are not supported in wr_azul_glyph_rasterizer. Please provide raw font data.");
-            }
+        if let Some(parsed_font) = ParsedFont::from_bytes(bytes, index as usize, true) {
+            self.fonts.insert(font_key, Arc::new(parsed_font));
+        } else {
+            log::error!("Failed to parse font for key {:?}", font_key);
         }
     }
 
@@ -159,7 +160,7 @@ fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<tiny_skia::Path> {
     let mut pb = PathBuilder::new();
     let mut has_ops = false;
     for outline in &glyph.outline {
-        for op in &outline.operations {
+        for op in outline.operations.as_slice() {
             has_ops = true;
             match op {
                 // Font coordinates are Y-up, tiny-skia is Y-down, so we negate Y.

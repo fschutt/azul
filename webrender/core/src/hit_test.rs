@@ -51,7 +51,7 @@ impl ApiHitTester for SharedHitTester {
 /// A copy of important spatial node data to use during hit testing. This a copy of
 /// data from the SpatialTree that will persist as a new frame is under construction,
 /// allowing hit tests consistent with the currently rendered frame.
-#[derive(MallocSizeOf)]
+
 struct HitTestSpatialNode {
     /// The pipeline id of this node.
     pipeline_id: PipelineId,
@@ -66,7 +66,7 @@ struct HitTestSpatialNode {
     external_scroll_offset: LayoutVector2D,
 }
 
-#[derive(MallocSizeOf)]
+
 struct HitTestClipNode {
     /// A particular point must be inside all of these regions to be considered clipped in
     /// for the purposes of a hit test.
@@ -110,7 +110,7 @@ impl HitTestClipNode {
     }
 }
 
-#[derive(Clone, MallocSizeOf)]
+#[derive(Clone)]
 struct HitTestingItem {
     rect: LayoutRect,
     tag: ItemTag,
@@ -161,7 +161,7 @@ impl HitTestingSceneStats {
 /// However, the clip chain and item definitions don't change,
 /// so they are created once per scene, and shared between
 /// hit tester instances via Arc.
-#[derive(MallocSizeOf)]
+
 pub struct HitTestingScene {
     clip_nodes: FastHashMap<ClipNodeId, HitTestClipNode>,
 
@@ -251,7 +251,7 @@ impl HitTestingScene {
     }
 }
 
-#[derive(MallocSizeOf)]
+
 enum HitTestRegion {
     Invalid,
     Rectangle(LayoutRect, ClipMode),
@@ -277,9 +277,8 @@ impl HitTestRegion {
     }
 }
 
-#[derive(MallocSizeOf)]
+
 pub struct HitTester {
-    #[ignore_malloc_size_of = "Arc"]
     scene: Arc<HitTestingScene>,
     spatial_nodes: FastHashMap<SpatialNodeIndex, HitTestSpatialNode>,
 }
@@ -406,7 +405,7 @@ impl HitTester {
     }
 }
 
-#[derive(MallocSizeOf)]
+
 pub struct HitTest {
     point: WorldPoint,
 }

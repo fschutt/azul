@@ -8,7 +8,6 @@ use api::{PremultipliedColorF, PropertyBinding, Shadow};
 use api::{PrimitiveKeyKind, FillRule, POLYGON_CLIP_VERTEX_MAX};
 use api::units::*;
 use euclid::{SideOffsets2D, Size2D};
-use malloc_size_of::MallocSizeOf;
 use crate::composite::CompositorSurfaceKind;
 use crate::clip::ClipLeafId;
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
@@ -54,9 +53,7 @@ use crate::box_shadow::BoxShadowDataHandle;
 
 pub const VECS_PER_SEGMENT: usize = 2;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf)]
+#[derive(Debug, Copy, Clone)]
 pub struct PrimitiveOpacity {
     pub is_opaque: bool,
 }
@@ -87,8 +84,6 @@ impl PrimitiveOpacity {
 /// texture data and update the UV rect. Any filtering
 /// is handled externally for NativeTexture external
 /// images.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct DeferredResolve {
     pub address: GpuCacheAddress,
     pub image_properties: ImageProperties,
@@ -96,25 +91,20 @@ pub struct DeferredResolve {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipTaskIndex(pub u32);
 
 impl ClipTaskIndex {
     pub const INVALID: ClipTaskIndex = ClipTaskIndex(0);
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, MallocSizeOf, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct PictureIndex(pub usize);
 
 impl PictureIndex {
     pub const INVALID: PictureIndex = PictureIndex(!0);
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct RectangleKey {
     pub x0: f32,
     pub y0: f32,
@@ -197,9 +187,7 @@ impl From<WorldRect> for RectangleKey {
 /// number of points. Our initialization method restricts us to values
 /// <= 32. If our constant POLYGON_CLIP_VERTEX_MAX is > 32, the Rust
 /// compiler will complain.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, Hash, MallocSizeOf, PartialEq)]
+#[derive(Copy, Debug, Clone, Hash, PartialEq)]
 pub struct PolygonKey {
     pub point_count: u8,
     pub points: [PointKey; POLYGON_CLIP_VERTEX_MAX],
@@ -234,9 +222,7 @@ impl PolygonKey {
 impl Eq for PolygonKey {}
 
 /// A hashable SideOffset2D that can be used in primitive keys.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SideOffsetsKey {
     pub top: f32,
     pub right: f32,
@@ -278,9 +264,7 @@ impl<U> From<SideOffsets2D<f32, U>> for SideOffsetsKey {
 }
 
 /// A hashable size for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct SizeKey {
     w: f32,
     h: f32,
@@ -311,9 +295,7 @@ impl<U> From<Size2D<f32, U>> for SizeKey {
 }
 
 /// A hashable vec for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct VectorKey {
     pub x: f32,
     pub y: f32,
@@ -359,9 +341,7 @@ impl From<WorldVector2D> for VectorKey {
 }
 
 /// A hashable point for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PointKey {
     pub x: f32,
     pub y: f32,
@@ -410,9 +390,7 @@ impl From<WorldPoint> for PointKey {
 }
 
 /// A hashable float for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FloatKey(f32);
 
 impl Eq for FloatKey {}
@@ -424,9 +402,7 @@ impl hash::Hash for FloatKey {
 }
 
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PrimKeyCommonData {
     pub flags: PrimitiveFlags,
     pub prim_rect: RectangleKey,
@@ -441,17 +417,13 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PrimKey<T: MallocSizeOf> {
     pub common: PrimKeyCommonData,
     pub kind: T,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PrimitiveKey {
     pub common: PrimKeyCommonData,
     pub kind: PrimitiveKeyKind,
@@ -473,9 +445,7 @@ impl intern::InternDebug for PrimitiveKey {}
 
 /// The shared information for a given primitive. This is interned and retained
 /// both across frames and display lists, by comparing the matching PrimitiveKey.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub enum PrimitiveTemplateKind {
     Rectangle {
         color: PropertyBinding<ColorF>,
@@ -520,9 +490,7 @@ impl From<PrimitiveKeyKind> for PrimitiveTemplateKind {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 #[derive(Debug)]
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
@@ -555,17 +523,13 @@ impl PrimTemplateCommonData {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct PrimTemplate<T> {
     pub common: PrimTemplateCommonData,
     pub kind: T,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct PrimitiveTemplate {
     pub common: PrimTemplateCommonData,
     pub kind: PrimitiveTemplateKind,
@@ -699,9 +663,7 @@ impl InternablePrimitive for PrimitiveKeyKind {
     }
 }
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct VisibleMaskImageTile {
     pub tile_offset: TileOffset,
     pub tile_rect: LayoutRect,
@@ -709,7 +671,6 @@ pub struct VisibleMaskImageTile {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct VisibleGradientTile {
     pub handle: GpuCacheHandle,
     pub local_rect: LayoutRect,
@@ -718,16 +679,13 @@ pub struct VisibleGradientTile {
 
 /// Information about how to cache a border segment,
 /// along with the current render task cache entry.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 pub struct BorderSegmentInfo {
     pub local_task_size: LayoutSize,
     pub cache_key: BorderSegmentCacheKey,
 }
 
 /// Represents the visibility state of a segment (wrt clip masks).
-#[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Debug, Clone)]
 pub enum ClipMaskKind {
     /// The segment has a clip mask, specified by the render task.
@@ -738,9 +696,7 @@ pub enum ClipMaskKind {
     Clipped,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf)]
+#[derive(Debug, Clone)]
 pub struct BrushSegment {
     pub local_rect: LayoutRect,
     pub may_need_clip_mask: bool,
@@ -769,8 +725,6 @@ impl BrushSegment {
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct ClipRect {
     rect: LayoutRect,
     mode: f32,
@@ -778,8 +732,6 @@ struct ClipRect {
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct ClipCorner {
     rect: LayoutRect,
     outer_radius_x: f32,
@@ -802,8 +754,6 @@ impl ClipCorner {
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipData {
     rect: ClipRect,
     top_left: ClipCorner,
@@ -930,9 +880,7 @@ impl ClipData {
 
 /// A hashable descriptor for nine-patches, used by image and
 /// gradient borders.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NinePatchDescriptor {
     pub width: i32,
     pub height: i32,
@@ -990,7 +938,6 @@ impl CreateShadow for PrimitiveKeyKind {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum PrimitiveInstanceKind {
     /// Direct reference to a Picture
     Picture {
@@ -1102,12 +1049,9 @@ impl PrimitiveInstanceKind {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveInstanceIndex(pub u32);
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveInstance {
     /// Identifies the kind of primitive this
     /// instance is, and references to where
@@ -1197,7 +1141,6 @@ impl PrimitiveInstance {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Debug)]
 pub struct SegmentedInstance {
     pub gpu_cache_handle: GpuCacheHandle,
@@ -1224,7 +1167,6 @@ pub type LinearGradientStorage = storage::Storage<LinearGradientPrimitive>;
 /// where we want to recycle the memory each new display list, to avoid constantly
 /// re-allocating and moving memory around. Written during primitive preparation,
 /// and read during batching.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveScratchBuffer {
     /// Contains a list of clip mask instance parameters
     /// per segment generated.
@@ -1441,8 +1383,6 @@ impl PrimitiveScratchBuffer {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone, Debug)]
 pub struct PrimitiveStoreStats {
     picture_count: usize,
@@ -1464,7 +1404,6 @@ impl PrimitiveStoreStats {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveStore {
     pub pictures: Vec<PicturePrimitive>,
     pub text_runs: TextRunStorage,

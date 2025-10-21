@@ -4,7 +4,6 @@
 
 use crate::display_item::*;
 use crate::display_list::*;
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct CachedDisplayItem {
@@ -19,12 +18,6 @@ impl CachedDisplayItem {
 
     pub fn data_as_item_range<T>(&self) -> ItemRange<T> {
         ItemRange::new(&self.data)
-    }
-}
-
-impl MallocSizeOf for CachedDisplayItem {
-    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.data.size_of(ops)
     }
 }
 
@@ -45,13 +38,13 @@ impl From<DisplayItemRef<'_, '_>> for CachedDisplayItem {
     }
 }
 
-#[derive(Clone, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct CacheEntry {
     items: Vec<CachedDisplayItem>,
     occupied: bool,
 }
 
-#[derive(Clone, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct DisplayItemCache {
     entries: Vec<CacheEntry>,
 }

@@ -21,8 +21,6 @@ use crate::visibility::{VisibilityState, PrimitiveVisibility};
  */
 
 // Information about the render task(s) for a given tile
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SurfaceTileDescriptor {
     /// Target render task for commands added to this tile. This is changed
     /// each time a sub-graph is encountered on this tile

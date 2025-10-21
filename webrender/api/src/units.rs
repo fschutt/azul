@@ -16,7 +16,7 @@ pub use app_units::Au;
 use euclid::{Length, Rect, Scale, Size2D, Transform3D, Translation2D};
 use euclid::{Point2D, Point3D, Vector2D, Vector3D, SideOffsets2D, Box2D};
 use euclid::HomogeneousVector;
-use peek_poke::PeekPoke;
+
 // local imports
 use crate::image::DirtyRect;
 
@@ -80,7 +80,7 @@ pub type RasterVector2D = Vector2D<f32, RasterPixel>;
 pub type RasterVector3D = Vector3D<f32, RasterPixel>;
 
 /// Geometry in a stacking context's local coordinate space (logical pixels).
-#[derive(Hash, Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, Ord, PartialOrd, Deserialize, Serialize, PeekPoke)]
+#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
 pub struct LayoutPixel;
 
 pub type LayoutRect = Box2D<f32, LayoutPixel>;
@@ -96,7 +96,7 @@ pub type LayoutIntPoint = Point2D<i32, LayoutPixel>;
 pub type LayoutIntSize = Size2D<i32, LayoutPixel>;
 
 /// Geometry in the document's coordinate space (logical pixels).
-#[derive(Hash, Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct WorldPixel;
 
 pub type WorldRect = Box2D<f32, WorldPixel>;

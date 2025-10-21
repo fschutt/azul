@@ -117,7 +117,6 @@ use crate::internal_types::{PlaneSplitterIndex, PlaneSplitAnchor, TextureSource}
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use crate::gpu_types::{UvRectKind, ZBufferId};
-use peek_poke::{PeekPoke, poke_into_vec, peek_from_slice, ensure_red_zone};
 use plane_split::{Clipper, Polygon};
 use crate::prim_store::{PrimitiveTemplateKind, PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
 use crate::prim_store::{ColorBindingStorage, ColorBindingIndex, PrimitiveScratchBuffer};
@@ -304,8 +303,6 @@ fn clampf(value: f32, low: f32, high: f32) -> f32 {
 
 /// An index into the prims array in a TileDescriptor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveDependencyIndex(pub u32);
 
 /// Information about the state of a binding.
@@ -318,9 +315,7 @@ pub struct BindingInfo<T> {
 }
 
 /// Information stored in a tile descriptor for a binding.
-#[derive(Debug, PartialEq, Clone, Copy, PeekPoke)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Binding<T> {
     Value(T),
     Binding(PropertyBindingId),
@@ -347,7 +342,6 @@ pub type OpacityBindingInfo = BindingInfo<f32>;
 pub type ColorBinding = Binding<ColorU>;
 pub type ColorBindingInfo = BindingInfo<ColorU>;
 
-#[derive(PeekPoke)]
 enum PrimitiveDependency {
     OpacityBinding {
         binding: OpacityBinding,
@@ -367,9 +361,7 @@ enum PrimitiveDependency {
 }
 
 /// A dependency for a transform is defined by the spatial node index + frame it was used
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PeekPoke, Default)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Default)]
 pub struct SpatialNodeKey {
     spatial_node_index: SpatialNodeIndex,
     frame_id: FrameId,
@@ -593,13 +585,9 @@ impl PrimitiveDependencyInfo {
 /// A stable ID for a given tile, to help debugging. These are also used
 /// as unique identifiers for tile surfaces when using a native compositor.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TileId(pub usize);
 
 /// Uniquely identifies a tile within a picture cache slice
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq)]
 pub struct TileKey {
     // Tile index (x,y)
@@ -629,8 +617,6 @@ pub enum SurfaceTextureDescriptor {
 /// into a texture cache handle (if appropriate) that can be used by the
 /// batching and compositing code in the renderer.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ResolvedSurfaceTexture {
     TextureCache {
         /// The texture ID to draw to.
@@ -695,8 +681,6 @@ impl TileSurface {
 /// Optional extra information returned by is_same when
 /// logging is enabled.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum CompareHelperResult<T> {
     /// Primitives match
     Equal,
@@ -722,8 +706,6 @@ pub enum CompareHelperResult<T> {
 /// since this is a hot path in the code, and keeping the data small
 /// is a performance win.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(u8)]
 pub enum PrimitiveCompareResult {
     /// Primitives match
@@ -744,8 +726,6 @@ pub enum PrimitiveCompareResult {
 
 /// Debugging information about why a tile was invalidated
 #[derive(Debug,Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum InvalidationReason {
     /// The background color changed
     BackgroundColor,
@@ -1055,64 +1035,49 @@ impl Tile {
         // Update the tile descriptor, used for tile comparison during scene swaps.
         let prim_index = PrimitiveDependencyIndex(self.current_descriptor.prims.len() as u32);
 
-        // Encode the deps for this primitive in the `dep_data` byte buffer
-        let dep_offset = self.current_descriptor.dep_data.len() as u32;
+        // Store dependencies directly in the dependencies vector (no serialization)
+        let dep_start_index = self.current_descriptor.dependencies.len() as u32;
         let mut dep_count = 0;
 
         for clip in &info.clips {
             dep_count += 1;
-            poke_into_vec(
-                &PrimitiveDependency::Clip {
-                    clip: *clip,
-                },
-                &mut self.current_descriptor.dep_data,
-            );
+            self.current_descriptor.dependencies.push(PrimitiveDependency::Clip {
+                clip: *clip,
+            });
         }
 
         for spatial_node_index in &info.spatial_nodes {
             dep_count += 1;
-            poke_into_vec(
-                &PrimitiveDependency::SpatialNode {
-                    index: *spatial_node_index,
-                },
-                &mut self.current_descriptor.dep_data,
-            );
+            self.current_descriptor.dependencies.push(PrimitiveDependency::SpatialNode {
+                index: *spatial_node_index,
+            });
         }
 
         for image in &info.images {
             dep_count += 1;
-            poke_into_vec(
-                &PrimitiveDependency::Image {
-                    image: *image,
-                },
-                &mut self.current_descriptor.dep_data,
-            );
+            self.current_descriptor.dependencies.push(PrimitiveDependency::Image {
+                image: *image,
+            });
         }
 
         for binding in &info.opacity_bindings {
             dep_count += 1;
-            poke_into_vec(
-                &PrimitiveDependency::OpacityBinding {
-                    binding: *binding,
-                },
-                &mut self.current_descriptor.dep_data,
-            );
+            self.current_descriptor.dependencies.push(PrimitiveDependency::OpacityBinding {
+                binding: *binding,
+            });
         }
 
         if let Some(ref binding) = info.color_binding {
             dep_count += 1;
-            poke_into_vec(
-                &PrimitiveDependency::ColorBinding {
-                    binding: *binding,
-                },
-                &mut self.current_descriptor.dep_data,
-            );
+            self.current_descriptor.dependencies.push(PrimitiveDependency::ColorBinding {
+                binding: *binding,
+            });
         }
 
         self.current_descriptor.prims.push(PrimitiveDescriptor {
             prim_uid: info.prim_uid,
             prim_clip_box,
-            dep_offset,
+            dep_start_index,
             dep_count,
         });
 
@@ -1128,9 +1093,6 @@ impl Tile {
         state: &mut TileUpdateDirtyState,
         frame_context: &FrameVisibilityContext,
     ) {
-        // Ensure peek-poke constraint is met, that `dep_data` is large enough
-        ensure_red_zone::<PrimitiveDependency>(&mut self.current_descriptor.dep_data);
-
         // Register the frame id of this tile with the spatial node comparer, to ensure
         // that it doesn't GC any spatial nodes from the comparer that are referenced
         // by this tile. Must be done before we early exit below, so that we retain
@@ -1372,13 +1334,12 @@ impl Tile {
 
 /// Defines a key that uniquely identifies a primitive instance.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveDescriptor {
     pub prim_uid: ItemUid,
     pub prim_clip_box: PictureBox2D,
-    // TODO(gw): These two fields could be packed as a u24/u8
-    pub dep_offset: u32,
+    /// Index into the dependencies vec where this primitive's dependencies start
+    pub dep_start_index: u32,
+    /// Number of dependencies for this primitive
     pub dep_count: u32,
 }
 
@@ -1413,9 +1374,6 @@ impl PartialEq for PrimitiveDescriptor {
 
 /// Uniquely describes the content of this tile, in a way that can be
 /// (reasonably) efficiently hashed and compared.
-#[cfg_attr(any(feature="capture",feature="replay"), derive(Clone))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TileDescriptor {
     /// List of primitive instance unique identifiers. The uid is guaranteed
     /// to uniquely describe the content of the primitive template, while
@@ -1429,15 +1387,15 @@ pub struct TileDescriptor {
     /// skipped if a tile is off-screen).
     last_updated_frame_id: FrameId,
 
-    /// Packed per-prim dependency information
-    dep_data: Vec<u8>,
+    /// Per-primitive dependency information (no longer serialized)
+    dependencies: Vec<PrimitiveDependency>,
 }
 
 impl TileDescriptor {
     fn new() -> Self {
         TileDescriptor {
             local_valid_rect: PictureRect::zero(),
-            dep_data: Vec::new(),
+            dependencies: Vec::new(),
             prims: Vec::new(),
             last_updated_frame_id: FrameId::INVALID,
         }
@@ -1468,7 +1426,7 @@ impl TileDescriptor {
     fn clear(&mut self) {
         self.local_valid_rect = PictureRect::zero();
         self.prims.clear();
-        self.dep_data.clear();
+        self.dependencies.clear();
     }
 }
 
@@ -1608,8 +1566,6 @@ pub struct ExternalNativeSurface {
 /// The key that identifies a tile cache instance. For now, it's simple the index of
 /// the slice as it was created during scene building.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SliceId(usize);
 
 impl SliceId {
@@ -1650,8 +1606,6 @@ pub struct TileCacheParams {
 
 /// Defines which sub-slice (effectively a z-index) a primitive exists on within
 /// a picture cache instance.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SubSliceIndex(u8);
 
@@ -3039,7 +2993,6 @@ impl TileCacheInstance {
         use crate::picture::SurfacePromotionFailure::*;
 
         // This primitive exists on the last element on the current surface stack.
-        profile_scope!("update_prim_dependencies");
         let prim_surface_index = surface_stack.last().unwrap().1;
         let prim_clip_chain = &prim_instance.vis.clip_chain;
 
@@ -3975,8 +3928,6 @@ impl PictureScratchBuffer {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SurfaceIndex(pub usize);
 
 /// Information about an offscreen surface. For now,
@@ -4173,7 +4124,6 @@ struct SurfaceAllocInfo {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct RasterConfig {
     /// How this picture should be composited into
     /// the parent surface.
@@ -4186,7 +4136,6 @@ pub struct RasterConfig {
 
 bitflags! {
     /// A set of flags describing why a picture may need a backing surface.
-    #[cfg_attr(feature = "capture", derive(Serialize))]
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct BlitReason: u32 {
         /// Mix-blend-mode on a child that requires isolation.
@@ -4204,7 +4153,6 @@ bitflags! {
 /// onto the target it belongs to.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum PictureCompositeMode {
     /// Apply CSS mix-blend-mode effect.
     MixBlend(MixBlendMode),
@@ -4733,7 +4681,6 @@ impl PictureCompositeMode {
 
 /// Enum value describing the place of a picture in a 3D context.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum Picture3DContext<C> {
     /// The picture is not a part of 3D context sub-hierarchy.
     Out,
@@ -4755,7 +4702,6 @@ pub enum Picture3DContext<C> {
 /// Information about a preserve-3D hierarchy child that has been plane-split
 /// and ordered according to the view direction.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct OrderedPictureChild {
     pub anchor: PlaneSplitAnchor,
     pub gpu_address: GpuCacheAddress,
@@ -4763,7 +4709,6 @@ pub struct OrderedPictureChild {
 
 bitflags! {
     /// A set of flags describing why a picture may need a backing surface.
-    #[cfg_attr(feature = "capture", derive(Serialize))]
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct ClusterFlags: u32 {
         /// Whether this cluster is visible when the position node is a backface.
@@ -4777,7 +4722,6 @@ bitflags! {
 
 /// Descriptor for a cluster of primitives. For now, this is quite basic but will be
 /// extended to handle more spatial clustering of primitives.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveCluster {
     /// The positioning node for this cluster.
     pub spatial_node_index: SpatialNodeIndex,
@@ -4844,7 +4788,6 @@ impl PrimitiveCluster {
 /// This ensures we can keep a list of primitives that
 /// are pictures, for a fast initial traversal of the picture
 /// tree without walking the instance list.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveList {
     /// List of primitives grouped into clusters.
     pub clusters: Vec<PrimitiveCluster>,
@@ -4974,7 +4917,6 @@ impl PrimitiveList {
 }
 
 bitflags! {
-    #[cfg_attr(feature = "capture", derive(Serialize))]
     /// Flags describing properties for a given PicturePrimitive
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct PictureFlags : u8 {
@@ -4989,7 +4931,6 @@ bitflags! {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PicturePrimitive {
     /// List of primitives, and associated info for this picture.
     pub prim_list: PrimitiveList,
@@ -5157,8 +5098,6 @@ impl PicturePrimitive {
         if !self.is_visible(frame_context.spatial_tree) {
             return None;
         }
-
-        profile_scope!("take_context");
 
         let surface_index = match self.raster_config {
             Some(ref raster_config) => raster_config.surface_index,
@@ -7050,9 +6989,7 @@ struct PrimitiveComparisonKey {
 }
 
 /// Information stored an image dependency
-#[derive(Debug, Copy, Clone, PartialEq, PeekPoke, Default)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct ImageDependency {
     pub key: ImageKey,
     pub generation: ImageGeneration,
@@ -7077,8 +7014,8 @@ struct DeferredDirtyTest {
 
 /// A helper struct to compare a primitive and all its sub-dependencies.
 struct PrimitiveComparer<'a> {
-    prev_data: &'a [u8],
-    curr_data: &'a [u8],
+    prev_dependencies: &'a [PrimitiveDependency],
+    curr_dependencies: &'a [PrimitiveDependency],
     prev_frame_id: FrameId,
     curr_frame_id: FrameId,
     resource_cache: &'a ResourceCache,
@@ -7097,8 +7034,8 @@ impl<'a> PrimitiveComparer<'a> {
         color_bindings: &'a FastHashMap<PropertyBindingId, ColorBindingInfo>,
     ) -> Self {
         PrimitiveComparer {
-            prev_data: &prev.dep_data,
-            curr_data: &curr.dep_data,
+            prev_dependencies: &prev.dependencies,
+            curr_dependencies: &curr.dependencies,
             prev_frame_id: prev.last_updated_frame_id,
             curr_frame_id: curr.last_updated_frame_id,
             resource_cache,
@@ -7124,19 +7061,19 @@ impl<'a> PrimitiveComparer<'a> {
             return PrimitiveCompareResult::Descriptor;
         }
 
-        let mut prev_dep_data = &self.prev_data[prev_desc.dep_offset as usize ..];
-        let mut curr_dep_data = &self.curr_data[curr_desc.dep_offset as usize ..];
-
-        let mut prev_dep = PrimitiveDependency::SpatialNode { index: SpatialNodeIndex::INVALID };
-        let mut curr_dep = PrimitiveDependency::SpatialNode { index: SpatialNodeIndex::INVALID };
-
         debug_assert_eq!(prev_desc.dep_count, curr_desc.dep_count);
 
-        for _ in 0 .. prev_desc.dep_count {
-            prev_dep_data = peek_from_slice(prev_dep_data, &mut prev_dep);
-            curr_dep_data = peek_from_slice(curr_dep_data, &mut curr_dep);
+        // Access dependencies directly from the vector (no deserialization needed)
+        let prev_start = prev_desc.dep_start_index as usize;
+        let prev_end = prev_start + prev_desc.dep_count as usize;
+        let curr_start = curr_desc.dep_start_index as usize;
+        let curr_end = curr_start + curr_desc.dep_count as usize;
 
-            match (&prev_dep, &curr_dep) {
+        let prev_deps = &self.prev_dependencies[prev_start..prev_end];
+        let curr_deps = &self.curr_dependencies[curr_start..curr_end];
+
+        for (prev_dep, curr_dep) in prev_deps.iter().zip(curr_deps.iter()) {
+            match (prev_dep, curr_dep) {
                 (PrimitiveDependency::Clip { clip: prev }, PrimitiveDependency::Clip { clip: curr }) => {
                     if prev != curr {
                         return PrimitiveCompareResult::Clip;
@@ -7202,22 +7139,15 @@ impl<'a> PrimitiveComparer<'a> {
 }
 
 /// Details for a node in a quadtree that tracks dirty rects for a tile.
-#[cfg_attr(any(feature="capture",feature="replay"), derive(Clone))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TileNodeKind {
     Leaf {
         /// The index buffer of primitives that affected this tile previous frame
-        #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
         prev_indices: Vec<PrimitiveDependencyIndex>,
         /// The index buffer of primitives that affect this tile on this frame
-        #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
         curr_indices: Vec<PrimitiveDependencyIndex>,
         /// A bitset of which of the last 64 frames have been dirty for this leaf.
-        #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
         dirty_tracker: u64,
         /// The number of frames since this node split or merged.
-        #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
         frames_since_modified: usize,
     },
     Node {
@@ -7234,9 +7164,6 @@ enum TileModification {
 }
 
 /// A node in the dirty rect tracking quadtree.
-#[cfg_attr(any(feature="capture",feature="replay"), derive(Clone))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TileNode {
     /// Leaf or internal node
     pub kind: TileNodeKind,

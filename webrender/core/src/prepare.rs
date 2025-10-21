@@ -55,14 +55,12 @@ pub fn prepare_primitives(
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     prim_instances: &mut Vec<PrimitiveInstance>,
 ) {
-    profile_scope!("prepare_primitives");
     let mut cmd_buffer_targets = Vec::new();
 
     for cluster in &mut prim_list.clusters {
         if !cluster.flags.contains(ClusterFlags::IS_VISIBLE) {
             continue;
         }
-        profile_scope!("cluster");
         pic_state.map_local_to_pic.set_target_spatial_node(
             cluster.spatial_node_index,
             frame_context.spatial_tree,
@@ -149,7 +147,6 @@ fn prepare_prim_for_render(
     prim_instances: &mut Vec<PrimitiveInstance>,
     targets: &[CommandBufferIndex],
 ) {
-    profile_scope!("prepare_prim_for_render");
 
     // If we have dependencies, we need to prepare them first, in order
     // to know the actual rect of this primitive.
@@ -343,7 +340,6 @@ fn prepare_interned_prim_for_render(
             return;
         }
         PrimitiveInstanceKind::LineDecoration { data_handle, ref mut render_task, .. } => {
-            profile_scope!("LineDecoration");
             let prim_data = &mut data_stores.line_decoration[*data_handle];
             let common_data = &mut prim_data.common;
             let line_dec_data = &mut prim_data.kind;
@@ -429,7 +425,6 @@ fn prepare_interned_prim_for_render(
             }
         }
         PrimitiveInstanceKind::TextRun { run_index, data_handle, .. } => {
-            profile_scope!("TextRun");
             let prim_data = &mut data_stores.text_run[*data_handle];
             let run = &mut store.text_runs[*run_index];
 
@@ -496,7 +491,6 @@ fn prepare_interned_prim_for_render(
             prim_data.update(frame_state);
         }
         PrimitiveInstanceKind::Clear { data_handle, .. } => {
-            profile_scope!("Clear");
             let prim_data = &mut data_stores.prim[*data_handle];
 
             prim_data.common.may_need_repetition = false;
@@ -506,7 +500,6 @@ fn prepare_interned_prim_for_render(
             prim_data.update(frame_state, frame_context.scene_properties);
         }
         PrimitiveInstanceKind::NormalBorder { data_handle, ref mut render_task_ids, .. } => {
-            profile_scope!("NormalBorder");
             let prim_data = &mut data_stores.normal_border[*data_handle];
             let common_data = &mut prim_data.common;
             let border_data = &mut prim_data.kind;
@@ -590,7 +583,6 @@ fn prepare_interned_prim_for_render(
                 .extend(handles);
         }
         PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
-            profile_scope!("ImageBorder");
             let prim_data = &mut data_stores.image_border[*data_handle];
 
             // TODO: get access to the ninepatch and to check whether we need support
@@ -604,7 +596,6 @@ fn prepare_interned_prim_for_render(
             );
         }
         PrimitiveInstanceKind::Rectangle { data_handle, segment_instance_index, color_binding_index, use_legacy_path, .. } => {
-            profile_scope!("Rectangle");
 
             if *use_legacy_path {
                 let prim_data = &mut data_stores.prim[*data_handle];
@@ -674,7 +665,6 @@ fn prepare_interned_prim_for_render(
             }
         }
         PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, .. } => {
-            profile_scope!("YuvImage");
             let prim_data = &mut data_stores.yuv_image[*data_handle];
             let common_data = &mut prim_data.common;
             let yuv_image_data = &mut prim_data.kind;
@@ -696,7 +686,6 @@ fn prepare_interned_prim_for_render(
             );
         }
         PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
-            profile_scope!("Image");
 
             let prim_data = &mut data_stores.image[*data_handle];
             let common_data = &mut prim_data.common;
@@ -725,7 +714,6 @@ fn prepare_interned_prim_for_render(
             );
         }
         PrimitiveInstanceKind::LinearGradient { data_handle, ref mut visible_tiles_range, .. } => {
-            profile_scope!("LinearGradient");
             let prim_data = &mut data_stores.linear_grad[*data_handle];
 
             // Update the template this instane references, which may refresh the GPU
@@ -789,7 +777,6 @@ fn prepare_interned_prim_for_render(
             return;
         }
         PrimitiveInstanceKind::CachedLinearGradient { data_handle, ref mut visible_tiles_range, .. } => {
-            profile_scope!("CachedLinearGradient");
             let prim_data = &mut data_stores.linear_grad[*data_handle];
             prim_data.common.may_need_repetition = prim_data.stretch_size.width < prim_data.common.prim_rect.width()
                 || prim_data.stretch_size.height < prim_data.common.prim_rect.height();
@@ -819,7 +806,6 @@ fn prepare_interned_prim_for_render(
             }
         }
         PrimitiveInstanceKind::RadialGradient { data_handle, ref mut visible_tiles_range, cached, .. } => {
-            profile_scope!("RadialGradient");
             let prim_data = &mut data_stores.radial_grad[*data_handle];
 
             if !*cached {
@@ -870,7 +856,6 @@ fn prepare_interned_prim_for_render(
             }
         }
         PrimitiveInstanceKind::ConicGradient { data_handle, ref mut visible_tiles_range, cached, .. } => {
-            profile_scope!("ConicGradient");
             let prim_data = &mut data_stores.conic_grad[*data_handle];
 
             if !*cached {
@@ -924,7 +909,6 @@ fn prepare_interned_prim_for_render(
             //           for gradient primitives.
         }
         PrimitiveInstanceKind::Picture { pic_index, .. } => {
-            profile_scope!("Picture");
             let pic = &mut store.pictures[pic_index.0];
 
             if prim_instance.vis.clip_chain.needs_mask {

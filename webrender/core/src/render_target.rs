@@ -40,8 +40,6 @@ const STYLE_MASK: i32 = 0x00FF_FF00;
 
 /// A tag used to identify the output format of a `RenderTarget`.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum RenderTargetKind {
     Color, // RGBA8
     Alpha, // R8
@@ -155,8 +153,6 @@ pub trait RenderTarget {
 ///
 /// Note that in some cases (like drop-shadows), we can depend on the output of
 /// a pass earlier than the immediately-preceding pass.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTargetList<T> {
     pub targets: FrameVec<T>,
 }
@@ -210,8 +206,6 @@ const NUM_PATTERNS: usize = crate::pattern::NUM_PATTERNS as usize;
 /// color output surface (RGBA8).
 ///
 /// See `RenderTarget`.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ColorRenderTarget {
     pub alpha_batch_containers: FrameVec<AlphaBatchContainer>,
     // List of blur operations to apply for this render target.
@@ -277,11 +271,9 @@ impl RenderTarget for ColorRenderTarget {
         cmd_buffers: &CommandBufferList,
         gpu_buffer_builder: &mut GpuBufferBuilder,
     ) {
-        profile_scope!("build");
         let mut merged_batches = AlphaBatchContainer::new(None, &ctx.frame_memory);
 
         for task_id in &self.alpha_tasks {
-            profile_scope!("alpha_task");
             let task = &render_tasks[*task_id];
 
             match task.kind {
@@ -367,7 +359,6 @@ impl RenderTarget for ColorRenderTarget {
         _: &ClipStore,
         transforms: &mut TransformPalette,
     ) {
-        profile_scope!("add_task");
         let task = &render_tasks[task_id];
 
         match task.kind {
@@ -517,8 +508,6 @@ impl RenderTarget for ColorRenderTarget {
 /// output surface (R8).
 ///
 /// See `RenderTarget`.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaRenderTarget {
     pub clip_batcher: ClipBatcher,
     // List of blur operations to apply for this render target.
@@ -565,7 +554,6 @@ impl RenderTarget for AlphaRenderTarget {
         clip_store: &ClipStore,
         transforms: &mut TransformPalette,
     ) {
-        profile_scope!("add_task");
         let task = &render_tasks[task_id];
         let target_rect = task.get_target_rect();
 
@@ -682,16 +670,12 @@ impl RenderTarget for AlphaRenderTarget {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, PartialEq, Clone)]
 pub struct ResolveOp {
     pub src_task_ids: Vec<RenderTaskId>,
     pub dest_task_id: RenderTaskId,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum PictureCacheTargetKind {
     Draw {
         alpha_batch_container: AlphaBatchContainer,
@@ -702,8 +686,6 @@ pub enum PictureCacheTargetKind {
     },
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureCacheTarget {
     pub surface: ResolvedSurfaceTexture,
     pub kind: PictureCacheTargetKind,
@@ -712,8 +694,6 @@ pub struct PictureCacheTarget {
     pub valid_rect: DeviceIntRect,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureCacheRenderTarget {
     pub target_kind: RenderTargetKind,
     pub horizontal_blurs: FastHashMap<TextureSource, FrameVec<BlurInstance>>,
@@ -751,7 +731,6 @@ impl TextureCacheRenderTarget {
         render_tasks: &RenderTaskGraph,
         memory: &FrameMemory,
     ) {
-        profile_scope!("add_task");
         let task_address = task_id.into();
 
         let task = &render_tasks[task_id];
@@ -1168,8 +1147,6 @@ fn add_svg_filter_node_instances(
 }
 
 // Information required to do a blit from a source to a target.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlitJob {
     pub source: RenderTaskId,
     // Normalized region within the source task to blit from
@@ -1177,8 +1154,6 @@ pub struct BlitJob {
     pub target_rect: DeviceIntRect,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct LineDecorationJob {

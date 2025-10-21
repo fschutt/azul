@@ -35,7 +35,6 @@ use crate::intern::DataStore;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::internal_types::{DebugOutput};
 use crate::internal_types::{FastHashMap, RenderedDocument, ResultMsg, FrameId, FrameStamp};
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use crate::picture::{PictureScratchBuffer, SliceId, TileCacheInstance, TileCacheParams, SurfaceInfo, RasterConfig};
 use crate::picture::{PicturePrimitive};
 use crate::prim_store::{PrimitiveScratchBuffer, PrimitiveInstance};
@@ -74,16 +73,12 @@ use time::precise_time_ns;
 use core::time::Duration;
 use crate::util::{Recycler, VecHelper, drain_filter};
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone)]
 pub struct DocumentView {
     scene: SceneView,
 }
 
 /// Some rendering parameters applying at the scene level.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone)]
 pub struct SceneView {
     pub device_rect: DeviceIntRect,
@@ -100,8 +95,6 @@ macro_rules! declare_data_stores {
     ( $( $name:ident : $ty:ty, )+ ) => {
         /// A collection of resources that are shared by clips, primitives
         /// between display lists.
-        #[cfg_attr(feature = "capture", derive(Serialize))]
-        #[cfg_attr(feature = "replay", derive(Deserialize))]
         #[derive(Default)]
         pub struct DataStores {
             $(
@@ -468,7 +461,6 @@ impl Document {
                 tx.send(self.shared_hit_tester.clone()).unwrap();
             }
             FrameMsg::SetScrollOffsets(id, offset) => {
-                profile_scope!("SetScrollOffset");
 
                 if self.set_scroll_offsets(id, offset) {
                     self.hit_tester_is_valid = false;
@@ -692,8 +684,6 @@ impl DocumentOps {
 static NEXT_NAMESPACE_ID: AtomicUsize = AtomicUsize::new(1);
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainRenderBackend {
     frame_config: FrameBuilderConfig,
     documents: FastHashMap<DocumentId, DocumentView>,
@@ -1160,7 +1150,6 @@ impl RenderBackend {
         msg: SceneBuilderResult,
         frame_counter: &mut u32,
     ) -> RenderBackendStatus {
-        profile_scope!("sb_msg");
 
         match msg {
             SceneBuilderResult::Transactions(txns, result_tx) => {
@@ -1437,7 +1426,6 @@ impl RenderBackend {
             if start_time.is_some() {
               Telemetry::record_time_to_frame_build(Duration::from_nanos(precise_time_ns() - start_time.unwrap()));
             }
-            profile_scope!("generate frame");
 
             *frame_counter += 1;
 

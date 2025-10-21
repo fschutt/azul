@@ -18,9 +18,7 @@ pub use radial::*;
 pub use conic::*;
 
 /// A hashable gradient stop that can be used in primitive keys.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GradientStopKey {
     pub offset: f32,
     pub color: ColorU,

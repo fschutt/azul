@@ -9,3 +9,6 @@ members = [
     "core", # core depends on css
     "css", # CSS parser, does not depend on anything else
 ]
+
+[workspace.dependencies]
+glean = "60.5.0"

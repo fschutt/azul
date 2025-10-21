@@ -5,15 +5,13 @@
 use api::{
     channel::crossbeam::{unbounded, Receiver, Sender},
     ColorU, FontInstanceData, FontInstanceFlags, FontInstanceKey, FontInstanceOptions,
-    FontInstancePlatformOptions, FontKey, FontRenderMode, FontSize, FontTemplate, FontVariation,
+    FontInstancePlatformOptions, FontKey, FontRenderMode, FontSize, FontVariation,
     GlyphDimensions, GlyphIndex, ImageFormat, SyntheticItalics,
 };
 use api::units::*;
-use crate::platform::font::FontContext;
-use crate::profiler::GlyphRasterizeProfiler;
+use crate::font::FontContext;
 use crate::types::{FastHashMap, FastHashSet};
-use euclid::approxeq::ApproxEq;
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
+use azul_layout::font::parsed::ParsedFont;
 use rayon::prelude::*;
 use rayon::ThreadPool;
 use smallvec::{smallvec, SmallVec};
@@ -25,7 +23,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 const GLYPH_BATCH_SIZE: usize = 32;
 
-#[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FontTransform {
@@ -75,9 +73,10 @@ impl FontTransform {
     }
 
     pub fn get_subpx_dir(&self) -> SubpixelDirection {
-        if self.skew_y.approx_eq(&0.0) {
+        const EPSILON: f32 = 0.001;
+        if self.skew_y.abs() < EPSILON {
             SubpixelDirection::Horizontal
-        } else if self.scale_x.approx_eq(&0.0) {
+        } else if self.scale_x.abs() < EPSILON {
             SubpixelDirection::Vertical
         } else {
             SubpixelDirection::Mixed
@@ -85,7 +84,7 @@ impl FontTransform {
     }
 }
 
-#[derive(Clone, Debug, Ord, PartialOrd, MallocSizeOf)]
+#[derive(Clone, Debug, Ord, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BaseFontInstance {
@@ -186,10 +185,6 @@ impl Deref for FontInstance {
     fn deref(&self) -> &BaseFontInstance {
         self.base.as_ref()
     }
-}
-
-impl MallocSizeOf for FontInstance {
-    fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize { 0 }
 }
 
 impl FontInstance {
@@ -392,12 +387,21 @@ impl GlyphRasterizer {
         }
     }
 
-    pub fn add_font(&mut self, font_key: FontKey, template: FontTemplate) {
+    pub fn add_font(&mut self, font_key: FontKey, parsed_font: Arc<ParsedFont>) {
         if self.fonts.insert(font_key) {
-            let template_arc = Arc::new(template);
             for context_mutex in self.font_contexts.iter() {
-                let mut context = context_mutex.lock().unwrap();
-                context.add_font(font_key, template_arc.clone());
+                let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
+                context.add_font(font_key, parsed_font.clone());
+            }
+        }
+    }
+
+    /// Adds a font from raw bytes (for backward compatibility).
+    pub fn add_font_from_bytes(&mut self, font_key: FontKey, bytes: &[u8], index: u32) {
+        if self.fonts.insert(font_key) {
+            for context_mutex in self.font_contexts.iter() {
+                let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
+                context.add_font_from_bytes(font_key, bytes, index);
             }
         }
     }
@@ -488,8 +492,8 @@ impl GlyphRasterizer {
         }
     }
 
-    pub fn resolve_glyphs<F, G>(&mut self, mut handle: F, _profile: &mut G)
-    where F: FnMut(GlyphRasterJob, bool), G: GlyphRasterizeProfiler
+    pub fn resolve_glyphs<F, G>(&mut self, mut handle: F)
+    where F: FnMut(GlyphRasterJob, bool)
     {
         let mut pending_glyph_requests = mem::take(&mut self.pending_glyph_requests);
         let use_workers = self.pending_glyph_count >= 8;
@@ -519,7 +523,7 @@ impl GlyphRasterizer {
         fonts_to_remove.retain(|font| self.fonts.remove(font));
         
         for context_mutex in self.font_contexts.iter() {
-            let mut context = context_mutex.lock().unwrap();
+            let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
             for font_key in &fonts_to_remove {
                 context.delete_font(font_key);
             }

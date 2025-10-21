@@ -98,7 +98,6 @@ use init::*;
 
 use euclid::{rect, Transform3D, Scale, default};
 use gleam::gl;
-use malloc_size_of::MallocSizeOfOps;
 
 #[cfg(feature = "replay")]
 use std::sync::Arc;
@@ -649,8 +648,6 @@ impl TextureResolver {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BlendMode {
     None,
     Alpha,
@@ -994,7 +991,6 @@ impl Renderer {
     ///
     /// Should be called before `render()`, as texture cache updates are done here.
     pub fn update(&mut self) {
-        profile_scope!("update");
 
         // Pull any pending results and return the most recent.
         while let Some(msg) = self.get_next_result_msg() {
@@ -1445,7 +1441,6 @@ impl Renderer {
         device_size: Option<DeviceIntSize>,
         buffer_age: usize,
     ) -> Result<RenderResults, Vec<RendererError>> {
-        profile_scope!("render");
         let mut results = RenderResults::default();
         self.profile.end_time_if_started(profiler::FRAME_SEND_TIME);
         self.profile.start_time(profiler::RENDERER_TIME);
@@ -1540,7 +1535,6 @@ impl Renderer {
                     frame.gpu_cache_frame_id, self.gpu_cache_frame_id);
 
                 {
-                    profile_scope!("gl.flush");
                     self.device.gl().flush();  // early start on gpu cache updates
                 }
 
@@ -1732,7 +1726,6 @@ impl Renderer {
             // compositing is enabled. This must be called after any debug / profiling compositor
             // surfaces have been drawn and added to the visual tree.
             if let CompositorKind::Native { .. } = self.current_compositor_kind {
-                profile_scope!("compositor.end_frame");
                 let compositor = self.compositor_config.compositor().unwrap();
                 compositor.end_frame(&mut self.device);
             }
@@ -1793,7 +1786,6 @@ impl Renderer {
     }
 
     fn update_texture_cache(&mut self) {
-        profile_scope!("update_texture_cache");
 
         let _gm = self.gpu_profiler.start_marker("texture cache update");
         let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
@@ -2674,8 +2666,6 @@ impl Renderer {
         render_tasks: &RenderTaskGraph,
         stats: &mut RendererStats,
     ) {
-        profile_scope!("draw_picture_cache_target");
-
         self.profile.inc(profiler::RENDERED_PICTURE_TILES);
         let _gm = self.gpu_profiler.start_marker("picture cache target");
         let framebuffer_kind = FramebufferKind::Other;
@@ -3492,7 +3482,6 @@ impl Renderer {
         projection: &default::Transform3D<f32>,
         stats: &mut RendererStats,
     ) {
-        profile_scope!("draw_color_target");
 
         self.profile.inc(profiler::COLOR_PASSES);
         let _gm = self.gpu_profiler.start_marker("color target");
@@ -3759,7 +3748,6 @@ impl Renderer {
         render_tasks: &RenderTaskGraph,
         stats: &mut RendererStats,
     ) {
-        profile_scope!("draw_alpha_target");
 
         self.profile.inc(profiler::ALPHA_PASSES);
         let _gm = self.gpu_profiler.start_marker("alpha target");
@@ -3935,7 +3923,6 @@ impl Renderer {
         render_tasks: &RenderTaskGraph,
         stats: &mut RendererStats,
     ) {
-        profile_scope!("draw_texture_cache_target");
 
         self.device.disable_depth();
         self.device.disable_depth_write();
@@ -4416,7 +4403,6 @@ impl Renderer {
     }
 
     fn bind_frame_data(&mut self, frame: &mut Frame) {
-        profile_scope!("bind_frame_data");
 
         let _timer = self.gpu_profiler.start_timer(GPU_TAG_SETUP_DATA);
 
@@ -4430,7 +4416,6 @@ impl Renderer {
     }
 
     fn update_native_surfaces(&mut self) {
-        profile_scope!("update_native_surfaces");
 
         match self.compositor_config {
             CompositorConfig::Native { ref mut compositor, .. } => {
@@ -4529,7 +4514,6 @@ impl Renderer {
         buffer_age: usize,
         results: &mut RenderResults,
     ) {
-        profile_scope!("draw_frame");
 
         // These markers seem to crash a lot on Android, see bug 1559834
         #[cfg(not(target_os = "android"))]
@@ -4644,7 +4628,6 @@ impl Renderer {
             #[cfg(not(target_os = "android"))]
             let _gm = self.gpu_profiler.start_marker(&format!("pass {}", _pass_index));
 
-            profile_scope!("offscreen target");
 
             // If this frame has already been drawn, then any texture
             // cache targets have already been updated and can be
@@ -4818,7 +4801,6 @@ impl Renderer {
                 &pass.textures_to_invalidate,
             );
             {
-                profile_scope!("gl.flush");
                 self.device.gl().flush();
             }
         }
@@ -4847,7 +4829,6 @@ impl Renderer {
         results: &mut RenderResults,
         present_mode: Option<PartialPresentMode>,
     ) {
-        profile_scope!("main target");
 
         if let Some(device_size) = device_size {
             results.stats.color_target_count += 1;
@@ -5567,8 +5548,6 @@ pub struct RenderResults {
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainTexture {
     data: String,
     size: DeviceIntSize,
@@ -5580,8 +5559,6 @@ struct PlainTexture {
 
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainRenderer {
     device_size: Option<DeviceIntSize>,
     gpu_cache: PlainTexture,
@@ -5590,8 +5567,6 @@ struct PlainRenderer {
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainExternalResources {
     images: Vec<ExternalCaptureImage>
 }

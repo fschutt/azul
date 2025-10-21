@@ -29,9 +29,7 @@ use std::{hash, ops::{Deref, DerefMut}};
 use super::{stops_and_min_alpha, GradientStopKey, GradientGpuBlockBuilder};
 
 /// Hashable conic gradient parameters, for use during prim interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConicGradientParams {
     pub angle: f32, // in radians
     pub start_offset: f32,
@@ -49,9 +47,7 @@ impl hash::Hash for ConicGradientParams {
 }
 
 /// Identifying key for a line decoration.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ConicGradientKey {
     pub common: PrimKeyCommonData,
     pub extend_mode: ExtendMode,
@@ -83,9 +79,7 @@ impl ConicGradientKey {
 
 impl InternDebug for ConicGradientKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct ConicGradientTemplate {
     pub common: PrimTemplateCommonData,
     pub extend_mode: ExtendMode,
@@ -326,9 +320,7 @@ impl ConicGradientTemplate {
 
 pub type ConicGradientDataHandle = InternHandle<ConicGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct ConicGradient {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
@@ -374,8 +366,6 @@ impl IsVisible for ConicGradient {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ConicGradientTask {
     pub extend_mode: ExtendMode,
     pub center: DevicePoint,
@@ -402,8 +392,6 @@ impl ConicGradientTask {
 /// The per-instance shader input of a radial gradient render task.
 ///
 /// Must match the RADIAL_GRADIENT instance description in renderer/vertex.rs.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct ConicGradientInstance {
@@ -418,8 +406,6 @@ pub struct ConicGradientInstance {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ConicGradientCacheKey {
     pub size: DeviceIntSize,
     pub center: PointKey,

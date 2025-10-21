@@ -9,55 +9,36 @@ build = "build.rs"
 edition = "2018"
 
 [features]
-default = ["static_freetype"]
-profiler = ["tracy-rs/enable_profiler"]
-capture = ["api/serialize", "ron", "serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/capture"]
-replay = ["api/deserialize", "ron", "serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/replay"]
-display_list_stats = ["api/display_list_stats"]
-serialize_program = ["serde", "webrender_build/serialize_program"]
-dynamic_freetype = ["glyph_rasterizer/dynamic_freetype"]
-static_freetype = ["glyph_rasterizer/static_freetype"]
-leak_checks = []
-gecko = ["firefox-on-glean", "glean", "glyph_rasterizer/gecko"]
-sw_compositor = ["swgl"]
+default = []
+# All profiling, capture/replay, and display_list_stats features removed for minimal build
 
 [build-dependencies]
 build-parallel = "0.1.2"
 glslopt = "0.1.11"
-webrender_build = { version = "0.0.2", path = "../webrender_build" }
+webrender_build = { path = "../build" }
 
 [dependencies]
 bincode = "1.0"
-bitflags = { version = "2", features = ["serde"] }
+bitflags = "2"
 byteorder = "1.0"
-euclid = { version = "0.22.10", features = ["serde"] }
+euclid = "0.22.10"
 fxhash = "0.2.1"
 gleam = "0.15.0"
 lazy_static = "1"
 log = "0.4"
-malloc_size_of_derive = "0.1"
 num-traits = "0.2"
 plane-split = "0.18"
-png = { optional = true, version = "0.16" }
 rayon = "1"
-ron = { optional = true, version = "0.8" }
-serde = { optional = true, version = "1.0", features = ["serde_derive"] }
 smallvec = "1"
 time = "0.1"
-api = { version = "0.62.0", path = "../webrender_api", package = "webrender_api" }
-webrender_build = { version = "0.0.2", path = "../webrender_build" }
-malloc_size_of = { version = "0.0.2", path = "../wr_malloc_size_of", package = "wr_malloc_size_of" }
-glyph_rasterizer = { version = "0.1.0", path = "../wr_azul_glyph_rasterizer", package = "wr_azul_glyph_rasterizer", default-features = false }
+api = { version = "0.62.0", path = "../api", package = "webrender_api" }
+webrender_build = { path = "../build" }
+glyph_rasterizer = { version = "0.1.0", path = "../glyph", package = "wr_azul_glyph_rasterizer", default-features = false }
 svg_fmt = "0.4"
-tracy-rs = "0.1.2"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
 etagere = "0.2.13"
-glean = { workspace = true, optional = true }
-firefox-on-glean = { version = "0.1.0", optional = true }
-swgl = { path = "../swgl", optional = true }
 topological-sort = "0.1"
-peek-poke = { version = "0.3", path = "../peek-poke" }
-allocator-api2 = { version = "0.2.18", features = ["alloc", "serde"] }
+allocator-api2 = { version = "0.2.18", features = ["alloc"] }
 
 [dev-dependencies]
 mozangle = "0.3.3"

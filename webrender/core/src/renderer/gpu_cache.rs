@@ -4,7 +4,6 @@
 
 use std::{cmp, mem};
 use api::units::*;
-use malloc_size_of::MallocSizeOfOps;
 use crate::{
     device::{CustomVAO, Device, DrawTarget, Program, ReadTarget, Texture, TextureFilter, UploadPBOPool, VBO},
     gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList},

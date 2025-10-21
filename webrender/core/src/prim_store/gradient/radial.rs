@@ -32,9 +32,7 @@ use super::{
 };
 
 /// Hashable radial gradient parameters, for use during prim interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RadialGradientParams {
     pub start_radius: f32,
     pub end_radius: f32,
@@ -52,9 +50,7 @@ impl hash::Hash for RadialGradientParams {
 }
 
 /// Identifying key for a radial gradient.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct RadialGradientKey {
     pub common: PrimKeyCommonData,
     pub extend_mode: ExtendMode,
@@ -86,9 +82,7 @@ impl RadialGradientKey {
 
 impl InternDebug for RadialGradientKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 #[derive(Debug)]
 pub struct RadialGradientTemplate {
     pub common: PrimTemplateCommonData,
@@ -292,9 +286,7 @@ impl RadialGradientTemplate {
 
 pub type RadialGradientDataHandle = InternHandle<RadialGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct RadialGradient {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
@@ -340,8 +332,6 @@ impl IsVisible for RadialGradient {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RadialGradientTask {
     pub extend_mode: ExtendMode,
     pub center: DevicePoint,
@@ -368,8 +358,6 @@ impl RadialGradientTask {
 /// The per-instance shader input of a radial gradient render task.
 ///
 /// Must match the RADIAL_GRADIENT instance description in renderer/vertex.rs.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct RadialGradientInstance {
@@ -384,8 +372,6 @@ pub struct RadialGradientInstance {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RadialGradientCacheKey {
     pub size: DeviceIntSize,
     pub center: PointKey,

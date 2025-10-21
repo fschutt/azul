@@ -56,9 +56,7 @@ impl<'l> RenderTaskAllocation<'l> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[derive(MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+
 pub struct RenderTaskId {
     pub index: u32,
 }
@@ -69,8 +67,6 @@ impl RenderTaskId {
     };
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PassId(usize);
 
@@ -83,8 +79,6 @@ impl PassId {
 /// An internal representation of a dynamic surface that tasks can be
 /// allocated into. Maintains some extra metadata about each surface
 /// during the graph build.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Surface {
     /// Whether this is a color or alpha render target
     kind: RenderTargetKind,
@@ -119,8 +113,6 @@ impl Surface {
 
 /// A sub-pass can draw to either a dynamic (temporary render target) surface,
 /// or a persistent surface (texture or picture cache).
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug)]
 pub enum SubPassSurface {
     /// A temporary (intermediate) surface.
@@ -140,8 +132,6 @@ pub enum SubPassSurface {
 }
 
 /// A subpass is a specific render target, and a list of tasks to draw to it.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SubPass {
     /// The surface this subpass draws to
     pub surface: SubPassSurface,
@@ -151,8 +141,6 @@ pub struct SubPass {
 
 /// A pass expresses dependencies between tasks. Each pass consists of a number
 /// of subpasses.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Pass {
     /// The tasks assigned to this render pass
     pub task_ids: FrameVec<RenderTaskId>,
@@ -165,8 +153,6 @@ pub struct Pass {
 
 /// The RenderTaskGraph is the immutable representation of the render task graph. It is
 /// built by the RenderTaskGraphBuilder, and is constructed once per frame.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskGraph {
     /// List of tasks added to the graph
     pub tasks: FrameVec<RenderTask>,
@@ -849,8 +835,6 @@ fn assign_free_pass(
 ///
 /// A render pass can have several render targets if there wasn't enough space in one
 /// target to do all of the rendering for that pass. See `RenderTargetList`.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderPass {
     /// The subpasses that describe targets being rendered to in this pass
     pub alpha: RenderTargetList<AlphaRenderTarget>,

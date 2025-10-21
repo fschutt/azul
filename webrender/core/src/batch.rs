@@ -52,8 +52,6 @@ const CLIP_RECTANGLE_TILE_SIZE: i32 = 128;
 const CLIP_RECTANGLE_AREA_THRESHOLD: f32 = (CLIP_RECTANGLE_TILE_SIZE * CLIP_RECTANGLE_TILE_SIZE * 4) as f32;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushBatchKind {
     Solid,
     Image(ImageBufferKind),
@@ -68,8 +66,6 @@ pub enum BrushBatchKind {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BatchKind {
     SplitComposite,
     TextRun(GlyphFormat),
@@ -79,8 +75,6 @@ pub enum BatchKind {
 
 /// Input textures for a primitive, without consideration of clip mask
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureSet {
     pub colors: [TextureSource; 3],
 }
@@ -127,8 +121,6 @@ impl TextureSource {
 /// Optional textures that can be used as a source in the shaders.
 /// Textures that are not used by the batch are equal to TextureId::invalid().
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BatchTextures {
     pub input: TextureSet,
     pub clip_mask: TextureSource,
@@ -228,8 +220,6 @@ impl BatchTextures {
 }
 
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BatchKey {
     pub kind: BatchKind,
     pub blend_mode: BlendMode,
@@ -499,8 +489,6 @@ impl OpaqueBatchList {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveBatch {
     pub key: BatchKey,
     pub instances: FrameVec<PrimitiveInstanceData>,
@@ -516,8 +504,6 @@ bitflags! {
     /// The goal is to let the renderer be optionally select more specialized
     /// versions of a shader if the batch doesn't require code certain code paths.
     /// Not all shaders necessarily implement all of these features.
-    #[cfg_attr(feature = "capture", derive(Serialize))]
-    #[cfg_attr(feature = "replay", derive(Deserialize))]
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct BatchFeatures: u8 {
         const ALPHA_PASS = 1 << 0;
@@ -544,8 +530,6 @@ impl PrimitiveBatch {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaBatchContainer {
     pub opaque_batches: FrameVec<PrimitiveBatch>,
     pub alpha_batches: FrameVec<PrimitiveBatch>,
@@ -3565,8 +3549,6 @@ impl BrushBatchParameters {
 }
 
 /// A list of clip instances to be drawn into a target.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipMaskInstanceList {
     pub mask_instances_fast: FrameVec<MaskInstance>,
     pub mask_instances_slow: FrameVec<MaskInstance>,
@@ -3593,8 +3575,6 @@ impl ClipMaskInstanceList {
 
 /// A list of clip instances to be drawn into a target.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipBatchList {
     /// Rectangle draws fill up the rectangles with rounded corners.
     pub slow_rectangles: FrameVec<ClipMaskInstanceRect>,
@@ -3614,8 +3594,6 @@ impl ClipBatchList {
 
 /// Batcher managing draw calls into the clip mask (in the RT cache).
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipBatcher {
     /// The first clip in each clip task. This will overwrite all pixels
     /// in the clip region, so we can skip doing a clear and write with

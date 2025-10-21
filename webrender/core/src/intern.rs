@@ -34,25 +34,20 @@
 //! cache invalidation.
 
 use crate::internal_types::FastHashMap;
-use malloc_size_of::MallocSizeOf;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::{ops, u64};
 use crate::util::VecHelper;
 use crate::profiler::TransactionProfile;
-use peek_poke::PeekPoke;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, Hash, MallocSizeOf, PartialEq, Eq)]
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 struct Epoch(u32);
 
 /// A list of updates to be applied to the data store,
 /// provided by the interning structure.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct UpdateList<S> {
     /// Items to insert.
     pub insertions: Vec<Insertion<S>>,
@@ -61,18 +56,14 @@ pub struct UpdateList<S> {
     pub removals: Vec<Removal>,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct Insertion<S> {
     pub index: usize,
     pub uid: ItemUid,
     pub value: S,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct Removal {
     pub index: usize,
     pub uid: ItemUid,
@@ -95,9 +86,7 @@ impl<S> UpdateList<S> {
 }
 
 /// A globally, unique identifier
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, Eq, Hash, MallocSizeOf, PartialEq, PeekPoke, Default)]
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Default)]
 pub struct ItemUid {
     uid: u64,
 }
@@ -109,9 +98,7 @@ impl ItemUid {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Hash, MallocSizeOf, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Handle<I> {
     index: u32,
     epoch: Epoch,
@@ -148,9 +135,7 @@ pub trait InternDebug {
 
 /// The data store lives in the frame builder thread. It
 /// contains a free-list of items for fast access.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct DataStore<I: Internable> {
     items: Vec<Option<I::StoreData>>,
 }
@@ -201,9 +186,7 @@ impl<I: Internable> ops::IndexMut<Handle<I>> for DataStore<I> {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 struct ItemDetails<I> {
     /// Frame that this element was first interned
     interned_epoch: Epoch,
@@ -231,9 +214,7 @@ impl<I> ItemDetails<I> {
 /// unique data structures. It also manages a free-list for
 /// the items in the data store, which is synchronized via
 /// an update list of additions / removals.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct Interner<I: Internable> {
     /// Uniquely map an interning key to a handle
     map: FastHashMap<I::Key, ItemDetails<I>>,

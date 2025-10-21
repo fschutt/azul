@@ -23,9 +23,7 @@
 use std::{fmt, u32};
 use std::marker::PhantomData;
 
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct Epoch(u32);
 
 impl Epoch {
@@ -42,9 +40,7 @@ impl Epoch {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct FreeListHandle<M> {
     index: u32,
     epoch: Epoch,
@@ -102,9 +98,7 @@ impl<M> PartialEq for WeakFreeListHandle<M> {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct WeakFreeListHandle<M> {
     index: u32,
     epoch: Epoch,
@@ -132,18 +126,14 @@ impl<M> WeakFreeListHandle<M> {
     }
 }
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 struct Slot<T> {
     next: Option<u32>,
     epoch: Epoch,
     value: Option<T>,
 }
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct FreeList<T, M> {
     slots: Vec<Slot<T>>,
     free_list_head: Option<u32>,

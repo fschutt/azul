@@ -6,7 +6,6 @@ use api::BorderRadius;
 use api::units::*;
 use euclid::{Point2D, Rect, Box2D, Size2D, Vector2D, point2, point3};
 use euclid::{default, Transform2D, Transform3D, Scale, approxeq::ApproxEq};
-use malloc_size_of::{MallocShallowSizeOf, MallocSizeOf, MallocSizeOfOps};
 use plane_split::{Clipper, Polygon};
 use std::{i32, f32, fmt, ptr};
 use std::borrow::Cow;
@@ -118,9 +117,7 @@ impl<T> VecHelper<T> for Vec<T> {
 //           but it's a bit tricky to do that now with the
 //           way the current spatial tree works.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, MallocSizeOf, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScaleOffset {
     pub scale: euclid::Vector2D<f32, euclid::UnknownUnit>,
     pub offset: euclid::Vector2D<f32, euclid::UnknownUnit>,
@@ -635,8 +632,6 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 #[repr(u32)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TransformedRectKind {
     AxisAligned = 0,
     Complex = 1,
@@ -1001,9 +996,7 @@ impl<U> MaxRect for Box2D<f32, U> {
 
 /// An enum that tries to avoid expensive transformation matrix calculations
 /// when possible when dealing with non-perspective axis-aligned transformations.
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub enum FastTransform<Src, Dst> {
     /// A simple offset, which can be used without doing any matrix math.
     Offset(Vector2D<f32, Src>),
@@ -1443,8 +1436,6 @@ impl Default for Preallocator {
 /// to the Arc-ed resource, and measures the buffer as if it were an owned pointer.
 /// The programmer should ensure that there is at most one PrimaryArc for a given
 /// underlying ArcInner.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PrimaryArc<T>(pub Arc<T>);
 

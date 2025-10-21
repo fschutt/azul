@@ -33,8 +33,6 @@ use crate::spatial_tree::SpatialNodeIndex;
 use crate::image_tiling;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct VisibleImageTile {
     pub src_color: RenderTaskId,
     pub edge_flags: EdgeAaSegmentMask,
@@ -45,8 +43,6 @@ pub struct VisibleImageTile {
 // Key that identifies a unique (partial) image that is being
 // stored in the render task cache.
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ImageCacheKey {
     pub request: ImageRequest,
     pub texel_rect: Option<DeviceIntRect>,
@@ -65,7 +61,6 @@ pub struct ImageCacheKey {
 ///     now to reduce the number of changes, and because image
 ///     tiling is very rare on real pages.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ImageInstance {
     pub segment_instance_index: SegmentInstanceIndex,
     pub tight_local_clip_rect: LayoutRect,
@@ -74,9 +69,7 @@ pub struct ImageInstance {
     pub normalized_uvs: bool,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Image {
     pub key: ApiImageKey,
     pub stretch_size: SizeKey,
@@ -102,9 +95,7 @@ impl ImageKey {
 
 impl InternDebug for ImageKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 pub struct ImageData {
     pub key: ApiImageKey,
     pub stretch_size: LayoutSize,
@@ -486,9 +477,7 @@ impl IsVisible for Image {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct YuvImage {
     pub color_depth: ColorDepth,
     pub yuv_key: [ApiImageKey; 3],
@@ -514,9 +503,7 @@ impl YuvImageKey {
 
 impl InternDebug for YuvImageKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct YuvImageData {
     pub color_depth: ColorDepth,
     pub yuv_key: [ApiImageKey; 3],

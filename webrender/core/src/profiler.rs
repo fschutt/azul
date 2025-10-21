@@ -1562,6 +1562,11 @@ macro_rules! profile_marker {
     };
 }
 
+/// Empty macro for profile_scope! since profiling is disabled
+macro_rules! profile_scope {
+    ($string:expr) => {};
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuProfileTag {
     pub label: &'static str,

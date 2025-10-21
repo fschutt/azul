@@ -6,7 +6,6 @@ use api::{BuiltDisplayList, DisplayListWithCache, ColorF, DynamicProperties, Epo
 use api::{PipelineId, PropertyBinding, PropertyBindingId, PropertyValue, MixBlendMode, StackingContext};
 use api::units::*;
 use api::channel::Sender;
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use crate::render_api::MemoryReport;
 use crate::composite::CompositorKind;
 use crate::clip::{ClipStore, ClipTree};
@@ -23,8 +22,6 @@ use std::sync::Arc;
 /// Stores a map of the animated property bindings for the current display list. These
 /// can be used to animate the transform and/or opacity of a display list without
 /// re-submitting the display list itself.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SceneProperties {
     transform_properties: FastHashMap<PropertyBindingId, LayoutTransform>,
     float_properties: FastHashMap<PropertyBindingId, f32>,
@@ -170,16 +167,12 @@ impl SceneProperties {
 }
 
 /// A representation of the layout within the display port for a given document or iframe.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
 pub struct ScenePipeline {
     pub display_list: DisplayListWithCache,
 }
 
 /// A complete representation of the layout bundling visible pipelines together.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,

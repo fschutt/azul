@@ -10,16 +10,12 @@ use std::sync::Arc;
 use crate::texture_cache::{EvictionNotice, TextureCache};
 use crate::texture_cache::TextureCacheHandle;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone, Debug)]
 pub struct CachedGlyphInfo {
     pub format: GlyphFormat,
     pub texture_cache_handle: TextureCacheHandle,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum GlyphCacheEntry {
     // A glyph that has been successfully rasterized.
     Cached(CachedGlyphInfo),
@@ -43,22 +39,17 @@ impl GlyphCacheEntry {
 }
 
 #[allow(dead_code)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
 pub enum CachedGlyphData {
     Memory(Arc<Vec<u8>>),
     Gpu,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Default)]
 pub struct GlyphKeyCacheInfo {
     eviction_notice: EvictionNotice,
     #[cfg(debug_assertions)]
     #[allow(dead_code)]
-    #[cfg_attr(feature = "replay", serde(default))]
     last_frame_used: FrameId,
 }
 
@@ -86,8 +77,6 @@ impl GlyphKeyCache {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GlyphCache {
     glyph_key_caches: FastHashMap<FontInstance, GlyphKeyCache>,
     current_frame: FrameId,
@@ -198,7 +187,6 @@ impl GlyphCache {
         texture_cache: &mut TextureCache,
         glyph_rasterizer: &mut GlyphRasterizer,
     ) {
-        profile_scope!("begin_frame");
         self.current_frame = stamp.frame_id();
         self.clear_evicted(texture_cache);
         // Clearing evicted glyphs and pruning excess usage might have produced empty caches,

@@ -18,11 +18,7 @@ use crate::freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 
 
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum PictureCacheEntryMarker {}
-
-malloc_size_of::malloc_size_of_is_0!(PictureCacheEntryMarker);
 
 pub type PictureCacheTextureHandle = WeakFreeListHandle<PictureCacheEntryMarker>;
 
@@ -32,8 +28,6 @@ use std::cmp;
 // cache. This is stored for each item whether it's in the shared
 // cache or a standalone texture.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureCacheEntry {
     /// Size of the requested tile.
     pub size: DeviceIntSize,
@@ -64,8 +58,6 @@ impl PictureCacheEntry {
 }
 
 /// The textures used to hold picture cache tiles.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PictureTexture {
     texture_id: CacheTextureId,
     size: DeviceIntSize,
@@ -74,8 +66,6 @@ struct PictureTexture {
 }
 
 /// The textures used to hold picture cache tiles.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureTextures {
     /// Current list of textures in the pool
     textures: Vec<PictureTexture>,

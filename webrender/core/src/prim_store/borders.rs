@@ -23,9 +23,7 @@ use crate::render_task_graph::RenderTaskId;
 
 use super::storage;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct NormalBorderPrim {
     pub border: NormalBorderAu,
     pub widths: LayoutSideOffsetsAu,
@@ -47,9 +45,7 @@ impl NormalBorderKey {
 
 impl intern::InternDebug for NormalBorderKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct NormalBorderData {
     pub brush_segments: Vec<BrushSegment>,
     pub border_segments: Vec<BorderSegmentInfo>,
@@ -197,11 +193,8 @@ impl IsVisible for NormalBorderPrim {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ImageBorder {
-    #[ignore_malloc_size_of = "Arc"]
     pub request: ImageRequest,
     pub nine_patch: NinePatchDescriptor,
 }
@@ -223,11 +216,8 @@ impl ImageBorderKey {
 impl intern::InternDebug for ImageBorderKey {}
 
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct ImageBorderData {
-    #[ignore_malloc_size_of = "Arc"]
     pub request: ImageRequest,
     pub brush_segments: Vec<BrushSegment>,
     pub src_color: Option<RenderTaskId>,

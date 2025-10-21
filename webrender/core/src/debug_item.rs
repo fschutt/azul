@@ -4,8 +4,6 @@
 
 use api::{units::*, ColorF};
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum DebugItem {
     Text {
         msg: String,
@@ -19,7 +17,6 @@ pub enum DebugItem {
     },
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct DebugMessage {
     pub msg: String,
     pub timestamp: u64,

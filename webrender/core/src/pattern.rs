@@ -7,8 +7,6 @@ use api::{units::DeviceRect, ColorF};
 use crate::{clip::ClipStore, render_task_graph::{RenderTaskGraphBuilder, RenderTaskId}, renderer::GpuBufferBuilder, scene::SceneProperties, spatial_tree::SpatialTree};
 
 #[repr(u32)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PatternKind {
     ColorOrTexture = 0,
@@ -31,8 +29,6 @@ impl PatternKind {
 /// A 32bit payload used as input for the pattern-specific logic in the shader.
 ///
 /// Patterns typically use it as a GpuBuffer offset to fetch their data.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PatternShaderInput(pub i32, pub i32);
 
@@ -42,8 +38,6 @@ impl Default for PatternShaderInput {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PatternTextureInput {
     pub task_id: RenderTaskId,
@@ -98,7 +92,6 @@ pub trait PatternBuilder {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Clone, Debug)]
 pub struct Pattern {
     pub kind: PatternKind,

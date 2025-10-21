@@ -34,9 +34,7 @@ use std::mem::swap;
 pub const MAX_CACHED_SIZE: f32 = 1024.0;
 
 /// Identifying key for a linear gradient.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct LinearGradientKey {
     pub common: PrimKeyCommonData,
     pub extend_mode: ExtendMode,
@@ -74,9 +72,7 @@ impl LinearGradientKey {
 
 impl InternDebug for LinearGradientKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 pub struct LinearGradientTemplate {
     pub common: PrimTemplateCommonData,
     pub extend_mode: ExtendMode,
@@ -583,9 +579,7 @@ impl LinearGradientTemplate {
 
 pub type LinearGradientDataHandle = InternHandle<LinearGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct LinearGradient {
     pub extend_mode: ExtendMode,
     pub start_point: PointKey,
@@ -640,23 +634,19 @@ impl IsVisible for LinearGradient {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct LinearGradientPrimitive {
     pub cache_segments: Vec<CachedGradientSegment>,
     pub visible_tiles_range: GradientTileRange,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct CachedGradientSegment {
     pub render_task: RenderTaskId,
     pub local_rect: LayoutRect,
 }
 
 
-#[derive(Copy, Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct FastLinearGradientTask {
     pub color0: ColorU,
     pub color1: ColorU,
@@ -682,8 +672,6 @@ pub type FastLinearGradientCacheKey = FastLinearGradientTask;
 /// The per-instance shader input of a fast-path linear gradient render task.
 ///
 /// Must match the FAST_LINEAR_GRADIENT instance description in renderer/vertex.rs.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct FastLinearGradientInstance {
@@ -694,8 +682,6 @@ pub struct FastLinearGradientInstance {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct LinearGradientTask {
     pub start: DevicePoint,
     pub end: DevicePoint,
@@ -720,8 +706,6 @@ impl LinearGradientTask {
 /// The per-instance shader input of a linear gradient render task.
 ///
 /// Must match the LINEAR_GRADIENT instance description in renderer/vertex.rs.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct LinearGradientInstance {
@@ -734,8 +718,6 @@ pub struct LinearGradientInstance {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct LinearGradientCacheKey {
     pub size: DeviceIntSize,
     pub start: PointKey,

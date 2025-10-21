@@ -37,12 +37,9 @@ use webrender_build::shader::{
     ProgramSourceDigest, ShaderKind, ShaderVersion, build_shader_main_string,
     build_shader_prefix_string, do_build_shader_string, shader_source_from_file,
 };
-use malloc_size_of::MallocSizeOfOps;
 
 /// Sequence number for frames, as tracked by the device layer.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuFrameId(usize);
 
 impl GpuFrameId {
@@ -73,8 +70,6 @@ pub enum DepthFunction {
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TextureFilter {
     Nearest,
     Linear,
@@ -83,8 +78,6 @@ pub enum TextureFilter {
 
 /// A structure defining a particular workflow of texture transfers.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureFormatPair<T> {
     /// Format the GPU natively stores texels in.
     pub internal: T,
@@ -382,7 +375,6 @@ impl<T> Drop for VBO<T> {
     }
 }
 
-#[cfg_attr(feature = "replay", derive(Clone))]
 #[derive(Debug)]
 pub struct ExternalTexture {
     id: gl::GLuint,
@@ -2414,7 +2406,6 @@ impl Device {
         program: &mut Program,
         descriptor: &VertexDescriptor,
     ) -> Result<(), ShaderError> {
-        profile_scope!("compile shader");
 
         let _guard = CrashAnnotatorGuard::new(
             &self.crash_annotator,

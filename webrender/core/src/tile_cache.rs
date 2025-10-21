@@ -645,8 +645,6 @@ fn create_tile_cache(
 
 /// Debug information about a set of picture cache slices, exposed via RenderResults
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureCacheDebugInfo {
     pub slices: FastHashMap<usize, SliceDebugInfo>,
 }
@@ -673,8 +671,6 @@ impl Default for PictureCacheDebugInfo {
 
 /// Debug information about a set of picture cache tiles, exposed via RenderResults
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SliceDebugInfo {
     pub tiles: FastHashMap<TileOffset, TileDebugInfo>,
 }
@@ -695,8 +691,6 @@ impl SliceDebugInfo {
 
 /// Debug information about a tile that was dirty and was rasterized
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct DirtyTileDebugInfo {
     pub local_valid_rect: PictureRect,
     pub local_dirty_rect: PictureRect,
@@ -704,8 +698,6 @@ pub struct DirtyTileDebugInfo {
 
 /// Debug information about the state of a tile
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TileDebugInfo {
     /// Tile was occluded by a tile in front of it
     Occluded,

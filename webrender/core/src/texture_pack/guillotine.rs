@@ -31,26 +31,18 @@ impl FreeListBin {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FreeRectSlice(pub u32);
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct FreeRect {
     slice: FreeRectSlice,
     rect: DeviceIntRect,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct FreeRectSize {
     width: i16,
     height: i16,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Bin {
     // Store sizes with fewer bits per item and in a separate array to speed up
     // the search.
@@ -69,8 +61,6 @@ struct Bin {
 ///
 /// Note: the allocations are spread across multiple textures, and also are binned
 /// orthogonally in order to speed up the search.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GuillotineAllocator {
     bins: [Bin; NUM_BINS],
 }

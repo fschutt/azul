@@ -6,8 +6,6 @@ use std::{ops, marker::PhantomData, u32};
 use crate::util::Recycler;
 
 #[derive(Debug, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Index<T>(u32, PhantomData<T>);
 
 // We explicitly implement Copy + Clone instead of using #[derive(Copy, Clone)]
@@ -40,7 +38,6 @@ pub struct OpenRange<T> {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct Range<T> {
     pub start: Index<T>,
     pub end: Index<T>,
@@ -70,7 +67,6 @@ impl<T> Range<T> {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct Storage<T> {
     data: Vec<T>,
 }

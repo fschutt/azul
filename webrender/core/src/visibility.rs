@@ -72,7 +72,6 @@ bitflags! {
     /// are treated during batching.
     // TODO(gw): We should also move `is_compositor_surface` to be part of
     //           this flags struct.
-    #[cfg_attr(feature = "capture", derive(Serialize))]
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct PrimitiveVisibilityFlags: u8 {
         /// Implies that this primitive covers the entire picture cache slice,
@@ -83,7 +82,6 @@ bitflags! {
 
 /// Contains the current state of the primitive's visibility.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum VisibilityState {
     /// Uninitialized - this should never be encountered after prim reset
     Unset,
@@ -106,7 +104,6 @@ pub enum VisibilityState {
 /// Information stored for a visible primitive about the visible
 /// rect and associated clip information.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveVisibility {
     /// The clip chain instance that was built for this primitive.
     pub clip_chain: ClipChainInstance,
@@ -194,7 +191,6 @@ pub fn update_prim_visibility(
     );
 
     for cluster in &pic.prim_list.clusters {
-        profile_scope!("cluster");
 
         // Each prim instance must have reset called each frame, to clear
         // indices into various scratch buffers. If this doesn't occur,

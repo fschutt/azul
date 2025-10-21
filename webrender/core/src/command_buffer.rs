@@ -9,8 +9,6 @@ use crate::gpu_types::{QuadSegment, TransformPaletteId};
 use crate::segment::EdgeAaSegmentMask;
 
 /// A tightly packed command stored in a command buffer
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct Command(u32);
 
@@ -70,8 +68,6 @@ impl Command {
 bitflags! {
     /// Flags related to quad primitives
     #[repr(transparent)]
-    #[cfg_attr(feature = "capture", derive(Serialize))]
-    #[cfg_attr(feature = "replay", derive(Deserialize))]
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct QuadFlags : u8 {
         const IS_OPAQUE = 1 << 0;
@@ -96,8 +92,6 @@ bitflags! {
 bitflags! {
     /// Defines the space that a quad primitive is drawn in
     #[repr(transparent)]
-    #[cfg_attr(feature = "capture", derive(Serialize))]
-    #[cfg_attr(feature = "replay", derive(Deserialize))]
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct MaskFlags : i32 {
         const PRIM_SPACE = 1 << 0;
@@ -105,7 +99,6 @@ bitflags! {
 }
 
 /// The unpacked equivalent to a `Command`.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum PrimitiveCommand {
     Simple {
         prim_instance_index: PrimitiveInstanceIndex,
@@ -185,8 +178,6 @@ impl PrimitiveCommand {
 
 
 /// A list of commands describing how to draw a primitive list.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CommandBuffer {
     /// The encoded drawing commands.
     commands: Vec<Command>,
@@ -353,8 +344,6 @@ impl CommandBuffer {
 
 /// Abstracts whether a command buffer is being built for a tiled (picture cache)
 /// or simple (child surface).
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum CommandBufferBuilderKind {
     Tiled {
         // TODO(gw): It might be worth storing this as a 2d-array instead
@@ -371,8 +360,6 @@ pub enum CommandBufferBuilderKind {
     Invalid,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CommandBufferBuilder {
     pub kind: CommandBufferBuilderKind,
 
@@ -435,8 +422,6 @@ impl CommandBufferBuilder {
 }
 
 // Index into a command buffer stored in a `CommandBufferList`.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct CommandBufferIndex(pub u32);
 

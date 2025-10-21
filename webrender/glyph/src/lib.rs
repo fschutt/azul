@@ -32,25 +32,36 @@
 //!   on native OS libraries. The `gamma_lut` module is included for API compatibility
 //!   but its pre-blending logic is not utilized by the rasterization backend.
 
-mod rasterizer;
-mod types;
-mod gamma_lut;
-pub mod profiler;
+pub mod font;
+pub mod rasterizer;
+pub mod types;
 
+pub use font::*;
 pub use rasterizer::*;
 pub use types::*;
-pub use gamma_lut::*;
 
-#[macro_use]
-extern crate malloc_size_of_derive;
+// Re-exports for compatibility with WebRender core
+use std::sync::atomic::AtomicBool;
 
-/// The platform module contains the font rasterization backend.
-/// In this crate, there is only one backend: the pure-Rust "azul" implementation.
-pub mod platform {
-    /// The `azul` module provides the font context using `azul-layout` and `tiny-skia`.
-    pub mod azul {
-        pub mod font;
+/// Debug flag for glyph flashing (compatibility stub)
+pub static GLYPH_FLASHING: AtomicBool = AtomicBool::new(false);
+
+/// Maximum font size that can be rasterized
+pub const FONT_SIZE_LIMIT: f32 = 320.0;
+
+/// Profiler module (compatibility stub)
+pub mod profiler {
+    pub trait GlyphRasterizeProfiler: Send {
+        fn start_time(&mut self, _label: &str) {}
+        fn end_time(&mut self, _label: &str) {}
     }
-    /// Re-export the `azul` backend as the default `font` module for API compatibility.
-    pub use crate::platform::azul::font;
+    
+    // Empty implementation for when profiling is not needed
+    impl GlyphRasterizeProfiler for () {}
 }
+
+/// Shared font resources (compatibility type alias)
+pub type SharedFontResources = ();
+
+/// Glyph raster thread (compatibility type alias) 
+pub type GlyphRasterThread = ();

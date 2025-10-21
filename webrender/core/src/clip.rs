@@ -117,9 +117,7 @@ use euclid::approxeq::ApproxEq;
 use std::{iter, ops, u32, mem};
 
 /// A (non-leaf) node inside a clip-tree
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct ClipTreeNode {
     pub handle: ClipDataHandle,
     pub parent: ClipNodeId,
@@ -132,9 +130,7 @@ pub struct ClipTreeNode {
 
 /// A leaf node in a clip-tree. Any primitive that is clipped will have a handle to
 /// a clip-tree leaf.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct ClipTreeLeaf {
     pub node_id: ClipNodeId,
 
@@ -146,9 +142,7 @@ pub struct ClipTreeLeaf {
 }
 
 /// ID for a ClipTreeNode
-#[derive(Debug, Copy, Clone, PartialEq, MallocSizeOf, Eq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ClipNodeId(u32);
 
 impl ClipNodeId {
@@ -156,14 +150,10 @@ impl ClipNodeId {
 }
 
 /// ID for a ClipTreeLeaf
-#[derive(Debug, Copy, Clone, PartialEq, MallocSizeOf, Eq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ClipLeafId(u32);
 
 /// A clip-tree built during scene building and used during frame-building to apply clips to primitives.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipTree {
     nodes: Vec<ClipTreeNode>,
     leaves: Vec<ClipTreeLeaf>,
@@ -385,15 +375,11 @@ impl ClipTree {
 /// Represents a clip-chain as defined by the public API that we decompose in to
 /// the clip-tree. In future, we would like to remove this and have Gecko directly
 /// build the clip-tree.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipChain {
     parent: Option<usize>,
     clips: Vec<ClipDataHandle>,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipStackEntry {
     /// Cache the previous clip-chain build, since this is a common case
     last_clip_chain_cache: Option<(ClipChainId, ClipNodeId)>,
@@ -406,8 +392,6 @@ pub struct ClipStackEntry {
 }
 
 /// Used by the scene builder to build the clip-tree that is part of the built scene.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipTreeBuilder {
     /// Clips defined by the display list
     clip_map: FastHashMap<ClipId, ClipDataHandle>,
@@ -844,7 +828,7 @@ impl ClipTreeBuilder {
 
 // Type definitions for interning clip nodes.
 
-#[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]
 pub enum ClipIntern {}
 
@@ -853,9 +837,7 @@ pub type ClipDataHandle = intern::Handle<ClipIntern>;
 
 /// Helper to identify simple clips (normal rects) from other kinds of clips,
 /// which can often be handled via fast code paths.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf)]
+#[derive(Debug, Copy, Clone)]
 pub enum ClipNodeKind {
     /// A normal clip rectangle, with Clip mode.
     Rectangle,
@@ -880,9 +862,7 @@ enum ClipResult {
 // that control where the GPU data for this clip source
 // can be found.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct ClipNode {
     pub item: ClipItem,
 }
@@ -931,9 +911,7 @@ impl From<ClipItemKey> for ClipNode {
 }
 
 // Flags that are attached to instances of clip nodes.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, MallocSizeOf)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub struct ClipNodeFlags(u8);
 
 bitflags! {
@@ -960,9 +938,7 @@ impl core::fmt::Debug for ClipNodeFlags {
 // an index to the node data itself, as well as
 // some flags describing how this clip node instance
 // is positioned.
-#[derive(Debug, Clone, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone)]
 pub struct ClipNodeInstance {
     pub handle: ClipDataHandle,
     pub flags: ClipNodeFlags,
@@ -978,8 +954,6 @@ impl ClipNodeInstance {
 // A range of clip node instances that were found by
 // building a clip chain instance.
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipNodeRange {
     pub first: u32,
     pub count: u32,
@@ -1003,8 +977,7 @@ impl ClipNodeRange {
 //  separate arrays for matrices
 //  cache and only build as needed.
 //TODO: merge with `CoordinateSpaceMapping`?
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[derive(Debug)]
 pub enum ClipSpaceConversion {
     Local,
     ScaleOffset(ScaleOffset),
@@ -1056,8 +1029,7 @@ impl ClipSpaceConversion {
 
 // Temporary information that is cached and reused
 // during building of a clip chain instance.
-#[derive(MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+
 struct ClipNodeInfo {
     conversion: ClipSpaceConversion,
     handle: ClipDataHandle,
@@ -1232,8 +1204,7 @@ pub struct ClipStoreScratchBuffer {
 }
 
 /// The main clipping public interface that other modules access.
-#[derive(MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+
 pub struct ClipStore {
     pub clip_node_instances: Vec<ClipNodeInstance>,
     mask_tiles: Vec<VisibleMaskImageTile>,
@@ -1246,7 +1217,6 @@ pub struct ClipStore {
 // A clip chain instance is what gets built for a given clip
 // chain id + local primitive region + positioning node.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipChainInstance {
     pub clips_range: ClipNodeRange,
     // Combined clip rect for clips that are in the
@@ -1483,7 +1453,6 @@ impl ClipStore {
             Some(rect) => rect,
             None => return None,
         };
-        profile_scope!("build_clip_chain_instance");
 
         let local_bounding_rect = local_prim_rect.intersection(&local_clip_rect)?;
         let mut pic_coverage_rect = prim_to_pic_mapper.map(&local_bounding_rect)?;
@@ -1633,9 +1602,7 @@ impl Default for ClipStore {
 // the uploaded GPU cache handle to be retained between display lists.
 // TODO(gw): Maybe we should consider constructing these directly
 //           in the DL builder?
-#[derive(Copy, Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub enum ClipItemKeyKind {
     Rectangle(RectangleKey, ClipMode),
     RoundedRectangle(RectangleKey, BorderRadiusAu, ClipMode),
@@ -1706,18 +1673,14 @@ impl ClipItemKeyKind {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ClipItemKey {
     pub kind: ClipItemKeyKind,
     pub spatial_node_index: SpatialNodeIndex,
 }
 
 /// The data available about an interned clip node during scene building
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct ClipInternData {
     pub key: ClipItemKey,
 }
@@ -1731,9 +1694,7 @@ impl intern::Internable for ClipIntern {
     const PROFILE_COUNTER: usize = crate::profiler::INTERNED_CLIPS;
 }
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub enum ClipItemKind {
     Rectangle {
         rect: LayoutRect,
@@ -1754,9 +1715,7 @@ pub enum ClipItemKind {
     },
 }
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug)]
 pub struct ClipItem {
     pub kind: ClipItemKind,
     pub spatial_node_index: SpatialNodeIndex,
@@ -2393,7 +2352,7 @@ mod tests {
 /// accessed at all by the frame builder. Another oddity is that the
 /// PolygonKey contains the totality of the information about the polygon, so
 /// the InternData and StoreData types are both PolygonKey.
-#[derive(Copy, Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]
 pub enum PolygonIntern {}
 

@@ -25,8 +25,6 @@ pub const VECS_PER_TRANSFORM: usize = 8;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ZBufferId(pub i32);
 
 impl ZBufferId {
@@ -36,8 +34,6 @@ impl ZBufferId {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ZBufferIdGenerator {
     next: i32,
     max_depth_ids: i32,
@@ -61,8 +57,6 @@ impl ZBufferIdGenerator {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CopyInstance {
     pub src_rect: DeviceRect,
     pub dst_rect: DeviceRect,
@@ -70,17 +64,13 @@ pub struct CopyInstance {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub enum RasterizationSpace {
     Local = 0,
     Screen = 1,
 }
 
-#[derive(Debug, Copy, Clone, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub enum BoxShadowStretchMode {
     Stretch = 0,
@@ -89,8 +79,6 @@ pub enum BoxShadowStretchMode {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BlurDirection {
     Horizontal = 0,
     Vertical,
@@ -107,8 +95,6 @@ impl BlurDirection {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlurInstance {
     pub task_address: RenderTaskAddress,
     pub src_task_address: RenderTaskAddress,
@@ -119,8 +105,6 @@ pub struct BlurInstance {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ScalingInstance {
     pub target_rect: DeviceRect,
     pub source_rect: DeviceRect,
@@ -143,8 +127,6 @@ impl ScalingInstance {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SvgFilterInstance {
     pub task_address: RenderTaskAddress,
     pub input_1_task_address: RenderTaskAddress,
@@ -158,8 +140,6 @@ pub struct SvgFilterInstance {
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SVGFEFilterInstance {
     pub target_rect: DeviceRect,
     pub input_1_content_scale_and_offset: [f32; 4],
@@ -171,10 +151,8 @@ pub struct SVGFEFilterInstance {
     pub extra_data_address: GpuCacheAddress,
 }
 
-#[derive(Copy, Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BorderSegment {
     TopLeft,
     TopRight,
@@ -188,8 +166,6 @@ pub enum BorderSegment {
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BorderInstance {
     pub task_origin: DevicePoint,
     pub local_rect: DeviceRect,
@@ -202,8 +178,6 @@ pub struct BorderInstance {
 }
 
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct ClipMaskInstanceCommon {
     pub sub_rect: DeviceRect,
@@ -215,8 +189,6 @@ pub struct ClipMaskInstanceCommon {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct ClipMaskInstanceRect {
     pub common: ClipMaskInstanceCommon,
@@ -225,8 +197,6 @@ pub struct ClipMaskInstanceRect {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct BoxShadowData {
     pub src_rect_size: LayoutSize,
@@ -237,8 +207,6 @@ pub struct BoxShadowData {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct ClipMaskInstanceBoxShadow {
     pub common: ClipMaskInstanceCommon,
@@ -249,8 +217,6 @@ pub struct ClipMaskInstanceBoxShadow {
 // 16 bytes per instance should be enough for anyone!
 #[repr(C)]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveInstanceData {
     data: [i32; 4],
 }
@@ -407,14 +373,10 @@ pub struct ClearInstance {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveHeaderIndex(pub i32);
 
 #[derive(Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveHeaders {
     // The integer-type headers for a primitive.
     pub headers_int: FrameVec<PrimitiveHeaderI>,
@@ -471,8 +433,6 @@ pub struct PrimitiveHeader {
 // f32 parts of a primitive header
 #[derive(Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveHeaderF {
     pub local_rect: LayoutRect,
     pub local_clip_rect: LayoutRect,
@@ -482,8 +442,6 @@ pub struct PrimitiveHeaderF {
 // TODO(gw): Compress parts of these down to u16
 #[derive(Debug)]
 #[repr(C)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveHeaderI {
     pub z: ZBufferId,
     pub specific_prim_address: i32,
@@ -549,8 +507,6 @@ impl From<SplitCompositeInstance> for PrimitiveInstanceData {
 }
 
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct QuadInstance {
     pub dst_task_address: RenderTaskAddress,
     pub prim_address_i: GpuBufferAddress,
@@ -587,15 +543,12 @@ impl From<QuadInstance> for PrimitiveInstanceData {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct QuadSegment {
     pub rect: LayoutRect,
     pub task_id: RenderTaskId,
 }
 
 #[derive(Copy, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(u32)]
 pub enum ClipSpace {
     Raster = 0,
@@ -613,8 +566,6 @@ impl ClipSpace {
 
 #[repr(C)]
 #[derive(Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct MaskInstance {
     pub prim: PrimitiveInstanceData,
     pub clip_transform_id: TransformPaletteId,
@@ -629,9 +580,7 @@ pub struct MaskInstance {
 
 /// Flags that define how the common brush shader
 /// code should process this instance.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, MallocSizeOf)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub struct BrushFlags(u16);
 
 bitflags! {
@@ -730,8 +679,6 @@ impl ImageBrushData {
 // transform is axis-aligned (and this should have
 // pixel snapping applied).
 #[derive(Copy, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct TransformPaletteId(pub u32);
 
@@ -759,8 +706,6 @@ impl TransformPaletteId {
 
 /// The GPU data payload for a transform palette entry.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct TransformData {
     transform: LayoutToPictureTransform,
@@ -914,8 +859,6 @@ impl TransformPalette {
 // corner. This is useful for rendering screen-space rasterized
 // off-screen surfaces.
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum UvRectKind {
     // The 2d bounds of the texture cache entry define the
     // valid UV space for this texture cache entry.
@@ -933,8 +876,6 @@ pub enum UvRectKind {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ImageSource {
     pub p0: DevicePoint,
     pub p1: DevicePoint,

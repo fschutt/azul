@@ -52,24 +52,18 @@ impl Default for GpuBufferBlockI {
 }
 
 /// A single texel in RGBAF32 texture - 16 bytes.
-#[derive(Copy, Clone, Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Clone, Debug)]
 pub struct GpuBufferBlockF {
     data: [f32; 4],
 }
 
 /// A single texel in RGBAI32 texture - 16 bytes.
-#[derive(Copy, Clone, Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Clone, Debug)]
 pub struct GpuBufferBlockI {
     data: [i32; 4],
 }
 
-#[derive(Copy, Debug, Clone, MallocSizeOf, Eq, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub struct GpuBufferAddress {
     pub u: u16,
     pub v: u16,
@@ -385,8 +379,6 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuBuffer<T> {
     pub data: FrameVec<T>,
     pub size: DeviceIntSize,

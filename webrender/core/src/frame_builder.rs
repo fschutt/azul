@@ -42,8 +42,6 @@ use crate::visibility::{update_prim_visibility, FrameVisibilityState, FrameVisib
 use crate::internal_types::{FrameVec, FrameMemory};
 
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FrameBuilderConfig {
     pub default_font_render_mode: FontRenderMode,
     pub dual_source_blending_is_supported: bool,
@@ -72,7 +70,6 @@ pub struct FrameBuilderConfig {
 /// A set of common / global resources that are retained between
 /// new display lists, such that any GPU cache handles can be
 /// persisted even when a new display list arrives.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameGlobalResources {
     /// The image shader block for the most common / default
     /// set of image parameters (color white, stretch == rect.size).
@@ -135,14 +132,10 @@ impl FrameScratchBuffer {
 }
 
 /// Produces the frames that are sent to the renderer.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameBuilder {
     pub globals: FrameGlobalResources,
-    #[cfg_attr(feature = "capture", serde(skip))]
     prim_headers_prealloc: Preallocator,
-    #[cfg_attr(feature = "capture", serde(skip))]
     composite_state_prealloc: CompositeStatePreallocator,
-    #[cfg_attr(feature = "capture", serde(skip))]
     plane_splitters: Vec<PlaneSplitter>,
 }
 
@@ -280,7 +273,6 @@ impl FrameBuilder {
         frame_gpu_data: &mut GpuBufferBuilder,
         profile: &mut TransactionProfile,
     ) {
-        profile_scope!("build_layer_screen_rects_and_cull_layers");
 
         let root_spatial_node_index = spatial_tree.root_reference_frame_index();
 
@@ -326,8 +318,6 @@ impl FrameBuilder {
         );
 
         {
-            profile_scope!("UpdateVisibility");
-            profile_marker!("UpdateVisibility");
             profile.start_time(profiler::FRAME_VISIBILITY_TIME);
 
             let visibility_context = FrameVisibilityContext {
@@ -522,8 +512,6 @@ impl FrameBuilder {
         profile: &mut TransactionProfile,
         minimap_data: FastHashMap<ExternalScrollId, MinimapData>
     ) -> Frame {
-        profile_scope!("build");
-        profile_marker!("BuildFrame");
 
         let mut frame_memory = FrameMemory::new();
         frame_memory.begin_frame(stamp.frame_id());
@@ -927,7 +915,6 @@ pub fn build_render_pass(
     prim_instances: &[PrimitiveInstance],
     cmd_buffers: &CommandBufferList,
 ) -> RenderPass {
-    profile_scope!("build_render_pass");
 
     // TODO(gw): In this initial frame graph work, we try to maintain the existing
     //           build_render_pass code as closely as possible, to make the review
@@ -1124,8 +1111,6 @@ pub fn build_render_pass(
 ///
 /// The frame's allocator memory must be dropped after all of the frame's containers.
 /// This is handled in the renderer and in `RenderedDocument`'s Drop implementation.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Frame {
     /// The rectangle to show the frame in, on screen.
     pub device_rect: DeviceIntRect,

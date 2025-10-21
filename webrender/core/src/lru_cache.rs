@@ -39,9 +39,7 @@ use std::{mem, num};
 
 /// Stores the data supplied by the user to be cached, and an index
 /// into the LRU tracking freelist for this element.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 struct LRUCacheEntry<T> {
     /// The LRU partition that tracks this entry.
     partition_index: u8,
@@ -55,9 +53,7 @@ struct LRUCacheEntry<T> {
 }
 
 /// The main public interface to the LRU cache
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 pub struct LRUCache<T, M> {
     /// A free list of cache entries, and indices into the LRU tracking list
     entries: FreeList<LRUCacheEntry<T>, M>,
@@ -226,9 +222,7 @@ impl<T, M> LRUCache<T, M> {
 }
 
 /// Index of an LRU tracking element
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, MallocSizeOf)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct ItemIndex(num::NonZeroU32);
 
 impl ItemIndex {
@@ -241,9 +235,7 @@ impl ItemIndex {
 /// cache, and a doubly-linked list node specifying where in the current LRU
 /// order this element exists. These items are themselves backed by a freelist
 /// to minimize heap allocations and improve cache access patterns.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 struct Item<H> {
     prev: Option<ItemIndex>,
     next: Option<ItemIndex>,
@@ -251,9 +243,7 @@ struct Item<H> {
 }
 
 /// Internal implementation of the LRU tracking list
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+
 struct LRUTracker<H> {
     /// Current head of the list - this is the oldest item that will be evicted next.
     head: Option<ItemIndex>,

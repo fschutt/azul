@@ -25,9 +25,7 @@ use std::{ops, u64, os::raw::c_void};
  */
 
 /// Which method is being used to draw a requested compositor surface
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CompositorSurfaceKind {
     /// Don't create a native compositor surface, blit it as a regular primitive
     Blit,
@@ -39,8 +37,6 @@ pub enum CompositorSurfaceKind {
 
 /// Describes details of an operation to apply to a native surface
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum NativeSurfaceOperationDetails {
     CreateSurface {
         id: NativeSurfaceId,
@@ -73,8 +69,6 @@ pub enum NativeSurfaceOperationDetails {
 
 /// Describes an operation to apply to a native surface
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct NativeSurfaceOperation {
     pub details: NativeSurfaceOperationDetails,
 }
@@ -82,8 +76,6 @@ pub struct NativeSurfaceOperation {
 /// Describes the source surface information for a tile to be composited. This
 /// is the analog of the TileSurface type, with target surface information
 /// resolved such that it can be used by the renderer.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
 pub enum CompositeTileSurface {
     Texture {
@@ -119,8 +111,6 @@ bitflags! {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TileKind {
     Opaque,
     Alpha,
@@ -128,8 +118,6 @@ pub enum TileKind {
 }
 
 // Index in to the compositor transforms stored in `CompositeState`
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct CompositorTransformIndex(usize);
 
@@ -138,8 +126,6 @@ impl CompositorTransformIndex {
 }
 
 /// Describes the geometry and surface of a tile to be composited
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
 pub struct CompositeTile {
     pub surface: CompositeTileSurface,
@@ -229,8 +215,6 @@ impl ExternalSurfaceDescriptor {
 }
 
 /// Information about a plane in a YUV or RGB surface.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct ExternalPlaneDescriptor {
     pub texture: TextureSource,
@@ -246,8 +230,6 @@ impl ExternalPlaneDescriptor {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ResolvedExternalSurfaceIndex(pub usize);
 
@@ -255,8 +237,6 @@ impl ResolvedExternalSurfaceIndex {
     pub const INVALID: ResolvedExternalSurfaceIndex = ResolvedExternalSurfaceIndex(usize::MAX);
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ResolvedExternalSurfaceColorData {
     Yuv {
         // YUV specific information
@@ -276,8 +256,6 @@ pub enum ResolvedExternalSurfaceColorData {
 /// resolved to texture handles. This contains all the
 /// information that the compositor step in renderer
 /// needs to know.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ResolvedExternalSurface {
     pub color_data: ResolvedExternalSurfaceColorData,
     pub image_buffer_kind: ImageBufferKind,
@@ -351,8 +329,6 @@ impl Default for CompositorConfig {
 /// This is a representation of `CompositorConfig` without the `Compositor` trait
 /// present. This allows it to be freely copied to other threads, such as the render
 /// backend where the frame builder can access it.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CompositorKind {
     /// WR handles compositing via drawing.
@@ -400,8 +376,6 @@ impl CompositorKind {
 
 /// The backing surface kind for a tile. Same as `TileSurface`, minus
 /// the texture cache handles, visibility masks etc.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(PartialEq, Clone)]
 pub enum TileSurfaceKind {
     Texture,
@@ -423,8 +397,6 @@ impl From<&TileSurface> for TileSurfaceKind {
 
 /// Describes properties that identify a tile composition uniquely.
 /// The backing surface for this tile.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(PartialEq, Clone)]
 pub struct CompositeTileDescriptor {
     pub tile_id: TileId,
@@ -432,8 +404,6 @@ pub struct CompositeTileDescriptor {
 }
 
 /// Describes the properties that identify a surface composition uniquely.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(PartialEq, Clone)]
 pub struct CompositeSurfaceDescriptor {
     pub surface_id: Option<NativeSurfaceId>,
@@ -451,8 +421,6 @@ pub struct CompositeSurfaceDescriptor {
 
 /// Describes surface properties used to composite a frame. This
 /// is used to compare compositions between frames.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(PartialEq, Clone)]
 pub struct CompositeDescriptor {
     pub surfaces: Vec<CompositeSurfaceDescriptor>,
@@ -517,8 +485,6 @@ impl Default for CompositeStatePreallocator {
 /// the render step where dirty rects are calculated). Since we know that we only
 /// handle scale and offset transforms for these types, we can store a single
 /// ScaleOffset rather than 4x4 matrix here for efficiency.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CompositorTransform {
     // Map from local rect of a composite tile to the real backing surface coords
     local_to_raster: ScaleOffset,
@@ -529,8 +495,6 @@ pub struct CompositorTransform {
 }
 
 /// The list of tiles to be drawn this frame
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CompositeState {
     // TODO(gw): Consider splitting up CompositeState into separate struct types depending
     //           on the selected compositing mode. Many of the fields in this state struct
@@ -1026,8 +990,6 @@ impl CompositeState {
 /// An arbitrary identifier for a native (OS compositor) surface
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct NativeSurfaceId(pub u64);
 
 impl NativeSurfaceId {
@@ -1037,8 +999,6 @@ impl NativeSurfaceId {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct NativeTileId {
     pub surface_id: NativeSurfaceId,
     pub x: i32,
@@ -1077,8 +1037,6 @@ pub struct NativeSurfaceInfo {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CompositorCapabilities {
     /// The virtual surface size used by the underlying platform.
     pub virtual_surface_size: i32,
@@ -1372,8 +1330,6 @@ pub trait PartialPresentCompositor {
 }
 
 /// Information about an opaque surface used to occlude tiles.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Occluder {
     z_id: ZBufferId,
     world_rect: WorldIntRect,
@@ -1427,13 +1383,10 @@ impl Default for OccludersScratchBuffers {
 /// List of registered occluders.
 ///
 /// Also store a couple of vectors for reuse.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Occluders {
     occluders: FrameVec<Occluder>,
 
     // The two vectors in scratch are kept to avoid unnecessary reallocations in area().
-    #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
     scratch: OccludersScratchBuffers,
 }
 

@@ -10,15 +10,11 @@ use crate::prim_store::{
 };
 use crate::scene_building::IsVisible;
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct BackdropCapture {
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct BackdropRender {
 }
 
@@ -66,15 +62,11 @@ impl BackdropRenderKey {
 impl InternDebug for BackdropCaptureKey {}
 impl InternDebug for BackdropRenderKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 pub struct BackdropCaptureData {
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug)]
 pub struct BackdropRenderData {
 }
 
