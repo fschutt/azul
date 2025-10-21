@@ -107,6 +107,8 @@ impl Compositor for CpuCompositor {
 
 #[cfg(test)]
 mod tests {
+    use azul_core::geom::PhysicalSize;
+
     use super::*;
 
     #[test]

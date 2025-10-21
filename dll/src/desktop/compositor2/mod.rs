@@ -8,7 +8,10 @@ use azul_core::{
     resources::{FontInstanceKey, GlyphOptions, PrimitiveFlags},
     ui_solver::GlyphInstance,
 };
-use azul_css::props::{basic::color::ColorU, style::border_radius::StyleBorderRadius};
+use azul_css::props::{
+    basic::{color::ColorU, pixel::PixelValue},
+    style::border_radius::StyleBorderRadius,
+};
 use azul_layout::solver3::display_list::DisplayList;
 use webrender::{
     api::{
@@ -49,10 +52,6 @@ pub fn translate_displaylist_to_wr(
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
-    // Helper to get current clip/spatial IDs
-    let current_clip_id = || *clip_stack.last().unwrap();
-    let current_spatial_id = || *spatial_stack.last().unwrap();
-
     // Translate display list items to WebRender
     for item in &display_list.items {
         match item {
@@ -74,8 +73,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -84,8 +83,9 @@ pub fn translate_displaylist_to_wr(
                     azul_core::geom::LogicalPosition::new(bounds.origin.x, bounds.origin.y),
                     azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
                 );
+                let style_border_radius = convert_border_radius_to_style(border_radius);
                 let wr_border_radius = wr_translate_border_radius(
-                    *border_radius,
+                    style_border_radius,
                     azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
                 );
 
@@ -94,14 +94,14 @@ pub fn translate_displaylist_to_wr(
                         &mut builder,
                         logical_rect,
                         wr_border_radius,
-                        current_spatial_id(),
-                        current_clip_id(),
+                        *spatial_stack.last().unwrap(),
+                        *clip_stack.last().unwrap(),
                     );
 
                     let info_clipped = CommonItemProperties {
                         clip_rect: rect,
                         clip_id: new_clip_id,
-                        spatial_id: current_spatial_id(),
+                        spatial_id: *spatial_stack.last().unwrap(),
                         flags: Default::default(),
                     };
 
@@ -130,8 +130,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -152,8 +152,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -174,8 +174,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -210,8 +210,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -234,33 +234,7 @@ pub fn translate_displaylist_to_wr(
                 // Handle rounded corners if border_radius is non-zero
                 if !border_radius.is_zero() {
                     // Convert layout BorderRadius to StyleBorderRadius for translation
-                    let style_border_radius =
-                        azul_css::props::style::border_radius::StyleBorderRadius {
-                            top_left: azul_css::props::basic::PixelValue {
-                                metric: azul_css::props::basic::SizeMetric::Px,
-                                number: azul_css::props::basic::FloatValue::new(
-                                    border_radius.top_left,
-                                ),
-                            },
-                            top_right: azul_css::props::basic::PixelValue {
-                                metric: azul_css::props::basic::SizeMetric::Px,
-                                number: azul_css::props::basic::FloatValue::new(
-                                    border_radius.top_right,
-                                ),
-                            },
-                            bottom_left: azul_css::props::basic::PixelValue {
-                                metric: azul_css::props::basic::SizeMetric::Px,
-                                number: azul_css::props::basic::FloatValue::new(
-                                    border_radius.bottom_left,
-                                ),
-                            },
-                            bottom_right: azul_css::props::basic::PixelValue {
-                                metric: azul_css::props::basic::SizeMetric::Px,
-                                number: azul_css::props::basic::FloatValue::new(
-                                    border_radius.bottom_right,
-                                ),
-                            },
-                        };
+                    let style_border_radius = convert_border_radius_to_style(border_radius);
 
                     let wr_border_radius = wr_translate_border_radius(
                         style_border_radius,
@@ -271,8 +245,8 @@ pub fn translate_displaylist_to_wr(
                         &mut builder,
                         *bounds,
                         wr_border_radius,
-                        current_spatial_id(),
-                        current_clip_id(),
+                        *spatial_stack.last().unwrap(),
+                        *clip_stack.last().unwrap(),
                     );
 
                     clip_stack.push(new_clip_id);
@@ -280,8 +254,8 @@ pub fn translate_displaylist_to_wr(
                     // Rectangular clip
                     let new_clip_id = builder.define_clip_rect(
                         &SpaceAndClipInfo {
-                            spatial_id: current_spatial_id(),
-                            clip_id: current_clip_id(),
+                            spatial_id: *spatial_stack.last().unwrap(),
+                            clip_id: *clip_stack.last().unwrap(),
                         },
                         rect,
                     );
@@ -321,8 +295,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -345,8 +319,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: current_clip_id(),
-                    spatial_id: current_spatial_id(),
+                    clip_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
 
@@ -412,6 +386,22 @@ pub mod hw_compositor {
     pub fn composite_frame_hw() -> Result<(), String> {
         eprintln!("[hw_compositor] Composite (stub)");
         Ok(())
+    }
+}
+
+// ========== Helper Functions ==========
+
+/// Convert DisplayList BorderRadius to StyleBorderRadius
+#[inline]
+fn convert_border_radius_to_style(
+    br: &azul_layout::solver3::display_list::BorderRadius,
+) -> StyleBorderRadius {
+    use azul_css::props::basic::pixel::PixelValue;
+    StyleBorderRadius {
+        top_left: PixelValue::px(br.top_left),
+        top_right: PixelValue::px(br.top_right),
+        bottom_left: PixelValue::px(br.bottom_left),
+        bottom_right: PixelValue::px(br.bottom_right),
     }
 }
 

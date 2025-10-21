@@ -945,6 +945,8 @@ impl MacOSWindow {
             easing: EasingFunction::Linear,
         };
 
+        let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+
         // Apply scroll using scroll_by instead of apply_scroll_event
         layout_window.scroll_states.scroll_by(
             scroll_event.dom_id,
@@ -956,7 +958,7 @@ impl MacOSWindow {
                     azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
                 )),
             scroll_event.easing,
-            std::time::Instant::now(),
+            (external.get_system_time_fn.cb)(),
         );
 
         // 2. Recalculate scrollbar states after scroll update
@@ -968,11 +970,11 @@ impl MacOSWindow {
 
         // Scroll all nodes in the scroll manager to WebRender
         // This updates external scroll IDs with new offsets
-        self.scroll_all_nodes(&layout_window.scroll_states, &mut txn);
+        Self::scroll_all_nodes(&layout_window.scroll_states, &mut txn);
 
         // Synchronize GPU-animated values (transforms, opacities, scrollbar positions)
         // Note: We need mutable access for gpu_state_manager updates
-        self.synchronize_gpu_values(layout_window, &mut txn);
+        Self::synchronize_gpu_values(layout_window, &mut txn);
 
         // Send transaction and generate frame (without rebuilding display list)
         self.render_api.send_transaction(
@@ -991,7 +993,6 @@ impl MacOSWindow {
 
     /// Internal: Scroll all nodes to WebRender
     fn scroll_all_nodes(
-        &mut self,
         scroll_manager: &azul_layout::scroll::ScrollManager,
         txn: &mut crate::desktop::wr_translate2::WrTransaction,
     ) {
@@ -1015,7 +1016,6 @@ impl MacOSWindow {
 
     /// Internal: Synchronize GPU-animated values to WebRender
     fn synchronize_gpu_values(
-        &mut self,
         layout_window: &mut azul_layout::window::LayoutWindow,
         txn: &mut crate::desktop::wr_translate2::WrTransaction,
     ) {
@@ -1052,7 +1052,7 @@ impl MacOSWindow {
             })
             .map(|(k, v)| WrPropertyValue {
                 key: WrPropertyBindingKey::new(k.id as u64),
-                value: self.wr_translate_layout_transform(&v),
+                value: Self::wr_translate_layout_transform(&v),
             })
             .collect::<Vec<_>>();
 
@@ -1106,7 +1106,6 @@ impl MacOSWindow {
 
     /// Helper: Translate ComputedTransform3D to WebRender LayoutTransform
     fn wr_translate_layout_transform(
-        &self,
         transform: &azul_core::transform::ComputedTransform3D,
     ) -> webrender::api::units::LayoutTransform {
         webrender::api::units::LayoutTransform::new(

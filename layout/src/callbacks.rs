@@ -10,7 +10,7 @@ use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 use azul_core::impl_callback;
 use azul_core::{
     animation::UpdateImageType,
-    callbacks::{FocusTarget, Update},
+    callbacks::{CoreCallback, FocusTarget, Update},
     dom::{DomId, DomNodeId, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
@@ -47,6 +47,14 @@ pub struct Callback {
 }
 
 impl_callback!(Callback);
+
+impl Callback {
+    pub fn from_core(core: CoreCallback) -> Self {
+        Self {
+            cb: unsafe { core::mem::transmute(core.cb) },
+        }
+    }
+}
 
 /// Optional Callback
 #[derive(Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash)]

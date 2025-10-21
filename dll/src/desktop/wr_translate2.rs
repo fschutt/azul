@@ -416,43 +416,55 @@ pub fn rebuild_display_list(
 
     // Translate display lists for all DOMs (root + iframes)
     for (dom_id, layout_result) in &layout_window.layout_results {
-        if let Some(display_list) = &layout_result.display_list {
-            // DomId maps to PipelineId namespace
-            let pipeline_id = wr_translate_pipeline_id(PipelineId(
-                dom_id.inner as u32,
-                layout_window.document_id.id,
-            ));
+        // DomId maps to PipelineId namespace
+        let pipeline_id = wr_translate_pipeline_id(PipelineId(
+            dom_id.inner as u32,
+            layout_window.document_id.id,
+        ));
 
-            // Translate Azul DisplayList to WebRender Transaction
-            match crate::desktop::compositor2::translate_displaylist_to_wr(
-                display_list,
-                pipeline_id,
-                viewport_size,
-            ) {
-                Ok(dl_txn) => {
-                    // Merge display list transaction into main transaction
-                    // Note: WebRender Transaction doesn't support merging,
-                    // so we need to rebuild the transaction with display list
-                    // For now, just send it separately
-                    render_api.send_transaction(
-                        wr_translate_document_id(layout_window.document_id),
-                        dl_txn,
-                    );
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[rebuild_display_list] Error translating display list for DOM {}: {}",
-                        dom_id.inner, e
-                    );
-                }
+        // Translate Azul DisplayList to WebRender Transaction
+        match crate::desktop::compositor2::translate_displaylist_to_wr(
+            &layout_result.display_list,
+            pipeline_id,
+            viewport_size,
+        ) {
+            Ok(dl_txn) => {
+                // Merge display list transaction into main transaction
+                // Note: WebRender Transaction doesn't support merging,
+                // so we need to rebuild the transaction with display list
+                // For now, just send it separately
+                render_api
+                    .send_transaction(wr_translate_document_id(layout_window.document_id), dl_txn);
+            }
+            Err(e) => {
+                eprintln!(
+                    "[rebuild_display_list] Error translating display list for DOM {}: {}",
+                    dom_id.inner, e
+                );
             }
         }
     }
 
     // Update resources (images, fonts)
     if !resources.is_empty() {
-        txn.update_resources(resources);
-        render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+        // Convert azul_core ResourceUpdates to webrender ResourceUpdates
+        let wr_resources: Vec<webrender::ResourceUpdate> = resources
+            .into_iter()
+            .filter_map(|r| {
+                // TODO: Implement full resource update translation
+                // For now, just skip all resource updates
+                eprintln!(
+                    "[rebuild_display_list] Skipping resource update (not implemented): {:?}",
+                    r
+                );
+                None
+            })
+            .collect();
+
+        if !wr_resources.is_empty() {
+            txn.update_resources(wr_resources);
+            render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+        }
     }
 }
 

@@ -23,6 +23,19 @@ use objc2_foundation::NSPoint;
 
 use super::MacOSWindow;
 
+/// Extension trait for Callback to convert from CoreCallback
+trait CallbackExt {
+    fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self;
+}
+
+impl CallbackExt for azul_layout::callbacks::Callback {
+    fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self {
+        Self {
+            cb: unsafe { std::mem::transmute(core_callback.cb) },
+        }
+    }
+}
+
 /// Result of processing an event - determines whether to redraw, update layout, etc.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventProcessResult {
@@ -476,34 +489,40 @@ impl MacOSWindow {
             events::{EventFilter, HoverEventFilter},
         };
 
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-        let node_id = match NodeId::from_usize(node.node_id as usize) {
-            Some(nid) => nid,
-            None => return ProcessEventResult::DoNothing,
-        };
-
         // Get layout result for this DOM
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return ProcessEventResult::DoNothing,
-        };
+        let callback_data = {
+            let layout_window = match self.layout_window.as_mut() {
+                Some(lw) => lw,
+                None => return ProcessEventResult::DoNothing,
+            };
 
-        // Get node data to access callbacks
-        let node_data = match layout_result
-            .styled_dom
-            .node_data
-            .as_container()
-            .get(node_id)
-        {
-            Some(nd) => nd,
-            None => return ProcessEventResult::DoNothing,
+            let dom_id = DomId {
+                inner: node.dom_id as usize,
+            };
+            let node_id = match NodeId::from_usize(node.node_id as usize) {
+                Some(nid) => nid,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let layout_result = match layout_window.layout_results.get(&dom_id) {
+                Some(lr) => lr,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            // Get node data to access callbacks
+            let binding = layout_result.styled_dom.node_data.as_container();
+
+            let node_data = match binding.get(node_id) {
+                Some(nd) => nd,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            node_data
+                .get_callbacks()
+                .as_container()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
         };
 
         // Filter callbacks by event type (MouseDown)
@@ -516,24 +535,29 @@ impl MacOSWindow {
 
         let mut result = ProcessEventResult::DoNothing;
 
-        // Borrow RefCells once before the loop
+        // Borrow layout_window and RefCells once before the loop
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
         let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
+        // Collect all callback results first
+        let mut callback_results = Vec::new();
+
         // Iterate through callbacks and invoke matching ones
-        for callback_data in node_data.get_callbacks().as_container().iter() {
+        for mut callback_data in callback_data {
             if callback_data.event != event_filter {
                 continue;
             }
 
             // Convert CoreCallback to Callback
-            let mut callback = azul_layout::callbacks::Callback {
-                cb: unsafe { std::mem::transmute(callback_data.callback.cb) },
-            };
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
 
             // Invoke callback
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
-                &mut callback_data.data.clone(),
+                &mut callback_data.data,
                 &azul_core::window::RawWindowHandle::Unsupported, // TODO: proper window handle
                 &self.gl_context_ptr,
                 &mut self.image_cache,
@@ -544,7 +568,15 @@ impl MacOSWindow {
                 &self.renderer_resources,
             );
 
-            // Process callback result
+            callback_results.push(callback_result);
+        }
+
+        // Drop borrows before processing results
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        // Process all callback results
+        for callback_result in callback_results {
             result = result.max(self.process_callback_result(callback_result));
         }
 
@@ -563,68 +595,95 @@ impl MacOSWindow {
             events::{EventFilter, HoverEventFilter},
         };
 
+        // First, collect callback data while borrowing layout_window immutably
+        let (callback_data_list, event_filter) = {
+            let layout_window = match self.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let dom_id = DomId {
+                inner: node.dom_id as usize,
+            };
+            let node_id = match NodeId::from_usize(node.node_id as usize) {
+                Some(nid) => nid,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let layout_result = match layout_window.layout_results.get(&dom_id) {
+                Some(lr) => lr,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let binding = layout_result.styled_dom.node_data.as_container();
+
+            let node_data = match binding.get(node_id) {
+                Some(nd) => nd,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let event_filter = match button {
+                MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+                MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseUp),
+                MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
+                _ => EventFilter::Hover(HoverEventFilter::MouseUp),
+            };
+
+            (
+                node_data
+                    .get_callbacks()
+                    .as_container()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                event_filter,
+            )
+        };
+
+        let mut result = ProcessEventResult::DoNothing;
+
+        // Now borrow layout_window mutably for callback invocation
         let layout_window = match self.layout_window.as_mut() {
             Some(lw) => lw,
             None => return ProcessEventResult::DoNothing,
         };
 
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-        let node_id = match NodeId::from_usize(node.node_id as usize) {
-            Some(nid) => nid,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let node_data = match layout_result
-            .styled_dom
-            .node_data
-            .as_container()
-            .get(node_id)
-        {
-            Some(nd) => nd,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let event_filter = match button {
-            MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-            MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseUp),
-            MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
-            _ => EventFilter::Hover(HoverEventFilter::MouseUp),
-        };
-
-        let mut result = ProcessEventResult::DoNothing;
-
         // Borrow RefCells once before the loop
         let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
-        for callback_data in node_data.get_callbacks().as_container().iter() {
+        // Collect all callback results first
+        let mut callback_results = Vec::new();
+
+        for mut callback_data in callback_data_list {
             if callback_data.event != event_filter {
                 continue;
             }
 
-            let mut callback = azul_layout::callbacks::Callback {
-                cb: unsafe { std::mem::transmute(callback_data.callback.cb) },
-            };
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
 
+            let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
-                &mut callback_data.data.clone(),
+                &mut callback_data.data,
                 &azul_core::window::RawWindowHandle::Unsupported,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
                 &mut *fc_cache_borrowed,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &external,
                 &self.previous_window_state,
                 &self.current_window_state,
                 &self.renderer_resources,
             );
 
+            callback_results.push(callback_result);
+        }
+
+        // Drop borrows before processing results
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        // Process all callback results
+        for callback_result in callback_results {
             result = result.max(self.process_callback_result(callback_result));
         }
 
@@ -642,50 +701,62 @@ impl MacOSWindow {
             events::{EventFilter, HoverEventFilter},
         };
 
+        // First, collect callback data while borrowing layout_window immutably
+        let callback_data_list = {
+            let layout_window = match self.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let dom_id = DomId {
+                inner: node.dom_id as usize,
+            };
+            let node_id = match NodeId::from_usize(node.node_id as usize) {
+                Some(nid) => nid,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let layout_result = match layout_window.layout_results.get(&dom_id) {
+                Some(lr) => lr,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let binding = layout_result.styled_dom.node_data.as_container();
+
+            let node_data = match binding.get(node_id) {
+                Some(nd) => nd,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            // Check for MouseOver callback
+            let event_filter = EventFilter::Hover(HoverEventFilter::MouseOver);
+
+            node_data
+                .get_callbacks()
+                .as_container()
+                .iter()
+                .filter(|cd| cd.event == event_filter)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        let mut result = ProcessEventResult::DoNothing;
+
+        // Now borrow layout_window mutably for callback invocation
         let layout_window = match self.layout_window.as_mut() {
             Some(lw) => lw,
             None => return ProcessEventResult::DoNothing,
         };
 
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-        let node_id = match NodeId::from_usize(node.node_id as usize) {
-            Some(nid) => nid,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        let node_data = match layout_result
-            .styled_dom
-            .node_data
-            .as_container()
-            .get(node_id)
-        {
-            Some(nd) => nd,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // Check for MouseOver callback
-        let event_filter = EventFilter::Hover(HoverEventFilter::MouseOver);
-
-        let mut result = ProcessEventResult::DoNothing;
-
         // Borrow RefCells once before the loop
         let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
-        for callback_data in node_data.get_callbacks().as_container().iter() {
-            if callback_data.event != event_filter {
-                continue;
-            }
+        // Collect all callback results first, then process after loop
+        let mut callback_results = Vec::new();
 
-            let mut callback = azul_layout::callbacks::Callback {
-                cb: unsafe { std::mem::transmute(callback_data.callback.cb) },
-            };
+        for callback_data in callback_data_list {
+            // Event filter already applied during collection
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
 
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
@@ -700,6 +771,15 @@ impl MacOSWindow {
                 &self.renderer_resources,
             );
 
+            callback_results.push(callback_result);
+        }
+
+        // Drop borrows before processing results
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        // Process all callback results
+        for callback_result in callback_results {
             result = result.max(self.process_callback_result(callback_result));
         }
 

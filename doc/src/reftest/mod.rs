@@ -9,6 +9,7 @@ use std::{
 };
 
 use azul_core::{
+    dom::DomId,
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
@@ -21,6 +22,7 @@ use azul_css::{
     props::property::CssProperty,
 };
 use azul_layout::{
+    callbacks::ExternalSystemCallbacks,
     window_state::FullWindowState,
     xml::{domxml_from_str, parse_xml_string},
 };
@@ -1325,13 +1327,24 @@ pub fn solve_layout_with_debug(
     // Start timer
     let start = std::time::Instant::now();
 
+    let external = ExternalSystemCallbacks::rust_internal();
+
     // Call layout_and_generate_display_list with all required parameters
-    let display_list = layout_window.layout_and_generate_display_list(
+    layout_window.layout_and_generate_display_list(
         styled_dom,
         fake_window_state,
         renderer_resources,
+        &external,
         &mut debug_messages,
     )?;
+
+    // Extract the display list from the root DOM's layout result
+    // We need to take ownership, so we remove the layout result and extract the display list
+    let display_list = layout_window
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .ok_or_else(|| anyhow::anyhow!("No layout result for root DOM"))?
+        .display_list;
 
     // End timer
     let elapsed = start.elapsed();
