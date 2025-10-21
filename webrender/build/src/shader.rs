@@ -7,15 +7,16 @@
 //! This module is used during precompilation (build.rs) and regular compilation,
 //! so it has minimal dependencies.
 
-use std::borrow::Cow;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use std::collections::HashSet;
-use std::collections::hash_map::DefaultHasher;
-use crate::MAX_VERTEX_TEXTURE_WIDTH;
+use std::{
+    borrow::Cow,
+    collections::{hash_map::DefaultHasher, HashSet},
+    fs::File,
+    io::Read,
+    path::Path,
+};
 
 pub use crate::shader_features::*;
+use crate::MAX_VERTEX_TEXTURE_WIDTH;
 
 lazy_static! {
     static ref MAX_VERTEX_TEXTURE_WIDTH_STRING: String = MAX_VERTEX_TEXTURE_WIDTH.to_string();
@@ -83,7 +84,7 @@ impl ShaderSourceParser {
     ) {
         for line in source.lines() {
             if line.starts_with(SHADER_IMPORT) {
-                let imports = line[SHADER_IMPORT.len() ..].split(',');
+                let imports = line[SHADER_IMPORT.len()..].split(',');
 
                 // For each import, get the source, and recurse.
                 for import in imports {
@@ -120,52 +121,52 @@ pub fn build_shader_strings<G: Fn(&str) -> Cow<'static, str>>(
     base_filename: &str,
     get_source: &G,
 ) -> (String, String) {
-   let mut vs_source = String::new();
-   do_build_shader_string(
-       gl_version,
-       features,
-       ShaderKind::Vertex,
-       base_filename,
-       get_source,
-       |s| vs_source.push_str(s),
-   );
+    let mut vs_source = String::new();
+    do_build_shader_string(
+        gl_version,
+        features,
+        ShaderKind::Vertex,
+        base_filename,
+        get_source,
+        |s| vs_source.push_str(s),
+    );
 
-   let mut fs_source = String::new();
-   do_build_shader_string(
-       gl_version,
-       features,
-       ShaderKind::Fragment,
-       base_filename,
-       get_source,
-       |s| fs_source.push_str(s),
-   );
+    let mut fs_source = String::new();
+    do_build_shader_string(
+        gl_version,
+        features,
+        ShaderKind::Fragment,
+        base_filename,
+        get_source,
+        |s| fs_source.push_str(s),
+    );
 
-   (vs_source, fs_source)
+    (vs_source, fs_source)
 }
 
 /// Walks the given shader string and applies the output to the provided
 /// callback. Assuming an override path is not used, does no heap allocation
 /// and no I/O.
 pub fn do_build_shader_string<F: FnMut(&str), G: Fn(&str) -> Cow<'static, str>>(
-   gl_version: ShaderVersion,
-   features: &[&str],
-   kind: ShaderKind,
-   base_filename: &str,
-   get_source: &G,
-   mut output: F,
+    gl_version: ShaderVersion,
+    features: &[&str],
+    kind: ShaderKind,
+    base_filename: &str,
+    get_source: &G,
+    mut output: F,
 ) {
-   build_shader_prefix_string(gl_version, features, kind, base_filename, &mut output);
-   build_shader_main_string(base_filename, get_source, &mut output);
+    build_shader_prefix_string(gl_version, features, kind, base_filename, &mut output);
+    build_shader_main_string(base_filename, get_source, &mut output);
 }
 
 /// Walks the prefix section of the shader string, which manages the various
 /// defines for features etc.
 pub fn build_shader_prefix_string<F: FnMut(&str)>(
-   gl_version: ShaderVersion,
-   features: &[&str],
-   kind: ShaderKind,
-   base_filename: &str,
-   output: &mut F,
+    gl_version: ShaderVersion,
+    features: &[&str],
+    kind: ShaderKind,
+    base_filename: &str,
+    output: &mut F,
 ) {
     // GLSL requires that the version number comes first.
     let gl_version_string = match gl_version {
@@ -227,14 +228,10 @@ pub fn build_shader_prefix_string<F: FnMut(&str)>(
 
 /// Walks the main .glsl file, including any imports.
 pub fn build_shader_main_string<F: FnMut(&str), G: Fn(&str) -> Cow<'static, str>>(
-   base_filename: &str,
-   get_source: &G,
-   output: &mut F,
+    base_filename: &str,
+    get_source: &G,
+    output: &mut F,
 ) {
-   let shared_source = get_source(base_filename);
-   ShaderSourceParser::new().parse(
-       shared_source,
-       &|f| get_source(f),
-       output
-   );
+    let shared_source = get_source(base_filename);
+    ShaderSourceParser::new().parse(shared_source, &|f| get_source(f), output);
 }

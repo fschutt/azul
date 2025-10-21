@@ -2,18 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-
 //! Utilities to deal with coordinate spaces.
 
 use std::fmt;
 
-use euclid::{Transform3D, Box2D, Point2D, Vector2D};
-
 use api::units::*;
-use crate::spatial_tree::{SpatialTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace, SpatialNodeContainer};
-use crate::util::project_rect;
-use crate::util::{MatrixHelpers, ScaleOffset, RectHelpers, PointHelpers};
+use euclid::{Box2D, Point2D, Transform3D, Vector2D};
 
+use crate::{
+    spatial_tree::{
+        CoordinateSpaceMapping, SpatialNodeContainer, SpatialNodeIndex, SpatialTree, VisibleFace,
+    },
+    util::{project_rect, MatrixHelpers, PointHelpers, RectHelpers, ScaleOffset},
+};
 
 #[derive(Debug, Clone)]
 pub struct SpaceMapper<F, T> {
@@ -24,11 +25,11 @@ pub struct SpaceMapper<F, T> {
     visible_face: VisibleFace,
 }
 
-impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
-    pub fn new(
-        ref_spatial_node_index: SpatialNodeIndex,
-        bounds: Box2D<f32, T>,
-    ) -> Self {
+impl<F, T> SpaceMapper<F, T>
+where
+    F: fmt::Debug,
+{
+    pub fn new(ref_spatial_node_index: SpatialNodeIndex, bounds: Box2D<f32, T>) -> Self {
         SpaceMapper {
             kind: CoordinateSpaceMapping::Local,
             ref_spatial_node_index,
@@ -55,7 +56,7 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
         spatial_tree: &SpatialTree,
     ) {
         if target_node_index == self.current_target_spatial_node_index {
-            return
+            return;
         }
 
         let ref_spatial_node = spatial_tree.get_spatial_node(self.ref_spatial_node_index);
@@ -64,8 +65,10 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
 
         self.kind = if self.ref_spatial_node_index == target_node_index {
             CoordinateSpaceMapping::Local
-        } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
-            let scale_offset = target_spatial_node.content_transform
+        } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id
+        {
+            let scale_offset = target_spatial_node
+                .content_transform
                 .then(&ref_spatial_node.content_transform.inverse());
             CoordinateSpaceMapping::ScaleOffset(scale_offset)
         } else {
@@ -86,23 +89,15 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
 
     pub fn get_transform(&self) -> Transform3D<f32, F, T> {
         match self.kind {
-            CoordinateSpaceMapping::Local => {
-                Transform3D::identity()
-            }
-            CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
-                scale_offset.to_transform()
-            }
-            CoordinateSpaceMapping::Transform(transform) => {
-                transform
-            }
+            CoordinateSpaceMapping::Local => Transform3D::identity(),
+            CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => scale_offset.to_transform(),
+            CoordinateSpaceMapping::Transform(transform) => transform,
         }
     }
 
     pub fn unmap(&self, rect: &Box2D<f32, T>) -> Option<Box2D<f32, F>> {
         match self.kind {
-            CoordinateSpaceMapping::Local => {
-                Some(rect.cast_unit())
-            }
+            CoordinateSpaceMapping::Local => Some(rect.cast_unit()),
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
                 Some(scale_offset.unmap_rect(rect))
             }
@@ -114,19 +109,18 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
 
     pub fn map(&self, rect: &Box2D<f32, F>) -> Option<Box2D<f32, T>> {
         match self.kind {
-            CoordinateSpaceMapping::Local => {
-                Some(rect.cast_unit())
-            }
+            CoordinateSpaceMapping::Local => Some(rect.cast_unit()),
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
                 Some(scale_offset.map_rect(rect))
             }
             CoordinateSpaceMapping::Transform(ref transform) => {
                 match project_rect(transform, rect, &self.bounds) {
-                    Some(bounds) => {
-                        Some(bounds)
-                    }
+                    Some(bounds) => Some(bounds),
                     None => {
-                        warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
+                        warn!(
+                            "parent relative transform can't transform the primitive rect for {:?}",
+                            rect
+                        );
                         None
                     }
                 }
@@ -137,9 +131,7 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
     // Attempt to return a rect that is contained in the mapped rect.
     pub fn map_inner_bounds(&self, rect: &Box2D<f32, F>) -> Option<Box2D<f32, T>> {
         match self.kind {
-            CoordinateSpaceMapping::Local => {
-                Some(rect.cast_unit())
-            }
+            CoordinateSpaceMapping::Local => Some(rect.cast_unit()),
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
                 Some(scale_offset.map_rect(rect))
             }
@@ -154,33 +146,22 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
     // Map a local space point to the target coordinate space
     pub fn map_point(&self, p: Point2D<f32, F>) -> Option<Point2D<f32, T>> {
         match self.kind {
-            CoordinateSpaceMapping::Local => {
-                Some(p.cast_unit())
-            }
+            CoordinateSpaceMapping::Local => Some(p.cast_unit()),
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
                 Some(scale_offset.map_point(&p))
             }
-            CoordinateSpaceMapping::Transform(ref transform) => {
-                transform.transform_point2d(p)
-            }
+            CoordinateSpaceMapping::Transform(ref transform) => transform.transform_point2d(p),
         }
     }
 
     pub fn map_vector(&self, v: Vector2D<f32, F>) -> Vector2D<f32, T> {
         match self.kind {
-            CoordinateSpaceMapping::Local => {
-                v.cast_unit()
-            }
-            CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
-                scale_offset.map_vector(&v)
-            }
-            CoordinateSpaceMapping::Transform(ref transform) => {
-                transform.transform_vector2d(v)
-            }
+            CoordinateSpaceMapping::Local => v.cast_unit(),
+            CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => scale_offset.map_vector(&v),
+            CoordinateSpaceMapping::Transform(ref transform) => transform.transform_vector2d(v),
         }
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct SpaceSnapper {
@@ -226,25 +207,31 @@ impl SpaceSnapper {
         spatial_tree: &S,
     ) {
         if target_node_index == self.current_target_spatial_node_index {
-            return
+            return;
         }
 
-        let ref_snap = spatial_tree.get_node_info(self.ref_spatial_node_index).snapping_transform;
-        let target_snap = spatial_tree.get_node_info(target_node_index).snapping_transform;
+        let ref_snap = spatial_tree
+            .get_node_info(self.ref_spatial_node_index)
+            .snapping_transform;
+        let target_snap = spatial_tree
+            .get_node_info(target_node_index)
+            .snapping_transform;
 
         self.current_target_spatial_node_index = target_node_index;
         self.snapping_transform = match (ref_snap, target_snap) {
-            (Some(ref ref_scale_offset), Some(ref target_scale_offset)) => {
-                Some(target_scale_offset
+            (Some(ref ref_scale_offset), Some(ref target_scale_offset)) => Some(
+                target_scale_offset
                     .pre_scale(self.raster_pixel_scale.0)
-                    .then(&ref_scale_offset.inverse())
-                )
-            }
+                    .then(&ref_scale_offset.inverse()),
+            ),
             _ => None,
         };
     }
 
-    pub fn snap_rect<F>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, F> where F: fmt::Debug {
+    pub fn snap_rect<F>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, F>
+    where
+        F: fmt::Debug,
+    {
         debug_assert!(self.current_target_spatial_node_index != SpatialNodeIndex::INVALID);
         match self.snapping_transform {
             Some(ref scale_offset) => {
@@ -255,11 +242,14 @@ impl SpaceSnapper {
         }
     }
 
-    pub fn snap_point<F>(&self, point: &Point2D<f32, F>) -> Point2D<f32, F> where F: fmt::Debug {
+    pub fn snap_point<F>(&self, point: &Point2D<f32, F>) -> Point2D<f32, F>
+    where
+        F: fmt::Debug,
+    {
         debug_assert!(self.current_target_spatial_node_index != SpatialNodeIndex::INVALID);
         match self.snapping_transform {
             Some(ref scale_offset) => {
-                let snapped_device_vector : DevicePoint = scale_offset.map_point(point).snap();
+                let snapped_device_vector: DevicePoint = scale_offset.map_point(point).snap();
                 scale_offset.unmap_point(&snapped_device_vector)
             }
             None => *point,

@@ -2,17 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::BorderRadius;
-use api::units::*;
-use euclid::{Point2D, Rect, Box2D, Size2D, Vector2D, point2, point3};
-use euclid::{default, Transform2D, Transform3D, Scale, approxeq::ApproxEq};
+use std::{
+    borrow::Cow, f32, fmt, i32, mem::replace, num::NonZeroUsize, os::raw::c_void, ptr, sync::Arc,
+};
+
+use api::{units::*, BorderRadius};
+use euclid::{
+    approxeq::ApproxEq, default, point2, point3, Box2D, Point2D, Rect, Scale, Size2D, Transform2D,
+    Transform3D, Vector2D,
+};
 use plane_split::{Clipper, Polygon};
-use std::{i32, f32, fmt, ptr};
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
-use std::os::raw::c_void;
-use std::sync::Arc;
-use std::mem::replace;
 
 use crate::internal_types::FrameVec;
 
@@ -50,8 +49,12 @@ impl<'a, T> VecEntry<'a, T> {
     #[inline(always)]
     pub fn set(self, value: T) {
         match self {
-            VecEntry::Vacant(alloc) => { alloc.init(value); }
-            VecEntry::Occupied(slot) => { *slot = value; }
+            VecEntry::Vacant(alloc) => {
+                alloc.init(value);
+            }
+            VecEntry::Occupied(slot) => {
+                *slot = value;
+            }
         }
     }
 }
@@ -78,17 +81,12 @@ impl<T> VecHelper<T> for Vec<T> {
         if self.capacity() == index {
             self.reserve(1);
         }
-        Allocation {
-            vec: self,
-            index,
-        }
+        Allocation { vec: self, index }
     }
 
     fn entry(&mut self, index: usize) -> VecEntry<T> {
         if index < self.len() {
-            VecEntry::Occupied(unsafe {
-                self.get_unchecked_mut(index)
-            })
+            VecEntry::Occupied(unsafe { self.get_unchecked_mut(index) })
         } else {
             assert_eq!(index, self.len());
             VecEntry::Vacant(self.alloc())
@@ -140,27 +138,25 @@ impl ScaleOffset {
 
     // Construct a ScaleOffset from a transform. Returns
     // None if the matrix is not a pure scale / translation.
-    pub fn from_transform<F, T>(
-        m: &Transform3D<f32, F, T>,
-    ) -> Option<ScaleOffset> {
-
+    pub fn from_transform<F, T>(m: &Transform3D<f32, F, T>) -> Option<ScaleOffset> {
         // To check that we have a pure scale / translation:
         // Every field must match an identity matrix, except:
         //  - Any value present in tx,ty
         //  - Any value present in sx,sy
 
-        if m.m12.abs() > NEARLY_ZERO ||
-           m.m13.abs() > NEARLY_ZERO ||
-           m.m14.abs() > NEARLY_ZERO ||
-           m.m21.abs() > NEARLY_ZERO ||
-           m.m23.abs() > NEARLY_ZERO ||
-           m.m24.abs() > NEARLY_ZERO ||
-           m.m31.abs() > NEARLY_ZERO ||
-           m.m32.abs() > NEARLY_ZERO ||
-           (m.m33 - 1.0).abs() > NEARLY_ZERO ||
-           m.m34.abs() > NEARLY_ZERO ||
-           m.m43.abs() > NEARLY_ZERO ||
-           (m.m44 - 1.0).abs() > NEARLY_ZERO {
+        if m.m12.abs() > NEARLY_ZERO
+            || m.m13.abs() > NEARLY_ZERO
+            || m.m14.abs() > NEARLY_ZERO
+            || m.m21.abs() > NEARLY_ZERO
+            || m.m23.abs() > NEARLY_ZERO
+            || m.m24.abs() > NEARLY_ZERO
+            || m.m31.abs() > NEARLY_ZERO
+            || m.m32.abs() > NEARLY_ZERO
+            || (m.m33 - 1.0).abs() > NEARLY_ZERO
+            || m.m34.abs() > NEARLY_ZERO
+            || m.m43.abs() > NEARLY_ZERO
+            || (m.m44 - 1.0).abs() > NEARLY_ZERO
+        {
             return None;
         }
 
@@ -194,24 +190,16 @@ impl ScaleOffset {
         }
 
         ScaleOffset {
-            scale: Vector2D::new(
-                1.0 / self.scale.x,
-                1.0 / self.scale.y,
-            ),
-            offset: Vector2D::new(
-                -self.offset.x / self.scale.x,
-                -self.offset.y / self.scale.y,
-            ),
+            scale: Vector2D::new(1.0 / self.scale.x, 1.0 / self.scale.y),
+            offset: Vector2D::new(-self.offset.x / self.scale.x, -self.offset.y / self.scale.y),
         }
     }
 
     pub fn pre_offset(&self, offset: default::Vector2D<f32>) -> Self {
-        self.pre_transform(
-            &ScaleOffset {
-                scale: Vector2D::new(1.0, 1.0),
-                offset,
-            }
-        )
+        self.pre_transform(&ScaleOffset {
+            scale: Vector2D::new(1.0, 1.0),
+            offset,
+        })
     }
 
     pub fn pre_scale(&self, scale: f32) -> Self {
@@ -233,10 +221,7 @@ impl ScaleOffset {
     /// This is equivalent to `Transform3D::pre_transform`.
     pub fn pre_transform(&self, other: &ScaleOffset) -> Self {
         ScaleOffset {
-            scale: Vector2D::new(
-                self.scale.x * other.scale.x,
-                self.scale.y * other.scale.y,
-            ),
+            scale: Vector2D::new(self.scale.x * other.scale.x, self.scale.y * other.scale.y),
             offset: Vector2D::new(
                 self.offset.x + self.scale.x * other.offset.x,
                 self.offset.y + self.scale.y * other.offset.y,
@@ -250,17 +235,13 @@ impl ScaleOffset {
     #[allow(unused)]
     pub fn then(&self, other: &ScaleOffset) -> Self {
         ScaleOffset {
-            scale: Vector2D::new(
-                self.scale.x * other.scale.x,
-                self.scale.y * other.scale.y,
-            ),
+            scale: Vector2D::new(self.scale.x * other.scale.x, self.scale.y * other.scale.y),
             offset: Vector2D::new(
                 other.scale.x * self.offset.x + other.offset.x,
                 other.scale.y * self.offset.y + other.offset.y,
             ),
         }
     }
-
 
     pub fn map_rect<F, T>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, T> {
         // TODO(gw): The logic below can return an unexpected result if the supplied
@@ -294,10 +275,7 @@ impl ScaleOffset {
             sy = -sy;
         }
 
-        Box2D::from_origin_and_size(
-            Point2D::new(x0, y0),
-            Size2D::new(sx, sy),
-        )
+        Box2D::from_origin_and_size(Point2D::new(x0, y0), Size2D::new(sx, sy))
     }
 
     pub fn unmap_rect<F, T>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, T> {
@@ -333,31 +311,19 @@ impl ScaleOffset {
             sy = -sy;
         }
 
-        Box2D::from_origin_and_size(
-            Point2D::new(x0, y0),
-            Size2D::new(sx, sy),
-        )
+        Box2D::from_origin_and_size(Point2D::new(x0, y0), Size2D::new(sx, sy))
     }
 
     pub fn map_vector<F, T>(&self, vector: &Vector2D<f32, F>) -> Vector2D<f32, T> {
-        Vector2D::new(
-            vector.x * self.scale.x,
-            vector.y * self.scale.y,
-        )
+        Vector2D::new(vector.x * self.scale.x, vector.y * self.scale.y)
     }
 
     pub fn map_size<F, T>(&self, size: &Size2D<f32, F>) -> Size2D<f32, T> {
-        Size2D::new(
-            size.width * self.scale.x,
-            size.height * self.scale.y,
-        )
+        Size2D::new(size.width * self.scale.x, size.height * self.scale.y)
     }
 
     pub fn unmap_vector<F, T>(&self, vector: &Vector2D<f32, F>) -> Vector2D<f32, T> {
-        Vector2D::new(
-            vector.x / self.scale.x,
-            vector.y / self.scale.y,
-        )
+        Vector2D::new(vector.x / self.scale.x, vector.y / self.scale.y)
     }
 
     pub fn map_point<F, T>(&self, point: &Point2D<f32, F>) -> Point2D<f32, T> {
@@ -380,17 +346,14 @@ impl ScaleOffset {
             0.0,
             0.0,
             0.0,
-
             0.0,
             self.scale.y,
             0.0,
             0.0,
-
             0.0,
             0.0,
             1.0,
             0.0,
-
             self.offset.x,
             self.offset.y,
             0.0,
@@ -456,10 +419,10 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
     }
 
     fn has_perspective_component(&self) -> bool {
-         self.m14.abs() > NEARLY_ZERO ||
-         self.m24.abs() > NEARLY_ZERO ||
-         self.m34.abs() > NEARLY_ZERO ||
-         (self.m44 - 1.0).abs() > NEARLY_ZERO
+        self.m14.abs() > NEARLY_ZERO
+            || self.m24.abs() > NEARLY_ZERO
+            || self.m34.abs() > NEARLY_ZERO
+            || (self.m44 - 1.0).abs() > NEARLY_ZERO
     }
 
     fn has_2d_inverse(&self) -> bool {
@@ -468,17 +431,20 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
 
     fn exceeds_2d_scale(&self, limit: f64) -> bool {
         let limit2 = (limit * limit) as f32;
-        self.m11 * self.m11 + self.m12 * self.m12 > limit2 ||
-        self.m21 * self.m21 + self.m22 * self.m22 > limit2
+        self.m11 * self.m11 + self.m12 * self.m12 > limit2
+            || self.m21 * self.m21 + self.m22 * self.m22 > limit2
     }
 
     /// Find out a point in `Src` that would be projected into the `target`.
     fn inverse_project(&self, target: &Point2D<f32, Dst>) -> Option<Point2D<f32, Src>> {
         // form the linear equation for the hyperplane intersection
         let m = Transform2D::<f32, Src, Dst>::new(
-            self.m11 - target.x * self.m14, self.m12 - target.y * self.m14,
-            self.m21 - target.x * self.m24, self.m22 - target.y * self.m24,
-            self.m41 - target.x * self.m44, self.m42 - target.y * self.m44,
+            self.m11 - target.x * self.m14,
+            self.m12 - target.y * self.m14,
+            self.m21 - target.x * self.m24,
+            self.m22 - target.y * self.m24,
+            self.m41 - target.x * self.m44,
+            self.m42 - target.y * self.m44,
         );
         let inv = m.inverse()?;
         // we found the point, now check if it maps to the positive hemisphere
@@ -507,18 +473,23 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
     }
 
     fn is_simple_translation(&self) -> bool {
-        if (self.m11 - 1.0).abs() > NEARLY_ZERO ||
-            (self.m22 - 1.0).abs() > NEARLY_ZERO ||
-            (self.m33 - 1.0).abs() > NEARLY_ZERO ||
-            (self.m44 - 1.0).abs() > NEARLY_ZERO {
+        if (self.m11 - 1.0).abs() > NEARLY_ZERO
+            || (self.m22 - 1.0).abs() > NEARLY_ZERO
+            || (self.m33 - 1.0).abs() > NEARLY_ZERO
+            || (self.m44 - 1.0).abs() > NEARLY_ZERO
+        {
             return false;
         }
 
-        self.m12.abs() < NEARLY_ZERO && self.m13.abs() < NEARLY_ZERO &&
-            self.m14.abs() < NEARLY_ZERO && self.m21.abs() < NEARLY_ZERO &&
-            self.m23.abs() < NEARLY_ZERO && self.m24.abs() < NEARLY_ZERO &&
-            self.m31.abs() < NEARLY_ZERO && self.m32.abs() < NEARLY_ZERO &&
-            self.m34.abs() < NEARLY_ZERO
+        self.m12.abs() < NEARLY_ZERO
+            && self.m13.abs() < NEARLY_ZERO
+            && self.m14.abs() < NEARLY_ZERO
+            && self.m21.abs() < NEARLY_ZERO
+            && self.m23.abs() < NEARLY_ZERO
+            && self.m24.abs() < NEARLY_ZERO
+            && self.m31.abs() < NEARLY_ZERO
+            && self.m32.abs() < NEARLY_ZERO
+            && self.m34.abs() < NEARLY_ZERO
     }
 
     fn is_simple_2d_translation(&self) -> bool {
@@ -536,12 +507,18 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
      *  a  b  0  1
      */
     fn is_2d_scale_translation(&self) -> bool {
-        (self.m33 - 1.0).abs() < NEARLY_ZERO &&
-            (self.m44 - 1.0).abs() < NEARLY_ZERO &&
-            self.m12.abs() < NEARLY_ZERO && self.m13.abs() < NEARLY_ZERO && self.m14.abs() < NEARLY_ZERO &&
-            self.m21.abs() < NEARLY_ZERO && self.m23.abs() < NEARLY_ZERO && self.m24.abs() < NEARLY_ZERO &&
-            self.m31.abs() < NEARLY_ZERO && self.m32.abs() < NEARLY_ZERO && self.m34.abs() < NEARLY_ZERO &&
-            self.m43.abs() < NEARLY_ZERO
+        (self.m33 - 1.0).abs() < NEARLY_ZERO
+            && (self.m44 - 1.0).abs() < NEARLY_ZERO
+            && self.m12.abs() < NEARLY_ZERO
+            && self.m13.abs() < NEARLY_ZERO
+            && self.m14.abs() < NEARLY_ZERO
+            && self.m21.abs() < NEARLY_ZERO
+            && self.m23.abs() < NEARLY_ZERO
+            && self.m24.abs() < NEARLY_ZERO
+            && self.m31.abs() < NEARLY_ZERO
+            && self.m32.abs() < NEARLY_ZERO
+            && self.m34.abs() < NEARLY_ZERO
+            && self.m43.abs() < NEARLY_ZERO
     }
 
     fn determinant_2d(&self) -> f32 {
@@ -558,10 +535,8 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
 
     fn cast_unit<NewSrc, NewDst>(&self) -> Transform3D<f32, NewSrc, NewDst> {
         Transform3D::new(
-            self.m11, self.m12, self.m13, self.m14,
-            self.m21, self.m22, self.m23, self.m24,
-            self.m31, self.m32, self.m33, self.m34,
-            self.m41, self.m42, self.m43, self.m44,
+            self.m11, self.m12, self.m13, self.m14, self.m21, self.m22, self.m23, self.m24,
+            self.m31, self.m32, self.m33, self.m34, self.m41, self.m42, self.m43, self.m44,
         )
     }
 }
@@ -575,10 +550,7 @@ where
 
 impl<U> PointHelpers<U> for Point2D<f32, U> {
     fn snap(&self) -> Self {
-        Point2D::new(
-            (self.x + 0.5).floor(),
-            (self.y + 0.5).floor(),
-        )
+        Point2D::new((self.x + 0.5).floor(), (self.y + 0.5).floor())
     }
 }
 
@@ -592,17 +564,11 @@ where
 
 impl<U> RectHelpers<U> for Rect<f32, U> {
     fn from_floats(x0: f32, y0: f32, x1: f32, y1: f32) -> Self {
-        Rect::new(
-            Point2D::new(x0, y0),
-            Size2D::new(x1 - x0, y1 - y0),
-        )
+        Rect::new(Point2D::new(x0, y0), Size2D::new(x1 - x0, y1 - y0))
     }
 
     fn snap(&self) -> Self {
-        let origin = Point2D::new(
-            (self.origin.x + 0.5).floor(),
-            (self.origin.y + 0.5).floor(),
-        );
+        let origin = Point2D::new((self.origin.x + 0.5).floor(), (self.origin.y + 0.5).floor());
         Rect::new(
             origin,
             Size2D::new(
@@ -655,8 +621,7 @@ fn extract_inner_rect_impl<U>(
     let xl = (k * radii.top_left.width.max(radii.bottom_left.width)).ceil();
     let xr = (rect.width() - k * radii.top_right.width.max(radii.bottom_right.width)).floor();
     let yt = (k * radii.top_left.height.max(radii.top_right.height)).ceil();
-    let yb =
-        (rect.height() - k * radii.bottom_left.height.max(radii.bottom_right.height)).floor();
+    let yb = (rect.height() - k * radii.bottom_left.height.max(radii.bottom_right.height)).floor();
 
     if xl <= xr && yt <= yb {
         Some(Box2D::from_origin_and_size(
@@ -695,13 +660,20 @@ use euclid::vec3;
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-    use euclid::default::{Point2D, Size2D, Transform3D};
-    use euclid::{Angle, approxeq::ApproxEq};
     use std::f32::consts::PI;
-    use crate::clip::{is_left_of_line, polygon_contains_point};
-    use crate::prim_store::PolygonKey;
+
     use api::FillRule;
+    use euclid::{
+        approxeq::ApproxEq,
+        default::{Point2D, Size2D, Transform3D},
+        Angle,
+    };
+
+    use super::*;
+    use crate::{
+        clip::{is_left_of_line, polygon_contains_point},
+        prim_store::PolygonKey,
+    };
 
     #[test]
     fn inverse_project() {
@@ -717,10 +689,22 @@ pub mod test {
     #[test]
     fn inverse_project_footprint() {
         let m = Transform3D::new(
-            0.477499992, 0.135000005, -1.0, 0.000624999986,
-            -0.642787635, 0.766044438, 0.0, 0.0,
-            0.766044438, 0.642787635, 0.0, 0.0,
-            1137.10986, 113.71286, 402.0, 0.748749971,
+            0.477499992,
+            0.135000005,
+            -1.0,
+            0.000624999986,
+            -0.642787635,
+            0.766044438,
+            0.0,
+            0.0,
+            0.766044438,
+            0.642787635,
+            0.0,
+            0.0,
+            1137.10986,
+            113.71286,
+            402.0,
+            0.748749971,
         );
         let r = Box2D::from_size(Size2D::new(804.0, 804.0));
         {
@@ -741,7 +725,10 @@ pub mod test {
                 let pi = mi.transform_point3d_homogeneous(p3);
                 let px = pi.to_point2d().unwrap();
                 let py = m.inverse_project(&pp.to_point2d().unwrap()).unwrap();
-                info!("\t{:?} -> {:?} -> {:?} -> ({:?} -> {:?}, {:?})", p, pp, p3, pi, px, py);
+                info!(
+                    "\t{:?} -> {:?} -> {:?} -> ({:?} -> {:?}, {:?})",
+                    p, pp, p3, pi, px, py
+                );
                 assert!(px.approx_eq_eps(p, &Point2D::new(0.001, 0.001)));
                 assert!(py.approx_eq_eps(p, &Point2D::new(0.001, 0.001)));
             }
@@ -767,7 +754,7 @@ pub mod test {
     #[test]
     fn negative_scale_map_unmap() {
         let xref = LayoutTransform::scale(1.0, -1.0, 1.0)
-                        .pre_translate(LayoutVector3D::new(124.0, 38.0, 0.0));
+            .pre_translate(LayoutVector3D::new(124.0, 38.0, 0.0));
         let so = ScaleOffset::from_transform(&xref).unwrap();
         let local_rect = Box2D {
             min: LayoutPoint::new(50.0, -100.0),
@@ -775,11 +762,7 @@ pub mod test {
         };
 
         let mapped_rect = so.map_rect::<LayoutPixel, DevicePixel>(&local_rect);
-        let xf_rect = project_rect(
-            &xref,
-            &local_rect,
-            &LayoutRect::max_rect(),
-        ).unwrap();
+        let xf_rect = project_rect(&xref, &local_rect, &LayoutRect::max_rect()).unwrap();
 
         assert!(mapped_rect.min.x.approx_eq(&xf_rect.min.x));
         assert!(mapped_rect.min.y.approx_eq(&xf_rect.min.y));
@@ -802,23 +785,24 @@ pub mod test {
         validate_convert(&xref);
 
         let xref = LayoutTransform::scale(0.5, 0.5, 1.0)
-                        .pre_translate(LayoutVector3D::new(124.0, 38.0, 0.0));
+            .pre_translate(LayoutVector3D::new(124.0, 38.0, 0.0));
         validate_convert(&xref);
 
-        let xref = LayoutTransform::scale(30.0, 11.0, 1.0)
-            .then_translate(vec3(50.0, 240.0, 0.0));
+        let xref = LayoutTransform::scale(30.0, 11.0, 1.0).then_translate(vec3(50.0, 240.0, 0.0));
         validate_convert(&xref);
     }
 
     fn validate_inverse(xref: &LayoutTransform) {
         let s0 = ScaleOffset::from_transform(xref).unwrap();
         let s1 = s0.inverse().pre_transform(&s0);
-        assert!((s1.scale.x - 1.0).abs() < NEARLY_ZERO &&
-                (s1.scale.y - 1.0).abs() < NEARLY_ZERO &&
-                s1.offset.x.abs() < NEARLY_ZERO &&
-                s1.offset.y.abs() < NEARLY_ZERO,
-                "{:?}",
-                s1);
+        assert!(
+            (s1.scale.x - 1.0).abs() < NEARLY_ZERO
+                && (s1.scale.y - 1.0).abs() < NEARLY_ZERO
+                && s1.offset.x.abs() < NEARLY_ZERO
+                && s1.offset.y.abs() < NEARLY_ZERO,
+            "{:?}",
+            s1
+        );
     }
 
     #[test]
@@ -829,13 +813,11 @@ pub mod test {
         let xref = LayoutTransform::scale(13.0, 8.0, 1.0);
         validate_inverse(&xref);
 
-        let xref = LayoutTransform::translation(124.0, 38.0, 0.0).
-            then_scale(0.5, 0.5, 1.0);
+        let xref = LayoutTransform::translation(124.0, 38.0, 0.0).then_scale(0.5, 0.5, 1.0);
 
         validate_inverse(&xref);
 
-        let xref = LayoutTransform::scale(30.0, 11.0, 1.0)
-            .then_translate(vec3(50.0, 240.0, 0.0));
+        let xref = LayoutTransform::scale(30.0, 11.0, 1.0).then_translate(vec3(50.0, 240.0, 0.0));
         validate_inverse(&xref);
     }
 
@@ -908,18 +890,14 @@ pub mod test {
         let p4 = LayoutPoint::new(8.0, 1.0);
         let p5 = LayoutPoint::new(6.0, 7.0);
 
-        let poly_clockwise_nonzero = PolygonKey::new(
-            &[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Nonzero
-        );
-        let poly_clockwise_evenodd = PolygonKey::new(
-            &[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Evenodd
-        );
-        let poly_counter_clockwise_nonzero = PolygonKey::new(
-            &[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Nonzero
-        );
-        let poly_counter_clockwise_evenodd = PolygonKey::new(
-            &[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Evenodd
-        );
+        let poly_clockwise_nonzero =
+            PolygonKey::new(&[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Nonzero);
+        let poly_clockwise_evenodd =
+            PolygonKey::new(&[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Evenodd);
+        let poly_counter_clockwise_nonzero =
+            PolygonKey::new(&[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Nonzero);
+        let poly_counter_clockwise_evenodd =
+            PolygonKey::new(&[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Evenodd);
 
         // We define a rect that provides a bounding clip area of
         // the polygon.
@@ -934,15 +912,33 @@ pub mod test {
         // counter-clockwise polygons.
         // For nonzero polygons, the inside twice point is considered inside.
         for poly_nonzero in vec![poly_clockwise_nonzero, poly_counter_clockwise_nonzero].iter() {
-            assert_eq!(polygon_contains_point(&p_inside_once, &rect, &poly_nonzero), true);
-            assert_eq!(polygon_contains_point(&p_inside_twice, &rect, &poly_nonzero), true);
-            assert_eq!(polygon_contains_point(&p_outside, &rect, &poly_nonzero), false);
+            assert_eq!(
+                polygon_contains_point(&p_inside_once, &rect, &poly_nonzero),
+                true
+            );
+            assert_eq!(
+                polygon_contains_point(&p_inside_twice, &rect, &poly_nonzero),
+                true
+            );
+            assert_eq!(
+                polygon_contains_point(&p_outside, &rect, &poly_nonzero),
+                false
+            );
         }
         // For evenodd polygons, the inside twice point is considered outside.
         for poly_evenodd in vec![poly_clockwise_evenodd, poly_counter_clockwise_evenodd].iter() {
-            assert_eq!(polygon_contains_point(&p_inside_once, &rect, &poly_evenodd), true);
-            assert_eq!(polygon_contains_point(&p_inside_twice, &rect, &poly_evenodd), false);
-            assert_eq!(polygon_contains_point(&p_outside, &rect, &poly_evenodd), false);
+            assert_eq!(
+                polygon_contains_point(&p_inside_once, &rect, &poly_evenodd),
+                true
+            );
+            assert_eq!(
+                polygon_contains_point(&p_inside_twice, &rect, &poly_evenodd),
+                false
+            );
+            assert_eq!(
+                polygon_contains_point(&p_outside, &rect, &poly_evenodd),
+                false
+            );
         }
     }
 }
@@ -1015,7 +1011,7 @@ impl<Src, Dst> Clone for FastTransform<Src, Dst> {
     }
 }
 
-impl<Src, Dst> Copy for FastTransform<Src, Dst> { }
+impl<Src, Dst> Copy for FastTransform<Src, Dst> {}
 
 impl<Src, Dst> FastTransform<Src, Dst> {
     pub fn identity() -> Self {
@@ -1045,28 +1041,28 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         }
         let inverse = transform.inverse();
         let is_2d = transform.is_2d();
-        FastTransform::Transform { transform, inverse, is_2d}
+        FastTransform::Transform {
+            transform,
+            inverse,
+            is_2d,
+        }
     }
 
     pub fn to_transform(&self) -> Cow<Transform3D<f32, Src, Dst>> {
         match *self {
-            FastTransform::Offset(offset) => Cow::Owned(
-                Transform3D::translation(offset.x, offset.y, 0.0)
-            ),
+            FastTransform::Offset(offset) => {
+                Cow::Owned(Transform3D::translation(offset.x, offset.y, 0.0))
+            }
             FastTransform::Transform { ref transform, .. } => Cow::Borrowed(transform),
         }
     }
 
     /// Return true if this is an identity transform
     #[allow(unused)]
-    pub fn is_identity(&self)-> bool {
+    pub fn is_identity(&self) -> bool {
         match *self {
-            FastTransform::Offset(offset) => {
-                offset == Vector2D::zero()
-            }
-            FastTransform::Transform { ref transform, .. } => {
-                *transform == Transform3D::identity()
-            }
+            FastTransform::Offset(offset) => offset == Vector2D::zero(),
+            FastTransform::Transform { ref transform, .. } => *transform == Transform3D::identity(),
         }
     }
 
@@ -1076,48 +1072,55 @@ impl<Src, Dst> FastTransform<Src, Dst> {
                 FastTransform::Offset(other_offset) => {
                     FastTransform::Offset(offset + other_offset * Scale::<_, _, Src>::new(1.0))
                 }
-                FastTransform::Transform { transform: ref other_transform, .. } => {
-                    FastTransform::with_transform(
-                        other_transform
-                            .with_source::<Src>()
-                            .pre_translate(offset.to_3d())
-                    )
-                }
-            }
-            FastTransform::Transform { ref transform, ref inverse, is_2d } => match *other {
-                FastTransform::Offset(other_offset) => {
-                    FastTransform::with_transform(
-                        transform
-                            .then_translate(other_offset.to_3d())
-                            .with_destination::<NewDst>()
-                    )
-                }
-                FastTransform::Transform { transform: ref other_transform, inverse: ref other_inverse, is_2d: other_is_2d } => {
-                    FastTransform::Transform {
-                        transform: transform.then(other_transform),
-                        inverse: inverse.as_ref().and_then(|self_inv|
-                            other_inverse.as_ref().map(|other_inv| other_inv.then(self_inv))
-                        ),
-                        is_2d: is_2d & other_is_2d,
-                    }
-                }
-            }
+                FastTransform::Transform {
+                    transform: ref other_transform,
+                    ..
+                } => FastTransform::with_transform(
+                    other_transform
+                        .with_source::<Src>()
+                        .pre_translate(offset.to_3d()),
+                ),
+            },
+            FastTransform::Transform {
+                ref transform,
+                ref inverse,
+                is_2d,
+            } => match *other {
+                FastTransform::Offset(other_offset) => FastTransform::with_transform(
+                    transform
+                        .then_translate(other_offset.to_3d())
+                        .with_destination::<NewDst>(),
+                ),
+                FastTransform::Transform {
+                    transform: ref other_transform,
+                    inverse: ref other_inverse,
+                    is_2d: other_is_2d,
+                } => FastTransform::Transform {
+                    transform: transform.then(other_transform),
+                    inverse: inverse.as_ref().and_then(|self_inv| {
+                        other_inverse
+                            .as_ref()
+                            .map(|other_inv| other_inv.then(self_inv))
+                    }),
+                    is_2d: is_2d & other_is_2d,
+                },
+            },
         }
     }
 
     pub fn pre_transform<NewSrc>(
         &self,
-        other: &FastTransform<NewSrc, Src>
+        other: &FastTransform<NewSrc, Src>,
     ) -> FastTransform<NewSrc, Dst> {
         other.then(self)
     }
 
     pub fn pre_translate(&self, other_offset: Vector2D<f32, Src>) -> Self {
         match *self {
-            FastTransform::Offset(offset) =>
-                FastTransform::Offset(offset + other_offset),
-            FastTransform::Transform { transform, .. } =>
+            FastTransform::Offset(offset) => FastTransform::Offset(offset + other_offset),
+            FastTransform::Transform { transform, .. } => {
                 FastTransform::with_transform(transform.pre_translate(other_offset.to_3d()))
+            }
         }
     }
 
@@ -1140,7 +1143,10 @@ impl<Src, Dst> FastTransform<Src, Dst> {
             FastTransform::Transform { inverse: None, .. } => false,
             //TODO: fix this properly by taking "det|M33| * det|M34| > 0"
             // see https://www.w3.org/Bugs/Public/show_bug.cgi?id=23014
-            FastTransform::Transform { inverse: Some(ref inverse), .. } => inverse.m33 < 0.0,
+            FastTransform::Transform {
+                inverse: Some(ref inverse),
+                ..
+            } => inverse.m33 < 0.0,
         }
     }
 
@@ -1157,18 +1163,21 @@ impl<Src, Dst> FastTransform<Src, Dst> {
 
     #[inline(always)]
     pub fn project_point2d(&self, point: Point2D<f32, Src>) -> Option<Point2D<f32, Dst>> {
-        match* self {
+        match *self {
             FastTransform::Offset(..) => self.transform_point2d(point),
-            FastTransform::Transform{ref transform, ..} => {
+            FastTransform::Transform { ref transform, .. } => {
                 // Find a value for z that will transform to 0.
 
                 // The transformed value of z is computed as:
                 // z' = point.x * self.m13 + point.y * self.m23 + z * self.m33 + self.m43
 
                 // Solving for z when z' = 0 gives us:
-                let z = -(point.x * transform.m13 + point.y * transform.m23 + transform.m43) / transform.m33;
+                let z = -(point.x * transform.m13 + point.y * transform.m23 + transform.m43)
+                    / transform.m33;
 
-                transform.transform_point3d(point3(point.x, point.y, z)).map(| p3 | point2(p3.x, p3.y))
+                transform
+                    .transform_point3d(point3(point.x, point.y, z))
+                    .map(|p3| point2(p3.x, p3.y))
             }
         }
     }
@@ -1176,16 +1185,19 @@ impl<Src, Dst> FastTransform<Src, Dst> {
     #[inline(always)]
     pub fn inverse(&self) -> Option<FastTransform<Dst, Src>> {
         match *self {
-            FastTransform::Offset(offset) =>
-                Some(FastTransform::Offset(Vector2D::new(-offset.x, -offset.y))),
-            FastTransform::Transform { transform, inverse: Some(inverse), is_2d, } =>
-                Some(FastTransform::Transform {
-                    transform: inverse,
-                    inverse: Some(transform),
-                    is_2d
-                }),
+            FastTransform::Offset(offset) => {
+                Some(FastTransform::Offset(Vector2D::new(-offset.x, -offset.y)))
+            }
+            FastTransform::Transform {
+                transform,
+                inverse: Some(inverse),
+                is_2d,
+            } => Some(FastTransform::Transform {
+                transform: inverse,
+                inverse: Some(transform),
+                is_2d,
+            }),
             FastTransform::Transform { inverse: None, .. } => None,
-
         }
     }
 }
@@ -1210,7 +1222,8 @@ pub fn project_rect<F, T>(
     rect: &Box2D<f32, F>,
     bounds: &Box2D<f32, T>,
 ) -> Option<Box2D<f32, T>>
- where F: fmt::Debug
+where
+    F: fmt::Debug,
 {
     let homogens = [
         transform.transform_point2d_homogeneous(rect.top_left()),
@@ -1239,10 +1252,11 @@ pub fn project_rect<F, T>(
 
         let results = clipper.clip(polygon);
         if results.is_empty() {
-            return None
+            return None;
         }
 
-        Some(Box2D::from_points(results
+        Some(Box2D::from_points(
+            results
             .into_iter()
             // filter out parts behind the view plane
             .flat_map(|poly| &poly.points)
@@ -1250,7 +1264,7 @@ pub fn project_rect<F, T>(
                 let mut homo = transform.transform_point2d_homogeneous(p.to_2d().to_f32().cast_unit());
                 homo.w = homo.w.max(0.00000001); // avoid infinite values
                 homo.to_point2d().unwrap()
-            })
+            }),
         ))
     } else {
         // we just checked for all the points to be in positive hemisphere, so `unwrap` is valid
@@ -1304,14 +1318,10 @@ pub fn project_rect<F, T>(
 /// }
 ///
 /// See https://doc.rust-lang.org/std/vec/struct.Vec.html#method.drain_filter
-pub fn drain_filter<T, Filter, Action>(
-    vec: &mut Vec<T>,
-    mut filter: Filter,
-    mut action: Action,
-)
+pub fn drain_filter<T, Filter, Action>(vec: &mut Vec<T>, mut filter: Filter, mut action: Action)
 where
     Filter: FnMut(&mut T) -> bool,
-    Action: FnMut(T)
+    Action: FnMut(T),
 {
     let mut i = 0;
     while i != vec.len() {
@@ -1322,7 +1332,6 @@ where
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct Recycler {
@@ -1339,22 +1348,22 @@ impl Recycler {
     const MIN_VECTOR_LENGTH: usize = 16;
 
     pub fn new() -> Self {
-        Recycler {
-            num_allocations: 0,
-        }
+        Recycler { num_allocations: 0 }
     }
 
     /// Clear a vector for re-use, while retaining the backing memory buffer. May shrink the buffer
     /// if it's currently much larger than was actually used.
     pub fn recycle_vec<T>(&mut self, vec: &mut Vec<T>) {
-        let extra_capacity = (vec.capacity() - vec.len()) * 100 / vec.len().max(Self::MIN_VECTOR_LENGTH);
+        let extra_capacity =
+            (vec.capacity() - vec.len()) * 100 / vec.len().max(Self::MIN_VECTOR_LENGTH);
 
         if extra_capacity > Self::MAX_EXTRA_CAPACITY_PERCENT {
-            // Reduce capacity of the buffer if it is a lot larger than it needs to be. This prevents
-            // a frame with exceptionally large allocations to cause subsequent frames to retain
-            // more memory than they need.
+            // Reduce capacity of the buffer if it is a lot larger than it needs to be. This
+            // prevents a frame with exceptionally large allocations to cause subsequent
+            // frames to retain more memory than they need.
             //TODO: use `shrink_to` when it's stable
-            *vec = Vec::with_capacity(vec.len() + vec.len() * Self::MIN_EXTRA_CAPACITY_PERCENT / 100);
+            *vec =
+                Vec::with_capacity(vec.len() + vec.len() * Self::MIN_EXTRA_CAPACITY_PERCENT / 100);
             self.num_allocations += 1;
         } else {
             vec.clear();
@@ -1371,9 +1380,7 @@ pub struct Preallocator {
 
 impl Preallocator {
     pub fn new(initial_size: usize) -> Self {
-        Preallocator {
-            size: initial_size,
-        }
+        Preallocator { size: initial_size }
     }
 
     /// Record the size of a vector to preallocate it the next frame.
@@ -1456,9 +1463,7 @@ impl<T> ::std::ops::Deref for PrimaryArc<T> {
 ///
 /// * Removed `xMajor` parameter.
 /// * All arithmetics is done with double precision.
-pub fn scale_factors<Src, Dst>(
-    mat: &Transform3D<f32, Src, Dst>
-) -> (f32, f32) {
+pub fn scale_factors<Src, Dst>(mat: &Transform3D<f32, Src, Dst>) -> (f32, f32) {
     let m11 = mat.m11 as f64;
     let m12 = mat.m12 as f64;
     // Determinant is just of the 2D component.
@@ -1480,10 +1485,22 @@ pub fn scale_factors<Src, Dst>(
 fn scale_factors_large() {
     // https://bugzilla.mozilla.org/show_bug.cgi?id=1748499
     let mat = Transform3D::<f32, (), ()>::new(
-        1.6534229920333123e27, 3.673100922561787e27, 0.0, 0.0,
-        -3.673100922561787e27, 1.6534229920333123e27, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        -828140552192.0, -1771307401216.0, 0.0, 1.0,
+        1.6534229920333123e27,
+        3.673100922561787e27,
+        0.0,
+        0.0,
+        -3.673100922561787e27,
+        1.6534229920333123e27,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -828140552192.0,
+        -1771307401216.0,
+        0.0,
+        1.0,
     );
     let (major, minor) = scale_factors(&mat);
     assert!(major.is_normal() && minor.is_normal());
@@ -1545,21 +1562,19 @@ pub fn round_up_to_multiple(val: usize, mul: NonZeroUsize) -> usize {
     }
 }
 
-
 #[macro_export]
 macro_rules! c_str {
     ($lit:expr) => {
         unsafe {
-            std::ffi::CStr::from_ptr(concat!($lit, "\0").as_ptr()
-                                     as *const std::os::raw::c_char)
+            std::ffi::CStr::from_ptr(concat!($lit, "\0").as_ptr() as *const std::os::raw::c_char)
         }
-    }
+    };
 }
 
 /// This is inspired by the `weak-table` crate.
 /// It holds a Vec of weak pointers that are garbage collected as the Vec
 pub struct WeakTable {
-    inner: Vec<std::sync::Weak<Vec<u8>>>
+    inner: Vec<std::sync::Weak<Vec<u8>>>,
 }
 
 impl WeakTable {
@@ -1612,7 +1627,7 @@ fn weak_table() {
 
     // make sure that we shrink the table if it gets too big
     // by adding a bunch of dead items
-    for _ in 0..target_count*2 {
+    for _ in 0..target_count * 2 {
         tbl.insert(Arc::downgrade(&Arc::new(vec![5])))
     }
     assert!(tbl.inner.capacity() <= 4);
@@ -1624,6 +1639,12 @@ fn scale_offset_pre_post() {
     let b = ScaleOffset::new(5.0, 6.0, 7.0, 8.0);
 
     assert_eq!(a.then(&b), b.pre_transform(&a));
-    assert_eq!(a.then_scale(10.0), a.then(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0))));
-    assert_eq!(a.pre_scale(10.0), a.pre_transform(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0))));
+    assert_eq!(
+        a.then_scale(10.0),
+        a.then(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0)))
+    );
+    assert_eq!(
+        a.pre_scale(10.0),
+        a.pre_transform(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0)))
+    );
 }

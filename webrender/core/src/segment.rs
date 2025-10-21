@@ -32,28 +32,27 @@
 //! mask is rasterized using a render task. All of the interesting steps happen during frame
 //! building.
 //!
-//! - The first step is to determine the segmentation and write the associated GPU data.
-//!   See `PrimitiveInstance::build_segments_if_needed` and `write_brush_segment_description`
-//!   in `prim_store/mod.rs` which uses the segment builder of this module.
-//! - The second step is to generate the mask render tasks.
-//!   See `BrushSegment::update_clip_task` and `RenderTask::new_mask`. For each segment that
-//!   needs a mask, the contribution of all clips that affect the segment is added to the
-//!   mask's render task.
-//! - Segments are assigned to batches (See `batch.rs`). Segments of a given primitive can
-//!   be assigned to different batches.
+//! - The first step is to determine the segmentation and write the associated GPU data. See
+//!   `PrimitiveInstance::build_segments_if_needed` and `write_brush_segment_description` in
+//!   `prim_store/mod.rs` which uses the segment builder of this module.
+//! - The second step is to generate the mask render tasks. See `BrushSegment::update_clip_task` and
+//!   `RenderTask::new_mask`. For each segment that needs a mask, the contribution of all clips that
+//!   affect the segment is added to the mask's render task.
+//! - Segments are assigned to batches (See `batch.rs`). Segments of a given primitive can be
+//!   assigned to different batches.
 //!
 //! See also the [`clip` module documentation][clip.rs] for details about how clipping
 //! information is represented.
 //!
 //!
 //! [clip.rs]: ../clip/index.html
-//!
 
-use api::{BorderRadius, ClipMode};
-use api::units::*;
 use std::{cmp, usize};
-use crate::util::{extract_inner_rect_safe};
+
+use api::{units::*, BorderRadius, ClipMode};
 use smallvec::SmallVec;
+
+use crate::util::extract_inner_rect_safe;
 
 // We don't want to generate too many segments in edge cases, as it will result in a lot of
 // clip mask overhead, and possibly exceeding the maximum row size of the GPU cache.
@@ -143,24 +142,14 @@ impl Ord for EventKind {
             (EventKind::BeginRegion, EventKind::BeginRegion) => {
                 panic!("bug: regions must be non-overlapping")
             }
-            (EventKind::EndClip, EventKind::BeginRegion) |
-            (EventKind::BeginRegion, EventKind::BeginClip) => {
-                cmp::Ordering::Less
-            }
-            (EventKind::BeginClip, EventKind::BeginRegion) |
-            (EventKind::BeginRegion, EventKind::EndClip) => {
-                cmp::Ordering::Greater
-            }
-            (EventKind::BeginClip, EventKind::BeginClip) |
-            (EventKind::EndClip, EventKind::EndClip) => {
-                cmp::Ordering::Equal
-            }
-            (EventKind::BeginClip, EventKind::EndClip) => {
-                cmp::Ordering::Greater
-            }
-            (EventKind::EndClip, EventKind::BeginClip) => {
-                cmp::Ordering::Less
-            }
+            (EventKind::EndClip, EventKind::BeginRegion)
+            | (EventKind::BeginRegion, EventKind::BeginClip) => cmp::Ordering::Less,
+            (EventKind::BeginClip, EventKind::BeginRegion)
+            | (EventKind::BeginRegion, EventKind::EndClip) => cmp::Ordering::Greater,
+            (EventKind::BeginClip, EventKind::BeginClip)
+            | (EventKind::EndClip, EventKind::EndClip) => cmp::Ordering::Equal,
+            (EventKind::BeginClip, EventKind::EndClip) => cmp::Ordering::Greater,
+            (EventKind::EndClip, EventKind::BeginClip) => cmp::Ordering::Less,
         }
     }
 }
@@ -207,12 +196,7 @@ impl Event {
         }
     }
 
-    fn update(
-        &self,
-        flag: ItemFlags,
-        items: &mut [Item],
-        region: &mut usize,
-    ) {
+    fn update(&self, flag: ItemFlags, items: &mut [Item], region: &mut usize) {
         let is_active = match self.kind {
             EventKind::BeginClip => true,
             EventKind::EndClip => false,
@@ -236,22 +220,14 @@ struct Item {
 }
 
 impl Item {
-    fn new(
-        rect: LayoutRect,
-        mode: Option<ClipMode>,
-        has_mask: bool,
-    ) -> Item {
+    fn new(rect: LayoutRect, mode: Option<ClipMode>, has_mask: bool) -> Item {
         let flags = if has_mask {
             ItemFlags::HAS_MASK
         } else {
             ItemFlags::empty()
         };
 
-        Item {
-            rect,
-            mode,
-            flags,
-        }
+        Item { rect, mode, flags }
     }
 }
 
@@ -321,11 +297,7 @@ impl SegmentBuilder {
         self.has_interesting_clips = true;
 
         if inner_rect.is_empty() {
-            self.items.push(Item::new(
-                outer_rect,
-                None,
-                true
-            ));
+            self.items.push(Item::new(outer_rect, None, true));
             return;
         }
 
@@ -374,19 +346,12 @@ impl SegmentBuilder {
         self.items.reserve(segments.len() + 1);
 
         for segment in segments {
-            self.items.push(Item::new(
-                *segment,
-                None,
-                true
-            ));
+            self.items.push(Item::new(*segment, None, true));
         }
 
         if inner_clip_mode.is_some() {
-            self.items.push(Item::new(
-                inner_rect,
-                inner_clip_mode,
-                false,
-            ));
+            self.items
+                .push(Item::new(inner_rect, inner_clip_mode, false));
         }
     }
 
@@ -403,9 +368,9 @@ impl SegmentBuilder {
         // Keep track of a minimal bounding rect for the set of
         // segments that will be generated.
         if mode == ClipMode::Clip {
-            self.bounding_rect = self.bounding_rect.and_then(|bounding_rect| {
-                bounding_rect.intersection(&rect)
-            });
+            self.bounding_rect = self
+                .bounding_rect
+                .and_then(|bounding_rect| bounding_rect.intersection(&rect));
         }
         let mode = Some(mode);
 
@@ -442,11 +407,7 @@ impl SegmentBuilder {
                         ];
 
                         for segment in corner_segments {
-                            self.items.push(Item::new(
-                                *segment,
-                                mode,
-                                true
-                            ));
+                            self.items.push(Item::new(*segment, mode, true));
                         }
 
                         let other_segments = &[
@@ -473,11 +434,7 @@ impl SegmentBuilder {
                         ];
 
                         for segment in other_segments {
-                            self.items.push(Item::new(
-                                *segment,
-                                mode,
-                                false,
-                            ));
+                            self.items.push(Item::new(*segment, mode, false));
                         }
                     }
                     None => {
@@ -486,27 +443,22 @@ impl SegmentBuilder {
                         // a rounded rect where the top-left and bottom-left radii
                         // result in overlapping rects. In that case, just create
                         // a single clip region for the entire rounded rect.
-                        self.items.push(Item::new(
-                            rect,
-                            mode,
-                            true,
-                        ))
+                        self.items.push(Item::new(rect, mode, true))
                     }
                 }
             }
             None => {
                 // For a simple rect, just create one clipping item.
-                self.items.push(Item::new(
-                    rect,
-                    mode,
-                    false,
-                ))
+                self.items.push(Item::new(rect, mode, false))
             }
         }
     }
 
     // Consume this segment builder and produce a list of segments.
-    pub fn build<F>(&mut self, mut f: F) where F: FnMut(&Segment) {
+    pub fn build<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&Segment),
+    {
         #[cfg(debug_assertions)]
         debug_assert!(self.initialized);
 
@@ -530,16 +482,17 @@ impl SegmentBuilder {
                 has_mask: false,
                 rect: bounding_rect,
             });
-            return
+            return;
         }
 
         // First, filter out any items that don't intersect
         // with the visible bounding rect.
-        self.items.retain(|item| item.rect.intersects(&bounding_rect));
+        self.items
+            .retain(|item| item.rect.intersects(&bounding_rect));
 
         // Create events for each item
-        let mut x_events : SmallVec<[Event; 4]> = SmallVec::new();
-        let mut y_events : SmallVec<[Event; 4]> = SmallVec::new();
+        let mut x_events: SmallVec<[Event; 4]> = SmallVec::new();
+        let mut y_events: SmallVec<[Event; 4]> = SmallVec::new();
 
         for (item_index, item) in self.items.iter().enumerate() {
             let p0 = item.rect.min;
@@ -592,7 +545,7 @@ impl SegmentBuilder {
 
         let mut prev_y = clamp(p0.y, y_events[0].value, p1.y);
         let mut region_y = 0;
-        let mut segments : SmallVec<[_; 16]> = SmallVec::new();
+        let mut segments: SmallVec<[_; 16]> = SmallVec::new();
         let mut x_count = 0;
         let mut y_count = 0;
 
@@ -623,22 +576,14 @@ impl SegmentBuilder {
                         }
                     }
 
-                    ex.update(
-                        ItemFlags::X_ACTIVE,
-                        &mut self.items,
-                        &mut region_x,
-                    );
+                    ex.update(ItemFlags::X_ACTIVE, &mut self.items, &mut region_x);
                 }
 
                 prev_y = cur_y;
                 y_count += 1;
             }
 
-            ey.update(
-                ItemFlags::Y_ACTIVE,
-                &mut self.items,
-                &mut region_y,
-            );
+            ey.update(ItemFlags::Y_ACTIVE, &mut self.items, &mut region_y);
         }
 
         // If we created more than 64 segments, just bail out and draw it as a single primitive
@@ -653,25 +598,25 @@ impl SegmentBuilder {
                 has_mask: true,
                 rect: bounding_rect,
             });
-            return
+            return;
         }
 
         // Run user supplied closure for each valid segment.
         debug_assert_eq!(segments.len(), x_count * y_count);
-        for y in 0 .. y_count {
-            for x in 0 .. x_count {
+        for y in 0..y_count {
+            for x in 0..x_count {
                 let mut edge_flags = EdgeAaSegmentMask::empty();
 
                 if x == 0 || segments[y * x_count + x - 1].is_none() {
                     edge_flags |= EdgeAaSegmentMask::LEFT;
                 }
-                if x == x_count-1 || segments[y * x_count + x + 1].is_none() {
+                if x == x_count - 1 || segments[y * x_count + x + 1].is_none() {
                     edge_flags |= EdgeAaSegmentMask::RIGHT;
                 }
-                if y == 0 || segments[(y-1) * x_count + x].is_none() {
+                if y == 0 || segments[(y - 1) * x_count + x].is_none() {
                     edge_flags |= EdgeAaSegmentMask::TOP;
                 }
-                if y == y_count-1 || segments[(y+1) * x_count + x].is_none() {
+                if y == y_count - 1 || segments[(y + 1) * x_count + x].is_none() {
                     edge_flags |= EdgeAaSegmentMask::BOTTOM;
                 }
 
@@ -707,7 +652,10 @@ fn emit_segment_if_needed(
     let mut has_clip_mask = false;
 
     for item in items {
-        if item.flags.contains(ItemFlags::X_ACTIVE | ItemFlags::Y_ACTIVE) {
+        if item
+            .flags
+            .contains(ItemFlags::X_ACTIVE | ItemFlags::Y_ACTIVE)
+        {
             has_clip_mask |= item.flags.contains(ItemFlags::HAS_MASK);
 
             if item.mode == Some(ClipMode::ClipOut) && !item.flags.contains(ItemFlags::HAS_MASK) {
@@ -717,14 +665,8 @@ fn emit_segment_if_needed(
     }
 
     let segment_rect = LayoutRect {
-        min: LayoutPoint::new(
-            x0.to_f32_px(),
-            y0.to_f32_px(),
-        ),
-        max: LayoutPoint::new(
-            x1.to_f32_px(),
-            y1.to_f32_px(),
-        ),
+        min: LayoutPoint::new(x0.to_f32_px(), y0.to_f32_px()),
+        max: LayoutPoint::new(x1.to_f32_px(), y1.to_f32_px()),
     };
 
     Some(Segment {
@@ -738,10 +680,14 @@ fn emit_segment_if_needed(
 
 #[cfg(test)]
 mod test {
-    use api::{BorderRadius, ClipMode};
-    use api::units::{LayoutPoint, LayoutRect};
-    use super::{Segment, SegmentBuilder, EdgeAaSegmentMask};
     use std::cmp;
+
+    use api::{
+        units::{LayoutPoint, LayoutRect},
+        BorderRadius, ClipMode,
+    };
+
+    use super::{EdgeAaSegmentMask, Segment, SegmentBuilder};
 
     fn rect(x0: f32, y0: f32, x1: f32, y1: f32) -> LayoutRect {
         LayoutRect {
@@ -787,11 +733,9 @@ mod test {
         let r0 = &s0.rect;
         let r1 = &s1.rect;
 
-        (
-            (r0.min.x, r0.min.y, r0.max.x, r0.max.y)
-        ).partial_cmp(&
-            (r1.min.x, r1.min.y, r1.max.x, r1.max.y)
-        ).unwrap()
+        ((r0.min.x, r0.min.y, r0.max.x, r0.max.y))
+            .partial_cmp(&(r1.min.x, r1.min.y, r1.max.x, r1.max.y))
+            .unwrap()
     }
 
     fn seg_test(
@@ -799,14 +743,10 @@ mod test {
         inner_rect: Option<LayoutRect>,
         local_clip_rect: LayoutRect,
         clips: &[(LayoutRect, Option<BorderRadius>, ClipMode)],
-        expected_segments: &mut [Segment]
+        expected_segments: &mut [Segment],
     ) {
         let mut sb = SegmentBuilder::new();
-        sb.initialize(
-            local_rect,
-            inner_rect,
-            local_clip_rect,
-        );
+        sb.initialize(local_rect, inner_rect, local_clip_rect);
         sb.push_clip_rect(local_rect, None, ClipMode::Clip);
         sb.push_clip_rect(local_clip_rect, None, ClipMode::Clip);
         let mut segments = Vec::new();
@@ -814,9 +754,7 @@ mod test {
             sb.push_clip_rect(rect, radius, mode);
         }
         sb.build(|segment| {
-            segments.push(Segment {
-                ..*segment
-            });
+            segments.push(Segment { ..*segment });
         });
         segments.sort_by(segment_sorter);
         expected_segments.sort_by(segment_sorter);
@@ -850,15 +788,19 @@ mod test {
             None,
             rect(10.0, 20.0, 30.0, 40.0),
             &[],
-            &mut [
-                seg(10.0, 20.0, 30.0, 40.0, false,
-                    Some(EdgeAaSegmentMask::LEFT |
-                         EdgeAaSegmentMask::TOP |
-                         EdgeAaSegmentMask::RIGHT |
-                         EdgeAaSegmentMask::BOTTOM
-                    )
+            &mut [seg(
+                10.0,
+                20.0,
+                30.0,
+                40.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::TOP
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM,
                 ),
-            ],
+            )],
         );
     }
 
@@ -869,15 +811,19 @@ mod test {
             None,
             rect(10.0, 20.0, 25.0, 35.0),
             &[],
-            &mut [
-                seg(10.0, 20.0, 25.0, 35.0, false,
-                    Some(EdgeAaSegmentMask::LEFT |
-                         EdgeAaSegmentMask::TOP |
-                         EdgeAaSegmentMask::RIGHT |
-                         EdgeAaSegmentMask::BOTTOM
-                    )
+            &mut [seg(
+                10.0,
+                20.0,
+                25.0,
+                35.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::TOP
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM,
                 ),
-            ],
+            )],
         );
     }
 
@@ -888,15 +834,19 @@ mod test {
             None,
             rect(15.0, 25.0, 25.0, 35.0),
             &[],
-            &mut [
-                seg(15.0, 25.0, 25.0, 35.0, false,
-                    Some(EdgeAaSegmentMask::LEFT |
-                         EdgeAaSegmentMask::TOP |
-                         EdgeAaSegmentMask::RIGHT |
-                         EdgeAaSegmentMask::BOTTOM
-                    )
+            &mut [seg(
+                15.0,
+                25.0,
+                25.0,
+                35.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::TOP
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM,
                 ),
-            ],
+            )],
         );
     }
 
@@ -907,15 +857,19 @@ mod test {
             None,
             rect(10.0, 20.0, 30.0, 40.0),
             &[],
-            &mut [
-                seg(15.0, 25.0, 25.0, 35.0, false,
-                    Some(EdgeAaSegmentMask::LEFT |
-                         EdgeAaSegmentMask::TOP |
-                         EdgeAaSegmentMask::RIGHT |
-                         EdgeAaSegmentMask::BOTTOM
-                    )
+            &mut [seg(
+                15.0,
+                25.0,
+                25.0,
+                35.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::TOP
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM,
                 ),
-            ],
+            )],
         );
     }
 
@@ -926,15 +880,19 @@ mod test {
             None,
             rect(20.0, 10.0, 40.0, 30.0),
             &[],
-            &mut [
-                seg(20.0, 20.0, 30.0, 30.0, false,
-                    Some(EdgeAaSegmentMask::LEFT |
-                         EdgeAaSegmentMask::TOP |
-                         EdgeAaSegmentMask::RIGHT |
-                         EdgeAaSegmentMask::BOTTOM
-                    )
+            &mut [seg(
+                20.0,
+                20.0,
+                30.0,
+                30.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::TOP
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM,
                 ),
-            ],
+            )],
         );
     }
 
@@ -959,8 +917,7 @@ mod test {
                 (rect(20.0, 20.0, 40.0, 40.0), None, ClipMode::Clip),
                 (rect(40.0, 20.0, 60.0, 40.0), None, ClipMode::Clip),
             ],
-            &mut [
-            ],
+            &mut [],
         );
     }
 
@@ -970,24 +927,66 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             None,
             rect(-1000.0, -1000.0, 1000.0, 1000.0),
-            &[
-                (rect(20.0, 20.0, 60.0, 60.0), Some(BorderRadius::uniform(10.0)), ClipMode::Clip),
-            ],
+            &[(
+                rect(20.0, 20.0, 60.0, 60.0),
+                Some(BorderRadius::uniform(10.0)),
+                ClipMode::Clip,
+            )],
             &mut [
                 // corners
-                seg(20.0, 20.0, 30.0, 30.0, true, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP)),
-                seg(20.0, 50.0, 30.0, 60.0, true, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM)),
-                seg(50.0, 20.0, 60.0, 30.0, true, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::TOP)),
-                seg(50.0, 50.0, 60.0, 60.0, true, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM)),
-
+                seg(
+                    20.0,
+                    20.0,
+                    30.0,
+                    30.0,
+                    true,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    20.0,
+                    50.0,
+                    30.0,
+                    60.0,
+                    true,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    50.0,
+                    20.0,
+                    60.0,
+                    30.0,
+                    true,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    50.0,
+                    50.0,
+                    60.0,
+                    60.0,
+                    true,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM),
+                ),
                 // inner
                 seg(30.0, 30.0, 50.0, 50.0, false, None),
-
                 // edges
                 seg(30.0, 20.0, 50.0, 30.0, false, Some(EdgeAaSegmentMask::TOP)),
-                seg(30.0, 50.0, 50.0, 60.0, false, Some(EdgeAaSegmentMask::BOTTOM)),
+                seg(
+                    30.0,
+                    50.0,
+                    50.0,
+                    60.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM),
+                ),
                 seg(20.0, 30.0, 30.0, 50.0, false, Some(EdgeAaSegmentMask::LEFT)),
-                seg(50.0, 30.0, 60.0, 50.0, false, Some(EdgeAaSegmentMask::RIGHT)),
+                seg(
+                    50.0,
+                    30.0,
+                    60.0,
+                    50.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT),
+                ),
             ],
         );
     }
@@ -998,20 +997,72 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             None,
             rect(-1000.0, -1000.0, 2000.0, 2000.0),
-            &[
-                (rect(20.0, 20.0, 60.0, 60.0), None, ClipMode::ClipOut),
-            ],
+            &[(rect(20.0, 20.0, 60.0, 60.0), None, ClipMode::ClipOut)],
             &mut [
-                seg(0.0, 0.0, 20.0, 20.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT)),
-                seg(20.0, 0.0, 60.0, 20.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM)),
-                seg(60.0, 0.0, 100.0, 20.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT)),
-
-                seg(0.0, 20.0, 20.0, 60.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT)),
-                seg(60.0, 20.0, 100.0, 60.0, false, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::LEFT)),
-
-                seg(0.0, 60.0, 20.0, 100.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM)),
-                seg(20.0, 60.0, 60.0, 100.0, false, Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP)),
-                seg(60.0, 60.0, 100.0, 100.0, false, Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT)),
+                seg(
+                    0.0,
+                    0.0,
+                    20.0,
+                    20.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT),
+                ),
+                seg(
+                    20.0,
+                    0.0,
+                    60.0,
+                    20.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    60.0,
+                    0.0,
+                    100.0,
+                    20.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
+                ),
+                seg(
+                    0.0,
+                    20.0,
+                    20.0,
+                    60.0,
+                    false,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT),
+                ),
+                seg(
+                    60.0,
+                    20.0,
+                    100.0,
+                    60.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::LEFT),
+                ),
+                seg(
+                    0.0,
+                    60.0,
+                    20.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    20.0,
+                    60.0,
+                    60.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    60.0,
+                    60.0,
+                    100.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT),
+                ),
             ],
         );
     }
@@ -1022,39 +1073,149 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             None,
             rect(-1000.0, -1000.0, 2000.0, 2000.0),
-            &[
-                (rect(20.0, 20.0, 60.0, 60.0), Some(BorderRadius::uniform(10.0)), ClipMode::ClipOut),
-            ],
+            &[(
+                rect(20.0, 20.0, 60.0, 60.0),
+                Some(BorderRadius::uniform(10.0)),
+                ClipMode::ClipOut,
+            )],
             &mut [
                 // top row
-                seg(0.0, 0.0, 20.0, 20.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT)),
+                seg(
+                    0.0,
+                    0.0,
+                    20.0,
+                    20.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT),
+                ),
                 seg(20.0, 0.0, 30.0, 20.0, false, Some(EdgeAaSegmentMask::TOP)),
-                seg(30.0, 0.0, 50.0, 20.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM)),
+                seg(
+                    30.0,
+                    0.0,
+                    50.0,
+                    20.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM),
+                ),
                 seg(50.0, 0.0, 60.0, 20.0, false, Some(EdgeAaSegmentMask::TOP)),
-                seg(60.0, 0.0, 100.0, 20.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT)),
-
+                seg(
+                    60.0,
+                    0.0,
+                    100.0,
+                    20.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
+                ),
                 // left
                 seg(0.0, 20.0, 20.0, 30.0, false, Some(EdgeAaSegmentMask::LEFT)),
-                seg(0.0, 30.0, 20.0, 50.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT)),
+                seg(
+                    0.0,
+                    30.0,
+                    20.0,
+                    50.0,
+                    false,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT),
+                ),
                 seg(0.0, 50.0, 20.0, 60.0, false, Some(EdgeAaSegmentMask::LEFT)),
-
                 // right
-                seg(60.0, 20.0, 100.0, 30.0, false, Some(EdgeAaSegmentMask::RIGHT)),
-                seg(60.0, 30.0, 100.0, 50.0, false, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::LEFT)),
-                seg(60.0, 50.0, 100.0, 60.0, false, Some(EdgeAaSegmentMask::RIGHT)),
-
+                seg(
+                    60.0,
+                    20.0,
+                    100.0,
+                    30.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT),
+                ),
+                seg(
+                    60.0,
+                    30.0,
+                    100.0,
+                    50.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::LEFT),
+                ),
+                seg(
+                    60.0,
+                    50.0,
+                    100.0,
+                    60.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT),
+                ),
                 // bottom row
-                seg(0.0, 60.0, 20.0, 100.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM)),
-                seg(20.0, 60.0, 30.0, 100.0, false, Some(EdgeAaSegmentMask::BOTTOM)),
-                seg(30.0, 60.0, 50.0, 100.0, false, Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP)),
-                seg(50.0, 60.0, 60.0, 100.0, false, Some(EdgeAaSegmentMask::BOTTOM)),
-                seg(60.0, 60.0, 100.0, 100.0, false, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM)),
-
+                seg(
+                    0.0,
+                    60.0,
+                    20.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    20.0,
+                    60.0,
+                    30.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    30.0,
+                    60.0,
+                    50.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    50.0,
+                    60.0,
+                    60.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    60.0,
+                    60.0,
+                    100.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM),
+                ),
                 // inner corners
-                seg(20.0, 20.0, 30.0, 30.0, true, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM)),
-                seg(20.0, 50.0, 30.0, 60.0, true, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT)),
-                seg(50.0, 20.0, 60.0, 30.0, true, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM)),
-                seg(50.0, 50.0, 60.0, 60.0, true, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP)),
+                seg(
+                    20.0,
+                    20.0,
+                    30.0,
+                    30.0,
+                    true,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    20.0,
+                    50.0,
+                    30.0,
+                    60.0,
+                    true,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
+                ),
+                seg(
+                    50.0,
+                    20.0,
+                    60.0,
+                    30.0,
+                    true,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    50.0,
+                    50.0,
+                    60.0,
+                    60.0,
+                    true,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP),
+                ),
             ],
         );
     }
@@ -1070,9 +1231,38 @@ mod test {
                 (rect(50.0, 50.0, 80.0, 80.0), None, ClipMode::ClipOut),
             ],
             &mut [
-                seg(20.0, 20.0, 50.0, 50.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP)),
-                seg(50.0, 20.0, 60.0, 50.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM)),
-                seg(20.0, 50.0, 50.0, 60.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT)),
+                seg(
+                    20.0,
+                    20.0,
+                    50.0,
+                    50.0,
+                    false,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    50.0,
+                    20.0,
+                    60.0,
+                    50.0,
+                    false,
+                    Some(
+                        EdgeAaSegmentMask::TOP
+                            | EdgeAaSegmentMask::RIGHT
+                            | EdgeAaSegmentMask::BOTTOM,
+                    ),
+                ),
+                seg(
+                    20.0,
+                    50.0,
+                    50.0,
+                    60.0,
+                    false,
+                    Some(
+                        EdgeAaSegmentMask::LEFT
+                            | EdgeAaSegmentMask::BOTTOM
+                            | EdgeAaSegmentMask::RIGHT,
+                    ),
+                ),
             ],
         );
     }
@@ -1085,22 +1275,73 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             &[
                 (rect(0.0, 0.0, 10.0, 10.0), None, ClipMode::ClipOut),
-                (rect(0.0, 0.0, 100.0, 100.0), Some(BorderRadius::uniform(10.0)), ClipMode::Clip),
+                (
+                    rect(0.0, 0.0, 100.0, 100.0),
+                    Some(BorderRadius::uniform(10.0)),
+                    ClipMode::Clip,
+                ),
             ],
             &mut [
                 // corners
-                seg(0.0, 90.0, 10.0, 100.0, true, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM)),
-                seg(90.0, 0.0, 100.0, 10.0, true, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::TOP)),
-                seg(90.0, 90.0, 100.0, 100.0, true, Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM)),
-
+                seg(
+                    0.0,
+                    90.0,
+                    10.0,
+                    100.0,
+                    true,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    90.0,
+                    0.0,
+                    100.0,
+                    10.0,
+                    true,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    90.0,
+                    90.0,
+                    100.0,
+                    100.0,
+                    true,
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM),
+                ),
                 // inner
                 seg(10.0, 10.0, 90.0, 90.0, false, None),
-
                 // edges
-                seg(10.0, 0.0, 90.0, 10.0, false, Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT)),
-                seg(10.0, 90.0, 90.0, 100.0, false, Some(EdgeAaSegmentMask::BOTTOM)),
-                seg(0.0, 10.0, 10.0, 90.0, false, Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP)),
-                seg(90.0, 10.0, 100.0, 90.0, false, Some(EdgeAaSegmentMask::RIGHT)),
+                seg(
+                    10.0,
+                    0.0,
+                    90.0,
+                    10.0,
+                    false,
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT),
+                ),
+                seg(
+                    10.0,
+                    90.0,
+                    90.0,
+                    100.0,
+                    false,
+                    Some(EdgeAaSegmentMask::BOTTOM),
+                ),
+                seg(
+                    0.0,
+                    10.0,
+                    10.0,
+                    90.0,
+                    false,
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP),
+                ),
+                seg(
+                    90.0,
+                    10.0,
+                    100.0,
+                    90.0,
+                    false,
+                    Some(EdgeAaSegmentMask::RIGHT),
+                ),
             ],
         );
     }
@@ -1113,17 +1354,25 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             &[
                 (rect(10.0, 10.0, 90.0, 90.0), None, ClipMode::Clip),
-                (rect(0.0, 0.0, 100.0, 100.0), Some(BorderRadius::uniform(10.0)), ClipMode::Clip),
-            ],
-            &mut [
-                seg(10.0, 10.0, 90.0, 90.0, false,
-                    Some(EdgeAaSegmentMask::LEFT |
-                         EdgeAaSegmentMask::TOP |
-                         EdgeAaSegmentMask::RIGHT |
-                         EdgeAaSegmentMask::BOTTOM
-                    )
+                (
+                    rect(0.0, 0.0, 100.0, 100.0),
+                    Some(BorderRadius::uniform(10.0)),
+                    ClipMode::Clip,
                 ),
             ],
+            &mut [seg(
+                10.0,
+                10.0,
+                90.0,
+                90.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::TOP
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM,
+                ),
+            )],
         );
     }
 
@@ -1137,8 +1386,7 @@ mod test {
                 (rect(10.0, 10.0, 90.0, 90.0), None, ClipMode::Clip),
                 (rect(10.0, 10.0, 90.0, 90.0), None, ClipMode::ClipOut),
             ],
-            &mut [
-            ],
+            &mut [],
         );
     }
 
@@ -1148,17 +1396,20 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             None,
             rect(0.0, 0.0, 100.0, 100.0),
-            &[
-                (rect(0.0, 0.0, 100.0, 90.0), None, ClipMode::ClipOut),
-            ],
-            &mut [
-                seg(0.0, 90.0, 100.0, 100.0, false, Some(
-                    EdgeAaSegmentMask::LEFT |
-                    EdgeAaSegmentMask::RIGHT |
-                    EdgeAaSegmentMask::BOTTOM |
-                    EdgeAaSegmentMask::TOP
-                )),
-            ],
+            &[(rect(0.0, 0.0, 100.0, 90.0), None, ClipMode::ClipOut)],
+            &mut [seg(
+                0.0,
+                90.0,
+                100.0,
+                100.0,
+                false,
+                Some(
+                    EdgeAaSegmentMask::LEFT
+                        | EdgeAaSegmentMask::RIGHT
+                        | EdgeAaSegmentMask::BOTTOM
+                        | EdgeAaSegmentMask::TOP,
+                ),
+            )],
         );
     }
 
@@ -1168,81 +1419,89 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             Some(rect(20.0, 40.0, 60.0, 80.0)),
             rect(0.0, 0.0, 100.0, 100.0),
-            &[
-            ],
+            &[],
             &mut [
                 seg_region(
-                    0.0, 0.0,
-                    20.0, 40.0,
-                    0, 0,
+                    0.0,
+                    0.0,
+                    20.0,
+                    40.0,
+                    0,
+                    0,
                     false,
-                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP)
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP),
                 ),
-
                 seg_region(
-                    20.0, 0.0,
-                    60.0, 40.0,
-                    1, 0,
+                    20.0,
+                    0.0,
+                    60.0,
+                    40.0,
+                    1,
+                    0,
                     false,
-                    Some(EdgeAaSegmentMask::TOP)
+                    Some(EdgeAaSegmentMask::TOP),
                 ),
-
                 seg_region(
-                    60.0, 0.0,
-                    100.0, 40.0,
-                    2, 0,
+                    60.0,
+                    0.0,
+                    100.0,
+                    40.0,
+                    2,
+                    0,
                     false,
-                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT)
+                    Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
                 ),
-
                 seg_region(
-                    0.0, 40.0,
-                    20.0, 80.0,
-                    0, 1,
+                    0.0,
+                    40.0,
+                    20.0,
+                    80.0,
+                    0,
+                    1,
                     false,
-                    Some(EdgeAaSegmentMask::LEFT)
+                    Some(EdgeAaSegmentMask::LEFT),
                 ),
-
+                seg_region(20.0, 40.0, 60.0, 80.0, 1, 1, false, None),
                 seg_region(
-                    20.0, 40.0,
-                    60.0, 80.0,
-                    1, 1,
+                    60.0,
+                    40.0,
+                    100.0,
+                    80.0,
+                    2,
+                    1,
                     false,
-                    None,
+                    Some(EdgeAaSegmentMask::RIGHT),
                 ),
-
                 seg_region(
-                    60.0, 40.0,
-                    100.0, 80.0,
-                    2, 1,
+                    0.0,
+                    80.0,
+                    20.0,
+                    100.0,
+                    0,
+                    2,
                     false,
-                    Some(EdgeAaSegmentMask::RIGHT)
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM),
                 ),
-
                 seg_region(
-                    0.0, 80.0,
-                    20.0, 100.0,
-                    0, 2,
-                    false,
-                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM)
-                ),
-
-                seg_region(
-                    20.0, 80.0,
-                    60.0, 100.0,
-                    1, 2,
+                    20.0,
+                    80.0,
+                    60.0,
+                    100.0,
+                    1,
+                    2,
                     false,
                     Some(EdgeAaSegmentMask::BOTTOM),
                 ),
-
                 seg_region(
-                    60.0, 80.0,
-                    100.0, 100.0,
-                    2, 2,
+                    60.0,
+                    80.0,
+                    100.0,
+                    100.0,
+                    2,
+                    2,
                     false,
-                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM)
+                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM),
                 ),
-
             ],
         );
     }
@@ -1253,34 +1512,46 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             Some(rect(20.0, 40.0, 60.0, 80.0)),
             rect(0.0, 0.0, 100.0, 100.0),
-            &[
-                (rect(0.0, 0.0, 100.0, 90.0), None, ClipMode::ClipOut),
-            ],
+            &[(rect(0.0, 0.0, 100.0, 90.0), None, ClipMode::ClipOut)],
             &mut [
                 seg_region(
-                    0.0, 90.0,
-                    20.0, 100.0,
-                    0, 2,
+                    0.0,
+                    90.0,
+                    20.0,
+                    100.0,
+                    0,
+                    2,
                     false,
-                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP)
+                    Some(
+                        EdgeAaSegmentMask::LEFT
+                            | EdgeAaSegmentMask::BOTTOM
+                            | EdgeAaSegmentMask::TOP,
+                    ),
                 ),
-
                 seg_region(
-                    20.0, 90.0,
-                    60.0, 100.0,
-                    1, 2,
+                    20.0,
+                    90.0,
+                    60.0,
+                    100.0,
+                    1,
+                    2,
                     false,
                     Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP),
                 ),
-
                 seg_region(
-                    60.0, 90.0,
-                    100.0, 100.0,
-                    2, 2,
+                    60.0,
+                    90.0,
+                    100.0,
+                    100.0,
+                    2,
+                    2,
                     false,
-                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP)
+                    Some(
+                        EdgeAaSegmentMask::RIGHT
+                            | EdgeAaSegmentMask::BOTTOM
+                            | EdgeAaSegmentMask::TOP,
+                    ),
                 ),
-
             ],
         );
     }
@@ -1291,48 +1562,65 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             Some(rect(20.0, 20.0, 80.0, 80.0)),
             rect(0.0, 0.0, 100.0, 100.0),
-            &[
-                (rect(20.0, 20.0, 100.0, 100.0), None, ClipMode::ClipOut),
-            ],
+            &[(rect(20.0, 20.0, 100.0, 100.0), None, ClipMode::ClipOut)],
             &mut [
                 seg_region(
-                    0.0, 0.0,
-                    20.0, 20.0,
-                    0, 0,
+                    0.0,
+                    0.0,
+                    20.0,
+                    20.0,
+                    0,
+                    0,
                     false,
-                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP)
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::TOP),
                 ),
-
                 seg_region(
-                    20.0, 0.0,
-                    80.0, 20.0,
-                    1, 0,
+                    20.0,
+                    0.0,
+                    80.0,
+                    20.0,
+                    1,
+                    0,
                     false,
                     Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM),
                 ),
-
                 seg_region(
-                    80.0, 0.0,
-                    100.0, 20.0,
-                    2, 0,
+                    80.0,
+                    0.0,
+                    100.0,
+                    20.0,
+                    2,
+                    0,
                     false,
-                    Some(EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM)
+                    Some(
+                        EdgeAaSegmentMask::RIGHT
+                            | EdgeAaSegmentMask::TOP
+                            | EdgeAaSegmentMask::BOTTOM,
+                    ),
                 ),
-
                 seg_region(
-                    0.0, 20.0,
-                    20.0, 80.0,
-                    0, 1,
+                    0.0,
+                    20.0,
+                    20.0,
+                    80.0,
+                    0,
+                    1,
                     false,
-                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT)
+                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT),
                 ),
-
                 seg_region(
-                    0.0, 80.0,
-                    20.0, 100.0,
-                    0, 2,
+                    0.0,
+                    80.0,
+                    20.0,
+                    100.0,
+                    0,
+                    2,
                     false,
-                    Some(EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT)
+                    Some(
+                        EdgeAaSegmentMask::LEFT
+                            | EdgeAaSegmentMask::BOTTOM
+                            | EdgeAaSegmentMask::RIGHT,
+                    ),
                 ),
             ],
         );
@@ -1344,38 +1632,45 @@ mod test {
             rect(0.0, 0.0, 100.0, 100.0),
             Some(rect(20.0, 20.0, 80.0, 80.0)),
             rect(0.0, 0.0, 100.0, 100.0),
-            &[
-                (rect(10.0, 10.0, 30.0, 30.0), None, ClipMode::Clip),
-            ],
+            &[(rect(10.0, 10.0, 30.0, 30.0), None, ClipMode::Clip)],
             &mut [
                 seg_region(
-                    10.0, 10.0,
-                    20.0, 20.0,
-                    0, 0,
+                    10.0,
+                    10.0,
+                    20.0,
+                    20.0,
+                    0,
+                    0,
                     false,
                     Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT),
                 ),
-
                 seg_region(
-                    20.0, 10.0,
-                    30.0, 20.0,
-                    1, 0,
+                    20.0,
+                    10.0,
+                    30.0,
+                    20.0,
+                    1,
+                    0,
                     false,
                     Some(EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
                 ),
-
                 seg_region(
-                    10.0, 20.0,
-                    20.0, 30.0,
-                    0, 1,
+                    10.0,
+                    20.0,
+                    20.0,
+                    30.0,
+                    0,
+                    1,
                     false,
                     Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::LEFT),
                 ),
-
                 seg_region(
-                    20.0, 20.0,
-                    30.0, 30.0,
-                    1, 1,
+                    20.0,
+                    20.0,
+                    30.0,
+                    30.0,
+                    1,
+                    1,
                     false,
                     Some(EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT),
                 ),

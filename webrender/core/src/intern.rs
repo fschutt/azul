@@ -33,14 +33,9 @@
 //! stored inside each handle. This is then used for
 //! cache invalidation.
 
-use crate::internal_types::FastHashMap;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::{ops, u64};
-use crate::util::VecHelper;
-use crate::profiler::TransactionProfile;
+use std::{fmt::Debug, hash::Hash, marker::PhantomData, ops, u64};
 
+use crate::{internal_types::FastHashMap, profiler::TransactionProfile, util::VecHelper};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 struct Epoch(u32);
@@ -56,13 +51,11 @@ pub struct UpdateList<S> {
     pub removals: Vec<Removal>,
 }
 
-
 pub struct Insertion<S> {
     pub index: usize,
     pub uid: ItemUid,
     pub value: S,
 }
-
 
 pub struct Removal {
     pub index: usize,
@@ -122,11 +115,15 @@ impl<I> Handle<I> {
         ItemUid {
             // The index in the freelist + the epoch it was interned generates a stable
             // unique id for an interned element.
-            uid: ((self.index as u64) << 32) | self.epoch.0 as u64
+            uid: ((self.index as u64) << 32) | self.epoch.0 as u64,
         }
     }
 
-    pub const INVALID: Self = Handle { index: !0, epoch: Epoch(!0), _marker: PhantomData };
+    pub const INVALID: Self = Handle {
+        index: !0,
+        epoch: Epoch(!0),
+        _marker: PhantomData,
+    };
 }
 
 pub trait InternDebug {
@@ -142,9 +139,7 @@ pub struct DataStore<I: Internable> {
 
 impl<I: Internable> Default for DataStore<I> {
     fn default() -> Self {
-        DataStore {
-            items: Vec::new(),
-        }
+        DataStore { items: Vec::new() }
     }
 }
 
@@ -174,7 +169,9 @@ impl<I: Internable> DataStore<I> {
 impl<I: Internable> ops::Index<Handle<I>> for DataStore<I> {
     type Output = I::StoreData;
     fn index(&self, handle: Handle<I>) -> &I::StoreData {
-        self.items[handle.index as usize].as_ref().expect("Bad datastore lookup")
+        self.items[handle.index as usize]
+            .as_ref()
+            .expect("Bad datastore lookup")
     }
 }
 
@@ -182,10 +179,11 @@ impl<I: Internable> ops::Index<Handle<I>> for DataStore<I> {
 /// Retrieve an item from the store via handle
 impl<I: Internable> ops::IndexMut<Handle<I>> for DataStore<I> {
     fn index_mut(&mut self, handle: Handle<I>) -> &mut I::StoreData {
-        self.items[handle.index as usize].as_mut().expect("Bad datastore lookup")
+        self.items[handle.index as usize]
+            .as_mut()
+            .expect("Bad datastore lookup")
     }
 }
-
 
 struct ItemDetails<I> {
     /// Frame that this element was first interned
@@ -249,11 +247,10 @@ impl<I: Internable> Interner<I> {
     /// The provided closure is invoked to build the
     /// local data about an interned structure if the
     /// key isn't already interned.
-    pub fn intern<F>(
-        &mut self,
-        data: &I::Key,
-        fun: F,
-    ) -> Handle<I> where F: FnOnce() -> I::InternData {
+    pub fn intern<F>(&mut self, data: &I::Key, fun: F) -> Handle<I>
+    where
+        F: FnOnce() -> I::InternData,
+    {
         // Use get_mut rather than entry here to avoid
         // cloning the (sometimes large) key in the common
         // case, where the data already exists in the interner.
@@ -293,12 +290,15 @@ impl<I: Internable> Interner<I> {
 
         // Store this handle so the next time it is
         // interned, it gets re-used.
-        self.map.insert(data.clone(), ItemDetails {
-            interned_epoch: self.current_epoch,
-            last_used_epoch: self.current_epoch,
-            index,
-            _marker: PhantomData,
-        });
+        self.map.insert(
+            data.clone(),
+            ItemDetails {
+                interned_epoch: self.current_epoch,
+                last_used_epoch: self.current_epoch,
+                index,
+                _marker: PhantomData,
+            },
+        );
 
         // Create the local data for this item that is
         // being interned.
@@ -363,7 +363,7 @@ impl<I: Internable> ops::Index<Handle<I>> for Interner<I> {
 /// Note that this could be a lot less verbose if concat_idents! were stable. :-(
 #[macro_export]
 macro_rules! enumerate_interners {
-    ($macro_name: ident) => {
+    ($macro_name:ident) => {
         $macro_name! {
             clip: ClipIntern,
             prim: PrimitiveKeyKind,
@@ -383,7 +383,7 @@ macro_rules! enumerate_interners {
             polygon: PolygonIntern,
             box_shadow: BoxShadow,
         }
-    }
+    };
 }
 
 macro_rules! declare_interning_memory_report {
@@ -432,18 +432,25 @@ mod dummy {
     #[cfg(not(feature = "replay"))]
     impl<'a, T> Deserialize<'a> for T {}
 }
-#[cfg(feature = "capture")]
-use serde::Serialize as InternSerialize;
-#[cfg(not(feature = "capture"))]
-use self::dummy::Serialize as InternSerialize;
 #[cfg(feature = "replay")]
 use serde::Deserialize as InternDeserialize;
+#[cfg(feature = "capture")]
+use serde::Serialize as InternSerialize;
+
 #[cfg(not(feature = "replay"))]
 use self::dummy::Deserialize as InternDeserialize;
+#[cfg(not(feature = "capture"))]
+use self::dummy::Serialize as InternSerialize;
 
 /// Implement `Internable` for a type that wants to participate in interning.
 pub trait Internable {
-    type Key: Eq + Hash + Clone + Debug + InternDebug + InternSerialize + for<'a> InternDeserialize<'a>;
+    type Key: Eq
+        + Hash
+        + Clone
+        + Debug
+        + InternDebug
+        + InternSerialize
+        + for<'a> InternDeserialize<'a>;
     type StoreData: From<Self::Key> + InternSerialize + for<'a> InternDeserialize<'a>;
     type InternData: InternSerialize + for<'a> InternDeserialize<'a>;
 

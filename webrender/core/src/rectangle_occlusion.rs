@@ -7,23 +7,27 @@
 //! ## Output
 //!
 //! Occlusion culling results in two lists of rectangles:
-//! 
-//! - The opaque list should be rendered first. None of its rectangles overlap so order doesn't matter
-//!   within the opaque pass.
-//! - The non-opaque list (or alpha list) which should be rendered in back-to-front order after the opaque pass.
 //!
-//! The output has minimal overdraw (no overdraw at all for opaque items and as little as possible for alpha ones).
+//! - The opaque list should be rendered first. None of its rectangles overlap so order doesn't
+//!   matter within the opaque pass.
+//! - The non-opaque list (or alpha list) which should be rendered in back-to-front order after the
+//!   opaque pass.
+//!
+//! The output has minimal overdraw (no overdraw at all for opaque items and as little as possible
+//! for alpha ones).
 //!
 //! ## Algorithm overview
 //!
-//! The occlusion culling algorithm works in front-to-back order, accumulating rectangle in opaque and non-opaque lists.
-//! Each time a rectangle is added, it is first tested against existing opaque rectangles and potentially split into visible
-//! sub-rectangles, or even discarded completely. The front-to-back order ensures that once a rectangle is added it does not
-//! have to be modified again, making the underlying data structure trivial (append-only).
+//! The occlusion culling algorithm works in front-to-back order, accumulating rectangle in opaque
+//! and non-opaque lists. Each time a rectangle is added, it is first tested against existing opaque
+//! rectangles and potentially split into visible sub-rectangles, or even discarded completely. The
+//! front-to-back order ensures that once a rectangle is added it does not have to be modified
+//! again, making the underlying data structure trivial (append-only).
 //!
 //! ## splitting
 //!
-//! Partially visible rectangles are split into up to 4 visible sub-rectangles by each intersecting occluder.
+//! Partially visible rectangles are split into up to 4 visible sub-rectangles by each intersecting
+//! occluder.
 //!
 //! ```ascii
 //!  +----------------------+       +----------------------+
@@ -36,31 +40,31 @@
 //!  +----------------------+       +----------------------+
 //! ```
 //!
-//! In the example above the rectangle is split into 4 visible parts with the central occluded part left out.
+//! In the example above the rectangle is split into 4 visible parts with the central occluded part
+//! left out.
 //!
-//! This implementation favors longer horizontal bands instead creating nine-patches to deal with the corners.
-//! The advantage is that it produces less rectangles which is good for the performance of the algorithm and
-//! for SWGL which likes long horizontal spans, however it would cause artifacts if the resulting rectangles
-//! were to be drawn with a non-axis-aligned transformation.
+//! This implementation favors longer horizontal bands instead creating nine-patches to deal with
+//! the corners. The advantage is that it produces less rectangles which is good for the performance
+//! of the algorithm and for SWGL which likes long horizontal spans, however it would cause
+//! artifacts if the resulting rectangles were to be drawn with a non-axis-aligned transformation.
 //!
 //! ## Performance
 //!
-//! The cost of the algorithm grows with the number of opaque rectangle as each new rectangle is tested against
-//! all previously added opaque rectangles.
+//! The cost of the algorithm grows with the number of opaque rectangle as each new rectangle is
+//! tested against all previously added opaque rectangles.
 //!
-//! Note that opaque rectangles can either be added as opaque or non-opaque. This means a trade-off between
-//! overdraw and number of rectangles can be explored to adjust performance: Small opaque rectangles, especially
-//! towards the front of the scene, could be added as non-opaque to avoid causing many splits while adding only 
-//! a small amount of overdraw.
+//! Note that opaque rectangles can either be added as opaque or non-opaque. This means a trade-off
+//! between overdraw and number of rectangles can be explored to adjust performance: Small opaque
+//! rectangles, especially towards the front of the scene, could be added as non-opaque to avoid
+//! causing many splits while adding only a small amount of overdraw.
 //!
-//! This implementation is intended to be used with a small number of (opaque) items. A similar implementation
-//! could use a spatial acceleration structure for opaque rectangles to perform better with a large amount of
-//! occluders.
-//!
+//! This implementation is intended to be used with a small number of (opaque) items. A similar
+//! implementation could use a spatial acceleration structure for opaque rectangles to perform
+//! better with a large amount of occluders.
 
+use api::units::*;
 use euclid::point2;
 use smallvec::SmallVec;
-use api::units::*;
 
 /// A visible part of a rectangle after occlusion culling.
 #[derive(Debug, PartialEq)]
@@ -76,7 +80,6 @@ pub struct FrontToBackBuilder {
 }
 
 impl FrontToBackBuilder {
-
     /// Pre-allocating constructor.
     pub fn with_capacity(opaque: usize, alpha: usize) -> Self {
         FrontToBackBuilder {
@@ -141,7 +144,6 @@ impl FrontToBackBuilder {
         &self.alpha_items
     }
 }
-
 
 // Split out the parts of the rects in the provided vector
 fn apply_occluder(occluder: &DeviceBox2D, rects: &mut SmallVec<[DeviceBox2D; 16]>) {

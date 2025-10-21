@@ -2,13 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{FontKey, FontInstanceKey, IdNamespace};
-use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphKey, GlyphRasterizer};
-use crate::internal_types::{FrameId, FrameStamp, FastHashMap};
-use crate::resource_cache::ResourceClassCache;
 use std::sync::Arc;
-use crate::texture_cache::{EvictionNotice, TextureCache};
-use crate::texture_cache::TextureCacheHandle;
+
+use api::{FontInstanceKey, FontKey, IdNamespace};
+use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphKey, GlyphRasterizer};
+
+use crate::{
+    internal_types::{FastHashMap, FrameId, FrameStamp},
+    resource_cache::ResourceClassCache,
+    texture_cache::{EvictionNotice, TextureCache, TextureCacheHandle},
+};
 
 #[derive(Clone, Debug)]
 pub struct CachedGlyphInfo {
@@ -91,9 +94,10 @@ impl GlyphCache {
     }
 
     pub fn insert_glyph_key_cache_for_font(&mut self, font: &FontInstance) -> &mut GlyphKeyCache {
-        let cache = self.glyph_key_caches
-                        .entry(font.clone())
-                        .or_insert_with(GlyphKeyCache::new);
+        let cache = self
+            .glyph_key_caches
+            .entry(font.clone())
+            .or_insert_with(GlyphKeyCache::new);
         #[cfg(debug_assertions)]
         {
             cache.user_data.last_frame_used = self.current_frame;

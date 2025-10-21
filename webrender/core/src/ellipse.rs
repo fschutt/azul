@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::units::*;
-use euclid::Size2D;
 use std::f32::consts::FRAC_PI_2;
 
+use api::units::*;
+use euclid::Size2D;
 
 /// Number of steps to integrate arc length over.
 const STEP_COUNT: usize = 20;
@@ -149,7 +149,7 @@ fn get_simpson_length(theta: f32, rx: f32, ry: f32) -> f32 {
     let df = theta / STEP_COUNT as f32;
     let mut sum = 0.0;
 
-    for i in 0 .. (STEP_COUNT + 1) {
+    for i in 0..(STEP_COUNT + 1) {
         let (sin_theta, cos_theta) = (i as f32 * df).sin_cos();
         let a = rx * sin_theta;
         let b = ry * cos_theta;

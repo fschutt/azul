@@ -2,13 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::{hash};
-use crate::gpu_cache::{GpuCacheHandle};
-use crate::frame_builder::FrameBuildingState;
-use crate::gpu_cache::GpuDataRequest;
-use crate::intern;
-use api::{ComponentTransferFuncType};
+use std::hash;
 
+use api::ComponentTransferFuncType;
+
+use crate::{
+    frame_builder::FrameBuildingState,
+    gpu_cache::{GpuCacheHandle, GpuDataRequest},
+    intern,
+};
 
 pub type FilterDataHandle = intern::Handle<FilterDataIntern>;
 
@@ -78,7 +80,9 @@ impl SFilterDataComponent {
             ComponentTransferFuncType::Table => SFilterDataComponent::Table(values.to_vec()),
             ComponentTransferFuncType::Discrete => SFilterDataComponent::Discrete(values.to_vec()),
             ComponentTransferFuncType::Linear => SFilterDataComponent::Linear(values[0], values[1]),
-            ComponentTransferFuncType::Gamma => SFilterDataComponent::Gamma(values[0], values[1], values[2]),
+            ComponentTransferFuncType::Gamma => {
+                SFilterDataComponent::Gamma(values[0], values[1], values[2])
+            }
         }
     }
 }
@@ -136,10 +140,7 @@ impl SFilterDataTemplate {
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn update(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
+    pub fn update(&mut self, frame_state: &mut FrameBuildingState) {
         if let Some(request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
             self.data.update(request);
         }
@@ -157,30 +158,27 @@ impl intern::Internable for FilterDataIntern {
     const PROFILE_COUNTER: usize = crate::profiler::INTERNED_FILTER_DATA;
 }
 
-fn push_component_transfer_data(
-    func_comp: &SFilterDataComponent,
-    request: &mut GpuDataRequest,
-) {
+fn push_component_transfer_data(func_comp: &SFilterDataComponent, request: &mut GpuDataRequest) {
     match func_comp {
         SFilterDataComponent::Identity => {}
-        SFilterDataComponent::Table(values) |
-        SFilterDataComponent::Discrete(values) => {
+        SFilterDataComponent::Table(values) | SFilterDataComponent::Discrete(values) => {
             // Push a 256 entry lookup table.
             assert!(values.len() > 0);
-            for i in 0 .. 64 {
-                let mut arr = [0.0 ; 4];
-                for j in 0 .. 4 {
+            for i in 0..64 {
+                let mut arr = [0.0; 4];
+                for j in 0..4 {
                     if (values.len() == 1) || (i == 63 && j == 3) {
-                        arr[j] = values[values.len()-1];
+                        arr[j] = values[values.len() - 1];
                     } else {
-                        let c = ((4*i + j) as f32)/255.0;
+                        let c = ((4 * i + j) as f32) / 255.0;
                         match func_comp {
                             SFilterDataComponent::Table(_) => {
-                                let n = (values.len()-1) as f32;
+                                let n = (values.len() - 1) as f32;
                                 let k = (n * c).floor() as u32;
                                 let ku = k as usize;
-                                assert!(ku < values.len()-1);
-                                arr[j] = values[ku] + (c*n - (k as f32)) * (values[ku+1] - values[ku]);
+                                assert!(ku < values.len() - 1);
+                                arr[j] = values[ku]
+                                    + (c * n - (k as f32)) * (values[ku + 1] - values[ku]);
                             }
                             SFilterDataComponent::Discrete(_) => {
                                 let n = values.len() as f32;
@@ -188,13 +186,12 @@ fn push_component_transfer_data(
                                 assert!(k < values.len());
                                 arr[j] = values[k];
                             }
-                            SFilterDataComponent::Identity |
-                            SFilterDataComponent::Linear(_,_) |
-                            SFilterDataComponent::Gamma(_,_,_) => {
+                            SFilterDataComponent::Identity
+                            | SFilterDataComponent::Linear(_, _)
+                            | SFilterDataComponent::Gamma(_, _, _) => {
                                 unreachable!();
                             }
                         }
-
                     }
                 }
 

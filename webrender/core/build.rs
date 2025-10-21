@@ -6,13 +6,16 @@
 // Shader compilation happens at runtime instead of build-time
 // For sw_compositor, we'll integrate pure-Rust SWGL shaders later
 
-use std::env;
-use std::fs::{File, read_dir, canonicalize};
-use std::io::prelude::*;
-use std::path::{Path, PathBuf};
-use std::borrow::Cow;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
+use std::{
+    borrow::Cow,
+    collections::hash_map::DefaultHasher,
+    env,
+    fs::{canonicalize, read_dir, File},
+    hash::Hasher,
+    io::prelude::*,
+    path::{Path, PathBuf},
+};
+
 use webrender_build::shader::*;
 
 // glsopt is known to leak, but we don't particularly care.
@@ -70,7 +73,8 @@ fn write_unoptimized_shaders(
 
         writeln!(
             shader_file,
-            "    shaders.insert(\"{}\", SourceWithDigest {{ source: include_str!(\"{}\"), digest: \"{}\"}});",
+            "    shaders.insert(\"{}\", SourceWithDigest {{ source: include_str!(\"{}\"), digest: \
+             \"{}\"}});",
             shader_name,
             escape_include_path(&glsl),
             digest,
@@ -123,7 +127,8 @@ fn write_optimized_shaders(
 ) -> Result<(), std::io::Error> {
     writeln!(
         shader_file,
-        "  pub static ref OPTIMIZED_SHADERS: HashMap<(ShaderVersion, &'static str), OptimizedSourceWithDigest> = {{"
+        "  pub static ref OPTIMIZED_SHADERS: HashMap<(ShaderVersion, &'static str), \
+         OptimizedSourceWithDigest> = {{"
     )?;
     writeln!(shader_file, "    let mut shaders = HashMap::new();")?;
 
@@ -319,7 +324,7 @@ fn main() -> Result<(), std::io::Error> {
 
     println!("cargo:rerun-if-changed=res");
     let res_dir = Path::new("res");
-    
+
     if res_dir.exists() {
         for entry in read_dir(res_dir)? {
             let entry = entry?;
@@ -352,14 +357,18 @@ fn main() -> Result<(), std::io::Error> {
 
     // Generate unoptimized shaders
     write_unoptimized_shaders(glsl_files, &mut shader_file)?;
-    
+
     // For optimized shaders, just create empty map for now
     // TODO: Integrate pure-Rust SWGL shaders for sw_compositor
     writeln!(shader_file, "")?;
-    writeln!(shader_file, "  pub static ref OPTIMIZED_SHADERS: HashMap<(ShaderVersion, &'static str), OptimizedSourceWithDigest> = {{")?;
+    writeln!(
+        shader_file,
+        "  pub static ref OPTIMIZED_SHADERS: HashMap<(ShaderVersion, &'static str), \
+         OptimizedSourceWithDigest> = {{"
+    )?;
     writeln!(shader_file, "    HashMap::new()")?;
     writeln!(shader_file, "  }};")?;
-    
+
     writeln!(shader_file, "}}")?;
 
     Ok(())

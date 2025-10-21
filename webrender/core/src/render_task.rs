@@ -2,45 +2,58 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{CompositeOperator, FilterPrimitive, FilterPrimitiveInput, FilterPrimitiveKind, SVGFE_GRAPH_MAX};
-use api::{LineStyle, LineOrientation, ClipMode, MixBlendMode, ColorF, ColorSpace, FilterOpGraphPictureBufferId};
-use api::MAX_RENDER_TASK_SIZE;
-use api::units::*;
-use crate::box_shadow::BLUR_SAMPLE_SCALE;
-use crate::clip::{ClipDataStore, ClipItemKind, ClipStore, ClipNodeRange};
-use crate::command_buffer::{CommandBufferIndex, QuadFlags};
-use crate::pattern::{PatternKind, PatternShaderInput};
-use crate::spatial_tree::SpatialNodeIndex;
-use crate::filterdata::SFilterData;
-use crate::frame_builder::{FrameBuilderConfig, FrameBuildingState};
-use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
-use crate::gpu_types::{BorderInstance, ImageSource, UvRectKind, TransformPaletteId};
-use crate::internal_types::{CacheTextureId, FastHashMap, FilterGraphNode, FilterGraphOp, FilterGraphPictureReference, SVGFE_CONVOLVE_VALUES_LIMIT, TextureSource, Swizzle};
-use crate::picture::{ResolvedSurfaceTexture, MAX_SURFACE_SIZE};
-use crate::prim_store::ClipData;
-use crate::prim_store::gradient::{
-    FastLinearGradientTask, RadialGradientTask,
-    ConicGradientTask, LinearGradientTask,
+use std::{f32, i32, u32, usize};
+
+use api::{
+    units::*, ClipMode, ColorF, ColorSpace, CompositeOperator, FilterOpGraphPictureBufferId,
+    FilterPrimitive, FilterPrimitiveInput, FilterPrimitiveKind, LineOrientation, LineStyle,
+    MixBlendMode, MAX_RENDER_TASK_SIZE, SVGFE_GRAPH_MAX,
 };
-use crate::resource_cache::{ResourceCache, ImageRequest};
-use std::{usize, f32, i32, u32};
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF};
-use crate::render_backend::DataStores;
-use crate::render_target::{ResolveOp, RenderTargetKind};
-use crate::render_task_graph::{PassId, RenderTaskId, RenderTaskGraphBuilder};
-use crate::render_task_cache::{RenderTaskCacheEntryHandle, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent};
-use crate::segment::EdgeAaSegmentMask;
-use crate::surface::SurfaceBuilder;
 use smallvec::SmallVec;
+
+use crate::{
+    box_shadow::BLUR_SAMPLE_SCALE,
+    clip::{ClipDataStore, ClipItemKind, ClipNodeRange, ClipStore},
+    command_buffer::{CommandBufferIndex, QuadFlags},
+    filterdata::SFilterData,
+    frame_builder::{FrameBuilderConfig, FrameBuildingState},
+    gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle},
+    gpu_types::{BorderInstance, ImageSource, TransformPaletteId, UvRectKind},
+    internal_types::{
+        CacheTextureId, FastHashMap, FilterGraphNode, FilterGraphOp, FilterGraphPictureReference,
+        Swizzle, TextureSource, SVGFE_CONVOLVE_VALUES_LIMIT,
+    },
+    pattern::{PatternKind, PatternShaderInput},
+    picture::{ResolvedSurfaceTexture, MAX_SURFACE_SIZE},
+    prim_store::{
+        gradient::{
+            ConicGradientTask, FastLinearGradientTask, LinearGradientTask, RadialGradientTask,
+        },
+        ClipData,
+    },
+    render_backend::DataStores,
+    render_target::{RenderTargetKind, ResolveOp},
+    render_task_cache::{
+        RenderTaskCacheEntryHandle, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent,
+    },
+    render_task_graph::{PassId, RenderTaskGraphBuilder, RenderTaskId},
+    renderer::{GpuBufferAddress, GpuBufferBuilderF},
+    resource_cache::{ImageRequest, ResourceCache},
+    segment::EdgeAaSegmentMask,
+    spatial_tree::SpatialNodeIndex,
+    surface::SurfaceBuilder,
+};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
 pub const MIN_DOWNSCALING_RT_SIZE: i32 = 8;
 
 fn render_task_sanity_check(size: &DeviceIntSize) {
-    if size.width > MAX_RENDER_TASK_SIZE ||
-        size.height > MAX_RENDER_TASK_SIZE {
-        error!("Attempting to create a render task of size {}x{}", size.width, size.height);
+    if size.width > MAX_RENDER_TASK_SIZE || size.height > MAX_RENDER_TASK_SIZE {
+        error!(
+            "Attempting to create a render task of size {}x{}",
+            size.width, size.height
+        );
         panic!();
     }
 }
@@ -69,9 +82,7 @@ pub enum StaticRenderTaskSurface {
     },
     /// Only used as a source for render tasks, can be any texture including an
     /// external one.
-    ReadOnly {
-        source: TextureSource,
-    },
+    ReadOnly { source: TextureSource },
     /// This render task will be drawn to a picture cache texture that is
     /// persisted between both frames and scenes, if the content remains valid.
     PictureCache {
@@ -85,16 +96,13 @@ pub enum StaticRenderTaskSurface {
 pub enum RenderTaskLocation {
     // Towards the beginning of the frame, most task locations are typically not
     // known yet, in which case they are set to one of the following variants:
-
     /// A dynamic task that has not yet been allocated a texture and rect.
     Unallocated {
         /// Requested size of this render task
         size: DeviceIntSize,
     },
     /// Will be replaced by a Static location after the texture cache update.
-    CacheRequest {
-        size: DeviceIntSize,
-    },
+    CacheRequest { size: DeviceIntSize },
     /// Same allocation as an existing task deeper in the dependency graph
     Existing {
         parent_task_id: RenderTaskId,
@@ -104,7 +112,6 @@ pub enum RenderTaskLocation {
 
     // Before batching begins, we expect that locations have been resolved to
     // one of the following variants:
-
     /// The `RenderTask` should be drawn to a target provided by the atlas
     /// allocator. This is the most common case.
     Dynamic {
@@ -212,10 +219,7 @@ impl PictureTask {
     /// Used for pictures that are split between render tasks (e.g. pre/post a backdrop
     /// filter). Subsequent picture tasks never have a clear color as they are by definition
     /// going to write to an existing target
-    pub fn duplicate(
-        &self,
-        cmd_buffer_index: CommandBufferIndex,
-    ) -> Self {
+    pub fn duplicate(&self, cmd_buffer_index: CommandBufferIndex) -> Self {
         assert_eq!(self.resolve_op, None);
 
         PictureTask {
@@ -239,12 +243,16 @@ impl BlurTask {
     // In order to do the blur down-scaling passes without introducing errors, we need the
     // source of each down-scale pass to be a multuple of two. If need be, this inflates
     // the source size so that each down-scale pass will sample correctly.
-    pub fn adjusted_blur_source_size(original_size: DeviceSize, mut std_dev: DeviceSize) -> DeviceIntSize {
+    pub fn adjusted_blur_source_size(
+        original_size: DeviceSize,
+        mut std_dev: DeviceSize,
+    ) -> DeviceIntSize {
         let mut adjusted_size = original_size;
         let mut scale_factor = 1.0;
         while std_dev.width > MAX_BLUR_STD_DEVIATION && std_dev.height > MAX_BLUR_STD_DEVIATION {
-            if adjusted_size.width < MIN_DOWNSCALING_RT_SIZE as f32 ||
-               adjusted_size.height < MIN_DOWNSCALING_RT_SIZE as f32 {
+            if adjusted_size.width < MIN_DOWNSCALING_RT_SIZE as f32
+                || adjusted_size.height < MIN_DOWNSCALING_RT_SIZE as f32
+            {
                 break;
             }
             std_dev = std_dev * 0.5;
@@ -294,7 +302,8 @@ pub enum SvgFilterInfo {
     Offset(DeviceVector2D),
     ComponentTransfer(SFilterData),
     Composite(CompositeOperator),
-    // TODO: This is used as a hack to ensure that a blur task's input is always in the blur's previous pass.
+    // TODO: This is used as a hack to ensure that a blur task's input is always in the blur's
+    // previous pass.
     Identity,
 }
 
@@ -406,43 +415,31 @@ impl RenderTaskKind {
 
     pub fn target_kind(&self) -> RenderTargetKind {
         match *self {
-            RenderTaskKind::Image(..) |
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::FastLinearGradient(..) |
-            RenderTaskKind::LinearGradient(..) |
-            RenderTaskKind::RadialGradient(..) |
-            RenderTaskKind::ConicGradient(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::Blit(..) |
-            RenderTaskKind::TileComposite(..) |
-            RenderTaskKind::Prim(..) |
-            RenderTaskKind::SvgFilter(..) => {
-                RenderTargetKind::Color
-            }
-            RenderTaskKind::SVGFENode(..) => {
-                RenderTargetKind::Color
-            }
+            RenderTaskKind::Image(..)
+            | RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::FastLinearGradient(..)
+            | RenderTaskKind::LinearGradient(..)
+            | RenderTaskKind::RadialGradient(..)
+            | RenderTaskKind::ConicGradient(..)
+            | RenderTaskKind::Picture(..)
+            | RenderTaskKind::Blit(..)
+            | RenderTaskKind::TileComposite(..)
+            | RenderTaskKind::Prim(..)
+            | RenderTaskKind::SvgFilter(..) => RenderTargetKind::Color,
+            RenderTaskKind::SVGFENode(..) => RenderTargetKind::Color,
 
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Empty(..) => {
-                RenderTargetKind::Alpha
-            }
+            RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::Empty(..) => RenderTargetKind::Alpha,
 
-            RenderTaskKind::VerticalBlur(ref task_info) |
-            RenderTaskKind::HorizontalBlur(ref task_info) => {
-                task_info.target_kind
-            }
+            RenderTaskKind::VerticalBlur(ref task_info)
+            | RenderTaskKind::HorizontalBlur(ref task_info) => task_info.target_kind,
 
-            RenderTaskKind::Scaling(ref task_info) => {
-                task_info.target_kind
-            }
+            RenderTaskKind::Scaling(ref task_info) => task_info.target_kind,
 
-            RenderTaskKind::Cached(ref task_info) => {
-                task_info.target_kind
-            }
+            RenderTaskKind::Cached(ref task_info) => task_info.target_kind,
 
             #[cfg(test)]
             RenderTaskKind::Test(kind) => kind,
@@ -522,14 +519,8 @@ impl RenderTaskKind {
         })
     }
 
-    pub fn new_readback(
-        readback_origin: Option<DevicePoint>,
-    ) -> Self {
-        RenderTaskKind::Readback(
-            ReadbackTask {
-                readback_origin,
-            }
-        )
+    pub fn new_readback(readback_origin: Option<DevicePoint>) -> Self {
+        RenderTaskKind::Readback(ReadbackTask { readback_origin })
     }
 
     pub fn new_line_decoration(
@@ -546,12 +537,8 @@ impl RenderTaskKind {
         })
     }
 
-    pub fn new_border_segment(
-        instances: Vec<BorderInstance>,
-    ) -> Self {
-        RenderTaskKind::Border(BorderTask {
-            instances,
-        })
+    pub fn new_border_segment(instances: Vec<BorderInstance>) -> Self {
+        RenderTaskKind::Border(BorderTask { instances })
     }
 
     pub fn new_rounded_rect_mask(
@@ -597,30 +584,30 @@ impl RenderTaskKind {
         // the first (primary) clip mask will overwrite all the clip mask pixels with
         // blending disabled to set to the initial value.
 
-        let clip_task_id = rg_builder.add().init(
-            RenderTask::new_dynamic(
-                task_size,
-                RenderTaskKind::CacheMask(CacheMaskTask {
-                    actual_rect: outer_rect.to_f32(),
-                    clip_node_range,
-                    root_spatial_node_index,
-                    device_pixel_scale,
-                    clear_to_one: fb_config.gpu_supports_fast_clears,
-                }),
-            )
-        );
+        let clip_task_id = rg_builder.add().init(RenderTask::new_dynamic(
+            task_size,
+            RenderTaskKind::CacheMask(CacheMaskTask {
+                actual_rect: outer_rect.to_f32(),
+                clip_node_range,
+                root_spatial_node_index,
+                device_pixel_scale,
+                clear_to_one: fb_config.gpu_supports_fast_clears,
+            }),
+        ));
 
-        for i in 0 .. clip_node_range.count {
+        for i in 0..clip_node_range.count {
             let clip_instance = clip_store.get_instance_from_range(&clip_node_range, i);
             let clip_node = &mut clip_data_store[clip_instance.handle];
             match clip_node.item.kind {
                 ClipItemKind::BoxShadow { ref mut source } => {
-                    let (cache_size, cache_key) = source.cache_key
+                    let (cache_size, cache_key) = source
+                        .cache_key
                         .as_ref()
                         .expect("bug: no cache key set")
                         .clone();
                     let blur_radius_dp = cache_key.blur_radius_dp as f32;
-                    let device_pixel_scale = DevicePixelScale::new(cache_key.device_pixel_scale.to_f32_px());
+                    let device_pixel_scale =
+                        DevicePixelScale::new(cache_key.device_pixel_scale.to_f32_px());
 
                     // Request a cacheable render task with a blurred, minimal
                     // sized box-shadow rect.
@@ -663,12 +650,12 @@ impl RenderTaskKind {
                                 None,
                                 cache_size,
                             )
-                        }
+                        },
                     ));
                 }
-                ClipItemKind::Rectangle { .. } |
-                ClipItemKind::RoundedRectangle { .. } |
-                ClipItemKind::Image { .. } => {}
+                ClipItemKind::Rectangle { .. }
+                | ClipItemKind::RoundedRectangle { .. }
+                | ClipItemKind::Image { .. } => {}
             }
         }
 
@@ -678,10 +665,7 @@ impl RenderTaskKind {
     // Write (up to) 8 floats of data specific to the type
     // of render task that is provided to the GPU shaders
     // via a vertex texture.
-    pub fn write_task_data(
-        &self,
-        target_rect: DeviceIntRect,
-    ) -> RenderTaskData {
+    pub fn write_task_data(&self, target_rect: DeviceIntRect) -> RenderTaskData {
         // NOTE: The ordering and layout of these structures are
         //       required to match both the GPU structures declared
         //       in prim_shared.glsl, and also the uses in submit_batch()
@@ -702,7 +686,8 @@ impl RenderTaskKind {
             }
             RenderTaskKind::Prim(ref task) => {
                 [
-                    // NOTE: This must match the render task data format for Picture tasks currently
+                    // NOTE: This must match the render task data format for Picture tasks
+                    // currently
                     task.device_pixel_scale.0,
                     task.content_origin.x,
                     task.content_origin.y,
@@ -711,62 +696,44 @@ impl RenderTaskKind {
             }
             RenderTaskKind::Empty(ref task) => {
                 [
-                    // NOTE: This must match the render task data format for Picture tasks currently
+                    // NOTE: This must match the render task data format for Picture tasks
+                    // currently
                     task.device_pixel_scale.0,
                     task.content_origin.x,
                     task.content_origin.y,
                     0.0,
                 ]
             }
-            RenderTaskKind::CacheMask(ref task) => {
-                [
-                    task.device_pixel_scale.0,
-                    task.actual_rect.min.x,
-                    task.actual_rect.min.y,
-                    0.0,
-                ]
-            }
-            RenderTaskKind::ClipRegion(ref task) => {
-                [
-                    task.device_pixel_scale.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                ]
-            }
-            RenderTaskKind::VerticalBlur(_) |
-            RenderTaskKind::HorizontalBlur(_) => {
+            RenderTaskKind::CacheMask(ref task) => [
+                task.device_pixel_scale.0,
+                task.actual_rect.min.x,
+                task.actual_rect.min.y,
+                0.0,
+            ],
+            RenderTaskKind::ClipRegion(ref task) => [task.device_pixel_scale.0, 0.0, 0.0, 0.0],
+            RenderTaskKind::VerticalBlur(_) | RenderTaskKind::HorizontalBlur(_) => {
                 // TODO(gw): Make this match Picture tasks so that we can draw
                 //           sub-passes on them to apply box-shadow masks.
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                ]
+                [0.0, 0.0, 0.0, 0.0]
             }
-            RenderTaskKind::Image(..) |
-            RenderTaskKind::Cached(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::FastLinearGradient(..) |
-            RenderTaskKind::LinearGradient(..) |
-            RenderTaskKind::RadialGradient(..) |
-            RenderTaskKind::ConicGradient(..) |
-            RenderTaskKind::TileComposite(..) |
-            RenderTaskKind::Blit(..) => {
-                [0.0; 4]
-            }
+            RenderTaskKind::Image(..)
+            | RenderTaskKind::Cached(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Scaling(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::FastLinearGradient(..)
+            | RenderTaskKind::LinearGradient(..)
+            | RenderTaskKind::RadialGradient(..)
+            | RenderTaskKind::ConicGradient(..)
+            | RenderTaskKind::TileComposite(..)
+            | RenderTaskKind::Blit(..) => [0.0; 4],
 
-            RenderTaskKind::SvgFilter(ref task) => {
-                match task.info {
-                    SvgFilterInfo::Opacity(opacity) => [opacity, 0.0, 0.0, 0.0],
-                    SvgFilterInfo::Offset(offset) => [offset.x, offset.y, 0.0, 0.0],
-                    _ => [0.0; 4]
-                }
-            }
+            RenderTaskKind::SvgFilter(ref task) => match task.info {
+                SvgFilterInfo::Opacity(opacity) => [opacity, 0.0, 0.0, 0.0],
+                SvgFilterInfo::Offset(offset) => [offset.x, offset.y, 0.0, 0.0],
+                _ => [0.0; 4],
+            },
             RenderTaskKind::SVGFENode(_task) => {
                 // we don't currently use this for SVGFE filters.
                 // see SVGFEFilterInstance instead
@@ -774,9 +741,7 @@ impl RenderTaskKind {
             }
 
             #[cfg(test)]
-            RenderTaskKind::Test(..) => {
-                [0.0; 4]
-            }
+            RenderTaskKind::Test(..) => [0.0; 4],
         };
 
         RenderTaskData {
@@ -789,161 +754,239 @@ impl RenderTaskKind {
                 data[1],
                 data[2],
                 data[3],
-            ]
+            ],
         }
     }
 
-    pub fn write_gpu_blocks(
-        &mut self,
-        gpu_cache: &mut GpuCache,
-    ) {
+    pub fn write_gpu_blocks(&mut self, gpu_cache: &mut GpuCache) {
         match self {
-            RenderTaskKind::SvgFilter(ref mut filter_task) => {
-                match filter_task.info {
-                    SvgFilterInfo::ColorMatrix(ref matrix) => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            for i in 0..5 {
-                                request.push([matrix[i*4], matrix[i*4+1], matrix[i*4+2], matrix[i*4+3]]);
-                            }
+            RenderTaskKind::SvgFilter(ref mut filter_task) => match filter_task.info {
+                SvgFilterInfo::ColorMatrix(ref matrix) => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        for i in 0..5 {
+                            request.push([
+                                matrix[i * 4],
+                                matrix[i * 4 + 1],
+                                matrix[i * 4 + 2],
+                                matrix[i * 4 + 3],
+                            ]);
                         }
                     }
-                    SvgFilterInfo::DropShadow(color) |
-                    SvgFilterInfo::Flood(color) => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            request.push(color.to_array());
-                        }
-                    }
-                    SvgFilterInfo::ComponentTransfer(ref data) => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(request) = gpu_cache.request(handle) {
-                            data.update(request);
-                        }
-                    }
-                    SvgFilterInfo::Composite(ref operator) => {
-                        if let CompositeOperator::Arithmetic(k_vals) = operator {
-                            let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                            if let Some(mut request) = gpu_cache.request(handle) {
-                                request.push(*k_vals);
-                            }
-                        }
-                    }
-                    _ => {},
                 }
-            }
-            RenderTaskKind::SVGFENode(ref mut filter_task) => {
-                match filter_task.op {
-                    FilterGraphOp::SVGFEBlendDarken => {}
-                    FilterGraphOp::SVGFEBlendLighten => {}
-                    FilterGraphOp::SVGFEBlendMultiply => {}
-                    FilterGraphOp::SVGFEBlendNormal => {}
-                    FilterGraphOp::SVGFEBlendScreen => {}
-                    FilterGraphOp::SVGFEBlendOverlay => {}
-                    FilterGraphOp::SVGFEBlendColorDodge => {}
-                    FilterGraphOp::SVGFEBlendColorBurn => {}
-                    FilterGraphOp::SVGFEBlendHardLight => {}
-                    FilterGraphOp::SVGFEBlendSoftLight => {}
-                    FilterGraphOp::SVGFEBlendDifference => {}
-                    FilterGraphOp::SVGFEBlendExclusion => {}
-                    FilterGraphOp::SVGFEBlendHue => {}
-                    FilterGraphOp::SVGFEBlendSaturation => {}
-                    FilterGraphOp::SVGFEBlendColor => {}
-                    FilterGraphOp::SVGFEBlendLuminosity => {}
-                    FilterGraphOp::SVGFEColorMatrix{values: matrix} => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            for i in 0..5 {
-                                request.push([matrix[i*4], matrix[i*4+1], matrix[i*4+2], matrix[i*4+3]]);
-                            }
-                        }
+                SvgFilterInfo::DropShadow(color) | SvgFilterInfo::Flood(color) => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        request.push(color.to_array());
                     }
-                    FilterGraphOp::SVGFEComponentTransfer => unreachable!(),
-                    FilterGraphOp::SVGFEComponentTransferInterned{..} => {}
-                    FilterGraphOp::SVGFECompositeArithmetic{k1, k2, k3, k4} => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            request.push([k1, k2, k3, k4]);
-                        }
-                    }
-                    FilterGraphOp::SVGFECompositeATop => {}
-                    FilterGraphOp::SVGFECompositeIn => {}
-                    FilterGraphOp::SVGFECompositeLighter => {}
-                    FilterGraphOp::SVGFECompositeOut => {}
-                    FilterGraphOp::SVGFECompositeOver => {}
-                    FilterGraphOp::SVGFECompositeXOR => {}
-                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate{order_x, order_y, kernel, divisor, bias, target_x, target_y, kernel_unit_length_x, kernel_unit_length_y, preserve_alpha} |
-                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone{order_x, order_y, kernel, divisor, bias, target_x, target_y, kernel_unit_length_x, kernel_unit_length_y, preserve_alpha} |
-                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap{order_x, order_y, kernel, divisor, bias, target_x, target_y, kernel_unit_length_x, kernel_unit_length_y, preserve_alpha} => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            request.push([-target_x as f32, -target_y as f32, order_x as f32, order_y as f32]);
-                            request.push([kernel_unit_length_x as f32, kernel_unit_length_y as f32, 1.0 / divisor, bias]);
-                            assert!(SVGFE_CONVOLVE_VALUES_LIMIT == 25);
-                            request.push([kernel[0], kernel[1], kernel[2], kernel[3]]);
-                            request.push([kernel[4], kernel[5], kernel[6], kernel[7]]);
-                            request.push([kernel[8], kernel[9], kernel[10], kernel[11]]);
-                            request.push([kernel[12], kernel[13], kernel[14], kernel[15]]);
-                            request.push([kernel[16], kernel[17], kernel[18], kernel[19]]);
-                            request.push([kernel[20], 0.0, 0.0, preserve_alpha as f32]);
-                        }
-                    }
-                    FilterGraphOp::SVGFEDiffuseLightingDistant{..} => {}
-                    FilterGraphOp::SVGFEDiffuseLightingPoint{..} => {}
-                    FilterGraphOp::SVGFEDiffuseLightingSpot{..} => {}
-                    FilterGraphOp::SVGFEDisplacementMap{scale, x_channel_selector, y_channel_selector} => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            request.push([x_channel_selector as f32, y_channel_selector as f32, scale, 0.0]);
-                        }
-                    }
-                    FilterGraphOp::SVGFEDropShadow{color, ..} |
-                    FilterGraphOp::SVGFEFlood{color} => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            request.push(color.to_array());
-                        }
-                    }
-                    FilterGraphOp::SVGFEGaussianBlur{..} => {}
-                    FilterGraphOp::SVGFEIdentity => {}
-                    FilterGraphOp::SVGFEImage{..} => {}
-                    FilterGraphOp::SVGFEMorphologyDilate{radius_x, radius_y} |
-                    FilterGraphOp::SVGFEMorphologyErode{radius_x, radius_y} => {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(GpuCacheHandle::new);
-                        if let Some(mut request) = gpu_cache.request(handle) {
-                            request.push([radius_x, radius_y, 0.0, 0.0]);
-                        }
-                    }
-                    FilterGraphOp::SVGFEOpacity{..} => {}
-                    FilterGraphOp::SVGFESourceAlpha => {}
-                    FilterGraphOp::SVGFESourceGraphic => {}
-                    FilterGraphOp::SVGFESpecularLightingDistant{..} => {}
-                    FilterGraphOp::SVGFESpecularLightingPoint{..} => {}
-                    FilterGraphOp::SVGFESpecularLightingSpot{..} => {}
-                    FilterGraphOp::SVGFETile => {}
-                    FilterGraphOp::SVGFEToAlpha{..} => {}
-                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{..} => {}
-                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching{..} => {}
-                    FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching{..} => {}
-                    FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching{..} => {}
                 }
-            }
+                SvgFilterInfo::ComponentTransfer(ref data) => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(request) = gpu_cache.request(handle) {
+                        data.update(request);
+                    }
+                }
+                SvgFilterInfo::Composite(ref operator) => {
+                    if let CompositeOperator::Arithmetic(k_vals) = operator {
+                        let handle = filter_task
+                            .extra_gpu_cache_handle
+                            .get_or_insert_with(GpuCacheHandle::new);
+                        if let Some(mut request) = gpu_cache.request(handle) {
+                            request.push(*k_vals);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            RenderTaskKind::SVGFENode(ref mut filter_task) => match filter_task.op {
+                FilterGraphOp::SVGFEBlendDarken => {}
+                FilterGraphOp::SVGFEBlendLighten => {}
+                FilterGraphOp::SVGFEBlendMultiply => {}
+                FilterGraphOp::SVGFEBlendNormal => {}
+                FilterGraphOp::SVGFEBlendScreen => {}
+                FilterGraphOp::SVGFEBlendOverlay => {}
+                FilterGraphOp::SVGFEBlendColorDodge => {}
+                FilterGraphOp::SVGFEBlendColorBurn => {}
+                FilterGraphOp::SVGFEBlendHardLight => {}
+                FilterGraphOp::SVGFEBlendSoftLight => {}
+                FilterGraphOp::SVGFEBlendDifference => {}
+                FilterGraphOp::SVGFEBlendExclusion => {}
+                FilterGraphOp::SVGFEBlendHue => {}
+                FilterGraphOp::SVGFEBlendSaturation => {}
+                FilterGraphOp::SVGFEBlendColor => {}
+                FilterGraphOp::SVGFEBlendLuminosity => {}
+                FilterGraphOp::SVGFEColorMatrix { values: matrix } => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        for i in 0..5 {
+                            request.push([
+                                matrix[i * 4],
+                                matrix[i * 4 + 1],
+                                matrix[i * 4 + 2],
+                                matrix[i * 4 + 3],
+                            ]);
+                        }
+                    }
+                }
+                FilterGraphOp::SVGFEComponentTransfer => unreachable!(),
+                FilterGraphOp::SVGFEComponentTransferInterned { .. } => {}
+                FilterGraphOp::SVGFECompositeArithmetic { k1, k2, k3, k4 } => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        request.push([k1, k2, k3, k4]);
+                    }
+                }
+                FilterGraphOp::SVGFECompositeATop => {}
+                FilterGraphOp::SVGFECompositeIn => {}
+                FilterGraphOp::SVGFECompositeLighter => {}
+                FilterGraphOp::SVGFECompositeOut => {}
+                FilterGraphOp::SVGFECompositeOver => {}
+                FilterGraphOp::SVGFECompositeXOR => {}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate {
+                    order_x,
+                    order_y,
+                    kernel,
+                    divisor,
+                    bias,
+                    target_x,
+                    target_y,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    preserve_alpha,
+                }
+                | FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone {
+                    order_x,
+                    order_y,
+                    kernel,
+                    divisor,
+                    bias,
+                    target_x,
+                    target_y,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    preserve_alpha,
+                }
+                | FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap {
+                    order_x,
+                    order_y,
+                    kernel,
+                    divisor,
+                    bias,
+                    target_x,
+                    target_y,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    preserve_alpha,
+                } => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        request.push([
+                            -target_x as f32,
+                            -target_y as f32,
+                            order_x as f32,
+                            order_y as f32,
+                        ]);
+                        request.push([
+                            kernel_unit_length_x as f32,
+                            kernel_unit_length_y as f32,
+                            1.0 / divisor,
+                            bias,
+                        ]);
+                        assert!(SVGFE_CONVOLVE_VALUES_LIMIT == 25);
+                        request.push([kernel[0], kernel[1], kernel[2], kernel[3]]);
+                        request.push([kernel[4], kernel[5], kernel[6], kernel[7]]);
+                        request.push([kernel[8], kernel[9], kernel[10], kernel[11]]);
+                        request.push([kernel[12], kernel[13], kernel[14], kernel[15]]);
+                        request.push([kernel[16], kernel[17], kernel[18], kernel[19]]);
+                        request.push([kernel[20], 0.0, 0.0, preserve_alpha as f32]);
+                    }
+                }
+                FilterGraphOp::SVGFEDiffuseLightingDistant { .. } => {}
+                FilterGraphOp::SVGFEDiffuseLightingPoint { .. } => {}
+                FilterGraphOp::SVGFEDiffuseLightingSpot { .. } => {}
+                FilterGraphOp::SVGFEDisplacementMap {
+                    scale,
+                    x_channel_selector,
+                    y_channel_selector,
+                } => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        request.push([
+                            x_channel_selector as f32,
+                            y_channel_selector as f32,
+                            scale,
+                            0.0,
+                        ]);
+                    }
+                }
+                FilterGraphOp::SVGFEDropShadow { color, .. }
+                | FilterGraphOp::SVGFEFlood { color } => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        request.push(color.to_array());
+                    }
+                }
+                FilterGraphOp::SVGFEGaussianBlur { .. } => {}
+                FilterGraphOp::SVGFEIdentity => {}
+                FilterGraphOp::SVGFEImage { .. } => {}
+                FilterGraphOp::SVGFEMorphologyDilate { radius_x, radius_y }
+                | FilterGraphOp::SVGFEMorphologyErode { radius_x, radius_y } => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(GpuCacheHandle::new);
+                    if let Some(mut request) = gpu_cache.request(handle) {
+                        request.push([radius_x, radius_y, 0.0, 0.0]);
+                    }
+                }
+                FilterGraphOp::SVGFEOpacity { .. } => {}
+                FilterGraphOp::SVGFESourceAlpha => {}
+                FilterGraphOp::SVGFESourceGraphic => {}
+                FilterGraphOp::SVGFESpecularLightingDistant { .. } => {}
+                FilterGraphOp::SVGFESpecularLightingPoint { .. } => {}
+                FilterGraphOp::SVGFESpecularLightingSpot { .. } => {}
+                FilterGraphOp::SVGFETile => {}
+                FilterGraphOp::SVGFEToAlpha { .. } => {}
+                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching { .. } => {}
+                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching { .. } => {}
+                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching { .. } => {}
+                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching { .. } => {}
+            },
             _ => {}
         }
     }
 }
 
 /// In order to avoid duplicating the down-scaling and blur passes when a picture has several blurs,
-/// we use a local (primitive-level) cache of the render tasks generated for a single shadowed primitive
-/// in a single frame.
+/// we use a local (primitive-level) cache of the render tasks generated for a single shadowed
+/// primitive in a single frame.
 pub type BlurTaskCache = FastHashMap<BlurTaskKey, RenderTaskId>;
 
-/// Since we only use it within a single primitive, the key only needs to contain the down-scaling level
-/// and the blur std deviation.
+/// Since we only use it within a single primitive, the key only needs to contain the down-scaling
+/// level and the blur std deviation.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BlurTaskKey {
     DownScale(u32),
-    Blur { downscale_level: u32, stddev_x: u32, stddev_y: u32 },
+    Blur {
+        downscale_level: u32,
+        stddev_x: u32,
+        stddev_y: u32,
+    },
 }
 
 impl BlurTaskKey {
@@ -955,7 +998,11 @@ impl BlurTaskKey {
         const QUANTIZATION_FACTOR: f32 = 1024.0;
         let stddev_x = (blur_stddev.width * QUANTIZATION_FACTOR) as u32;
         let stddev_y = (blur_stddev.height * QUANTIZATION_FACTOR) as u32;
-        BlurTaskKey::Blur { downscale_level, stddev_x, stddev_y }
+        BlurTaskKey::Blur {
+            downscale_level,
+            stddev_x,
+            stddev_y,
+        }
     }
 }
 
@@ -963,7 +1010,7 @@ impl BlurTaskKey {
 // typically have dozens to hundreds of dependencies. SmallVec with 2 inline elements
 // avoids many tiny heap allocations in pages with a lot of text shadows and other
 // types of render tasks.
-pub type TaskDependencies = SmallVec<[RenderTaskId;2]>;
+pub type TaskDependencies = SmallVec<[RenderTaskId; 2]>;
 
 pub struct MaskSubPass {
     pub clip_node_range: ClipNodeRange,
@@ -972,9 +1019,7 @@ pub struct MaskSubPass {
 }
 
 pub enum SubPass {
-    Masks {
-        masks: MaskSubPass,
-    },
+    Masks { masks: MaskSubPass },
 }
 
 pub struct RenderTask {
@@ -998,10 +1043,7 @@ pub struct RenderTask {
 }
 
 impl RenderTask {
-    pub fn new(
-        location: RenderTaskLocation,
-        kind: RenderTaskKind,
-    ) -> Self {
+    pub fn new(location: RenderTaskLocation, kind: RenderTaskKind) -> Self {
         render_task_sanity_check(&location.size());
 
         RenderTask {
@@ -1017,15 +1059,14 @@ impl RenderTask {
         }
     }
 
-    pub fn new_dynamic(
-        size: DeviceIntSize,
-        kind: RenderTaskKind,
-    ) -> Self {
-        assert!(!size.is_empty(), "Bad {} render task size: {:?}", kind.as_str(), size);
-        RenderTask::new(
-            RenderTaskLocation::Unallocated { size },
-            kind,
-        )
+    pub fn new_dynamic(size: DeviceIntSize, kind: RenderTaskKind) -> Self {
+        assert!(
+            !size.is_empty(),
+            "Bad {} render task size: {:?}",
+            kind.as_str(),
+            size
+        );
+        RenderTask::new(RenderTaskLocation::Unallocated { size }, kind)
     }
 
     pub fn with_uv_rect_kind(mut self, uv_rect_kind: UvRectKind) -> Self {
@@ -1033,10 +1074,7 @@ impl RenderTask {
         self
     }
 
-    pub fn new_image(
-        size: DeviceIntSize,
-        request: ImageRequest,
-    ) -> Self {
+    pub fn new_image(size: DeviceIntSize, request: ImageRequest) -> Self {
         // Note: this is a special constructor for image render tasks that does not
         // do the render task size sanity check. This is because with SWGL we purposefully
         // avoid tiling large images. There is no upload with SWGL so whatever was
@@ -1046,7 +1084,7 @@ impl RenderTask {
         // (this is covered by a few reftests on the CI).
 
         RenderTask {
-            location: RenderTaskLocation::CacheRequest { size, },
+            location: RenderTaskLocation::CacheRequest { size },
             children: TaskDependencies::new(),
             kind: RenderTaskKind::Image(request),
             free_after: PassId::MAX,
@@ -1058,12 +1096,8 @@ impl RenderTask {
         }
     }
 
-
     #[cfg(test)]
-    pub fn new_test(
-        location: RenderTaskLocation,
-        target: RenderTargetKind,
-    ) -> Self {
+    pub fn new_test(location: RenderTaskLocation, target: RenderTargetKind) -> Self {
         RenderTask {
             location,
             children: TaskDependencies::new(),
@@ -1091,7 +1125,10 @@ impl RenderTask {
 
         let blit_task_id = rg_builder.add().init(RenderTask::new_dynamic(
             size,
-            RenderTaskKind::Blit(BlitTask { source, source_rect }),
+            RenderTaskKind::Blit(BlitTask {
+                source,
+                source_rect,
+            }),
         ));
 
         rg_builder.add_dependency(blit_task_id, source);
@@ -1135,10 +1172,12 @@ impl RenderTask {
         let mut downscaling_src_task_id = src_task_id;
         let mut scale_factor = 1.0;
         let mut n_downscales = 1;
-        while adjusted_blur_std_deviation.width > MAX_BLUR_STD_DEVIATION &&
-              adjusted_blur_std_deviation.height > MAX_BLUR_STD_DEVIATION {
-            if adjusted_blur_target_size.width < MIN_DOWNSCALING_RT_SIZE ||
-               adjusted_blur_target_size.height < MIN_DOWNSCALING_RT_SIZE {
+        while adjusted_blur_std_deviation.width > MAX_BLUR_STD_DEVIATION
+            && adjusted_blur_std_deviation.height > MAX_BLUR_STD_DEVIATION
+        {
+            if adjusted_blur_target_size.width < MIN_DOWNSCALING_RT_SIZE
+                || adjusted_blur_target_size.height < MIN_DOWNSCALING_RT_SIZE
+            {
                 break;
             }
             adjusted_blur_std_deviation = adjusted_blur_std_deviation * 0.5;
@@ -1160,12 +1199,14 @@ impl RenderTask {
             });
 
             if let Some(ref mut cache) = blur_cache {
-                cache.insert(BlurTaskKey::DownScale(n_downscales), downscaling_src_task_id);
+                cache.insert(
+                    BlurTaskKey::DownScale(n_downscales),
+                    downscaling_src_task_id,
+                );
             }
 
             n_downscales += 1;
         }
-
 
         let blur_key = BlurTaskKey::downscale_and_blur(n_downscales, adjusted_blur_std_deviation);
 
@@ -1177,24 +1218,30 @@ impl RenderTask {
         let blur_region = blur_region / (scale_factor as i32);
 
         let blur_task_id = cached_task.unwrap_or_else(|| {
-            let blur_task_v = rg_builder.add().init(RenderTask::new_dynamic(
-                adjusted_blur_target_size,
-                RenderTaskKind::VerticalBlur(BlurTask {
-                    blur_std_deviation: adjusted_blur_std_deviation.height,
-                    target_kind,
-                    blur_region,
-                }),
-            ).with_uv_rect_kind(uv_rect_kind));
+            let blur_task_v = rg_builder.add().init(
+                RenderTask::new_dynamic(
+                    adjusted_blur_target_size,
+                    RenderTaskKind::VerticalBlur(BlurTask {
+                        blur_std_deviation: adjusted_blur_std_deviation.height,
+                        target_kind,
+                        blur_region,
+                    }),
+                )
+                .with_uv_rect_kind(uv_rect_kind),
+            );
             rg_builder.add_dependency(blur_task_v, downscaling_src_task_id);
 
-            let task_id = rg_builder.add().init(RenderTask::new_dynamic(
-                adjusted_blur_target_size,
-                RenderTaskKind::HorizontalBlur(BlurTask {
-                    blur_std_deviation: adjusted_blur_std_deviation.width,
-                    target_kind,
-                    blur_region,
-                }),
-            ).with_uv_rect_kind(uv_rect_kind));
+            let task_id = rg_builder.add().init(
+                RenderTask::new_dynamic(
+                    adjusted_blur_target_size,
+                    RenderTaskKind::HorizontalBlur(BlurTask {
+                        blur_std_deviation: adjusted_blur_std_deviation.width,
+                        target_kind,
+                        blur_region,
+                    }),
+                )
+                .with_uv_rect_kind(uv_rect_kind),
+            );
             rg_builder.add_dependency(task_id, blur_task_v);
 
             task_id
@@ -1238,7 +1285,8 @@ impl RenderTask {
                     target_kind,
                     padding,
                 }),
-            ).with_uv_rect_kind(uv_rect_kind)
+            )
+            .with_uv_rect_kind(uv_rect_kind),
         );
 
         rg_builder.add_dependency(task_id, source);
@@ -1255,21 +1303,18 @@ impl RenderTask {
         original_task_id: RenderTaskId,
         device_pixel_scale: DevicePixelScale,
     ) -> RenderTaskId {
-
         if filter_primitives.is_empty() {
             return original_task_id;
         }
 
         // Resolves the input to a filter primitive
-        let get_task_input = |
-            input: &FilterPrimitiveInput,
-            filter_primitives: &[FilterPrimitive],
-            rg_builder: &mut RenderTaskGraphBuilder,
-            cur_index: usize,
-            outputs: &[RenderTaskId],
-            original: RenderTaskId,
-            color_space: ColorSpace,
-        | {
+        let get_task_input = |input: &FilterPrimitiveInput,
+                              filter_primitives: &[FilterPrimitive],
+                              rg_builder: &mut RenderTaskGraphBuilder,
+                              cur_index: usize,
+                              outputs: &[RenderTaskId],
+                              original: RenderTaskId,
+                              color_space: ColorSpace| {
             // TODO(cbrewster): Not sure we can assume that the original input is sRGB.
             let (mut task_id, input_color_space) = match input.to_index(cur_index) {
                 Some(index) => (outputs[index], filter_primitives[index].color_space),
@@ -1285,7 +1330,7 @@ impl RenderTask {
                         SvgFilterInfo::SrgbToLinear,
                         rg_builder,
                     );
-                },
+                }
                 (ColorSpace::LinearRgb, ColorSpace::Srgb) => {
                     task_id = RenderTask::new_svg_filter_primitive(
                         smallvec![task_id],
@@ -1294,8 +1339,8 @@ impl RenderTask {
                         SvgFilterInfo::LinearToSrgb,
                         rg_builder,
                     );
-                },
-                _ => {},
+                }
+                _ => {}
             }
 
             task_id
@@ -1314,7 +1359,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     )
                 }
                 FilterPrimitiveKind::Blend(ref blend) => {
@@ -1325,7 +1370,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
                     let input_2_task_id = get_task_input(
                         &blend.input2,
@@ -1334,7 +1379,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     RenderTask::new_svg_filter_primitive(
@@ -1344,16 +1389,14 @@ impl RenderTask {
                         SvgFilterInfo::Blend(blend.mode),
                         rg_builder,
                     )
-                },
-                FilterPrimitiveKind::Flood(ref flood) => {
-                    RenderTask::new_svg_filter_primitive(
-                        smallvec![],
-                        content_size,
-                        uv_rect_kind,
-                        SvgFilterInfo::Flood(flood.color),
-                        rg_builder,
-                    )
                 }
+                FilterPrimitiveKind::Flood(ref flood) => RenderTask::new_svg_filter_primitive(
+                    smallvec![],
+                    content_size,
+                    uv_rect_kind,
+                    SvgFilterInfo::Flood(flood.color),
+                    rg_builder,
+                ),
                 FilterPrimitiveKind::Blur(ref blur) => {
                     let width_std_deviation = blur.width * device_pixel_scale.0;
                     let height_std_deviation = blur.height * device_pixel_scale.0;
@@ -1364,7 +1407,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     RenderTask::new_blur(
@@ -1392,7 +1435,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     RenderTask::new_svg_filter_primitive(
@@ -1411,7 +1454,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     RenderTask::new_svg_filter_primitive(
@@ -1430,11 +1473,13 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let blur_std_deviation = drop_shadow.shadow.blur_radius * device_pixel_scale.0;
-                    let offset = drop_shadow.shadow.offset * LayoutToWorldScale::new(1.0) * device_pixel_scale;
+                    let offset = drop_shadow.shadow.offset
+                        * LayoutToWorldScale::new(1.0)
+                        * device_pixel_scale;
 
                     let offset_task_id = RenderTask::new_svg_filter_primitive(
                         smallvec![input_task_id],
@@ -1469,7 +1514,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let filter_data = &filter_datas[cur_filter_data];
@@ -1494,7 +1539,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let offset = info.offset * LayoutToWorldScale::new(1.0) * device_pixel_scale;
@@ -1514,7 +1559,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
                     let input_2_task_id = get_task_input(
                         &info.input2,
@@ -1523,7 +1568,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     RenderTask::new_svg_filter_primitive(
@@ -1562,13 +1607,16 @@ impl RenderTask {
         info: SvgFilterInfo,
         rg_builder: &mut RenderTaskGraphBuilder,
     ) -> RenderTaskId {
-        let task_id = rg_builder.add().init(RenderTask::new_dynamic(
-            target_size,
-            RenderTaskKind::SvgFilter(SvgFilterTask {
-                extra_gpu_cache_handle: None,
-                info,
-            }),
-        ).with_uv_rect_kind(uv_rect_kind));
+        let task_id = rg_builder.add().init(
+            RenderTask::new_dynamic(
+                target_size,
+                RenderTaskKind::SvgFilter(SvgFilterTask {
+                    extra_gpu_cache_handle: None,
+                    info,
+                }),
+            )
+            .with_uv_rect_kind(uv_rect_kind),
+        );
 
         for child_id in tasks {
             rg_builder.add_dependency(task_id, child_id);
@@ -1577,11 +1625,11 @@ impl RenderTask {
         task_id
     }
 
-    pub fn add_sub_pass(
-        &mut self,
-        sub_pass: SubPass,
-    ) {
-        assert!(self.sub_pass.is_none(), "multiple sub-passes are not supported for now");
+    pub fn add_sub_pass(&mut self, sub_pass: SubPass) {
+        assert!(
+            self.sub_pass.is_none(),
+            "multiple sub-passes are not supported for now"
+        );
         self.sub_pass = Some(sub_pass);
     }
 
@@ -1605,8 +1653,10 @@ impl RenderTask {
         surface_rects_clipped_local: LayoutRect,
     ) -> RenderTaskId {
         const BUFFER_LIMIT: usize = SVGFE_GRAPH_MAX;
-        let mut task_by_buffer_id: [RenderTaskId; BUFFER_LIMIT] = [RenderTaskId::INVALID; BUFFER_LIMIT];
-        let mut subregion_by_buffer_id: [LayoutRect; BUFFER_LIMIT] = [LayoutRect::zero(); BUFFER_LIMIT];
+        let mut task_by_buffer_id: [RenderTaskId; BUFFER_LIMIT] =
+            [RenderTaskId::INVALID; BUFFER_LIMIT];
+        let mut subregion_by_buffer_id: [LayoutRect; BUFFER_LIMIT] =
+            [LayoutRect::zero(); BUFFER_LIMIT];
         // If nothing replaces this value (all node subregions are empty), we
         // can just return the original picture
         let mut output_task_id = original_task_id;
@@ -1631,23 +1681,31 @@ impl RenderTask {
         fn uv_rect_kind_for_task_size(clipped: DeviceRect, unclipped: DeviceRect) -> UvRectKind {
             let scale_x = 1.0 / clipped.width();
             let scale_y = 1.0 / clipped.height();
-            UvRectKind::Quad{
+            UvRectKind::Quad {
                 top_left: DeviceHomogeneousVector::new(
                     (unclipped.min.x - clipped.min.x) * scale_x,
                     (unclipped.min.y - clipped.min.y) * scale_y,
-                    0.0, 1.0),
+                    0.0,
+                    1.0,
+                ),
                 top_right: DeviceHomogeneousVector::new(
                     (unclipped.max.x - clipped.min.x) * scale_x,
                     (unclipped.min.y - clipped.min.y) * scale_y,
-                    0.0, 1.0),
+                    0.0,
+                    1.0,
+                ),
                 bottom_left: DeviceHomogeneousVector::new(
                     (unclipped.min.x - clipped.min.x) * scale_x,
                     (unclipped.max.y - clipped.min.y) * scale_y,
-                    0.0, 1.0),
+                    0.0,
+                    1.0,
+                ),
                 bottom_right: DeviceHomogeneousVector::new(
                     (unclipped.max.x - clipped.min.x) * scale_x,
                     (unclipped.max.y - clipped.min.y) * scale_y,
-                    0.0, 1.0),
+                    0.0,
+                    1.0,
+                ),
             }
         }
 
@@ -1660,10 +1718,14 @@ impl RenderTask {
         // get_surface_rects performed, but it is very close, since it is not
         // quite the same we have to round the offset a certain way to avoid
         // introducing subpixel offsets caused by the slight deviation.
-        let subregion_to_device_scale_x = surface_rects_clipped.width() / surface_rects_clipped_local.width();
-        let subregion_to_device_scale_y = surface_rects_clipped.height() / surface_rects_clipped_local.height();
-        let subregion_to_device_offset_x = surface_rects_clipped.min.x - (surface_rects_clipped_local.min.x * subregion_to_device_scale_x).floor();
-        let subregion_to_device_offset_y = surface_rects_clipped.min.y - (surface_rects_clipped_local.min.y * subregion_to_device_scale_y).floor();
+        let subregion_to_device_scale_x =
+            surface_rects_clipped.width() / surface_rects_clipped_local.width();
+        let subregion_to_device_scale_y =
+            surface_rects_clipped.height() / surface_rects_clipped_local.height();
+        let subregion_to_device_offset_x = surface_rects_clipped.min.x
+            - (surface_rects_clipped_local.min.x * subregion_to_device_scale_x).floor();
+        let subregion_to_device_offset_y = surface_rects_clipped.min.y
+            - (surface_rects_clipped_local.min.y * subregion_to_device_scale_y).floor();
 
         // Iterate the filter nodes and create tasks
         let mut made_dependency_on_source = false;
@@ -1695,234 +1757,333 @@ impl RenderTask {
                 FilterGraphOp::SVGFEBlendSaturation => op.clone(),
                 FilterGraphOp::SVGFEBlendScreen => op.clone(),
                 FilterGraphOp::SVGFEBlendSoftLight => op.clone(),
-                FilterGraphOp::SVGFEColorMatrix{..} => op.clone(),
+                FilterGraphOp::SVGFEColorMatrix { .. } => op.clone(),
                 FilterGraphOp::SVGFEComponentTransfer => unreachable!(),
-                FilterGraphOp::SVGFEComponentTransferInterned{..} => op.clone(),
-                FilterGraphOp::SVGFECompositeArithmetic{..} => op.clone(),
+                FilterGraphOp::SVGFEComponentTransferInterned { .. } => op.clone(),
+                FilterGraphOp::SVGFECompositeArithmetic { .. } => op.clone(),
                 FilterGraphOp::SVGFECompositeATop => op.clone(),
                 FilterGraphOp::SVGFECompositeIn => op.clone(),
                 FilterGraphOp::SVGFECompositeLighter => op.clone(),
                 FilterGraphOp::SVGFECompositeOut => op.clone(),
                 FilterGraphOp::SVGFECompositeOver => op.clone(),
                 FilterGraphOp::SVGFECompositeXOR => op.clone(),
-                FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate{
-                    kernel_unit_length_x, kernel_unit_length_y, order_x,
-                    order_y, kernel, divisor, bias, target_x, target_y,
-                    preserve_alpha} => {
-                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate{
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        order_x: *order_x, order_y: *order_y, kernel: *kernel,
-                        divisor: *divisor, bias: *bias, target_x: *target_x,
-                        target_y: *target_y, preserve_alpha: *preserve_alpha}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate {
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    order_x,
+                    order_y,
+                    kernel,
+                    divisor,
+                    bias,
+                    target_x,
+                    target_y,
+                    preserve_alpha,
+                } => FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate {
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    order_x: *order_x,
+                    order_y: *order_y,
+                    kernel: *kernel,
+                    divisor: *divisor,
+                    bias: *bias,
+                    target_x: *target_x,
+                    target_y: *target_y,
+                    preserve_alpha: *preserve_alpha,
                 },
-                FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone{
-                    kernel_unit_length_x, kernel_unit_length_y, order_x,
-                    order_y, kernel, divisor, bias, target_x, target_y,
-                    preserve_alpha} => {
-                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone{
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        order_x: *order_x, order_y: *order_y, kernel: *kernel,
-                        divisor: *divisor, bias: *bias, target_x: *target_x,
-                        target_y: *target_y, preserve_alpha: *preserve_alpha}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone {
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    order_x,
+                    order_y,
+                    kernel,
+                    divisor,
+                    bias,
+                    target_x,
+                    target_y,
+                    preserve_alpha,
+                } => FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone {
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    order_x: *order_x,
+                    order_y: *order_y,
+                    kernel: *kernel,
+                    divisor: *divisor,
+                    bias: *bias,
+                    target_x: *target_x,
+                    target_y: *target_y,
+                    preserve_alpha: *preserve_alpha,
                 },
-                FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap{
-                    kernel_unit_length_x, kernel_unit_length_y, order_x,
-                    order_y, kernel, divisor, bias, target_x, target_y,
-                    preserve_alpha} => {
-                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap{
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        order_x: *order_x, order_y: *order_y, kernel: *kernel,
-                        divisor: *divisor, bias: *bias, target_x: *target_x,
-                        target_y: *target_y, preserve_alpha: *preserve_alpha}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap {
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    order_x,
+                    order_y,
+                    kernel,
+                    divisor,
+                    bias,
+                    target_x,
+                    target_y,
+                    preserve_alpha,
+                } => FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap {
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    order_x: *order_x,
+                    order_y: *order_y,
+                    kernel: *kernel,
+                    divisor: *divisor,
+                    bias: *bias,
+                    target_x: *target_x,
+                    target_y: *target_y,
+                    preserve_alpha: *preserve_alpha,
                 },
-                FilterGraphOp::SVGFEDiffuseLightingDistant{
-                    surface_scale, diffuse_constant, kernel_unit_length_x,
-                    kernel_unit_length_y, azimuth, elevation} => {
-                    FilterGraphOp::SVGFEDiffuseLightingDistant{
-                        surface_scale: *surface_scale,
-                        diffuse_constant: *diffuse_constant,
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        azimuth: *azimuth, elevation: *elevation}
+                FilterGraphOp::SVGFEDiffuseLightingDistant {
+                    surface_scale,
+                    diffuse_constant,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    azimuth,
+                    elevation,
+                } => FilterGraphOp::SVGFEDiffuseLightingDistant {
+                    surface_scale: *surface_scale,
+                    diffuse_constant: *diffuse_constant,
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    azimuth: *azimuth,
+                    elevation: *elevation,
                 },
-                FilterGraphOp::SVGFEDiffuseLightingPoint{
-                    surface_scale, diffuse_constant, kernel_unit_length_x,
-                    kernel_unit_length_y, x, y, z} => {
-                    FilterGraphOp::SVGFEDiffuseLightingPoint{
-                        surface_scale: *surface_scale,
-                        diffuse_constant: *diffuse_constant,
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
-                        y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
-                        z: *z}
+                FilterGraphOp::SVGFEDiffuseLightingPoint {
+                    surface_scale,
+                    diffuse_constant,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    x,
+                    y,
+                    z,
+                } => FilterGraphOp::SVGFEDiffuseLightingPoint {
+                    surface_scale: *surface_scale,
+                    diffuse_constant: *diffuse_constant,
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
+                    y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
+                    z: *z,
                 },
-                FilterGraphOp::SVGFEDiffuseLightingSpot{
-                    surface_scale, diffuse_constant, kernel_unit_length_x,
-                    kernel_unit_length_y, x, y, z, points_at_x, points_at_y,
-                    points_at_z, cone_exponent, limiting_cone_angle} => {
-                    FilterGraphOp::SVGFEDiffuseLightingSpot{
-                        surface_scale: *surface_scale,
-                        diffuse_constant: *diffuse_constant,
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
-                        y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
-                        z: *z,
-                        points_at_x: points_at_x * subregion_to_device_scale_x + subregion_to_device_offset_x,
-                        points_at_y: points_at_y * subregion_to_device_scale_y + subregion_to_device_offset_y,
-                        points_at_z: *points_at_z,
-                        cone_exponent: *cone_exponent,
-                        limiting_cone_angle: *limiting_cone_angle}
+                FilterGraphOp::SVGFEDiffuseLightingSpot {
+                    surface_scale,
+                    diffuse_constant,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    x,
+                    y,
+                    z,
+                    points_at_x,
+                    points_at_y,
+                    points_at_z,
+                    cone_exponent,
+                    limiting_cone_angle,
+                } => FilterGraphOp::SVGFEDiffuseLightingSpot {
+                    surface_scale: *surface_scale,
+                    diffuse_constant: *diffuse_constant,
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
+                    y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
+                    z: *z,
+                    points_at_x: points_at_x * subregion_to_device_scale_x
+                        + subregion_to_device_offset_x,
+                    points_at_y: points_at_y * subregion_to_device_scale_y
+                        + subregion_to_device_offset_y,
+                    points_at_z: *points_at_z,
+                    cone_exponent: *cone_exponent,
+                    limiting_cone_angle: *limiting_cone_angle,
                 },
-                FilterGraphOp::SVGFEFlood{..} => op.clone(),
-                FilterGraphOp::SVGFEDisplacementMap{
-                    scale, x_channel_selector, y_channel_selector} => {
-                    FilterGraphOp::SVGFEDisplacementMap{
-                        scale: scale * subregion_to_device_scale_x,
-                        x_channel_selector: *x_channel_selector,
-                        y_channel_selector: *y_channel_selector}
+                FilterGraphOp::SVGFEFlood { .. } => op.clone(),
+                FilterGraphOp::SVGFEDisplacementMap {
+                    scale,
+                    x_channel_selector,
+                    y_channel_selector,
+                } => FilterGraphOp::SVGFEDisplacementMap {
+                    scale: scale * subregion_to_device_scale_x,
+                    x_channel_selector: *x_channel_selector,
+                    y_channel_selector: *y_channel_selector,
                 },
-                FilterGraphOp::SVGFEDropShadow{
-                    color, dx, dy, std_deviation_x, std_deviation_y} => {
-                    FilterGraphOp::SVGFEDropShadow{
-                        color: *color,
-                        dx: dx * subregion_to_device_scale_x,
-                        dy: dy * subregion_to_device_scale_y,
-                        std_deviation_x: std_deviation_x * subregion_to_device_scale_x,
-                        std_deviation_y: std_deviation_y * subregion_to_device_scale_y}
+                FilterGraphOp::SVGFEDropShadow {
+                    color,
+                    dx,
+                    dy,
+                    std_deviation_x,
+                    std_deviation_y,
+                } => FilterGraphOp::SVGFEDropShadow {
+                    color: *color,
+                    dx: dx * subregion_to_device_scale_x,
+                    dy: dy * subregion_to_device_scale_y,
+                    std_deviation_x: std_deviation_x * subregion_to_device_scale_x,
+                    std_deviation_y: std_deviation_y * subregion_to_device_scale_y,
                 },
-                FilterGraphOp::SVGFEGaussianBlur{std_deviation_x, std_deviation_y} => {
+                FilterGraphOp::SVGFEGaussianBlur {
+                    std_deviation_x,
+                    std_deviation_y,
+                } => {
                     let std_deviation_x = std_deviation_x * subregion_to_device_scale_x;
                     let std_deviation_y = std_deviation_y * subregion_to_device_scale_y;
                     // For blurs that effectively have no radius in display
                     // space, we can convert to identity.
                     if std_deviation_x + std_deviation_y >= 0.125 {
-                        FilterGraphOp::SVGFEGaussianBlur{
+                        FilterGraphOp::SVGFEGaussianBlur {
                             std_deviation_x,
-                            std_deviation_y}
+                            std_deviation_y,
+                        }
                     } else {
                         FilterGraphOp::SVGFEIdentity
                     }
-                },
+                }
                 FilterGraphOp::SVGFEIdentity => op.clone(),
-                FilterGraphOp::SVGFEImage{..} => op.clone(),
-                FilterGraphOp::SVGFEMorphologyDilate{radius_x, radius_y} => {
-                    FilterGraphOp::SVGFEMorphologyDilate{
+                FilterGraphOp::SVGFEImage { .. } => op.clone(),
+                FilterGraphOp::SVGFEMorphologyDilate { radius_x, radius_y } => {
+                    FilterGraphOp::SVGFEMorphologyDilate {
                         radius_x: (radius_x * subregion_to_device_scale_x).round(),
-                        radius_y: (radius_y * subregion_to_device_scale_y).round()}
-                },
-                FilterGraphOp::SVGFEMorphologyErode{radius_x, radius_y} => {
-                    FilterGraphOp::SVGFEMorphologyErode{
+                        radius_y: (radius_y * subregion_to_device_scale_y).round(),
+                    }
+                }
+                FilterGraphOp::SVGFEMorphologyErode { radius_x, radius_y } => {
+                    FilterGraphOp::SVGFEMorphologyErode {
                         radius_x: (radius_x * subregion_to_device_scale_x).round(),
-                        radius_y: (radius_y * subregion_to_device_scale_y).round()}
-                },
-                FilterGraphOp::SVGFEOpacity{..} => op.clone(),
+                        radius_y: (radius_y * subregion_to_device_scale_y).round(),
+                    }
+                }
+                FilterGraphOp::SVGFEOpacity { .. } => op.clone(),
                 FilterGraphOp::SVGFESourceAlpha => op.clone(),
                 FilterGraphOp::SVGFESourceGraphic => op.clone(),
-                FilterGraphOp::SVGFESpecularLightingDistant{
-                    surface_scale, specular_constant, specular_exponent,
-                    kernel_unit_length_x, kernel_unit_length_y, azimuth,
-                    elevation} => {
-                    FilterGraphOp::SVGFESpecularLightingDistant{
-                        surface_scale: *surface_scale,
-                        specular_constant: *specular_constant,
-                        specular_exponent: *specular_exponent,
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        azimuth: *azimuth, elevation: *elevation}
+                FilterGraphOp::SVGFESpecularLightingDistant {
+                    surface_scale,
+                    specular_constant,
+                    specular_exponent,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    azimuth,
+                    elevation,
+                } => FilterGraphOp::SVGFESpecularLightingDistant {
+                    surface_scale: *surface_scale,
+                    specular_constant: *specular_constant,
+                    specular_exponent: *specular_exponent,
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    azimuth: *azimuth,
+                    elevation: *elevation,
                 },
-                FilterGraphOp::SVGFESpecularLightingPoint{
-                    surface_scale, specular_constant, specular_exponent,
-                    kernel_unit_length_x, kernel_unit_length_y, x, y, z } => {
-                    FilterGraphOp::SVGFESpecularLightingPoint{
-                        surface_scale: *surface_scale,
-                        specular_constant: *specular_constant,
-                        specular_exponent: *specular_exponent,
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
-                        y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
-                        z: *z }
+                FilterGraphOp::SVGFESpecularLightingPoint {
+                    surface_scale,
+                    specular_constant,
+                    specular_exponent,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    x,
+                    y,
+                    z,
+                } => FilterGraphOp::SVGFESpecularLightingPoint {
+                    surface_scale: *surface_scale,
+                    specular_constant: *specular_constant,
+                    specular_exponent: *specular_exponent,
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
+                    y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
+                    z: *z,
                 },
-                FilterGraphOp::SVGFESpecularLightingSpot{
-                    surface_scale, specular_constant, specular_exponent,
-                    kernel_unit_length_x, kernel_unit_length_y, x, y, z,
-                    points_at_x, points_at_y, points_at_z, cone_exponent,
-                    limiting_cone_angle} => {
-                    FilterGraphOp::SVGFESpecularLightingSpot{
-                        surface_scale: *surface_scale,
-                        specular_constant: *specular_constant,
-                        specular_exponent: *specular_exponent,
-                        kernel_unit_length_x:
-                            (kernel_unit_length_x * subregion_to_device_scale_x).round(),
-                        kernel_unit_length_y:
-                            (kernel_unit_length_y * subregion_to_device_scale_y).round(),
-                        x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
-                        y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
-                        z: *z,
-                        points_at_x: points_at_x * subregion_to_device_scale_x + subregion_to_device_offset_x,
-                        points_at_y: points_at_y * subregion_to_device_scale_y + subregion_to_device_offset_y,
-                        points_at_z: *points_at_z,
-                        cone_exponent: *cone_exponent,
-                        limiting_cone_angle: *limiting_cone_angle}
+                FilterGraphOp::SVGFESpecularLightingSpot {
+                    surface_scale,
+                    specular_constant,
+                    specular_exponent,
+                    kernel_unit_length_x,
+                    kernel_unit_length_y,
+                    x,
+                    y,
+                    z,
+                    points_at_x,
+                    points_at_y,
+                    points_at_z,
+                    cone_exponent,
+                    limiting_cone_angle,
+                } => FilterGraphOp::SVGFESpecularLightingSpot {
+                    surface_scale: *surface_scale,
+                    specular_constant: *specular_constant,
+                    specular_exponent: *specular_exponent,
+                    kernel_unit_length_x: (kernel_unit_length_x * subregion_to_device_scale_x)
+                        .round(),
+                    kernel_unit_length_y: (kernel_unit_length_y * subregion_to_device_scale_y)
+                        .round(),
+                    x: x * subregion_to_device_scale_x + subregion_to_device_offset_x,
+                    y: y * subregion_to_device_scale_y + subregion_to_device_offset_y,
+                    z: *z,
+                    points_at_x: points_at_x * subregion_to_device_scale_x
+                        + subregion_to_device_offset_x,
+                    points_at_y: points_at_y * subregion_to_device_scale_y
+                        + subregion_to_device_offset_y,
+                    points_at_z: *points_at_z,
+                    cone_exponent: *cone_exponent,
+                    limiting_cone_angle: *limiting_cone_angle,
                 },
                 FilterGraphOp::SVGFETile => op.clone(),
                 FilterGraphOp::SVGFEToAlpha => op.clone(),
-                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{
-                    base_frequency_x, base_frequency_y, num_octaves, seed} => {
-                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{
-                        base_frequency_x:
-                            base_frequency_x * subregion_to_device_scale_x,
-                        base_frequency_y:
-                            base_frequency_y * subregion_to_device_scale_y,
-                        num_octaves: *num_octaves, seed: *seed}
+                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching {
+                    base_frequency_x,
+                    base_frequency_y,
+                    num_octaves,
+                    seed,
+                } => FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching {
+                    base_frequency_x: base_frequency_x * subregion_to_device_scale_x,
+                    base_frequency_y: base_frequency_y * subregion_to_device_scale_y,
+                    num_octaves: *num_octaves,
+                    seed: *seed,
                 },
-                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching{
-                    base_frequency_x, base_frequency_y, num_octaves, seed} => {
-                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{
-                        base_frequency_x:
-                            base_frequency_x * subregion_to_device_scale_x,
-                        base_frequency_y:
-                            base_frequency_y * subregion_to_device_scale_y,
-                        num_octaves: *num_octaves, seed: *seed}
+                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching {
+                    base_frequency_x,
+                    base_frequency_y,
+                    num_octaves,
+                    seed,
+                } => FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching {
+                    base_frequency_x: base_frequency_x * subregion_to_device_scale_x,
+                    base_frequency_y: base_frequency_y * subregion_to_device_scale_y,
+                    num_octaves: *num_octaves,
+                    seed: *seed,
                 },
-                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching{
-                    base_frequency_x, base_frequency_y, num_octaves, seed} => {
-                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{
-                        base_frequency_x:
-                            base_frequency_x * subregion_to_device_scale_x,
-                        base_frequency_y:
-                            base_frequency_y * subregion_to_device_scale_y,
-                        num_octaves: *num_octaves, seed: *seed}
+                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching {
+                    base_frequency_x,
+                    base_frequency_y,
+                    num_octaves,
+                    seed,
+                } => FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching {
+                    base_frequency_x: base_frequency_x * subregion_to_device_scale_x,
+                    base_frequency_y: base_frequency_y * subregion_to_device_scale_y,
+                    num_octaves: *num_octaves,
+                    seed: *seed,
                 },
-                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching{
-                    base_frequency_x, base_frequency_y, num_octaves, seed} => {
-                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{
-                        base_frequency_x:
-                            base_frequency_x * subregion_to_device_scale_x,
-                        base_frequency_y:
-                            base_frequency_y * subregion_to_device_scale_y,
-                        num_octaves: *num_octaves, seed: *seed}
+                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching {
+                    base_frequency_x,
+                    base_frequency_y,
+                    num_octaves,
+                    seed,
+                } => FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching {
+                    base_frequency_x: base_frequency_x * subregion_to_device_scale_x,
+                    base_frequency_y: base_frequency_y * subregion_to_device_scale_y,
+                    num_octaves: *num_octaves,
+                    seed: *seed,
                 },
             };
 
@@ -1932,12 +2093,15 @@ impl RenderTask {
             //
             // Also look up the child tasks while we are here.
             let mut used_subregion = LayoutRect::zero();
-            let node_inputs: Vec<(FilterGraphPictureReference, RenderTaskId)> = node.inputs.iter().map(|input| {
-                let (subregion, task) =
-                    match input.buffer_id {
-                        FilterOpGraphPictureBufferId::BufferId(id) => {
-                            (subregion_by_buffer_id[id as usize], task_by_buffer_id[id as usize])
-                        }
+            let node_inputs: Vec<(FilterGraphPictureReference, RenderTaskId)> = node
+                .inputs
+                .iter()
+                .map(|input| {
+                    let (subregion, task) = match input.buffer_id {
+                        FilterOpGraphPictureBufferId::BufferId(id) => (
+                            subregion_by_buffer_id[id as usize],
+                            task_by_buffer_id[id as usize],
+                        ),
                         FilterOpGraphPictureBufferId::None => {
                             // Task must resolve so we use the SourceGraphic as
                             // a placeholder for these, they don't actually
@@ -1945,20 +2109,20 @@ impl RenderTask {
                             (LayoutRect::zero(), original_task_id)
                         }
                     };
-                // Convert offset to device coordinates.
-                let offset = LayoutVector2D::new(
+                    // Convert offset to device coordinates.
+                    let offset = LayoutVector2D::new(
                         (input.offset.x * subregion_to_device_scale_x).round(),
                         (input.offset.y * subregion_to_device_scale_y).round(),
                     );
-                // To figure out the portion of the node subregion used by this
-                // source image we need to apply the target padding.  Note that
-                // this does not affect the subregion of the input, as that
-                // can't be modified as it is used for placement (offset).
-                let target_padding = input.target_padding
-                    .scale(subregion_to_device_scale_x, subregion_to_device_scale_y)
-                    .round();
-                let target_subregion =
-                    LayoutRect::new(
+                    // To figure out the portion of the node subregion used by this
+                    // source image we need to apply the target padding.  Note that
+                    // this does not affect the subregion of the input, as that
+                    // can't be modified as it is used for placement (offset).
+                    let target_padding = input
+                        .target_padding
+                        .scale(subregion_to_device_scale_x, subregion_to_device_scale_y)
+                        .round();
+                    let target_subregion = LayoutRect::new(
                         LayoutPoint::new(
                             subregion.min.x + target_padding.min.x,
                             subregion.min.y + target_padding.min.y,
@@ -1968,23 +2132,31 @@ impl RenderTask {
                             subregion.max.y + target_padding.max.y,
                         ),
                     );
-                used_subregion = used_subregion.union(&target_subregion);
-                (FilterGraphPictureReference{
-                    buffer_id: input.buffer_id,
-                    // Apply offset to the placement of the input subregion.
-                    subregion: subregion.translate(offset),
-                    offset: LayoutVector2D::zero(),
-                    inflate: input.inflate,
-                    // Nothing past this point uses the padding.
-                    source_padding: LayoutRect::zero(),
-                    target_padding: LayoutRect::zero(),
-                }, task)
-            }).collect();
+                    used_subregion = used_subregion.union(&target_subregion);
+                    (
+                        FilterGraphPictureReference {
+                            buffer_id: input.buffer_id,
+                            // Apply offset to the placement of the input subregion.
+                            subregion: subregion.translate(offset),
+                            offset: LayoutVector2D::zero(),
+                            inflate: input.inflate,
+                            // Nothing past this point uses the padding.
+                            source_padding: LayoutRect::zero(),
+                            target_padding: LayoutRect::zero(),
+                        },
+                        task,
+                    )
+                })
+                .collect();
 
             // Convert subregion from PicturePixels to DevicePixels and round.
-            let full_subregion = node.subregion
+            let full_subregion = node
+                .subregion
                 .scale(subregion_to_device_scale_x, subregion_to_device_scale_y)
-                .translate(LayoutVector2D::new(subregion_to_device_offset_x, subregion_to_device_offset_y))
+                .translate(LayoutVector2D::new(
+                    subregion_to_device_offset_x,
+                    subregion_to_device_offset_y,
+                ))
                 .round();
 
             // Clip the used subregion we calculated from the inputs to fit
@@ -2000,42 +2172,46 @@ impl RenderTask {
 
             // Certain filters need to override the used_subregion directly.
             match op {
-                FilterGraphOp::SVGFEBlendColor => {},
-                FilterGraphOp::SVGFEBlendColorBurn => {},
-                FilterGraphOp::SVGFEBlendColorDodge => {},
-                FilterGraphOp::SVGFEBlendDarken => {},
-                FilterGraphOp::SVGFEBlendDifference => {},
-                FilterGraphOp::SVGFEBlendExclusion => {},
-                FilterGraphOp::SVGFEBlendHardLight => {},
-                FilterGraphOp::SVGFEBlendHue => {},
-                FilterGraphOp::SVGFEBlendLighten => {},
-                FilterGraphOp::SVGFEBlendLuminosity => {},
-                FilterGraphOp::SVGFEBlendMultiply => {},
-                FilterGraphOp::SVGFEBlendNormal => {},
-                FilterGraphOp::SVGFEBlendOverlay => {},
-                FilterGraphOp::SVGFEBlendSaturation => {},
-                FilterGraphOp::SVGFEBlendScreen => {},
-                FilterGraphOp::SVGFEBlendSoftLight => {},
-                FilterGraphOp::SVGFEColorMatrix{values} => {
-                    if values[3] != 0.0 ||
-                        values[7] != 0.0 ||
-                        values[11] != 0.0 ||
-                        values[15] != 1.0 ||
-                        values[19] != 0.0 {
+                FilterGraphOp::SVGFEBlendColor => {}
+                FilterGraphOp::SVGFEBlendColorBurn => {}
+                FilterGraphOp::SVGFEBlendColorDodge => {}
+                FilterGraphOp::SVGFEBlendDarken => {}
+                FilterGraphOp::SVGFEBlendDifference => {}
+                FilterGraphOp::SVGFEBlendExclusion => {}
+                FilterGraphOp::SVGFEBlendHardLight => {}
+                FilterGraphOp::SVGFEBlendHue => {}
+                FilterGraphOp::SVGFEBlendLighten => {}
+                FilterGraphOp::SVGFEBlendLuminosity => {}
+                FilterGraphOp::SVGFEBlendMultiply => {}
+                FilterGraphOp::SVGFEBlendNormal => {}
+                FilterGraphOp::SVGFEBlendOverlay => {}
+                FilterGraphOp::SVGFEBlendSaturation => {}
+                FilterGraphOp::SVGFEBlendScreen => {}
+                FilterGraphOp::SVGFEBlendSoftLight => {}
+                FilterGraphOp::SVGFEColorMatrix { values } => {
+                    if values[3] != 0.0
+                        || values[7] != 0.0
+                        || values[11] != 0.0
+                        || values[15] != 1.0
+                        || values[19] != 0.0
+                    {
                         // Manipulating alpha can easily create new
                         // pixels outside of input subregions
                         used_subregion = full_subregion;
                     }
-                },
+                }
                 FilterGraphOp::SVGFEComponentTransfer => unreachable!(),
-                FilterGraphOp::SVGFEComponentTransferInterned{handle: _, creates_pixels} => {
+                FilterGraphOp::SVGFEComponentTransferInterned {
+                    handle: _,
+                    creates_pixels,
+                } => {
                     // Check if the value of alpha[0] is modified, if so
                     // the whole subregion is used because it will be
                     // creating new pixels outside of input subregions
                     if creates_pixels {
                         used_subregion = full_subregion;
                     }
-                },
+                }
                 FilterGraphOp::SVGFECompositeArithmetic { k1, k2, k3, k4 } => {
                     // Optimize certain cases of Arithmetic operator
                     //
@@ -2046,33 +2222,31 @@ impl RenderTask {
                     if k4 > 0.0 {
                         // Can produce pixels anywhere in the subregion.
                         used_subregion = full_subregion;
-                    } else  if k1 > 0.0 && k2 == 0.0 && k3 == 0.0 {
+                    } else if k1 > 0.0 && k2 == 0.0 && k3 == 0.0 {
                         // Can produce pixels where both exist.
                         used_subregion = full_subregion
                             .intersection(&node_inputs[0].0.subregion)
                             .unwrap_or(LayoutRect::zero())
                             .intersection(&node_inputs[1].0.subregion)
                             .unwrap_or(LayoutRect::zero());
-                    }
-                    else if k2 > 0.0 && k3 == 0.0 {
+                    } else if k2 > 0.0 && k3 == 0.0 {
                         // Can produce pixels where source exists.
                         used_subregion = full_subregion
                             .intersection(&node_inputs[0].0.subregion)
                             .unwrap_or(LayoutRect::zero());
-                    }
-                    else if k2 == 0.0 && k3 > 0.0 {
+                    } else if k2 == 0.0 && k3 > 0.0 {
                         // Can produce pixels where background exists.
                         used_subregion = full_subregion
                             .intersection(&node_inputs[1].0.subregion)
                             .unwrap_or(LayoutRect::zero());
                     }
-                },
+                }
                 FilterGraphOp::SVGFECompositeATop => {
                     // Can only produce pixels where background exists.
                     used_subregion = full_subregion
                         .intersection(&node_inputs[1].0.subregion)
                         .unwrap_or(LayoutRect::zero());
-                },
+                }
                 FilterGraphOp::SVGFECompositeIn => {
                     // Can only produce pixels where both exist.
                     used_subregion = used_subregion
@@ -2080,24 +2254,24 @@ impl RenderTask {
                         .unwrap_or(LayoutRect::zero())
                         .intersection(&node_inputs[1].0.subregion)
                         .unwrap_or(LayoutRect::zero());
-                },
-                FilterGraphOp::SVGFECompositeLighter => {},
+                }
+                FilterGraphOp::SVGFECompositeLighter => {}
                 FilterGraphOp::SVGFECompositeOut => {
                     // Can only produce pixels where source exists.
                     used_subregion = full_subregion
                         .intersection(&node_inputs[0].0.subregion)
                         .unwrap_or(LayoutRect::zero());
-                },
-                FilterGraphOp::SVGFECompositeOver => {},
-                FilterGraphOp::SVGFECompositeXOR => {},
-                FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate{..} => {},
-                FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone{..} => {},
-                FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap{..} => {},
-                FilterGraphOp::SVGFEDiffuseLightingDistant{..} => {},
-                FilterGraphOp::SVGFEDiffuseLightingPoint{..} => {},
-                FilterGraphOp::SVGFEDiffuseLightingSpot{..} => {},
-                FilterGraphOp::SVGFEDisplacementMap{..} => {},
-                FilterGraphOp::SVGFEDropShadow{..} => {},
+                }
+                FilterGraphOp::SVGFECompositeOver => {}
+                FilterGraphOp::SVGFECompositeXOR => {}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate { .. } => {}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone { .. } => {}
+                FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap { .. } => {}
+                FilterGraphOp::SVGFEDiffuseLightingDistant { .. } => {}
+                FilterGraphOp::SVGFEDiffuseLightingPoint { .. } => {}
+                FilterGraphOp::SVGFEDiffuseLightingSpot { .. } => {}
+                FilterGraphOp::SVGFEDisplacementMap { .. } => {}
+                FilterGraphOp::SVGFEDropShadow { .. } => {}
                 FilterGraphOp::SVGFEFlood { color } => {
                     // Subregion needs to be set to the full node
                     // subregion for fills (unless the fill is a no-op),
@@ -2106,46 +2280,51 @@ impl RenderTask {
                     if color.a > 0.0 {
                         used_subregion = full_subregion;
                     }
-                },
-                FilterGraphOp::SVGFEIdentity => {},
-                FilterGraphOp::SVGFEImage { sampling_filter: _sampling_filter, matrix: _matrix } => {
+                }
+                FilterGraphOp::SVGFEIdentity => {}
+                FilterGraphOp::SVGFEImage {
+                    sampling_filter: _sampling_filter,
+                    matrix: _matrix,
+                } => {
                     // TODO: calculate the actual subregion
                     used_subregion = full_subregion;
-                },
-                FilterGraphOp::SVGFEGaussianBlur{..} => {},
-                FilterGraphOp::SVGFEMorphologyDilate{..} => {},
-                FilterGraphOp::SVGFEMorphologyErode{..} => {},
-                FilterGraphOp::SVGFEOpacity{valuebinding: _valuebinding, value} => {
+                }
+                FilterGraphOp::SVGFEGaussianBlur { .. } => {}
+                FilterGraphOp::SVGFEMorphologyDilate { .. } => {}
+                FilterGraphOp::SVGFEMorphologyErode { .. } => {}
+                FilterGraphOp::SVGFEOpacity {
+                    valuebinding: _valuebinding,
+                    value,
+                } => {
                     // If fully transparent, we can ignore this node
                     if value <= 0.0 {
                         used_subregion = LayoutRect::zero();
                     }
-                },
-                FilterGraphOp::SVGFESourceAlpha |
-                FilterGraphOp::SVGFESourceGraphic => {
+                }
+                FilterGraphOp::SVGFESourceAlpha | FilterGraphOp::SVGFESourceGraphic => {
                     used_subregion = source_subregion
                         .intersection(&full_subregion)
                         .unwrap_or(LayoutRect::zero());
-                },
-                FilterGraphOp::SVGFESpecularLightingDistant{..} => {},
-                FilterGraphOp::SVGFESpecularLightingPoint{..} => {},
-                FilterGraphOp::SVGFESpecularLightingSpot{..} => {},
+                }
+                FilterGraphOp::SVGFESpecularLightingDistant { .. } => {}
+                FilterGraphOp::SVGFESpecularLightingPoint { .. } => {}
+                FilterGraphOp::SVGFESpecularLightingSpot { .. } => {}
                 FilterGraphOp::SVGFETile => {
                     if !used_subregion.is_empty() {
                         // This fills the entire target, at least if there are
                         // any input pixels to work with.
                         used_subregion = full_subregion;
                     }
-                },
-                FilterGraphOp::SVGFEToAlpha => {},
-                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{..} |
-                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching{..} |
-                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching{..} |
-                FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching{..} => {
+                }
+                FilterGraphOp::SVGFEToAlpha => {}
+                FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching { .. }
+                | FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching { .. }
+                | FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching { .. }
+                | FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching { .. } => {
                     // Turbulence produces pixel values throughout the
                     // node subregion.
                     used_subregion = full_subregion;
-                },
+                }
             }
 
             // SVG spec requires that a later node sampling pixels outside
@@ -2174,18 +2353,33 @@ impl RenderTask {
             let mut render_to_device_scale = 1.0;
             let mut subregion = used_subregion;
             let padded_subregion = match op {
-                FilterGraphOp::SVGFEGaussianBlur{std_deviation_x, std_deviation_y} |
-                FilterGraphOp::SVGFEDropShadow{std_deviation_x, std_deviation_y, ..} => {
-                    used_subregion
-                    .inflate(
-                        std_deviation_x.ceil() * BLUR_SAMPLE_SCALE,
-                        std_deviation_y.ceil() * BLUR_SAMPLE_SCALE)
+                FilterGraphOp::SVGFEGaussianBlur {
+                    std_deviation_x,
+                    std_deviation_y,
                 }
+                | FilterGraphOp::SVGFEDropShadow {
+                    std_deviation_x,
+                    std_deviation_y,
+                    ..
+                } => used_subregion.inflate(
+                    std_deviation_x.ceil() * BLUR_SAMPLE_SCALE,
+                    std_deviation_y.ceil() * BLUR_SAMPLE_SCALE,
+                ),
                 _ => used_subregion,
             };
-            while
-                padded_subregion.scale(device_to_render_scale, device_to_render_scale).round().width() + node_inflate as f32 * 2.0 > MAX_SURFACE_SIZE as f32 ||
-                padded_subregion.scale(device_to_render_scale, device_to_render_scale).round().height() + node_inflate as f32 * 2.0 > MAX_SURFACE_SIZE as f32 {
+            while padded_subregion
+                .scale(device_to_render_scale, device_to_render_scale)
+                .round()
+                .width()
+                + node_inflate as f32 * 2.0
+                > MAX_SURFACE_SIZE as f32
+                || padded_subregion
+                    .scale(device_to_render_scale, device_to_render_scale)
+                    .round()
+                    .height()
+                    + node_inflate as f32 * 2.0
+                    > MAX_SURFACE_SIZE as f32
+            {
                 device_to_render_scale *= 0.5;
                 render_to_device_scale *= 2.0;
                 // If the rendering was scaled, we need to snap used_subregion
@@ -2201,39 +2395,40 @@ impl RenderTask {
             // it is sometimes the case that subregion is empty, but we
             // must make a task or else the earlier tasks would not be properly
             // linked into the frametree, causing a leak.
-            let node_task_rect: DeviceRect =
-                subregion
+            let node_task_rect: DeviceRect = subregion
                 .scale(device_to_render_scale, device_to_render_scale)
                 .round()
                 .inflate(node_inflate as f32, node_inflate as f32)
                 .cast_unit();
             let node_task_size = node_task_rect.to_i32().size();
-            let node_task_size =
-                if node_task_size.width < 1 || node_task_size.height < 1 {
-                    DeviceIntSize::new(1, 1)
-                } else {
-                    node_task_size
-                };
+            let node_task_size = if node_task_size.width < 1 || node_task_size.height < 1 {
+                DeviceIntSize::new(1, 1)
+            } else {
+                node_task_size
+            };
 
             // Make the uv_rect_kind for this node's task to use, this matters
             // only on the final node because we don't use it internally
             let node_uv_rect_kind = uv_rect_kind_for_task_size(
                 subregion
-                .scale(device_to_render_scale, device_to_render_scale)
-                .round()
-                .inflate(node_inflate as f32, node_inflate as f32)
-                .cast_unit(),
+                    .scale(device_to_render_scale, device_to_render_scale)
+                    .round()
+                    .inflate(node_inflate as f32, node_inflate as f32)
+                    .cast_unit(),
                 prim_subregion
-                .scale(device_to_render_scale, device_to_render_scale)
-                .round()
-                .inflate(node_inflate as f32, node_inflate as f32)
-                .cast_unit(),
+                    .scale(device_to_render_scale, device_to_render_scale)
+                    .round()
+                    .inflate(node_inflate as f32, node_inflate as f32)
+                    .cast_unit(),
             );
 
             // Create task for this node
             let task_id;
             match op {
-                FilterGraphOp::SVGFEGaussianBlur { std_deviation_x, std_deviation_y } => {
+                FilterGraphOp::SVGFEGaussianBlur {
+                    std_deviation_x,
+                    std_deviation_y,
+                } => {
                     // Note: wrap_prim_with_filters copies the SourceGraphic to
                     // a node to apply the transparent border around the image,
                     // we rely on that behavior here as the Blur filter is a
@@ -2252,47 +2447,48 @@ impl RenderTask {
                         std_deviation_x.clamp(0.0, (i32::MAX / 2) as f32) * device_to_render_scale,
                         std_deviation_y.clamp(0.0, (i32::MAX / 2) as f32) * device_to_render_scale,
                     );
-                    let blur_subregion = blur_input.subregion
+                    let blur_subregion = blur_input
+                        .subregion
                         .scale(device_to_render_scale, device_to_render_scale)
                         .inflate(
                             adjusted_blur_std_deviation.width * BLUR_SAMPLE_SCALE,
-                            adjusted_blur_std_deviation.height * BLUR_SAMPLE_SCALE)
+                            adjusted_blur_std_deviation.height * BLUR_SAMPLE_SCALE,
+                        )
                         .round_out();
                     let blur_task_size = blur_subregion.size().cast_unit();
                     // Adjust task size to prevent potential sampling errors
-                    let adjusted_blur_task_size =
-                        BlurTask::adjusted_blur_source_size(
-                            blur_task_size,
-                            adjusted_blur_std_deviation,
-                        ).to_f32();
+                    let adjusted_blur_task_size = BlurTask::adjusted_blur_source_size(
+                        blur_task_size,
+                        adjusted_blur_std_deviation,
+                    )
+                    .to_f32();
                     // Now change the subregion to match the revised task size,
                     // keeping it centered should keep animated radius smooth.
                     let corner = LayoutPoint::new(
-                            blur_subregion.min.x.floor() + ((
-                                blur_task_size.width -
-                                adjusted_blur_task_size.width) * 0.5).floor(),
-                            blur_subregion.min.y.floor() + ((
-                                blur_task_size.height -
-                                adjusted_blur_task_size.height) * 0.5).floor(),
-                        );
+                        blur_subregion.min.x.floor()
+                            + ((blur_task_size.width - adjusted_blur_task_size.width) * 0.5)
+                                .floor(),
+                        blur_subregion.min.y.floor()
+                            + ((blur_task_size.height - adjusted_blur_task_size.height) * 0.5)
+                                .floor(),
+                    );
                     // Recalculate the blur_subregion to match, and if render
                     // scale is used, undo that so it is in the same subregion
                     // coordinate system as the node
-                    let blur_subregion =
-                        LayoutRect::new(
-                            corner,
-                            LayoutPoint::new(
-                                corner.x + adjusted_blur_task_size.width,
-                                corner.y + adjusted_blur_task_size.height,
-                            ),
-                        )
-                        .scale(render_to_device_scale, render_to_device_scale);
+                    let blur_subregion = LayoutRect::new(
+                        corner,
+                        LayoutPoint::new(
+                            corner.x + adjusted_blur_task_size.width,
+                            corner.y + adjusted_blur_task_size.height,
+                        ),
+                    )
+                    .scale(render_to_device_scale, render_to_device_scale);
 
-                    let input_subregion_task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        adjusted_blur_task_size.to_i32(),
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    let input_subregion_task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            adjusted_blur_task_size.to_i32(),
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: false,
                                     inflate: 0,
@@ -2302,56 +2498,65 @@ impl RenderTask {
                                 op: FilterGraphOp::SVGFEIdentity,
                                 content_origin: DevicePoint::zero(),
                                 extra_gpu_cache_handle: None,
-                            }
-                        ),
-                    ).with_uv_rect_kind(UvRectKind::Rect));
+                            }),
+                        )
+                        .with_uv_rect_kind(UvRectKind::Rect),
+                    );
                     // Adding the dependencies sets the inputs for this task
-                    frame_state.rg_builder.add_dependency(input_subregion_task_id, source_task_id);
+                    frame_state
+                        .rg_builder
+                        .add_dependency(input_subregion_task_id, source_task_id);
 
                     // TODO: We should do this blur in the correct
                     // colorspace, linear=true is the default in SVG and
                     // new_blur does not currently support it.  If the nodes
                     // that consume the result only use the alpha channel, it
                     // does not matter, but when they use the RGB it matters.
-                    let blur_task_id =
-                        RenderTask::new_blur(
-                            adjusted_blur_std_deviation,
-                            input_subregion_task_id,
-                            frame_state.rg_builder,
-                            RenderTargetKind::Color,
-                            None,
-                            adjusted_blur_task_size.to_i32(),
-                        );
+                    let blur_task_id = RenderTask::new_blur(
+                        adjusted_blur_std_deviation,
+                        input_subregion_task_id,
+                        frame_state.rg_builder,
+                        RenderTargetKind::Color,
+                        None,
+                        adjusted_blur_task_size.to_i32(),
+                    );
 
-                    task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        node_task_size,
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            node_task_size,
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: node.linear,
                                     inflate: node_inflate,
-                                    inputs: [
-                                        FilterGraphPictureReference{
-                                            buffer_id: blur_input.buffer_id,
-                                            subregion: blur_subregion,
-                                            inflate: 0,
-                                            offset: LayoutVector2D::zero(),
-                                            source_padding: LayoutRect::zero(),
-                                            target_padding: LayoutRect::zero(),
-                                        }].to_vec(),
+                                    inputs: [FilterGraphPictureReference {
+                                        buffer_id: blur_input.buffer_id,
+                                        subregion: blur_subregion,
+                                        inflate: 0,
+                                        offset: LayoutVector2D::zero(),
+                                        source_padding: LayoutRect::zero(),
+                                        target_padding: LayoutRect::zero(),
+                                    }]
+                                    .to_vec(),
                                     subregion,
                                 },
                                 op: FilterGraphOp::SVGFEIdentity,
                                 content_origin: node_task_rect.min,
                                 extra_gpu_cache_handle: None,
-                            }
-                        ),
-                    ).with_uv_rect_kind(node_uv_rect_kind));
+                            }),
+                        )
+                        .with_uv_rect_kind(node_uv_rect_kind),
+                    );
                     // Adding the dependencies sets the inputs for this task
                     frame_state.rg_builder.add_dependency(task_id, blur_task_id);
                 }
-                FilterGraphOp::SVGFEDropShadow { color, dx, dy, std_deviation_x, std_deviation_y } => {
+                FilterGraphOp::SVGFEDropShadow {
+                    color,
+                    dx,
+                    dy,
+                    std_deviation_x,
+                    std_deviation_y,
+                } => {
                     // Note: wrap_prim_with_filters copies the SourceGraphic to
                     // a node to apply the transparent border around the image,
                     // we rely on that behavior here as the Blur filter is a
@@ -2370,93 +2575,96 @@ impl RenderTask {
                         std_deviation_x.clamp(0.0, (i32::MAX / 2) as f32) * device_to_render_scale,
                         std_deviation_y.clamp(0.0, (i32::MAX / 2) as f32) * device_to_render_scale,
                     );
-                    let blur_subregion = blur_input.subregion
+                    let blur_subregion = blur_input
+                        .subregion
                         .scale(device_to_render_scale, device_to_render_scale)
                         .inflate(
                             adjusted_blur_std_deviation.width * BLUR_SAMPLE_SCALE,
-                            adjusted_blur_std_deviation.height * BLUR_SAMPLE_SCALE)
+                            adjusted_blur_std_deviation.height * BLUR_SAMPLE_SCALE,
+                        )
                         .round_out();
                     let blur_task_size = blur_subregion.size().cast_unit();
                     // Adjust task size to prevent potential sampling errors
-                    let adjusted_blur_task_size =
-                        BlurTask::adjusted_blur_source_size(
-                            blur_task_size,
-                            adjusted_blur_std_deviation,
-                        ).to_f32();
+                    let adjusted_blur_task_size = BlurTask::adjusted_blur_source_size(
+                        blur_task_size,
+                        adjusted_blur_std_deviation,
+                    )
+                    .to_f32();
                     // Now change the subregion to match the revised task size,
                     // keeping it centered should keep animated radius smooth.
                     let corner = LayoutPoint::new(
-                            blur_subregion.min.x.floor() + ((
-                                blur_task_size.width -
-                                adjusted_blur_task_size.width) * 0.5).floor(),
-                            blur_subregion.min.y.floor() + ((
-                                blur_task_size.height -
-                                adjusted_blur_task_size.height) * 0.5).floor(),
-                        );
+                        blur_subregion.min.x.floor()
+                            + ((blur_task_size.width - adjusted_blur_task_size.width) * 0.5)
+                                .floor(),
+                        blur_subregion.min.y.floor()
+                            + ((blur_task_size.height - adjusted_blur_task_size.height) * 0.5)
+                                .floor(),
+                    );
                     // Recalculate the blur_subregion to match, and if render
                     // scale is used, undo that so it is in the same subregion
                     // coordinate system as the node
-                    let blur_subregion =
-                        LayoutRect::new(
-                            corner,
-                            LayoutPoint::new(
-                                corner.x + adjusted_blur_task_size.width,
-                                corner.y + adjusted_blur_task_size.height,
-                            ),
-                        )
-                        .scale(render_to_device_scale, render_to_device_scale);
+                    let blur_subregion = LayoutRect::new(
+                        corner,
+                        LayoutPoint::new(
+                            corner.x + adjusted_blur_task_size.width,
+                            corner.y + adjusted_blur_task_size.height,
+                        ),
+                    )
+                    .scale(render_to_device_scale, render_to_device_scale);
 
-                    let input_subregion_task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        adjusted_blur_task_size.to_i32(),
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    let input_subregion_task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            adjusted_blur_task_size.to_i32(),
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: false,
-                                    inputs: [
-                                        FilterGraphPictureReference{
-                                            buffer_id: blur_input.buffer_id,
-                                            subregion: blur_input.subregion,
-                                            offset: LayoutVector2D::zero(),
-                                            inflate: blur_input.inflate,
-                                            source_padding: LayoutRect::zero(),
-                                            target_padding: LayoutRect::zero(),
-                                        }].to_vec(),
+                                    inputs: [FilterGraphPictureReference {
+                                        buffer_id: blur_input.buffer_id,
+                                        subregion: blur_input.subregion,
+                                        offset: LayoutVector2D::zero(),
+                                        inflate: blur_input.inflate,
+                                        source_padding: LayoutRect::zero(),
+                                        target_padding: LayoutRect::zero(),
+                                    }]
+                                    .to_vec(),
                                     subregion: blur_subregion,
                                     inflate: 0,
                                 },
                                 op: FilterGraphOp::SVGFEIdentity,
                                 content_origin: node_task_rect.min,
                                 extra_gpu_cache_handle: None,
-                            }
-                        ),
-                    ).with_uv_rect_kind(UvRectKind::Rect));
+                            }),
+                        )
+                        .with_uv_rect_kind(UvRectKind::Rect),
+                    );
                     // Adding the dependencies sets the inputs for this task
-                    frame_state.rg_builder.add_dependency(input_subregion_task_id, source_task_id);
+                    frame_state
+                        .rg_builder
+                        .add_dependency(input_subregion_task_id, source_task_id);
 
                     // The shadow compositing only cares about alpha channel
                     // which is always linear, so we can blur this in sRGB or
                     // linear color space and the result is the same as we will
                     // be replacing the rgb completely.
-                    let blur_task_id =
-                        RenderTask::new_blur(
-                            adjusted_blur_std_deviation,
-                            input_subregion_task_id,
-                            frame_state.rg_builder,
-                            RenderTargetKind::Color,
-                            None,
-                            adjusted_blur_task_size.to_i32(),
-                        );
+                    let blur_task_id = RenderTask::new_blur(
+                        adjusted_blur_std_deviation,
+                        input_subregion_task_id,
+                        frame_state.rg_builder,
+                        RenderTargetKind::Color,
+                        None,
+                        adjusted_blur_task_size.to_i32(),
+                    );
 
                     // Now we make the compositing task, for this we need to put
                     // the blurred shadow image at the correct subregion offset
-                    let blur_subregion_translated = blur_subregion
-                        .translate(LayoutVector2D::new(dx, dy));
-                    task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        node_task_size,
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    let blur_subregion_translated =
+                        blur_subregion.translate(LayoutVector2D::new(dx, dy));
+                    task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            node_task_size,
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: node.linear,
                                     inflate: node_inflate,
@@ -2464,92 +2672,104 @@ impl RenderTask {
                                         // Original picture
                                         *blur_input,
                                         // Shadow picture
-                                        FilterGraphPictureReference{
+                                        FilterGraphPictureReference {
                                             buffer_id: blur_input.buffer_id,
                                             subregion: blur_subregion_translated,
                                             inflate: 0,
                                             offset: LayoutVector2D::zero(),
                                             source_padding: LayoutRect::zero(),
                                             target_padding: LayoutRect::zero(),
-                                        }].to_vec(),
+                                        },
+                                    ]
+                                    .to_vec(),
                                     subregion,
                                 },
-                                op: FilterGraphOp::SVGFEDropShadow{
+                                op: FilterGraphOp::SVGFEDropShadow {
                                     color,
                                     // These parameters don't matter here
-                                    dx: 0.0, dy: 0.0,
-                                    std_deviation_x: 0.0, std_deviation_y: 0.0,
+                                    dx: 0.0,
+                                    dy: 0.0,
+                                    std_deviation_x: 0.0,
+                                    std_deviation_y: 0.0,
                                 },
                                 content_origin: node_task_rect.min,
                                 extra_gpu_cache_handle: None,
-                            }
-                        ),
-                    ).with_uv_rect_kind(node_uv_rect_kind));
+                            }),
+                        )
+                        .with_uv_rect_kind(node_uv_rect_kind),
+                    );
                     // Adding the dependencies sets the inputs for this task
-                    frame_state.rg_builder.add_dependency(task_id, source_task_id);
+                    frame_state
+                        .rg_builder
+                        .add_dependency(task_id, source_task_id);
                     frame_state.rg_builder.add_dependency(task_id, blur_task_id);
                 }
-                FilterGraphOp::SVGFESourceAlpha |
-                FilterGraphOp::SVGFESourceGraphic => {
+                FilterGraphOp::SVGFESourceAlpha | FilterGraphOp::SVGFESourceGraphic => {
                     // These copy from the original task, we have to synthesize
                     // a fake input binding to make the shader do the copy.  In
                     // the case of SourceAlpha the shader will zero the RGB but
                     // we don't have to care about that distinction here.
-                    task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        node_task_size,
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            node_task_size,
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: node.linear,
                                     inflate: node_inflate,
-                                    inputs: [
-                                        FilterGraphPictureReference{
-                                            buffer_id: FilterOpGraphPictureBufferId::None,
-                                            // This is what makes the mapping
-                                            // actually work.
-                                            subregion: source_subregion.cast_unit(),
-                                            offset: LayoutVector2D::zero(),
-                                            inflate: 0,
-                                            source_padding: LayoutRect::zero(),
-                                            target_padding: LayoutRect::zero(),
-                                        }
-                                    ].to_vec(),
+                                    inputs: [FilterGraphPictureReference {
+                                        buffer_id: FilterOpGraphPictureBufferId::None,
+                                        // This is what makes the mapping
+                                        // actually work.
+                                        subregion: source_subregion.cast_unit(),
+                                        offset: LayoutVector2D::zero(),
+                                        inflate: 0,
+                                        source_padding: LayoutRect::zero(),
+                                        target_padding: LayoutRect::zero(),
+                                    }]
+                                    .to_vec(),
                                     subregion: source_subregion.cast_unit(),
                                 },
                                 op: op.clone(),
                                 content_origin: source_subregion.min.cast_unit(),
                                 extra_gpu_cache_handle: None,
-                            }
-                        ),
-                    ).with_uv_rect_kind(node_uv_rect_kind));
-                    frame_state.rg_builder.add_dependency(task_id, original_task_id);
+                            }),
+                        )
+                        .with_uv_rect_kind(node_uv_rect_kind),
+                    );
+                    frame_state
+                        .rg_builder
+                        .add_dependency(task_id, original_task_id);
                     made_dependency_on_source = true;
                 }
-                FilterGraphOp::SVGFEComponentTransferInterned { handle, creates_pixels: _ } => {
+                FilterGraphOp::SVGFEComponentTransferInterned {
+                    handle,
+                    creates_pixels: _,
+                } => {
                     // FIXME: Doing this in prepare_interned_prim_for_render
                     // doesn't seem to be enough, where should it be done?
                     let filter_data = &mut data_stores.filter_data[handle];
                     filter_data.update(frame_state);
                     // ComponentTransfer has a gpu_cache_handle that we need to
                     // pass along
-                    task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        node_task_size,
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            node_task_size,
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: node.linear,
-                                    inputs: node_inputs.iter().map(|input| {input.0}).collect(),
+                                    inputs: node_inputs.iter().map(|input| input.0).collect(),
                                     subregion,
                                     inflate: node_inflate,
                                 },
                                 op: op.clone(),
                                 content_origin: node_task_rect.min,
                                 extra_gpu_cache_handle: Some(filter_data.gpu_cache_handle),
-                            }
-                        ),
-                    ).with_uv_rect_kind(node_uv_rect_kind));
+                            }),
+                        )
+                        .with_uv_rect_kind(node_uv_rect_kind),
+                    );
 
                     // Add the dependencies for inputs of this node, which will
                     // be used by add_svg_filter_node_instances later
@@ -2565,23 +2785,24 @@ impl RenderTask {
                 _ => {
                     // This is the usual case - zero, one or two inputs that
                     // reference earlier node results.
-                    task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
-                        node_task_size,
-                        RenderTaskKind::SVGFENode(
-                            SVGFEFilterTask{
-                                node: FilterGraphNode{
+                    task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new_dynamic(
+                            node_task_size,
+                            RenderTaskKind::SVGFENode(SVGFEFilterTask {
+                                node: FilterGraphNode {
                                     kept_by_optimizer: true,
                                     linear: node.linear,
-                                    inputs: node_inputs.iter().map(|input| {input.0}).collect(),
+                                    inputs: node_inputs.iter().map(|input| input.0).collect(),
                                     subregion,
                                     inflate: node_inflate,
                                 },
                                 op: op.clone(),
                                 content_origin: node_task_rect.min,
                                 extra_gpu_cache_handle: None,
-                            }
-                        ),
-                    ).with_uv_rect_kind(node_uv_rect_kind));
+                            }),
+                        )
+                        .with_uv_rect_kind(node_uv_rect_kind),
+                    );
 
                     // Add the dependencies for inputs of this node, which will
                     // be used by add_svg_filter_node_instances later
@@ -2609,11 +2830,13 @@ impl RenderTask {
         // If no tasks referenced the SourceGraphic, we actually have to create
         // a fake dependency so that it does not leak.
         if !made_dependency_on_source && output_task_id != original_task_id {
-            frame_state.rg_builder.add_dependency(output_task_id, original_task_id);
+            frame_state
+                .rg_builder
+                .add_dependency(output_task_id, original_task_id);
         }
 
         output_task_id
-   }
+    }
 
     pub fn uv_rect_kind(&self) -> UvRectKind {
         self.uv_rect_kind
@@ -2629,10 +2852,10 @@ impl RenderTask {
                 assert_ne!(texture_id, CacheTextureId::INVALID);
                 texture_id
             }
-            RenderTaskLocation::Existing { .. } |
-            RenderTaskLocation::CacheRequest { .. } |
-            RenderTaskLocation::Unallocated { .. } |
-            RenderTaskLocation::Static { .. } => {
+            RenderTaskLocation::Existing { .. }
+            | RenderTaskLocation::CacheRequest { .. }
+            | RenderTaskLocation::Unallocated { .. }
+            | RenderTaskLocation::Static { .. } => {
                 unreachable!();
             }
         }
@@ -2644,16 +2867,18 @@ impl RenderTask {
                 assert_ne!(texture_id, CacheTextureId::INVALID);
                 TextureSource::TextureCache(texture_id, Swizzle::default())
             }
-            RenderTaskLocation::Static { surface:  StaticRenderTaskSurface::ReadOnly { source }, .. } => {
-                source
-            }
-            RenderTaskLocation::Static { surface: StaticRenderTaskSurface::TextureCache { texture, .. }, .. } => {
-                TextureSource::TextureCache(texture, Swizzle::default())
-            }
-            RenderTaskLocation::Existing { .. } |
-            RenderTaskLocation::Static { .. } |
-            RenderTaskLocation::CacheRequest { .. } |
-            RenderTaskLocation::Unallocated { .. } => {
+            RenderTaskLocation::Static {
+                surface: StaticRenderTaskSurface::ReadOnly { source },
+                ..
+            } => source,
+            RenderTaskLocation::Static {
+                surface: StaticRenderTaskSurface::TextureCache { texture, .. },
+                ..
+            } => TextureSource::TextureCache(texture, Swizzle::default()),
+            RenderTaskLocation::Existing { .. }
+            | RenderTaskLocation::Static { .. }
+            | RenderTaskLocation::CacheRequest { .. }
+            | RenderTaskLocation::Unallocated { .. } => {
                 unreachable!();
             }
         }
@@ -2677,9 +2902,9 @@ impl RenderTask {
             //           would allow us to restore this debug check.
             RenderTaskLocation::Dynamic { rect, .. } => rect,
             RenderTaskLocation::Static { rect, .. } => rect,
-            RenderTaskLocation::Existing { .. } |
-            RenderTaskLocation::CacheRequest { .. } |
-            RenderTaskLocation::Unallocated { .. } => {
+            RenderTaskLocation::Existing { .. }
+            | RenderTaskLocation::CacheRequest { .. }
+            | RenderTaskLocation::Unallocated { .. } => {
                 panic!("bug: get_target_rect called before allocating");
             }
         }
@@ -2699,11 +2924,7 @@ impl RenderTask {
         self.kind.target_kind()
     }
 
-    pub fn write_gpu_blocks(
-        &mut self,
-        target_rect: DeviceIntRect,
-        gpu_cache: &mut GpuCache,
-    ) {
+    pub fn write_gpu_blocks(&mut self, target_rect: DeviceIntRect, gpu_cache: &mut GpuCache) {
         self.kind.write_gpu_blocks(gpu_cache);
 
         if self.cache_handle.is_some() {

@@ -2,8 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::display_item::*;
-use crate::display_list::*;
+use crate::{display_item::*, display_list::*};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct CachedDisplayItem {

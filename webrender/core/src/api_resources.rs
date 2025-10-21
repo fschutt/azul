@@ -2,18 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::api::{BlobImageKey, ImageDescriptor, DirtyRect, TileSize, DebugFlags};
-use crate::api::{BlobImageHandler, AsyncBlobImageRasterizer, BlobImageData, BlobImageParams};
-use crate::api::{BlobImageRequest, BlobImageDescriptor, FontTemplate};
-use crate::api::units::*;
-use glyph_rasterizer::{SharedFontResources, BaseFontInstance};
-use crate::render_api::{ResourceUpdate, TransactionMsg, AddFont};
-use crate::image_tiling::*;
-use crate::profiler;
+use std::{collections::HashMap, mem, sync::Arc};
 
-use std::collections::HashMap;
-use std::mem;
-use std::sync::Arc;
+use glyph_rasterizer::{BaseFontInstance, SharedFontResources};
+
+use crate::{
+    api::{
+        units::*, AsyncBlobImageRasterizer, BlobImageData, BlobImageDescriptor, BlobImageHandler,
+        BlobImageKey, BlobImageParams, BlobImageRequest, DebugFlags, DirtyRect, FontTemplate,
+        ImageDescriptor, TileSize,
+    },
+    image_tiling::*,
+    profiler,
+    render_api::{AddFont, ResourceUpdate, TransactionMsg},
+};
 
 /// We use this to generate the async blob rendering requests.
 struct BlobImageTemplate {
@@ -62,7 +64,11 @@ impl ApiResources {
         self.debug_restrict_blob_size = flags.contains(DebugFlags::RESTRICT_BLOB_SIZE);
     }
 
-    pub fn adjust_blob_visible_rect(&self, rect: &mut DeviceIntRect, size: Option<&mut DeviceIntSize>) {
+    pub fn adjust_blob_visible_rect(
+        &self,
+        rect: &mut DeviceIntRect,
+        size: Option<&mut DeviceIntSize>,
+    ) {
         if self.debug_restrict_blob_size {
             rect.max.x = rect.max.x.min(rect.min.x + 2048);
             rect.max.y = rect.max.y.min(rect.min.y + 2048);
@@ -78,11 +84,19 @@ impl ApiResources {
         for update in &mut transaction.resource_updates {
             match *update {
                 ResourceUpdate::AddBlobImage(ref mut img) => {
-                    self.adjust_blob_visible_rect(&mut img.visible_rect, Some(&mut img.descriptor.size));
+                    self.adjust_blob_visible_rect(
+                        &mut img.visible_rect,
+                        Some(&mut img.descriptor.size),
+                    );
                     self.blob_image_handler
                         .as_mut()
                         .expect("no blob image handler")
-                        .add(img.key, Arc::clone(&img.data), &img.visible_rect, img.tile_size);
+                        .add(
+                            img.key,
+                            Arc::clone(&img.data),
+                            &img.visible_rect,
+                            img.tile_size,
+                        );
 
                     self.blob_image_templates.insert(
                         img.key,
@@ -98,7 +112,10 @@ impl ApiResources {
                 }
                 ResourceUpdate::UpdateBlobImage(ref mut img) => {
                     debug_assert_eq!(img.visible_rect.size(), img.descriptor.size);
-                    self.adjust_blob_visible_rect(&mut img.visible_rect, Some(&mut img.descriptor.size));
+                    self.adjust_blob_visible_rect(
+                        &mut img.visible_rect,
+                        Some(&mut img.descriptor.size),
+                    );
                     self.update_blob_image(
                         img.key,
                         Some(&img.descriptor),
@@ -121,16 +138,13 @@ impl ApiResources {
                     blobs_to_rasterize.push(*key);
                 }
                 ResourceUpdate::AddFont(ref font) => {
-                    let (key, template) = match font {
-                        AddFont::Raw(key, bytes, index) => {
-                            (key, FontTemplate::Raw(Arc::clone(bytes), *index))
-                        }
-                        AddFont::Native(key, native_font_handle) => {
-                            (key, FontTemplate::Native(native_font_handle.clone()))
-                        }
+                    let (key, parsed_font) = match font {
+                        AddFont::Parsed(key, parsed_font) => (key, Arc::clone(parsed_font)),
                     };
-                    if let Some(shared_key) = self.fonts.font_keys.add_key(key, &template) {
-                        self.fonts.templates.add_font(shared_key, template);
+                    if let Some(shared_key) = self.fonts.font_keys.add_key(*key) {
+                        self.fonts
+                            .templates
+                            .add_parsed_font(shared_key, parsed_font);
                     }
                 }
                 ResourceUpdate::AddFontInstance(ref mut instance) => {
@@ -138,14 +152,14 @@ impl ApiResources {
                     assert!(self.fonts.templates.has_font(&shared_font_key));
                     // AddFontInstance will only be processed here, not in the resource cache, so it
                     // is safe to take the options rather than clone them.
-                    let base = BaseFontInstance::new(
+                    let base = Arc::new(BaseFontInstance::new(
                         instance.key,
                         shared_font_key,
                         instance.glyph_size,
                         mem::take(&mut instance.options),
                         mem::take(&mut instance.platform_options),
                         mem::take(&mut instance.variations),
-                    );
+                    ));
                     if let Some(shared_instance) = self.fonts.instance_keys.add_key(base) {
                         self.fonts.instances.add_font_instance(shared_instance);
                     }
@@ -166,8 +180,12 @@ impl ApiResources {
         }
 
         let (rasterizer, requests) = self.create_blob_scene_builder_requests(&blobs_to_rasterize);
-        transaction.profile.set(profiler::RASTERIZED_BLOBS, blobs_to_rasterize.len());
-        transaction.profile.set(profiler::RASTERIZED_BLOB_TILES, requests.len());
+        transaction
+            .profile
+            .set(profiler::RASTERIZED_BLOBS, blobs_to_rasterize.len());
+        transaction
+            .profile
+            .set(profiler::RASTERIZED_BLOB_TILES, requests.len());
         transaction.use_scene_builder_thread |= !requests.is_empty();
         transaction.use_scene_builder_thread |= !transaction.scene_ops.is_empty();
         transaction.blob_rasterizer = rasterizer;
@@ -196,7 +214,8 @@ impl ApiResources {
                 .update(key, data, visible_rect, dirty_rect);
         }
 
-        let image = self.blob_image_templates
+        let image = self
+            .blob_image_templates
             .get_mut(&key)
             .expect("Attempt to update non-existent blob image");
 
@@ -206,7 +225,10 @@ impl ApiResources {
             image.tile_size,
         );
 
-        match (image.valid_tiles_after_bounds_change, valid_tiles_after_bounds_change) {
+        match (
+            image.valid_tiles_after_bounds_change,
+            valid_tiles_after_bounds_change,
+        ) {
             (Some(old), Some(ref mut new)) => {
                 *new = new.intersection(&old).unwrap_or_else(TileRange::zero);
             }
@@ -236,37 +258,37 @@ impl ApiResources {
 
     pub fn create_blob_scene_builder_requests(
         &mut self,
-        keys: &[BlobImageKey]
-    ) -> (Option<Box<dyn AsyncBlobImageRasterizer>>, Vec<BlobImageParams>) {
+        keys: &[BlobImageKey],
+    ) -> (
+        Option<Box<dyn AsyncBlobImageRasterizer>>,
+        Vec<BlobImageParams>,
+    ) {
         if self.blob_image_handler.is_none() || keys.is_empty() {
             return (None, Vec::new());
         }
 
         let mut blob_request_params = Vec::new();
         for key in keys {
-            let template = self.blob_image_templates.get_mut(key)
+            let template = self
+                .blob_image_templates
+                .get_mut(key)
                 .expect("no blob image template");
 
             // If we know that only a portion of the blob image is in the viewport,
             // only request these visible tiles since blob images can be huge.
-            let tiles = compute_tile_range(
-                &template.visible_rect,
-                template.tile_size,
-            );
+            let tiles = compute_tile_range(&template.visible_rect, template.tile_size);
 
             // Don't request tiles that weren't invalidated.
             let dirty_tiles = match template.dirty_rect {
                 DirtyRect::Partial(dirty_rect) => {
-                    compute_tile_range(
-                        &dirty_rect.cast_unit(),
-                        template.tile_size,
-                    )
+                    compute_tile_range(&dirty_rect.cast_unit(), template.tile_size)
                 }
                 DirtyRect::All => tiles,
             };
 
             for_each_tile_in_range(&tiles, |tile| {
-                let still_valid = template.valid_tiles_after_bounds_change
+                let still_valid = template
+                    .valid_tiles_after_bounds_change
                     .map(|valid_tiles| valid_tiles.contains(tile))
                     .unwrap_or(true);
 
@@ -275,29 +297,26 @@ impl ApiResources {
                 }
 
                 let descriptor = BlobImageDescriptor {
-                    rect: compute_tile_rect(
-                        &template.visible_rect,
-                        template.tile_size,
-                        tile,
-                    ).cast_unit(),
+                    rect: compute_tile_rect(&template.visible_rect, template.tile_size, tile)
+                        .cast_unit(),
                     format: template.descriptor.format,
                 };
 
                 assert!(descriptor.rect.width() > 0 && descriptor.rect.height() > 0);
-                blob_request_params.push(
-                    BlobImageParams {
-                        request: BlobImageRequest { key: *key, tile },
-                        descriptor,
-                        dirty_rect: DirtyRect::All,
-                    }
-                );
+                blob_request_params.push(BlobImageParams {
+                    request: BlobImageRequest { key: *key, tile },
+                    descriptor,
+                    dirty_rect: DirtyRect::All,
+                });
             });
 
             template.dirty_rect = DirtyRect::empty();
             template.valid_tiles_after_bounds_change = None;
         }
 
-        let handler = self.blob_image_handler.as_mut()
+        let handler = self
+            .blob_image_handler
+            .as_mut()
             .expect("no blob image handler");
         handler.prepare_resources(&self.fonts, &blob_request_params);
         (Some(handler.create_blob_rasterizer()), blob_request_params)

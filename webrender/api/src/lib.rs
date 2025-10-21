@@ -29,7 +29,6 @@ extern crate serde;
 extern crate serde_derive;
 extern crate time;
 
-
 pub mod channel;
 mod color;
 mod display_item;
@@ -41,21 +40,13 @@ mod image;
 mod tile_pool;
 pub mod units;
 
-pub use crate::color::*;
-pub use crate::display_item::*;
-pub use crate::display_item_cache::DisplayItemCache;
-pub use crate::display_list::*;
-pub use crate::font::*;
-pub use crate::gradient_builder::*;
-pub use crate::image::*;
-pub use crate::tile_pool::*;
+use std::{marker::PhantomData, os::raw::c_void, sync::Arc};
 
-use crate::units::*;
-use crate::channel::Receiver;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::os::raw::c_void;
-
+use crate::{channel::Receiver, units::*};
+pub use crate::{
+    color::*, display_item::*, display_item_cache::DisplayItemCache, display_list::*, font::*,
+    gradient_builder::*, image::*, tile_pool::*,
+};
 
 /// Defined here for cbindgen
 pub const MAX_RENDER_TASK_SIZE: i32 = 16384;
@@ -103,8 +94,9 @@ impl Epoch {
 ///
 /// For example in Gecko each content process uses a separate id namespace.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
-#[derive(Deserialize, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize, Serialize,
+)]
 pub struct IdNamespace(pub u32);
 
 /// A key uniquely identifying a WebRender document.
@@ -124,14 +116,14 @@ pub struct DocumentId {
 impl DocumentId {
     ///
     pub fn new(namespace_id: IdNamespace, id: u32) -> Self {
-        DocumentId {
-            namespace_id,
-            id,
-        }
+        DocumentId { namespace_id, id }
     }
 
     ///
-    pub const INVALID: DocumentId = DocumentId { namespace_id: IdNamespace(0), id: 0 };
+    pub const INVALID: DocumentId = DocumentId {
+        namespace_id: IdNamespace(0),
+        id: 0,
+    };
 }
 
 /// This type carries no valuable semantics for WR. However, it reflects the fact that
@@ -238,19 +230,19 @@ impl Default for HasScrollLinkedEffect {
 
 #[repr(C)]
 pub struct MinimapData {
-  pub is_root_content: bool,
-  // All rects in local coords relative to the scrolled content's origin.
-  pub visual_viewport: LayoutRect,
-  pub layout_viewport: LayoutRect,
-  pub scrollable_rect: LayoutRect,
-  pub displayport: LayoutRect,
-  // Populated for root content nodes only, otherwise the identity
-  pub zoom_transform: LayoutTransform,
-  // Populated for nodes in the subtree of a root content node
-  // (outside such subtrees we'll have `root_content_scroll_id == 0`).
-  // Stores the enclosing root content node's ExternalScrollId.
-  pub root_content_pipeline_id: PipelineId,
-  pub root_content_scroll_id: u64
+    pub is_root_content: bool,
+    // All rects in local coords relative to the scrolled content's origin.
+    pub visual_viewport: LayoutRect,
+    pub layout_viewport: LayoutRect,
+    pub scrollable_rect: LayoutRect,
+    pub displayport: LayoutRect,
+    // Populated for root content nodes only, otherwise the identity
+    pub zoom_transform: LayoutTransform,
+    // Populated for nodes in the subtree of a root content node
+    // (outside such subtrees we'll have `root_content_scroll_id == 0`).
+    // Stores the enclosing root content node's ExternalScrollId.
+    pub root_content_pipeline_id: PipelineId,
+    pub root_content_scroll_id: u64,
 }
 
 /// A handler to integrate WebRender with the thread that contains the `Renderer`.
@@ -259,12 +251,15 @@ pub trait RenderNotifier: Send {
     fn clone(&self) -> Box<dyn RenderNotifier>;
     /// Wake the thread containing the `Renderer` up (after updates have been put
     /// in the renderer's queue).
-    fn wake_up(
-        &self,
-        composite_needed: bool,
-    );
+    fn wake_up(&self, composite_needed: bool);
     /// Notify the thread containing the `Renderer` that a new frame is ready.
-    fn new_frame_ready(&self, _: DocumentId, scrolled: bool, composite_needed: bool, frame_publish_id: FramePublishId);
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        scrolled: bool,
+        composite_needed: bool,
+        frame_publish_id: FramePublishId,
+    );
     /// A Gecko-specific notification mechanism to get some code executed on the
     /// `Renderer`'s thread, mostly replaced by `NotificationHandler`. You should
     /// probably use the latter instead.
@@ -295,7 +290,7 @@ pub enum Checkpoint {
 
 /// A handler to notify when a transaction reaches certain stages of the rendering
 /// pipeline.
-pub trait NotificationHandler : Send + Sync {
+pub trait NotificationHandler: Send + Sync {
     /// Entry point of the handler to implement. Invoked by WebRender.
     fn notify(&self, when: Checkpoint);
 }
@@ -320,7 +315,9 @@ impl NotificationRequest {
     }
 
     /// The specified stage at which point the handler should be notified.
-    pub fn when(&self) -> Checkpoint { self.when }
+    pub fn when(&self) -> Checkpoint {
+        self.when
+    }
 
     /// Called by WebRender at specified stages to notify the registered handler.
     pub fn notify(mut self) {
@@ -396,7 +393,6 @@ impl Clone for NotificationRequest {
         }
     }
 }
-
 
 /// A key to identify an animated property binding.
 #[repr(C)]
@@ -505,9 +501,7 @@ impl From<PropertyBinding<ColorF>> for PropertyBinding<ColorU> {
     fn from(value: PropertyBinding<ColorF>) -> PropertyBinding<ColorU> {
         match value {
             PropertyBinding::Value(value) => PropertyBinding::Value(value.into()),
-            PropertyBinding::Binding(k, v) => {
-                PropertyBinding::Binding(k.into(), v.into())
-            }
+            PropertyBinding::Binding(k, v) => PropertyBinding::Binding(k.into(), v.into()),
         }
     }
 }
@@ -516,9 +510,7 @@ impl From<PropertyBinding<ColorU>> for PropertyBinding<ColorF> {
     fn from(value: PropertyBinding<ColorU>) -> PropertyBinding<ColorF> {
         match value {
             PropertyBinding::Value(value) => PropertyBinding::Value(value.into()),
-            PropertyBinding::Binding(k, v) => {
-                PropertyBinding::Binding(k.into(), v.into())
-            }
+            PropertyBinding::Binding(k, v) => PropertyBinding::Binding(k.into(), v.into()),
         }
     }
 }
@@ -775,7 +767,7 @@ pub enum CrashAnnotation {
 }
 
 /// Handler to expose support for annotating crash reports.
-pub trait CrashAnnotator : Send {
+pub trait CrashAnnotator: Send {
     fn set(&self, annotation: CrashAnnotation, value: &std::ffi::CStr);
     fn clear(&self, annotation: CrashAnnotation);
     fn box_clone(&self) -> Box<dyn CrashAnnotator>;

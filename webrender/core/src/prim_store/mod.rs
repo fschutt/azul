@@ -2,53 +2,61 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, ClipMode, ColorF, ColorU, RasterSpace};
-use api::{ImageRendering, RepeatMode, PrimitiveFlags};
-use api::{PremultipliedColorF, PropertyBinding, Shadow};
-use api::{PrimitiveKeyKind, FillRule, POLYGON_CLIP_VERTEX_MAX};
-use api::units::*;
-use euclid::{SideOffsets2D, Size2D};
-use crate::composite::CompositorSurfaceKind;
-use crate::clip::ClipLeafId;
-use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
-use crate::quad::QuadTileClassifier;
-use crate::segment::EdgeAaSegmentMask;
-use crate::border::BorderSegmentCacheKey;
-use crate::debug_item::{DebugItem, DebugMessage};
-use crate::debug_colors;
-use crate::scene_building::{CreateShadow, IsVisible};
-use crate::frame_builder::FrameBuildingState;
-use glyph_rasterizer::GlyphKey;
-use crate::gpu_cache::{GpuCacheAddress, GpuCacheHandle, GpuDataRequest};
-use crate::gpu_types::{BrushFlags, QuadSegment};
-use crate::intern;
-use crate::picture::PicturePrimitive;
-use crate::render_task_graph::RenderTaskId;
-use crate::resource_cache::ImageProperties;
-use crate::scene::SceneProperties;
 use std::{hash, ops, u32, usize};
-use crate::util::Recycler;
-use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
-use crate::visibility::PrimitiveVisibility;
+
+use api::{
+    units::*, BorderRadius, ClipMode, ColorF, ColorU, FillRule, ImageRendering,
+    PremultipliedColorF, PrimitiveFlags, PrimitiveKeyKind, PropertyBinding, RasterSpace,
+    RepeatMode, Shadow, POLYGON_CLIP_VERTEX_MAX,
+};
+use euclid::{SideOffsets2D, Size2D};
+use glyph_rasterizer::GlyphKey;
+
+use crate::{
+    border::BorderSegmentCacheKey,
+    clip::ClipLeafId,
+    composite::CompositorSurfaceKind,
+    debug_colors,
+    debug_item::{DebugItem, DebugMessage},
+    frame_builder::FrameBuildingState,
+    gpu_cache::{GpuCacheAddress, GpuCacheHandle, GpuDataRequest},
+    gpu_types::{BrushFlags, QuadSegment},
+    intern,
+    internal_types::{FastHashSet, LayoutPrimitiveInfo},
+    pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState},
+    picture::PicturePrimitive,
+    quad::QuadTileClassifier,
+    render_task_graph::RenderTaskId,
+    resource_cache::ImageProperties,
+    scene::SceneProperties,
+    scene_building::{CreateShadow, IsVisible},
+    segment::EdgeAaSegmentMask,
+    util::Recycler,
+    visibility::PrimitiveVisibility,
+};
 
 pub mod backdrop;
 pub mod borders;
 pub mod gradient;
 pub mod image;
+pub mod interned;
 pub mod line_dec;
 pub mod picture;
 pub mod text_run;
-pub mod interned;
 
 mod storage;
 
 use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle};
 use borders::{ImageBorderDataHandle, NormalBorderDataHandle};
-use gradient::{LinearGradientPrimitive, LinearGradientDataHandle, RadialGradientDataHandle, ConicGradientDataHandle};
+use gradient::{
+    ConicGradientDataHandle, LinearGradientDataHandle, LinearGradientPrimitive,
+    RadialGradientDataHandle,
+};
 use image::{ImageDataHandle, ImageInstance, YuvImageDataHandle};
 use line_dec::LineDecorationDataHandle;
 use picture::PictureDataHandle;
 use text_run::{TextRunDataHandle, TextRunPrimitive};
+
 use crate::box_shadow::BoxShadowDataHandle;
 
 pub const VECS_PER_SEGMENT: usize = 2;
@@ -114,10 +122,7 @@ pub struct RectangleKey {
 
 impl RectangleKey {
     pub fn intersects(&self, other: &Self) -> bool {
-        self.x0 < other.x1
-            && other.x0 < self.x1
-            && self.y0 < other.y1
-            && other.y0 < self.y1
+        self.x0 < other.x1 && other.x0 < self.x1 && self.y0 < other.y1 && other.y0 < self.y1
     }
 }
 
@@ -195,15 +200,13 @@ pub struct PolygonKey {
 }
 
 impl PolygonKey {
-    pub fn new(
-        points_layout: &Vec<LayoutPoint>,
-        fill_rule: FillRule,
-    ) -> Self {
+    pub fn new(points_layout: &Vec<LayoutPoint>, fill_rule: FillRule) -> Self {
         // We have to fill fixed-size arrays with data from a Vec.
         // We'll do this by initializing the arrays to known-good
         // values then overwriting those values as long as our
         // iterator provides values.
-        let mut points: [PointKey; POLYGON_CLIP_VERTEX_MAX] = [PointKey { x: 0.0, y: 0.0}; POLYGON_CLIP_VERTEX_MAX];
+        let mut points: [PointKey; POLYGON_CLIP_VERTEX_MAX] =
+            [PointKey { x: 0.0, y: 0.0 }; POLYGON_CLIP_VERTEX_MAX];
 
         let mut point_count: u8 = 0;
         for (src, dest) in points_layout.iter().zip(points.iter_mut()) {
@@ -243,12 +246,7 @@ impl hash::Hash for SideOffsetsKey {
 
 impl From<SideOffsetsKey> for LayoutSideOffsets {
     fn from(key: SideOffsetsKey) -> LayoutSideOffsets {
-        LayoutSideOffsets::new(
-            key.top,
-            key.right,
-            key.bottom,
-            key.left,
-        )
+        LayoutSideOffsets::new(key.top, key.right, key.bottom, key.left)
     }
 }
 
@@ -324,19 +322,13 @@ impl From<VectorKey> for WorldVector2D {
 
 impl From<LayoutVector2D> for VectorKey {
     fn from(vec: LayoutVector2D) -> VectorKey {
-        VectorKey {
-            x: vec.x,
-            y: vec.y,
-        }
+        VectorKey { x: vec.x, y: vec.y }
     }
 }
 
 impl From<WorldVector2D> for VectorKey {
     fn from(vec: WorldVector2D) -> VectorKey {
-        VectorKey {
-            x: vec.x,
-            y: vec.y,
-        }
+        VectorKey { x: vec.x, y: vec.y }
     }
 }
 
@@ -364,28 +356,19 @@ impl From<PointKey> for LayoutPoint {
 
 impl From<LayoutPoint> for PointKey {
     fn from(p: LayoutPoint) -> PointKey {
-        PointKey {
-            x: p.x,
-            y: p.y,
-        }
+        PointKey { x: p.x, y: p.y }
     }
 }
 
 impl From<PicturePoint> for PointKey {
     fn from(p: PicturePoint) -> PointKey {
-        PointKey {
-            x: p.x,
-            y: p.y,
-        }
+        PointKey { x: p.x, y: p.y }
     }
 }
 
 impl From<WorldPoint> for PointKey {
     fn from(p: WorldPoint) -> PointKey {
-        PointKey {
-            x: p.x,
-            y: p.y,
-        }
+        PointKey { x: p.x, y: p.y }
     }
 }
 
@@ -400,7 +383,6 @@ impl hash::Hash for FloatKey {
         self.0.to_bits().hash(state);
     }
 }
-
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PrimKeyCommonData {
@@ -430,10 +412,7 @@ pub struct PrimitiveKey {
 }
 
 impl PrimitiveKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        kind: PrimitiveKeyKind,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, kind: PrimitiveKeyKind) -> Self {
         PrimitiveKey {
             common: info.into(),
             kind,
@@ -447,9 +426,7 @@ impl intern::InternDebug for PrimitiveKey {}
 /// both across frames and display lists, by comparing the matching PrimitiveKey.
 
 pub enum PrimitiveTemplateKind {
-    Rectangle {
-        color: PropertyBinding<ColorF>,
-    },
+    Rectangle { color: PropertyBinding<ColorF> },
     Clear,
 }
 
@@ -478,18 +455,13 @@ impl PrimitiveTemplateKind {
 impl From<PrimitiveKeyKind> for PrimitiveTemplateKind {
     fn from(kind: PrimitiveKeyKind) -> Self {
         match kind {
-            PrimitiveKeyKind::Clear => {
-                PrimitiveTemplateKind::Clear
-            }
-            PrimitiveKeyKind::Rectangle { color, .. } => {
-                PrimitiveTemplateKind::Rectangle {
-                    color: color.into(),
-                }
-            }
+            PrimitiveKeyKind::Clear => PrimitiveTemplateKind::Clear,
+            PrimitiveKeyKind::Rectangle { color, .. } => PrimitiveTemplateKind::Rectangle {
+                color: color.into(),
+            },
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct PrimTemplateCommonData {
@@ -523,12 +495,10 @@ impl PrimTemplateCommonData {
     }
 }
 
-
 pub struct PrimTemplate<T> {
     pub common: PrimTemplateCommonData,
     pub kind: T,
 }
-
 
 pub struct PrimitiveTemplate {
     pub common: PrimTemplateCommonData,
@@ -551,10 +521,7 @@ impl PatternBuilder for PrimitiveTemplate {
         }
     }
 
-    fn get_base_color(
-        &self,
-        ctx: &PatternBuilderContext,
-    ) -> ColorF {
+    fn get_base_color(&self, ctx: &PatternBuilderContext) -> ColorF {
         match self.kind {
             PrimitiveTemplateKind::Clear => ColorF::BLACK,
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
@@ -563,9 +530,7 @@ impl PatternBuilder for PrimitiveTemplate {
         }
     }
 
-    fn use_shared_pattern(
-        &self,
-    ) -> bool {
+    fn use_shared_pattern(&self) -> bool {
         true
     }
 }
@@ -602,14 +567,16 @@ impl PrimitiveTemplate {
         frame_state: &mut FrameBuildingState,
         scene_properties: &SceneProperties,
     ) {
-        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
-            self.kind.write_prim_gpu_blocks(&mut request, scene_properties);
+        if let Some(mut request) = frame_state
+            .gpu_cache
+            .request(&mut self.common.gpu_cache_handle)
+        {
+            self.kind
+                .write_prim_gpu_blocks(&mut request, scene_properties);
         }
 
         self.opacity = match self.kind {
-            PrimitiveTemplateKind::Clear => {
-                PrimitiveOpacity::translucent()
-            }
+            PrimitiveTemplateKind::Clear => PrimitiveOpacity::translucent(),
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 PrimitiveOpacity::from_alpha(scene_properties.resolve_color(color).a)
             }
@@ -627,10 +594,7 @@ impl intern::Internable for PrimitiveKeyKind {
 }
 
 impl InternablePrimitive for PrimitiveKeyKind {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> PrimitiveKey {
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> PrimitiveKey {
         PrimitiveKey::new(info, self)
     }
 
@@ -640,16 +604,10 @@ impl InternablePrimitive for PrimitiveKeyKind {
         prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
         match key.kind {
-            PrimitiveKeyKind::Clear => {
-                PrimitiveInstanceKind::Clear {
-                    data_handle
-                }
-            }
+            PrimitiveKeyKind::Clear => PrimitiveInstanceKind::Clear { data_handle },
             PrimitiveKeyKind::Rectangle { color, .. } => {
                 let color_binding_index = match color {
-                    PropertyBinding::Binding(..) => {
-                        prim_store.color_bindings.push(color)
-                    }
+                    PropertyBinding::Binding(..) => prim_store.color_bindings.push(color),
                     PropertyBinding::Value(..) => ColorBindingIndex::INVALID,
                 };
                 PrimitiveInstanceKind::Rectangle {
@@ -787,10 +745,7 @@ impl ClipData {
             },
             top_right: ClipCorner {
                 rect: LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        rect.max.x - radii.top_right.width,
-                        rect.min.y,
-                    ),
+                    LayoutPoint::new(rect.max.x - radii.top_right.width, rect.min.y),
                     LayoutSize::new(radii.top_right.width, radii.top_right.height),
                 ),
                 outer_radius_x: radii.top_right.width,
@@ -800,10 +755,7 @@ impl ClipData {
             },
             bottom_left: ClipCorner {
                 rect: LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        rect.min.x,
-                        rect.max.y - radii.bottom_left.height,
-                    ),
+                    LayoutPoint::new(rect.min.x, rect.max.y - radii.bottom_left.height),
                     LayoutSize::new(radii.bottom_left.width, radii.bottom_left.height),
                 ),
                 outer_radius_x: radii.bottom_left.width,
@@ -865,10 +817,7 @@ impl ClipData {
             ),
             bottom_right: ClipCorner::uniform(
                 LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        rect.max.x - radius,
-                        rect.max.y - radius,
-                    ),
+                    LayoutPoint::new(rect.max.x - radius, rect.max.y - radius),
                     LayoutSize::new(radius, radius),
                 ),
                 radius,
@@ -901,15 +850,11 @@ impl IsVisible for PrimitiveKeyKind {
     //           primitive types to use this.
     fn is_visible(&self) -> bool {
         match *self {
-            PrimitiveKeyKind::Clear => {
-                true
-            }
-            PrimitiveKeyKind::Rectangle { ref color, .. } => {
-                match *color {
-                    PropertyBinding::Value(value) => value.a > 0,
-                    PropertyBinding::Binding(..) => true,
-                }
-            }
+            PrimitiveKeyKind::Clear => true,
+            PrimitiveKeyKind::Rectangle { ref color, .. } => match *color {
+                PropertyBinding::Value(value) => value.a > 0,
+                PropertyBinding::Binding(..) => true,
+            },
         }
     }
 }
@@ -918,18 +863,11 @@ impl CreateShadow for PrimitiveKeyKind {
     // Create a clone of this PrimitiveContainer, applying whatever
     // changes are necessary to the primitive to support rendering
     // it as part of the supplied shadow.
-    fn create_shadow(
-        &self,
-        shadow: &Shadow,
-        _: bool,
-        _: RasterSpace,
-    ) -> PrimitiveKeyKind {
+    fn create_shadow(&self, shadow: &Shadow, _: bool, _: RasterSpace) -> PrimitiveKeyKind {
         match *self {
-            PrimitiveKeyKind::Rectangle { .. } => {
-                PrimitiveKeyKind::Rectangle {
-                    color: PropertyBinding::Value(shadow.color.into()),
-                }
-            }
+            PrimitiveKeyKind::Rectangle { .. } => PrimitiveKeyKind::Rectangle {
+                color: PropertyBinding::Value(shadow.color.into()),
+            },
             PrimitiveKeyKind::Clear => {
                 panic!("bug: this prim is not supported in shadow contexts");
             }
@@ -1069,10 +1007,7 @@ pub struct PrimitiveInstance {
 }
 
 impl PrimitiveInstance {
-    pub fn new(
-        kind: PrimitiveInstanceKind,
-        clip_leaf_id: ClipLeafId,
-    ) -> Self {
+    pub fn new(kind: PrimitiveInstanceKind, clip_leaf_id: ClipLeafId) -> Self {
         PrimitiveInstance {
             kind,
             vis: PrimitiveVisibility::new(),
@@ -1091,52 +1026,22 @@ impl PrimitiveInstance {
 
     pub fn uid(&self) -> intern::ItemUid {
         match &self.kind {
-            PrimitiveInstanceKind::Clear { data_handle, .. } |
-            PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::Image { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::CachedLinearGradient { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::Picture { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::RadialGradient { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::ConicGradient { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::TextRun { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::BackdropCapture { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::BackdropRender { data_handle, .. } => {
-                data_handle.uid()
-            }
-            PrimitiveInstanceKind::BoxShadow { data_handle, .. } => {
-                data_handle.uid()
-            }
+            PrimitiveInstanceKind::Clear { data_handle, .. }
+            | PrimitiveInstanceKind::Rectangle { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::Image { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::LinearGradient { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::CachedLinearGradient { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::NormalBorder { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::Picture { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::RadialGradient { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::ConicGradient { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::TextRun { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::YuvImage { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::BackdropCapture { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::BackdropRender { data_handle, .. } => data_handle.uid(),
+            PrimitiveInstanceKind::BoxShadow { data_handle, .. } => data_handle.uid(),
         }
     }
 }
@@ -1316,40 +1221,35 @@ impl PrimitiveScratchBuffer {
         &mut self,
         rect: WorldRect,
         border: ColorF,
-        stroke_width: f32
+        stroke_width: f32,
     ) {
         let top_edge = WorldRect::new(
             WorldPoint::new(rect.min.x + stroke_width, rect.min.y),
-            WorldPoint::new(rect.max.x - stroke_width, rect.min.y + stroke_width)
+            WorldPoint::new(rect.max.x - stroke_width, rect.min.y + stroke_width),
         );
         self.push_debug_rect(top_edge * DevicePixelScale::new(1.0), border, border);
 
         let bottom_edge = WorldRect::new(
             WorldPoint::new(rect.min.x + stroke_width, rect.max.y - stroke_width),
-            WorldPoint::new(rect.max.x - stroke_width, rect.max.y)
+            WorldPoint::new(rect.max.x - stroke_width, rect.max.y),
         );
         self.push_debug_rect(bottom_edge * DevicePixelScale::new(1.0), border, border);
 
         let right_edge = WorldRect::new(
             WorldPoint::new(rect.max.x - stroke_width, rect.min.y),
-            rect.max
+            rect.max,
         );
         self.push_debug_rect(right_edge * DevicePixelScale::new(1.0), border, border);
 
         let left_edge = WorldRect::new(
             rect.min,
-            WorldPoint::new(rect.min.x + stroke_width, rect.max.y)
+            WorldPoint::new(rect.min.x + stroke_width, rect.max.y),
         );
         self.push_debug_rect(left_edge * DevicePixelScale::new(1.0), border, border);
     }
 
     #[allow(dead_code)]
-    pub fn push_debug_rect(
-        &mut self,
-        rect: DeviceRect,
-        outer_color: ColorF,
-        inner_color: ColorF,
-    ) {
+    pub fn push_debug_rect(&mut self, rect: DeviceRect, outer_color: ColorF, inner_color: ColorF) {
         self.debug_items.push(DebugItem::Rect {
             rect,
             outer_color,
@@ -1358,12 +1258,7 @@ impl PrimitiveScratchBuffer {
     }
 
     #[allow(dead_code)]
-    pub fn push_debug_string(
-        &mut self,
-        position: DevicePoint,
-        color: ColorF,
-        msg: String,
-    ) {
+    pub fn push_debug_string(&mut self, position: DevicePoint, color: ColorF, msg: String) {
         self.debug_items.push(DebugItem::Text {
             position,
             color,
@@ -1372,10 +1267,7 @@ impl PrimitiveScratchBuffer {
     }
 
     #[allow(dead_code)]
-    pub fn log(
-        &mut self,
-        msg: String,
-    ) {
+    pub fn log(&mut self, msg: String) {
         self.messages.push(DebugMessage {
             msg,
             timestamp: time::precise_time_ns(),
@@ -1465,10 +1357,7 @@ impl Default for PrimitiveStore {
 /// see SceneBuilder::add_primitive<P>
 pub trait InternablePrimitive: intern::Internable<InternData = ()> + Sized {
     /// Build a new key from self with `info`.
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> Self::Key;
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> Self::Key;
 
     fn make_instance_kind(
         key: Self::Key,
@@ -1476,7 +1365,6 @@ pub trait InternablePrimitive: intern::Internable<InternData = ()> + Sized {
         prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind;
 }
-
 
 #[test]
 #[cfg(target_pointer_width = "64")]
@@ -1488,10 +1376,34 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 88, "PrimitiveInstance size changed");
-    assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 24, "PrimitiveInstanceKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 56, "PrimitiveTemplate size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 28, "PrimitiveTemplateKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveKey>(), 36, "PrimitiveKey size changed");
-    assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 16, "PrimitiveKeyKind size changed");
+    assert_eq!(
+        mem::size_of::<PrimitiveInstance>(),
+        88,
+        "PrimitiveInstance size changed"
+    );
+    assert_eq!(
+        mem::size_of::<PrimitiveInstanceKind>(),
+        24,
+        "PrimitiveInstanceKind size changed"
+    );
+    assert_eq!(
+        mem::size_of::<PrimitiveTemplate>(),
+        56,
+        "PrimitiveTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<PrimitiveTemplateKind>(),
+        28,
+        "PrimitiveTemplateKind size changed"
+    );
+    assert_eq!(
+        mem::size_of::<PrimitiveKey>(),
+        36,
+        "PrimitiveKey size changed"
+    );
+    assert_eq!(
+        mem::size_of::<PrimitiveKeyKind>(),
+        16,
+        "PrimitiveKeyKind size changed"
+    );
 }

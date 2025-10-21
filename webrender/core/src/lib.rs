@@ -41,8 +41,11 @@ doesn't only contain trivial geometry, it can also store another
 [stacking_contexts]: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Positioning/Understanding_z_index/The_stacking_context
 */
 
-#![allow(clippy::unreadable_literal, clippy::new_without_default, clippy::too_many_arguments)]
-
+#![allow(
+    clippy::unreadable_literal,
+    clippy::new_without_default,
+    clippy::too_many_arguments
+)]
 
 // Cribbed from the |matches| crate, for simplicity.
 macro_rules! matches {
@@ -68,14 +71,14 @@ extern crate svg_fmt;
 mod profiler;
 mod telemetry;
 
+mod api_resources;
 mod batch;
 mod border;
 mod box_shadow;
+mod bump_allocator;
 #[cfg(any(feature = "capture", feature = "replay"))]
 mod capture;
 mod clip;
-mod space;
-mod spatial_tree;
 mod command_buffer;
 mod composite;
 mod compositor;
@@ -85,26 +88,31 @@ mod debug_item;
 mod device;
 mod ellipse;
 mod filterdata;
+mod frame_allocator;
 mod frame_builder;
 mod freelist;
 mod glyph_cache;
 mod gpu_cache;
 mod gpu_types;
 mod hit_test;
+mod image_source;
+mod image_tiling;
 mod internal_types;
 mod lru_cache;
 mod pattern;
 mod picture;
 mod picture_graph;
+mod picture_textures;
 mod prepare;
 mod prim_store;
 mod print_tree;
 mod quad;
+mod rectangle_occlusion;
 mod render_backend;
 mod render_target;
-mod render_task_graph;
-mod render_task_cache;
 mod render_task;
+mod render_task_cache;
+mod render_task_graph;
 mod renderer;
 mod resource_cache;
 mod scene;
@@ -112,20 +120,15 @@ mod scene_builder_thread;
 mod scene_building;
 mod screen_capture;
 mod segment;
+mod space;
 mod spatial_node;
+mod spatial_tree;
 mod surface;
-mod texture_pack;
 mod texture_cache;
+mod texture_pack;
 mod tile_cache;
 mod util;
 mod visibility;
-mod api_resources;
-mod image_tiling;
-mod image_source;
-mod rectangle_occlusion;
-mod picture_textures;
-mod frame_allocator;
-mod bump_allocator;
 
 ///
 pub mod intern;
@@ -148,43 +151,53 @@ extern crate rayon;
 extern crate ron;
 #[macro_use]
 extern crate smallvec;
-extern crate time;
 #[cfg(all(feature = "capture", feature = "png"))]
 extern crate png;
 #[cfg(test)]
 extern crate rand;
+extern crate time;
 
 pub extern crate api;
 extern crate webrender_build;
 
-#[doc(hidden)]
-pub use crate::composite::{CompositorConfig, Compositor, CompositorCapabilities, CompositorSurfaceTransform};
-pub use crate::composite::{NativeSurfaceId, NativeTileId, NativeSurfaceInfo, PartialPresentCompositor};
-pub use crate::composite::{MappableCompositor, MappedTileInfo, SWGLCompositeSurfaceInfo, WindowVisibility};
-pub use crate::device::{UploadMethod, VertexUsageHint, get_gl_target, get_unoptimized_shader_source};
-pub use crate::device::{ProgramBinary, ProgramCache, ProgramCacheObserver, FormatDesc};
-pub use crate::device::Device;
-pub use crate::profiler::{ProfilerHooks, set_profiler_hooks};
-pub use crate::renderer::{
-    CpuProfile, DebugFlags, GpuProfile, GraphicsApi,
-    GraphicsApiInfo, PipelineInfo, Renderer, RendererError, RenderResults,
-    RendererStats, Shaders, SharedShaders, ShaderPrecacheFlags,
-    MAX_VERTEX_TEXTURE_WIDTH,
-};
-pub use crate::renderer::init::{WebRenderOptions, create_webrender_instance, AsyncPropertySampler, SceneBuilderHooks, RenderBackendHooks, ONE_TIME_USAGE_HINT};
-pub use crate::hit_test::SharedHitTester;
-pub use crate::internal_types::FastHashMap;
-pub use crate::screen_capture::{AsyncScreenshotHandle, RecordedFrameHandle};
-pub use crate::texture_cache::TextureCacheConfig;
 pub use api as webrender_api;
-pub use webrender_build::shader::{ProgramSourceDigest, ShaderKind};
-pub use crate::picture::{TileDescriptor, TileId, InvalidationReason};
-pub use crate::picture::{PrimitiveCompareResult, CompareHelperResult};
-pub use crate::picture::{TileNode, TileNodeKind, TileOffset};
-pub use crate::intern::ItemUid;
-pub use crate::render_api::*;
-pub use crate::tile_cache::{PictureCacheDebugInfo, DirtyTileDebugInfo, TileDebugInfo, SliceDebugInfo};
 pub use glyph_rasterizer;
+pub use webrender_build::shader::{ProgramSourceDigest, ShaderKind};
 
+#[doc(hidden)]
+pub use crate::composite::{
+    Compositor, CompositorCapabilities, CompositorConfig, CompositorSurfaceTransform,
+};
 #[cfg(feature = "sw_compositor")]
 pub use crate::compositor::sw_compositor;
+pub use crate::{
+    composite::{
+        MappableCompositor, MappedTileInfo, NativeSurfaceId, NativeSurfaceInfo, NativeTileId,
+        PartialPresentCompositor, SWGLCompositeSurfaceInfo, WindowVisibility,
+    },
+    device::{
+        get_gl_target, get_unoptimized_shader_source, Device, FormatDesc, ProgramBinary,
+        ProgramCache, ProgramCacheObserver, UploadMethod, VertexUsageHint,
+    },
+    hit_test::SharedHitTester,
+    intern::ItemUid,
+    internal_types::FastHashMap,
+    picture::{
+        CompareHelperResult, InvalidationReason, PrimitiveCompareResult, TileDescriptor, TileId,
+        TileNode, TileNodeKind, TileOffset,
+    },
+    profiler::{set_profiler_hooks, ProfilerHooks},
+    render_api::*,
+    renderer::{
+        init::{
+            create_webrender_instance, AsyncPropertySampler, RenderBackendHooks, SceneBuilderHooks,
+            WebRenderOptions, ONE_TIME_USAGE_HINT,
+        },
+        CpuProfile, DebugFlags, GpuProfile, GraphicsApi, GraphicsApiInfo, PipelineInfo,
+        RenderResults, Renderer, RendererError, RendererStats, ShaderPrecacheFlags, Shaders,
+        SharedShaders, MAX_VERTEX_TEXTURE_WIDTH,
+    },
+    screen_capture::{AsyncScreenshotHandle, RecordedFrameHandle},
+    texture_cache::TextureCacheConfig,
+    tile_cache::{DirtyTileDebugInfo, PictureCacheDebugInfo, SliceDebugInfo, TileDebugInfo},
+};

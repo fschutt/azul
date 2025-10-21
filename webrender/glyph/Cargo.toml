@@ -19,34 +19,19 @@ static_freetype = []
 
 # --- Core Features ---
 # Enable serialization/deserialization for capturing and replaying render commands.
-capture = ["api/serialize", "serde", "smallvec/serde"]
-replay = ["api/deserialize", "serde", "smallvec/serde"]
-
-# --- Integration Features ---
-# Enable telemetry integration for Gecko/Firefox builds.
-gecko = ["glean", "firefox-on-glean"]
-
-# Internal feature to enable serde dependency.
-serde = ["dep:serde_dep", "smallvec/serde", "euclid/serde"]
+capture = ["api/serialize"]
+replay = ["api/deserialize"]
 
 [dependencies]
 # ===== Original WebRender Dependencies (Pure Rust) =====
 api = { version = "0.62.0", package = "webrender_api", path = "../api" }
-euclid = { version = "0.22.10", features = ["serde"], optional = true }
+euclid = "0.22.10"
 rayon = "1"
 smallvec = "1"
 tracy-rs = "0.1.2"
 log = "0.4"
 lazy_static = "1"
 fxhash = "0.2.1"
-
-# Optional dependencies for Gecko integration and serialization
-glean = { workspace = true, optional = true }
-firefox-on-glean = { version = "0.1.0", optional = true }
-# Renamed to avoid ambiguity, a common pattern in Rust workspaces.
-serde_dep = { package = "serde", version = "1.0", features = ["serde_derive"], optional = true }
-
-
 # Replaces FreeType, CoreText, and DirectWrite.
 azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
@@ -56,5 +41,3 @@ tiny-skia = "0.11"
 [dev-dependencies]
 # Kept for potential local testing, matching the original crate's setup.
 env_logger = { version = "0.10", default-features = false }
-glutin = "0.28"
-winit = "0.26"

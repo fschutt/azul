@@ -79,7 +79,9 @@ impl BlobTilePool {
                 // Ensure the length is equal to the requested size. It's not
                 // strictly necessay for the tile pool but the texture upload
                 // code relies on it.
-                unsafe { buffer.set_len(requested_size); }
+                unsafe {
+                    buffer.set_len(requested_size);
+                }
 
                 // zero-initialize
                 buffer.fill(0);
@@ -100,10 +102,7 @@ impl BlobTilePool {
             bucket.push(Arc::clone(&strong_ref));
         };
 
-        MutableTileBuffer {
-            ptr,
-            strong_ref,
-        }
+        MutableTileBuffer { ptr, strong_ref }
     }
 
     fn bucket_and_size(&self, size: usize) -> (usize, usize) {
@@ -139,7 +138,6 @@ impl BlobTilePool {
     }
 }
 
-
 // The role of tile buffer is to encapsulate an Arc to the underlying buffer
 // with a reference count of at most 2 and a way to view the buffer's content
 // as a mutable slice, even though the reference count may be more than 1.
@@ -152,7 +150,7 @@ pub struct MutableTileBuffer {
 }
 
 impl MutableTileBuffer {
-    pub fn as_mut_slice(&mut self) -> &mut[u8] {
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.strong_ref.len()) }
     }
 

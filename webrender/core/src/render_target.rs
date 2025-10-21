@@ -2,38 +2,48 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{units::*, BorderStyle, ColorF, LineOrientation};
 
-use api::units::*;
-use api::{ColorF, LineOrientation, BorderStyle};
-use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures};
-use crate::batch::{ClipBatcher, BatchBuilder, INVALID_SEGMENT_INDEX, ClipMaskInstanceList};
-use crate::command_buffer::{CommandBufferList, QuadFlags};
-use crate::pattern::{Pattern, PatternKind, PatternShaderInput};
-use crate::segment::EdgeAaSegmentMask;
-use crate::spatial_tree::SpatialTree;
-use crate::clip::{ClipStore, ClipItemKind};
-use crate::frame_builder::FrameGlobalResources;
-use crate::gpu_cache::{GpuCache, GpuCacheAddress};
-use crate::gpu_types::{BorderInstance, SvgFilterInstance, SVGFEFilterInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
-use crate::gpu_types::{TransformPalette, ZBufferIdGenerator, MaskInstance, ClipSpace};
-use crate::gpu_types::{ZBufferId, QuadSegment, PrimitiveInstanceData, TransformPaletteId};
-use crate::internal_types::{CacheTextureId, FastHashMap, FilterGraphOp, FrameAllocator, FrameMemory, FrameVec, TextureSource};
-use crate::picture::{SliceId, SurfaceInfo, ResolvedSurfaceTexture, TileCacheInstance};
-use crate::quad;
-use crate::prim_store::{PrimitiveInstance, PrimitiveStore, PrimitiveScratchBuffer};
-use crate::prim_store::gradient::{
-    FastLinearGradientInstance, LinearGradientInstance, RadialGradientInstance,
-    ConicGradientInstance,
+use crate::{
+    batch::{
+        AlphaBatchBuilder, AlphaBatchContainer, BatchBuilder, BatchTextures, ClipBatcher,
+        ClipMaskInstanceList, INVALID_SEGMENT_INDEX,
+    },
+    clip::{ClipItemKind, ClipStore},
+    command_buffer::{CommandBufferList, QuadFlags},
+    frame_builder::FrameGlobalResources,
+    gpu_cache::{GpuCache, GpuCacheAddress},
+    gpu_types::{
+        BlurDirection, BlurInstance, BorderInstance, ClipSpace, MaskInstance, PrimitiveHeaders,
+        PrimitiveInstanceData, QuadSegment, SVGFEFilterInstance, ScalingInstance,
+        SvgFilterInstance, TransformPalette, TransformPaletteId, ZBufferId, ZBufferIdGenerator,
+    },
+    internal_types::{
+        CacheTextureId, FastHashMap, FilterGraphOp, FrameAllocator, FrameMemory, FrameVec,
+        TextureSource,
+    },
+    pattern::{Pattern, PatternKind, PatternShaderInput},
+    picture::{ResolvedSurfaceTexture, SliceId, SurfaceInfo, TileCacheInstance},
+    prim_store::{
+        gradient::{
+            ConicGradientInstance, FastLinearGradientInstance, LinearGradientInstance,
+            RadialGradientInstance,
+        },
+        PrimitiveInstance, PrimitiveScratchBuffer, PrimitiveStore,
+    },
+    quad,
+    render_backend::DataStores,
+    render_task::{
+        MaskSubPass, RenderTask, RenderTaskAddress, RenderTaskKind, SVGFEFilterTask, ScalingTask,
+        SubPass, SvgFilterInfo,
+    },
+    render_task_graph::{RenderTaskGraph, RenderTaskId},
+    renderer::{GpuBufferAddress, GpuBufferBuilder},
+    resource_cache::ResourceCache,
+    segment::EdgeAaSegmentMask,
+    spatial_tree::{SpatialNodeIndex, SpatialTree},
+    util::ScaleOffset,
 };
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilder};
-use crate::render_backend::DataStores;
-use crate::render_task::{RenderTaskKind, RenderTaskAddress, SubPass};
-use crate::render_task::{RenderTask, ScalingTask, SvgFilterInfo, MaskSubPass, SVGFEFilterTask};
-use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
-use crate::resource_cache::ResourceCache;
-use crate::spatial_tree::SpatialNodeIndex;
-use crate::util::ScaleOffset;
-
 
 const STYLE_SOLID: i32 = ((BorderStyle::Solid as i32) << 8) | ((BorderStyle::Solid as i32) << 16);
 const STYLE_MASK: i32 = 0x00FF_FF00;
@@ -226,7 +236,10 @@ pub struct ColorRenderTarget {
     pub clear_color: Option<ColorF>,
 
     pub prim_instances: [FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>; NUM_PATTERNS],
-    pub prim_instances_with_scissor: FastHashMap<(DeviceIntRect, PatternKind), FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>>,
+    pub prim_instances_with_scissor: FastHashMap<
+        (DeviceIntRect, PatternKind),
+        FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>,
+    >,
 
     pub clip_masks: ClipMaskInstanceList,
 }
@@ -253,7 +266,12 @@ impl RenderTarget for ColorRenderTarget {
             used_rect,
             resolve_ops: memory.new_vec(),
             clear_color: Some(ColorF::TRANSPARENT),
-            prim_instances: [FastHashMap::default(), FastHashMap::default(), FastHashMap::default(), FastHashMap::default()],
+            prim_instances: [
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+            ],
             prim_instances_with_scissor: FastHashMap::default(),
             clip_masks: ClipMaskInstanceList::new(memory),
         }
@@ -393,7 +411,7 @@ impl RenderTarget for ColorRenderTarget {
                                 .or_insert_with(|| ctx.frame_memory.new_vec())
                                 .push(instance);
                         }
-                    }
+                    },
                 );
             }
             RenderTaskKind::VerticalBlur(ref info) => {
@@ -426,42 +444,42 @@ impl RenderTarget for ColorRenderTarget {
                 }
                 self.alpha_tasks.push(task_id);
             }
-            RenderTaskKind::SvgFilter(ref task_info) => {
-                add_svg_filter_instances(
-                    &mut self.svg_filters,
-                    render_tasks,
-                    &task_info.info,
-                    task_id,
-                    task.children.get(0).cloned(),
-                    task.children.get(1).cloned(),
-                    task_info.extra_gpu_cache_handle.map(|handle| gpu_cache.get_address(&handle)),
-                    &ctx.frame_memory,
-                )
-            }
-            RenderTaskKind::SVGFENode(ref task_info) => {
-                add_svg_filter_node_instances(
-                    &mut self.svg_nodes,
-                    render_tasks,
-                    &task_info,
-                    task,
-                    task.children.get(0).cloned(),
-                    task.children.get(1).cloned(),
-                    task_info.extra_gpu_cache_handle.map(|handle| gpu_cache.get_address(&handle)),
-                    &ctx.frame_memory,
-                )
-            }
-            RenderTaskKind::Image(..) |
-            RenderTaskKind::Cached(..) |
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::FastLinearGradient(..) |
-            RenderTaskKind::LinearGradient(..) |
-            RenderTaskKind::RadialGradient(..) |
-            RenderTaskKind::ConicGradient(..) |
-            RenderTaskKind::TileComposite(..) |
-            RenderTaskKind::Empty(..) |
-            RenderTaskKind::LineDecoration(..) => {
+            RenderTaskKind::SvgFilter(ref task_info) => add_svg_filter_instances(
+                &mut self.svg_filters,
+                render_tasks,
+                &task_info.info,
+                task_id,
+                task.children.get(0).cloned(),
+                task.children.get(1).cloned(),
+                task_info
+                    .extra_gpu_cache_handle
+                    .map(|handle| gpu_cache.get_address(&handle)),
+                &ctx.frame_memory,
+            ),
+            RenderTaskKind::SVGFENode(ref task_info) => add_svg_filter_node_instances(
+                &mut self.svg_nodes,
+                render_tasks,
+                &task_info,
+                task,
+                task.children.get(0).cloned(),
+                task.children.get(1).cloned(),
+                task_info
+                    .extra_gpu_cache_handle
+                    .map(|handle| gpu_cache.get_address(&handle)),
+                &ctx.frame_memory,
+            ),
+            RenderTaskKind::Image(..)
+            | RenderTaskKind::Cached(..)
+            | RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::FastLinearGradient(..)
+            | RenderTaskKind::LinearGradient(..)
+            | RenderTaskKind::RadialGradient(..)
+            | RenderTaskKind::ConicGradient(..)
+            | RenderTaskKind::TileComposite(..)
+            | RenderTaskKind::Empty(..)
+            | RenderTaskKind::LineDecoration(..) => {
                 panic!("Should not be added to color target!");
             }
             RenderTaskKind::Readback(..) => {}
@@ -498,9 +516,9 @@ impl RenderTarget for ColorRenderTarget {
     }
 
     fn needs_depth(&self) -> bool {
-        self.alpha_batch_containers.iter().any(|ab| {
-            !ab.opaque_batches.is_empty()
-        })
+        self.alpha_batch_containers
+            .iter()
+            .any(|ab| !ab.opaque_batches.is_empty())
     }
 }
 
@@ -558,21 +576,21 @@ impl RenderTarget for AlphaRenderTarget {
         let target_rect = task.get_target_rect();
 
         match task.kind {
-            RenderTaskKind::Image(..) |
-            RenderTaskKind::Cached(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::Blit(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::FastLinearGradient(..) |
-            RenderTaskKind::LinearGradient(..) |
-            RenderTaskKind::RadialGradient(..) |
-            RenderTaskKind::ConicGradient(..) |
-            RenderTaskKind::TileComposite(..) |
-            RenderTaskKind::Prim(..) |
-            RenderTaskKind::SvgFilter(..) |
-            RenderTaskKind::SVGFENode(..) => {
+            RenderTaskKind::Image(..)
+            | RenderTaskKind::Cached(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Picture(..)
+            | RenderTaskKind::Blit(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::FastLinearGradient(..)
+            | RenderTaskKind::LinearGradient(..)
+            | RenderTaskKind::RadialGradient(..)
+            | RenderTaskKind::ConicGradient(..)
+            | RenderTaskKind::TileComposite(..)
+            | RenderTaskKind::Prim(..)
+            | RenderTaskKind::SvgFilter(..)
+            | RenderTaskKind::SVGFENode(..) => {
                 panic!("BUG: should not be added to alpha target!");
             }
             RenderTaskKind::Empty(..) => {
@@ -591,7 +609,7 @@ impl RenderTarget for AlphaRenderTarget {
                     task_id.into(),
                     task.children[0],
                     render_tasks,
-                    &ctx.frame_memory
+                    &ctx.frame_memory,
                 );
             }
             RenderTaskKind::HorizontalBlur(ref info) => {
@@ -604,7 +622,7 @@ impl RenderTarget for AlphaRenderTarget {
                     task_id.into(),
                     task.children[0],
                     render_tasks,
-                    &ctx.frame_memory
+                    &ctx.frame_memory,
                 );
             }
             RenderTaskKind::CacheMask(ref task_info) => {
@@ -629,9 +647,7 @@ impl RenderTarget for AlphaRenderTarget {
                 if region_task.clear_to_one {
                     self.one_clears.push(task_id);
                 }
-                let device_rect = DeviceRect::from_size(
-                    target_rect.size().to_f32(),
-                );
+                let device_rect = DeviceRect::from_size(target_rect.size().to_f32());
                 self.clip_batcher.add_clip_region(
                     region_task.local_pos,
                     device_rect,
@@ -793,30 +809,34 @@ impl TextureCacheRenderTarget {
                 }
             }
             RenderTaskKind::FastLinearGradient(ref task_info) => {
-                self.fast_linear_gradients.push(task_info.to_instance(&target_rect));
+                self.fast_linear_gradients
+                    .push(task_info.to_instance(&target_rect));
             }
             RenderTaskKind::LinearGradient(ref task_info) => {
-                self.linear_gradients.push(task_info.to_instance(&target_rect));
+                self.linear_gradients
+                    .push(task_info.to_instance(&target_rect));
             }
             RenderTaskKind::RadialGradient(ref task_info) => {
-                self.radial_gradients.push(task_info.to_instance(&target_rect));
+                self.radial_gradients
+                    .push(task_info.to_instance(&target_rect));
             }
             RenderTaskKind::ConicGradient(ref task_info) => {
-                self.conic_gradients.push(task_info.to_instance(&target_rect));
+                self.conic_gradients
+                    .push(task_info.to_instance(&target_rect));
             }
-            RenderTaskKind::Prim(..) |
-            RenderTaskKind::Image(..) |
-            RenderTaskKind::Cached(..) |
-            RenderTaskKind::VerticalBlur(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) |
-            RenderTaskKind::TileComposite(..) |
-            RenderTaskKind::Empty(..) |
-            RenderTaskKind::SvgFilter(..) |
-            RenderTaskKind::SVGFENode(..) => {
+            RenderTaskKind::Prim(..)
+            | RenderTaskKind::Image(..)
+            | RenderTaskKind::Cached(..)
+            | RenderTaskKind::VerticalBlur(..)
+            | RenderTaskKind::Picture(..)
+            | RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Scaling(..)
+            | RenderTaskKind::TileComposite(..)
+            | RenderTaskKind::Empty(..)
+            | RenderTaskKind::SvgFilter(..)
+            | RenderTaskKind::SVGFENode(..) => {
                 panic!("BUG: unexpected task kind for texture cache target");
             }
             #[cfg(test)]
@@ -914,43 +934,48 @@ fn add_svg_filter_instances(
     let input_count = match filter {
         SvgFilterInfo::Flood(..) => 0,
 
-        SvgFilterInfo::LinearToSrgb |
-        SvgFilterInfo::SrgbToLinear |
-        SvgFilterInfo::Opacity(..) |
-        SvgFilterInfo::ColorMatrix(..) |
-        SvgFilterInfo::Offset(..) |
-        SvgFilterInfo::ComponentTransfer(..) |
-        SvgFilterInfo::Identity => 1,
+        SvgFilterInfo::LinearToSrgb
+        | SvgFilterInfo::SrgbToLinear
+        | SvgFilterInfo::Opacity(..)
+        | SvgFilterInfo::ColorMatrix(..)
+        | SvgFilterInfo::Offset(..)
+        | SvgFilterInfo::ComponentTransfer(..)
+        | SvgFilterInfo::Identity => 1,
 
-        // Not techincally a 2 input filter, but we have 2 inputs here: original content & blurred content.
-        SvgFilterInfo::DropShadow(..) |
-        SvgFilterInfo::Blend(..) |
-        SvgFilterInfo::Composite(..) => 2,
+        // Not techincally a 2 input filter, but we have 2 inputs here: original content & blurred
+        // content.
+        SvgFilterInfo::DropShadow(..) | SvgFilterInfo::Blend(..) | SvgFilterInfo::Composite(..) => {
+            2
+        }
     };
 
     let generic_int = match filter {
         SvgFilterInfo::Blend(mode) => *mode as u16,
-        SvgFilterInfo::ComponentTransfer(data) =>
-            (data.r_func.to_int() << 12 |
-             data.g_func.to_int() << 8 |
-             data.b_func.to_int() << 4 |
-             data.a_func.to_int()) as u16,
-        SvgFilterInfo::Composite(operator) =>
-            operator.as_int() as u16,
-        SvgFilterInfo::LinearToSrgb |
-        SvgFilterInfo::SrgbToLinear |
-        SvgFilterInfo::Flood(..) |
-        SvgFilterInfo::Opacity(..) |
-        SvgFilterInfo::ColorMatrix(..) |
-        SvgFilterInfo::DropShadow(..) |
-        SvgFilterInfo::Offset(..) |
-        SvgFilterInfo::Identity => 0,
+        SvgFilterInfo::ComponentTransfer(data) => {
+            (data.r_func.to_int() << 12
+                | data.g_func.to_int() << 8
+                | data.b_func.to_int() << 4
+                | data.a_func.to_int()) as u16
+        }
+        SvgFilterInfo::Composite(operator) => operator.as_int() as u16,
+        SvgFilterInfo::LinearToSrgb
+        | SvgFilterInfo::SrgbToLinear
+        | SvgFilterInfo::Flood(..)
+        | SvgFilterInfo::Opacity(..)
+        | SvgFilterInfo::ColorMatrix(..)
+        | SvgFilterInfo::DropShadow(..)
+        | SvgFilterInfo::Offset(..)
+        | SvgFilterInfo::Identity => 0,
     };
 
     let instance = SvgFilterInstance {
         task_address: task_id.into(),
-        input_1_task_address: input_1_task.map(|id| id.into()).unwrap_or(RenderTaskAddress(0)),
-        input_2_task_address: input_2_task.map(|id| id.into()).unwrap_or(RenderTaskAddress(0)),
+        input_1_task_address: input_1_task
+            .map(|id| id.into())
+            .unwrap_or(RenderTaskAddress(0)),
+        input_2_task_address: input_2_task
+            .map(|id| id.into())
+            .unwrap_or(RenderTaskAddress(0)),
         kind,
         input_count,
         generic_int,
@@ -999,7 +1024,12 @@ fn add_svg_filter_node_instances(
     // have a blank border
     let target_rect = target_task
         .get_target_rect()
-        .inner_box(DeviceIntSideOffsets::new(node.inflate as i32, node.inflate as i32, node.inflate as i32, node.inflate as i32))
+        .inner_box(DeviceIntSideOffsets::new(
+            node.inflate as i32,
+            node.inflate as i32,
+            node.inflate as i32,
+            node.inflate as i32,
+        ))
         .to_f32();
 
     let mut instance = SVGFEFilterInstance {
@@ -1024,110 +1054,253 @@ fn add_svg_filter_node_instances(
         // Opacity scales the entire rgba color, so it does not need a linear
         // case as the rgb / a ratio does not change (sRGB is a curve on the RGB
         // before alpha multiply, not after)
-        FilterGraphOp::SVGFEOpacity{..} => 2,
+        FilterGraphOp::SVGFEOpacity { .. } => 2,
         FilterGraphOp::SVGFEToAlpha => 4,
-        FilterGraphOp::SVGFEBlendColor => {match node.linear {false => 6, true => 7}},
-        FilterGraphOp::SVGFEBlendColorBurn => {match node.linear {false => 8, true => 9}},
-        FilterGraphOp::SVGFEBlendColorDodge => {match node.linear {false => 10, true => 11}},
-        FilterGraphOp::SVGFEBlendDarken => {match node.linear {false => 12, true => 13}},
-        FilterGraphOp::SVGFEBlendDifference => {match node.linear {false => 14, true => 15}},
-        FilterGraphOp::SVGFEBlendExclusion => {match node.linear {false => 16, true => 17}},
-        FilterGraphOp::SVGFEBlendHardLight => {match node.linear {false => 18, true => 19}},
-        FilterGraphOp::SVGFEBlendHue => {match node.linear {false => 20, true => 21}},
-        FilterGraphOp::SVGFEBlendLighten => {match node.linear {false => 22, true => 23}},
-        FilterGraphOp::SVGFEBlendLuminosity => {match node.linear {false => 24, true => 25}},
-        FilterGraphOp::SVGFEBlendMultiply => {match node.linear {false => 26, true => 27}},
-        FilterGraphOp::SVGFEBlendNormal => {match node.linear {false => 28, true => 29}},
-        FilterGraphOp::SVGFEBlendOverlay => {match node.linear {false => 30, true => 31}},
-        FilterGraphOp::SVGFEBlendSaturation => {match node.linear {false => 32, true => 33}},
-        FilterGraphOp::SVGFEBlendScreen => {match node.linear {false => 34, true => 35}},
-        FilterGraphOp::SVGFEBlendSoftLight => {match node.linear {false => 36, true => 37}},
-        FilterGraphOp::SVGFEColorMatrix{..} => {match node.linear {false => 38, true => 39}},
+        FilterGraphOp::SVGFEBlendColor => match node.linear {
+            false => 6,
+            true => 7,
+        },
+        FilterGraphOp::SVGFEBlendColorBurn => match node.linear {
+            false => 8,
+            true => 9,
+        },
+        FilterGraphOp::SVGFEBlendColorDodge => match node.linear {
+            false => 10,
+            true => 11,
+        },
+        FilterGraphOp::SVGFEBlendDarken => match node.linear {
+            false => 12,
+            true => 13,
+        },
+        FilterGraphOp::SVGFEBlendDifference => match node.linear {
+            false => 14,
+            true => 15,
+        },
+        FilterGraphOp::SVGFEBlendExclusion => match node.linear {
+            false => 16,
+            true => 17,
+        },
+        FilterGraphOp::SVGFEBlendHardLight => match node.linear {
+            false => 18,
+            true => 19,
+        },
+        FilterGraphOp::SVGFEBlendHue => match node.linear {
+            false => 20,
+            true => 21,
+        },
+        FilterGraphOp::SVGFEBlendLighten => match node.linear {
+            false => 22,
+            true => 23,
+        },
+        FilterGraphOp::SVGFEBlendLuminosity => match node.linear {
+            false => 24,
+            true => 25,
+        },
+        FilterGraphOp::SVGFEBlendMultiply => match node.linear {
+            false => 26,
+            true => 27,
+        },
+        FilterGraphOp::SVGFEBlendNormal => match node.linear {
+            false => 28,
+            true => 29,
+        },
+        FilterGraphOp::SVGFEBlendOverlay => match node.linear {
+            false => 30,
+            true => 31,
+        },
+        FilterGraphOp::SVGFEBlendSaturation => match node.linear {
+            false => 32,
+            true => 33,
+        },
+        FilterGraphOp::SVGFEBlendScreen => match node.linear {
+            false => 34,
+            true => 35,
+        },
+        FilterGraphOp::SVGFEBlendSoftLight => match node.linear {
+            false => 36,
+            true => 37,
+        },
+        FilterGraphOp::SVGFEColorMatrix { .. } => match node.linear {
+            false => 38,
+            true => 39,
+        },
         FilterGraphOp::SVGFEComponentTransfer => unreachable!(),
-        FilterGraphOp::SVGFEComponentTransferInterned{..} => {match node.linear {false => 40, true => 41}},
-        FilterGraphOp::SVGFECompositeArithmetic{..} => {match node.linear {false => 42, true => 43}},
-        FilterGraphOp::SVGFECompositeATop => {match node.linear {false => 44, true => 45}},
-        FilterGraphOp::SVGFECompositeIn => {match node.linear {false => 46, true => 47}},
-        FilterGraphOp::SVGFECompositeLighter => {match node.linear {false => 48, true => 49}},
-        FilterGraphOp::SVGFECompositeOut => {match node.linear {false => 50, true => 51}},
-        FilterGraphOp::SVGFECompositeOver => {match node.linear {false => 52, true => 53}},
-        FilterGraphOp::SVGFECompositeXOR => {match node.linear {false => 54, true => 55}},
-        FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate{..} => {match node.linear {false => 56, true => 57}},
-        FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone{..} => {match node.linear {false => 58, true => 59}},
-        FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap{..} => {match node.linear {false => 60, true => 61}},
-        FilterGraphOp::SVGFEDiffuseLightingDistant{..} => {match node.linear {false => 62, true => 63}},
-        FilterGraphOp::SVGFEDiffuseLightingPoint{..} => {match node.linear {false => 64, true => 65}},
-        FilterGraphOp::SVGFEDiffuseLightingSpot{..} => {match node.linear {false => 66, true => 67}},
-        FilterGraphOp::SVGFEDisplacementMap{..} => {match node.linear {false => 68, true => 69}},
-        FilterGraphOp::SVGFEDropShadow{..} => {match node.linear {false => 70, true => 71}},
+        FilterGraphOp::SVGFEComponentTransferInterned { .. } => match node.linear {
+            false => 40,
+            true => 41,
+        },
+        FilterGraphOp::SVGFECompositeArithmetic { .. } => match node.linear {
+            false => 42,
+            true => 43,
+        },
+        FilterGraphOp::SVGFECompositeATop => match node.linear {
+            false => 44,
+            true => 45,
+        },
+        FilterGraphOp::SVGFECompositeIn => match node.linear {
+            false => 46,
+            true => 47,
+        },
+        FilterGraphOp::SVGFECompositeLighter => match node.linear {
+            false => 48,
+            true => 49,
+        },
+        FilterGraphOp::SVGFECompositeOut => match node.linear {
+            false => 50,
+            true => 51,
+        },
+        FilterGraphOp::SVGFECompositeOver => match node.linear {
+            false => 52,
+            true => 53,
+        },
+        FilterGraphOp::SVGFECompositeXOR => match node.linear {
+            false => 54,
+            true => 55,
+        },
+        FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate { .. } => match node.linear {
+            false => 56,
+            true => 57,
+        },
+        FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone { .. } => match node.linear {
+            false => 58,
+            true => 59,
+        },
+        FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap { .. } => match node.linear {
+            false => 60,
+            true => 61,
+        },
+        FilterGraphOp::SVGFEDiffuseLightingDistant { .. } => match node.linear {
+            false => 62,
+            true => 63,
+        },
+        FilterGraphOp::SVGFEDiffuseLightingPoint { .. } => match node.linear {
+            false => 64,
+            true => 65,
+        },
+        FilterGraphOp::SVGFEDiffuseLightingSpot { .. } => match node.linear {
+            false => 66,
+            true => 67,
+        },
+        FilterGraphOp::SVGFEDisplacementMap { .. } => match node.linear {
+            false => 68,
+            true => 69,
+        },
+        FilterGraphOp::SVGFEDropShadow { .. } => match node.linear {
+            false => 70,
+            true => 71,
+        },
         // feFlood takes an sRGB color and does no math on it, no linear case
-        FilterGraphOp::SVGFEFlood{..} => 72,
-        FilterGraphOp::SVGFEGaussianBlur{..} => {match node.linear {false => 74, true => 75}},
+        FilterGraphOp::SVGFEFlood { .. } => 72,
+        FilterGraphOp::SVGFEGaussianBlur { .. } => match node.linear {
+            false => 74,
+            true => 75,
+        },
         // feImage does not meaningfully modify the color of its input, though a
         // case could be made for gamma-correct image scaling, that's a bit out
         // of scope for now
-        FilterGraphOp::SVGFEImage{..} => 76,
-        FilterGraphOp::SVGFEMorphologyDilate{..} => {match node.linear {false => 80, true => 81}},
-        FilterGraphOp::SVGFEMorphologyErode{..} => {match node.linear {false => 82, true => 83}},
-        FilterGraphOp::SVGFESpecularLightingDistant{..} => {match node.linear {false => 86, true => 87}},
-        FilterGraphOp::SVGFESpecularLightingPoint{..} => {match node.linear {false => 88, true => 89}},
-        FilterGraphOp::SVGFESpecularLightingSpot{..} => {match node.linear {false => 90, true => 91}},
+        FilterGraphOp::SVGFEImage { .. } => 76,
+        FilterGraphOp::SVGFEMorphologyDilate { .. } => match node.linear {
+            false => 80,
+            true => 81,
+        },
+        FilterGraphOp::SVGFEMorphologyErode { .. } => match node.linear {
+            false => 82,
+            true => 83,
+        },
+        FilterGraphOp::SVGFESpecularLightingDistant { .. } => match node.linear {
+            false => 86,
+            true => 87,
+        },
+        FilterGraphOp::SVGFESpecularLightingPoint { .. } => match node.linear {
+            false => 88,
+            true => 89,
+        },
+        FilterGraphOp::SVGFESpecularLightingSpot { .. } => match node.linear {
+            false => 90,
+            true => 91,
+        },
         // feTile does not modify color, no linear case
         FilterGraphOp::SVGFETile => 92,
-        FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{..} => {match node.linear {false => 94, true => 95}},
-        FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching{..} => {match node.linear {false => 96, true => 97}},
-        FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching{..} => {match node.linear {false => 98, true => 99}},
-        FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching{..} => {match node.linear {false => 100, true => 101}},
+        FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching { .. } => match node.linear {
+            false => 94,
+            true => 95,
+        },
+        FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching { .. } => match node.linear {
+            false => 96,
+            true => 97,
+        },
+        FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching { .. } => {
+            match node.linear {
+                false => 98,
+                true => 99,
+            }
+        }
+        FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching { .. } => {
+            match node.linear {
+                false => 100,
+                true => 101,
+            }
+        }
     };
 
     // This is a bit of an ugly way to do this, but avoids code duplication.
-    let mut resolve_input = |index: usize, src_task: Option<RenderTaskId>| -> (RenderTaskAddress, [f32; 4]) {
-        let mut src_task_id = RenderTaskId::INVALID;
-        let mut resolved_scale_and_offset: [f32; 4] = [0.0; 4];
-        if let Some(input) = node.inputs.get(index) {
-            src_task_id = src_task.unwrap();
-            let src_task = &render_tasks[src_task_id];
+    let mut resolve_input =
+        |index: usize, src_task: Option<RenderTaskId>| -> (RenderTaskAddress, [f32; 4]) {
+            let mut src_task_id = RenderTaskId::INVALID;
+            let mut resolved_scale_and_offset: [f32; 4] = [0.0; 4];
+            if let Some(input) = node.inputs.get(index) {
+                src_task_id = src_task.unwrap();
+                let src_task = &render_tasks[src_task_id];
 
-            textures.input.colors[index] = src_task.get_texture_source();
-            let src_task_size = src_task.location.size();
-            let src_scale_x = (src_task_size.width as f32 - input.inflate as f32 * 2.0) / input.subregion.width();
-            let src_scale_y = (src_task_size.height as f32 - input.inflate as f32 * 2.0) / input.subregion.height();
-            let scale_x = src_scale_x * node.subregion.width();
-            let scale_y = src_scale_y * node.subregion.height();
-            let offset_x = src_scale_x * (node.subregion.min.x - input.subregion.min.x) + input.inflate as f32;
-            let offset_y = src_scale_y * (node.subregion.min.y - input.subregion.min.y) + input.inflate as f32;
-            resolved_scale_and_offset = [
-                scale_x,
-                scale_y,
-                offset_x,
-                offset_y];
-        }
-        let address: RenderTaskAddress = src_task_id.into();
-        (address, resolved_scale_and_offset)
-    };
-    (instance.input_1_task_address, instance.input_1_content_scale_and_offset) = resolve_input(0, input_1_task);
-    (instance.input_2_task_address, instance.input_2_content_scale_and_offset) = resolve_input(1, input_2_task);
+                textures.input.colors[index] = src_task.get_texture_source();
+                let src_task_size = src_task.location.size();
+                let src_scale_x = (src_task_size.width as f32 - input.inflate as f32 * 2.0)
+                    / input.subregion.width();
+                let src_scale_y = (src_task_size.height as f32 - input.inflate as f32 * 2.0)
+                    / input.subregion.height();
+                let scale_x = src_scale_x * node.subregion.width();
+                let scale_y = src_scale_y * node.subregion.height();
+                let offset_x = src_scale_x * (node.subregion.min.x - input.subregion.min.x)
+                    + input.inflate as f32;
+                let offset_y = src_scale_y * (node.subregion.min.y - input.subregion.min.y)
+                    + input.inflate as f32;
+                resolved_scale_and_offset = [scale_x, scale_y, offset_x, offset_y];
+            }
+            let address: RenderTaskAddress = src_task_id.into();
+            (address, resolved_scale_and_offset)
+        };
+    (
+        instance.input_1_task_address,
+        instance.input_1_content_scale_and_offset,
+    ) = resolve_input(0, input_1_task);
+    (
+        instance.input_2_task_address,
+        instance.input_2_content_scale_and_offset,
+    ) = resolve_input(1, input_2_task);
 
     // Additional instance modifications for certain filters
     match op {
-        FilterGraphOp::SVGFEOpacity { valuebinding: _, value } => {
+        FilterGraphOp::SVGFEOpacity {
+            valuebinding: _,
+            value,
+        } => {
             // opacity only has one input so we can use the other
             // components to store the opacity value
             instance.input_2_content_scale_and_offset = [*value, 0.0, 0.0, 0.0];
-        },
-        FilterGraphOp::SVGFEMorphologyDilate { radius_x, radius_y } |
-        FilterGraphOp::SVGFEMorphologyErode { radius_x, radius_y } => {
+        }
+        FilterGraphOp::SVGFEMorphologyDilate { radius_x, radius_y }
+        | FilterGraphOp::SVGFEMorphologyErode { radius_x, radius_y } => {
             // morphology filters only use one input, so we use the
             // second offset coord to store the radius values.
             instance.input_2_content_scale_and_offset = [*radius_x, *radius_y, 0.0, 0.0];
-        },
+        }
         FilterGraphOp::SVGFEFlood { color } => {
             // flood filters don't use inputs, so we store color here.
             // We can't do the same trick on DropShadow because it does have two
             // inputs.
             instance.input_2_content_scale_and_offset = [color.r, color.g, color.b, color.a];
-        },
-        _ => {},
+        }
+        _ => {}
     }
 
     for (ref mut batch_textures, ref mut batch) in instances.iter_mut() {
@@ -1181,7 +1354,7 @@ fn build_mask_tasks(
     results: &mut ClipMaskInstanceList,
     memory: &FrameMemory,
 ) {
-    for i in 0 .. info.clip_node_range.count {
+    for i in 0..info.clip_node_range.count {
         let clip_instance = clip_store.get_instance_from_range(&info.clip_node_range, i);
         let clip_node = &data_stores.clip[clip_instance.handle];
 
@@ -1237,10 +1410,8 @@ fn build_mask_tasks(
                     spatial_tree,
                 );
 
-                let is_same_coord_system = spatial_tree.is_matching_coord_system(
-                    prim_spatial_node_index,
-                    raster_spatial_node_index,
-                );
+                let is_same_coord_system = spatial_tree
+                    .is_matching_coord_system(prim_spatial_node_index, raster_spatial_node_index);
 
                 let pattern = Pattern::color(ColorF::WHITE);
                 let clip_needs_scissor_rect = !is_same_coord_system;
@@ -1295,13 +1466,14 @@ fn build_mask_tasks(
                                     .or_insert_with(|| memory.new_vec())
                                     .push(prim);
                             }
-                        }
+                        },
                     );
                 }
 
                 // TODO(gw): For now, we skip the main mask prim below for image masks. Perhaps
                 //           we can better merge the logic together?
-                // TODO(gw): How to efficiently handle if the image-mask rect doesn't cover local prim rect?
+                // TODO(gw): How to efficiently handle if the image-mask rect doesn't cover local
+                // prim rect?
                 continue;
             }
         };
@@ -1309,9 +1481,16 @@ fn build_mask_tasks(
         let prim_spatial_node = spatial_tree.get_spatial_node(prim_spatial_node_index);
         let clip_spatial_node = spatial_tree.get_spatial_node(clip_node.item.spatial_node_index);
         let raster_spatial_node = spatial_tree.get_spatial_node(raster_spatial_node_index);
-        let raster_clip = raster_spatial_node.coordinate_system_id == clip_spatial_node.coordinate_system_id;
+        let raster_clip =
+            raster_spatial_node.coordinate_system_id == clip_spatial_node.coordinate_system_id;
 
-        let (clip_space, clip_transform_id, main_prim_address, prim_transform_id, is_same_coord_system) = if raster_clip {
+        let (
+            clip_space,
+            clip_transform_id,
+            main_prim_address,
+            prim_transform_id,
+            is_same_coord_system,
+        ) = if raster_clip {
             let prim_transform_id = TransformPaletteId::IDENTITY;
             let pattern = Pattern::color(ColorF::WHITE);
 
@@ -1331,7 +1510,13 @@ fn build_mask_tasks(
                 ScaleOffset::identity(),
             );
 
-            (ClipSpace::Raster, clip_transform_id, main_prim_address, prim_transform_id, true)
+            (
+                ClipSpace::Raster,
+                clip_transform_id,
+                main_prim_address,
+                prim_transform_id,
+                true,
+            )
         } else {
             let prim_transform_id = transforms.get_id(
                 prim_spatial_node_index,
@@ -1339,7 +1524,9 @@ fn build_mask_tasks(
                 spatial_tree,
             );
 
-            let clip_transform_id = if prim_spatial_node.coordinate_system_id < clip_spatial_node.coordinate_system_id {
+            let clip_transform_id = if prim_spatial_node.coordinate_system_id
+                < clip_spatial_node.coordinate_system_id
+            {
                 transforms.get_id(
                     clip_node.item.spatial_node_index,
                     prim_spatial_node_index,
@@ -1353,12 +1540,16 @@ fn build_mask_tasks(
                 )
             };
 
-            let is_same_coord_system = spatial_tree.is_matching_coord_system(
-                prim_spatial_node_index,
-                raster_spatial_node_index,
-            );
+            let is_same_coord_system = spatial_tree
+                .is_matching_coord_system(prim_spatial_node_index, raster_spatial_node_index);
 
-            (ClipSpace::Primitive, clip_transform_id, main_prim_address, prim_transform_id, is_same_coord_system)
+            (
+                ClipSpace::Primitive,
+                clip_transform_id,
+                main_prim_address,
+                prim_transform_id,
+                is_same_coord_system,
+            )
         };
 
         let clip_needs_scissor_rect = !is_same_coord_system;
@@ -1393,15 +1584,17 @@ fn build_mask_tasks(
 
                 if clip_needs_scissor_rect {
                     if fast_path {
-                        results.mask_instances_fast_with_scissor
-                               .entry(target_rect)
-                               .or_insert_with(|| memory.new_vec())
-                               .push(instance);
+                        results
+                            .mask_instances_fast_with_scissor
+                            .entry(target_rect)
+                            .or_insert_with(|| memory.new_vec())
+                            .push(instance);
                     } else {
-                        results.mask_instances_slow_with_scissor
-                               .entry(target_rect)
-                               .or_insert_with(|| memory.new_vec())
-                               .push(instance);
+                        results
+                            .mask_instances_slow_with_scissor
+                            .entry(target_rect)
+                            .or_insert_with(|| memory.new_vec())
+                            .push(instance);
                     }
                 } else {
                     if fast_path {
@@ -1410,7 +1603,7 @@ fn build_mask_tasks(
                         results.mask_instances_slow.push(instance);
                     }
                 }
-            }
+            },
         );
     }
 }
@@ -1430,23 +1623,28 @@ fn build_sub_pass(
                 let render_task_address = task_id.into();
                 let target_rect = task.get_target_rect();
 
-                let (device_pixel_scale, content_origin, raster_spatial_node_index) = match task.kind {
-                    RenderTaskKind::Picture(ref info) => {
-                        (info.device_pixel_scale, info.content_origin, info.raster_spatial_node_index)
-                    }
-                    RenderTaskKind::Empty(ref info) => {
-                        (info.device_pixel_scale, info.content_origin, info.raster_spatial_node_index)
-                    }
-                    RenderTaskKind::Prim(ref info) => {
-                        (info.device_pixel_scale, info.content_origin, info.raster_spatial_node_index)
-                    }
-                    _ => panic!("unexpected: {}", task.kind.as_str()),
-                };
+                let (device_pixel_scale, content_origin, raster_spatial_node_index) =
+                    match task.kind {
+                        RenderTaskKind::Picture(ref info) => (
+                            info.device_pixel_scale,
+                            info.content_origin,
+                            info.raster_spatial_node_index,
+                        ),
+                        RenderTaskKind::Empty(ref info) => (
+                            info.device_pixel_scale,
+                            info.content_origin,
+                            info.raster_spatial_node_index,
+                        ),
+                        RenderTaskKind::Prim(ref info) => (
+                            info.device_pixel_scale,
+                            info.content_origin,
+                            info.raster_spatial_node_index,
+                        ),
+                        _ => panic!("unexpected: {}", task.kind.as_str()),
+                    };
 
-                let content_rect = DeviceRect::new(
-                    content_origin,
-                    content_origin + target_rect.size().to_f32(),
-                );
+                let content_rect =
+                    DeviceRect::new(content_origin, content_origin + target_rect.size().to_f32());
 
                 build_mask_tasks(
                     masks,

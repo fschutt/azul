@@ -8,18 +8,18 @@
 //!  - textures bound at vertex stage
 
 use std::{marker::PhantomData, mem, num::NonZeroUsize, ops};
+
 use api::units::*;
+
 use crate::{
     device::{
         Device, Texture, TextureFilter, TextureUploader, UploadPBOPool, VertexUsageHint, VAO,
     },
     frame_builder::Frame,
-    gpu_types::{PrimitiveHeaderI, PrimitiveHeaderF, TransformData},
-    internal_types::Swizzle,
+    gpu_types::{PrimitiveHeaderF, PrimitiveHeaderI, TransformData},
+    internal_types::{FrameVec, Swizzle},
     render_task::RenderTaskData,
 };
-
-use crate::internal_types::{FrameVec};
 
 pub const VERTEX_TEXTURE_EXTRA_ROWS: i32 = 10;
 
@@ -952,20 +952,11 @@ impl<T> VertexDataTexture<T> {
             MAX_VERTEX_TEXTURE_WIDTH - (MAX_VERTEX_TEXTURE_WIDTH % texels_per_item)
         };
 
-        let rect = DeviceIntRect::from_size(
-            DeviceIntSize::new(logical_width as i32, needed_height),
-        );
+        let rect =
+            DeviceIntRect::from_size(DeviceIntSize::new(logical_width as i32, needed_height));
 
         debug_assert!(len <= data.capacity(), "CPU copy will read out of bounds");
-        texture_uploader.upload(
-            device,
-            self.texture(),
-            rect,
-            None,
-            None,
-            data.as_ptr(),
-            len,
-        );
+        texture_uploader.upload(device, self.texture(), rect, None, None, data.as_ptr(), len);
     }
 
     pub fn deinit(mut self, device: &mut Device) {
@@ -1086,11 +1077,13 @@ impl RendererVAOs {
         match indexed_quads {
             Some(count) => {
                 assert!(count.get() < u16::MAX as usize);
-                let quad_indices = (0 .. count.get() as u16)
-                    .flat_map(|instance| QUAD_INDICES.iter().map(move |&index| instance * 4 + index))
+                let quad_indices = (0..count.get() as u16)
+                    .flat_map(|instance| {
+                        QUAD_INDICES.iter().map(move |&index| instance * 4 + index)
+                    })
                     .collect::<Vec<_>>();
                 device.update_vao_indices(&prim_vao, &quad_indices, VertexUsageHint::Static);
-                let quad_vertices = (0 .. count.get() as u16)
+                let quad_vertices = (0..count.get() as u16)
                     .flat_map(|_| QUAD_VERTICES.iter().cloned())
                     .collect::<Vec<_>>();
                 device.update_vao_main_vertices(&prim_vao, &quad_vertices, VertexUsageHint::Static);
@@ -1109,13 +1102,18 @@ impl RendererVAOs {
             border_vao: device.create_vao_with_new_instances(&desc::BORDER, &prim_vao),
             scale_vao: device.create_vao_with_new_instances(&desc::SCALE, &prim_vao),
             line_vao: device.create_vao_with_new_instances(&desc::LINE, &prim_vao),
-            fast_linear_gradient_vao: device.create_vao_with_new_instances(&desc::FAST_LINEAR_GRADIENT, &prim_vao),
-            linear_gradient_vao: device.create_vao_with_new_instances(&desc::LINEAR_GRADIENT, &prim_vao),
-            radial_gradient_vao: device.create_vao_with_new_instances(&desc::RADIAL_GRADIENT, &prim_vao),
-            conic_gradient_vao: device.create_vao_with_new_instances(&desc::CONIC_GRADIENT, &prim_vao),
+            fast_linear_gradient_vao: device
+                .create_vao_with_new_instances(&desc::FAST_LINEAR_GRADIENT, &prim_vao),
+            linear_gradient_vao: device
+                .create_vao_with_new_instances(&desc::LINEAR_GRADIENT, &prim_vao),
+            radial_gradient_vao: device
+                .create_vao_with_new_instances(&desc::RADIAL_GRADIENT, &prim_vao),
+            conic_gradient_vao: device
+                .create_vao_with_new_instances(&desc::CONIC_GRADIENT, &prim_vao),
             resolve_vao: device.create_vao_with_new_instances(&desc::RESOLVE, &prim_vao),
             svg_filter_vao: device.create_vao_with_new_instances(&desc::SVG_FILTER, &prim_vao),
-            svg_filter_node_vao: device.create_vao_with_new_instances(&desc::SVG_FILTER_NODE, &prim_vao),
+            svg_filter_node_vao: device
+                .create_vao_with_new_instances(&desc::SVG_FILTER_NODE, &prim_vao),
             composite_vao: device.create_vao_with_new_instances(&desc::COMPOSITE, &prim_vao),
             clear_vao: device.create_vao_with_new_instances(&desc::CLEAR, &prim_vao),
             copy_vao: device.create_vao_with_new_instances(&desc::COPY, &prim_vao),

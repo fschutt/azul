@@ -4,21 +4,26 @@
 
 /*
 
-    TODO:
-        Recycle GpuBuffers in a pool (support return from render thread)
-        Efficiently allow writing to buffer (better push interface)
-        Support other texel types (e.g. i32)
+   TODO:
+       Recycle GpuBuffers in a pool (support return from render thread)
+       Efficiently allow writing to buffer (better push interface)
+       Support other texel types (e.g. i32)
 
- */
+*/
 
-use crate::gpu_types::UvRectKind;
-use crate::internal_types::{FrameMemory, FrameVec};
-use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;
-use crate::util::ScaleOffset;
-use api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceRect, LayoutRect, PictureRect};
-use api::{PremultipliedColorF, ImageFormat};
-use crate::device::Texel;
-use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
+use api::{
+    units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceRect, LayoutRect, PictureRect},
+    ImageFormat, PremultipliedColorF,
+};
+
+use crate::{
+    device::Texel,
+    gpu_types::UvRectKind,
+    internal_types::{FrameMemory, FrameVec},
+    render_task_graph::{RenderTaskGraph, RenderTaskId},
+    renderer::MAX_VERTEX_TEXTURE_WIDTH,
+    util::ScaleOffset,
+};
 
 pub struct GpuBufferBuilder {
     pub i32: GpuBufferBuilderI,
@@ -32,11 +37,15 @@ pub type GpuBufferI = GpuBuffer<GpuBufferBlockI>;
 pub type GpuBufferBuilderI = GpuBufferBuilderImpl<GpuBufferBlockI>;
 
 unsafe impl Texel for GpuBufferBlockF {
-    fn image_format() -> ImageFormat { ImageFormat::RGBAF32 }
+    fn image_format() -> ImageFormat {
+        ImageFormat::RGBAF32
+    }
 }
 
 unsafe impl Texel for GpuBufferBlockI {
-    fn image_format() -> ImageFormat { ImageFormat::RGBAI32 }
+    fn image_format() -> ImageFormat {
+        ImageFormat::RGBAI32
+    }
 }
 
 impl Default for GpuBufferBlockF {
@@ -92,12 +101,7 @@ impl GpuBufferBlockI {
 impl Into<GpuBufferBlockF> for LayoutRect {
     fn into(self) -> GpuBufferBlockF {
         GpuBufferBlockF {
-            data: [
-                self.min.x,
-                self.min.y,
-                self.max.x,
-                self.max.y,
-            ],
+            data: [self.min.x, self.min.y, self.max.x, self.max.y],
         }
     }
 }
@@ -105,12 +109,7 @@ impl Into<GpuBufferBlockF> for LayoutRect {
 impl Into<GpuBufferBlockF> for ScaleOffset {
     fn into(self) -> GpuBufferBlockF {
         GpuBufferBlockF {
-            data: [
-                self.scale.x,
-                self.scale.y,
-                self.offset.x,
-                self.offset.y,
-            ],
+            data: [self.scale.x, self.scale.y, self.offset.x, self.offset.y],
         }
     }
 }
@@ -118,12 +117,7 @@ impl Into<GpuBufferBlockF> for ScaleOffset {
 impl Into<GpuBufferBlockF> for PictureRect {
     fn into(self) -> GpuBufferBlockF {
         GpuBufferBlockF {
-            data: [
-                self.min.x,
-                self.min.y,
-                self.max.x,
-                self.max.y,
-            ],
+            data: [self.min.x, self.min.y, self.max.x, self.max.y],
         }
     }
 }
@@ -131,12 +125,7 @@ impl Into<GpuBufferBlockF> for PictureRect {
 impl Into<GpuBufferBlockF> for DeviceRect {
     fn into(self) -> GpuBufferBlockF {
         GpuBufferBlockF {
-            data: [
-                self.min.x,
-                self.min.y,
-                self.max.x,
-                self.max.y,
-            ],
+            data: [self.min.x, self.min.y, self.max.x, self.max.y],
         }
     }
 }
@@ -144,12 +133,7 @@ impl Into<GpuBufferBlockF> for DeviceRect {
 impl Into<GpuBufferBlockF> for PremultipliedColorF {
     fn into(self) -> GpuBufferBlockF {
         GpuBufferBlockF {
-            data: [
-                self.r,
-                self.g,
-                self.b,
-                self.a,
-            ],
+            data: [self.r, self.g, self.b, self.a],
         }
     }
 }
@@ -170,29 +154,20 @@ impl From<DeviceIntRect> for GpuBufferBlockF {
 impl From<DeviceIntRect> for GpuBufferBlockI {
     fn from(rect: DeviceIntRect) -> Self {
         GpuBufferBlockI {
-            data: [
-                rect.min.x,
-                rect.min.y,
-                rect.max.x,
-                rect.max.y,
-            ],
+            data: [rect.min.x, rect.min.y, rect.max.x, rect.max.y],
         }
     }
 }
 
 impl Into<GpuBufferBlockF> for [f32; 4] {
     fn into(self) -> GpuBufferBlockF {
-        GpuBufferBlockF {
-            data: self,
-        }
+        GpuBufferBlockF { data: self }
     }
 }
 
 impl Into<GpuBufferBlockI> for [i32; 4] {
     fn into(self) -> GpuBufferBlockI {
-        GpuBufferBlockI {
-            data: self,
-        }
+        GpuBufferBlockI { data: self }
     }
 }
 
@@ -210,7 +185,10 @@ pub struct GpuBufferWriter<'a, T> {
     block_count: usize,
 }
 
-impl<'a, T> GpuBufferWriter<'a, T> where T: Texel {
+impl<'a, T> GpuBufferWriter<'a, T>
+where
+    T: Texel,
+{
     fn new(
         buffer: &'a mut FrameVec<T>,
         deferred: &'a mut Vec<DeferredBlock>,
@@ -226,7 +204,10 @@ impl<'a, T> GpuBufferWriter<'a, T> where T: Texel {
     }
 
     /// Push one (16 byte) block of data in to the writer
-    pub fn push_one<B>(&mut self, block: B) where B: Into<T> {
+    pub fn push_one<B>(&mut self, block: B)
+    where
+        B: Into<T>,
+    {
         self.buffer.push(block.into());
     }
 
@@ -260,7 +241,11 @@ impl<'a, T> GpuBufferWriter<'a, T> where T: Texel {
 
 impl<'a, T> Drop for GpuBufferWriter<'a, T> {
     fn drop(&mut self) {
-        assert_eq!(self.buffer.len(), self.index + self.block_count, "Claimed block_count was not written");
+        assert_eq!(
+            self.buffer.len(),
+            self.index + self.block_count,
+            "Claimed block_count was not written"
+        );
     }
 }
 
@@ -273,7 +258,10 @@ pub struct GpuBufferBuilderImpl<T> {
     deferred: Vec<DeferredBlock>,
 }
 
-impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRect> {
+impl<T> GpuBufferBuilderImpl<T>
+where
+    T: Texel + std::convert::From<DeviceIntRect>,
+{
     pub fn new(memory: &FrameMemory) -> Self {
         GpuBufferBuilderImpl {
             data: memory.new_vec(),
@@ -282,10 +270,7 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
     }
 
     #[allow(dead_code)]
-    pub fn push(
-        &mut self,
-        blocks: &[T],
-    ) -> GpuBufferAddress {
+    pub fn push(&mut self, blocks: &[T]) -> GpuBufferAddress {
         assert!(blocks.len() <= MAX_VERTEX_TEXTURE_WIDTH);
 
         if (self.data.len() % MAX_VERTEX_TEXTURE_WIDTH) + blocks.len() > MAX_VERTEX_TEXTURE_WIDTH {
@@ -305,10 +290,7 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
     }
 
     /// Begin writing a specific number of blocks
-    pub fn write_blocks(
-        &mut self,
-        block_count: usize,
-    ) -> GpuBufferWriter<T> {
+    pub fn write_blocks(&mut self, block_count: usize) -> GpuBufferWriter<T> {
         assert!(block_count <= MAX_VERTEX_TEXTURE_WIDTH);
 
         if (self.data.len() % MAX_VERTEX_TEXTURE_WIDTH) + block_count > MAX_VERTEX_TEXTURE_WIDTH {
@@ -319,21 +301,14 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
 
         let index = self.data.len();
 
-        GpuBufferWriter::new(
-            &mut self.data,
-            &mut self.deferred,
-            index,
-            block_count,
-        )
+        GpuBufferWriter::new(&mut self.data, &mut self.deferred, index, block_count)
     }
 
-    pub fn finalize(
-        mut self,
-        render_tasks: &RenderTaskGraph,
-    ) -> GpuBuffer<T> {
-        let required_len = (self.data.len() + MAX_VERTEX_TEXTURE_WIDTH-1) & !(MAX_VERTEX_TEXTURE_WIDTH-1);
+    pub fn finalize(mut self, render_tasks: &RenderTaskGraph) -> GpuBuffer<T> {
+        let required_len =
+            (self.data.len() + MAX_VERTEX_TEXTURE_WIDTH - 1) & !(MAX_VERTEX_TEXTURE_WIDTH - 1);
 
-        for _ in 0 .. required_len - self.data.len() {
+        for _ in 0..required_len - self.data.len() {
             self.data.push(T::default());
         }
 
@@ -349,10 +324,12 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
             let target_rect = render_task.get_target_rect();
 
             let uv_rect = match render_task.uv_rect_kind() {
-                UvRectKind::Rect => {
-                    target_rect
-                }
-                UvRectKind::Quad { top_left, bottom_right, .. } => {
+                UvRectKind::Rect => target_rect,
+                UvRectKind::Quad {
+                    top_left,
+                    bottom_right,
+                    ..
+                } => {
                     let size = target_rect.size();
 
                     DeviceIntRect::new(
@@ -362,7 +339,8 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                         ),
                         DeviceIntPoint::new(
                             target_rect.min.x + (bottom_right.x * size.width as f32).round() as i32,
-                            target_rect.min.y + (bottom_right.y * size.height as f32).round() as i32,
+                            target_rect.min.y
+                                + (bottom_right.y * size.height as f32).round() as i32,
                         ),
                     )
                 }
@@ -373,7 +351,10 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
 
         GpuBuffer {
             data: self.data,
-            size: DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as i32, (len / MAX_VERTEX_TEXTURE_WIDTH) as i32),
+            size: DeviceIntSize::new(
+                MAX_VERTEX_TEXTURE_WIDTH as i32,
+                (len / MAX_VERTEX_TEXTURE_WIDTH) as i32,
+            ),
             format: T::image_format(),
         }
     }
@@ -414,7 +395,7 @@ fn test_gpu_buffer_sizing_writer() {
     let mut builder = GpuBufferBuilderF::new(&frame_memory);
 
     let mut writer = builder.write_blocks(MAX_VERTEX_TEXTURE_WIDTH);
-    for _ in 0 .. MAX_VERTEX_TEXTURE_WIDTH {
+    for _ in 0..MAX_VERTEX_TEXTURE_WIDTH {
         writer.push_one(GpuBufferBlockF::EMPTY);
     }
     writer.finish();

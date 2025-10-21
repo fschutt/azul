@@ -7,7 +7,9 @@ extern crate webrender;
 extern crate webrender_build;
 
 use mozangle::shaders::{BuiltInResources, Output, ShaderSpec, ShaderValidator};
-use webrender_build::shader::{ShaderFeatureFlags, ShaderVersion, build_shader_strings, get_shader_features};
+use webrender_build::shader::{
+    build_shader_strings, get_shader_features, ShaderFeatureFlags, ShaderVersion,
+};
 
 // from glslang
 const FRAGMENT_SHADER: u32 = 0x8B30;
@@ -26,14 +28,14 @@ fn validate_shaders() {
 
     for (shader, configs) in get_shader_features(ShaderFeatureFlags::GLES) {
         for config in configs {
-            let features = config.split(",").filter(|f| !f.is_empty()).collect::<Vec<_>>();
+            let features = config
+                .split(",")
+                .filter(|f| !f.is_empty())
+                .collect::<Vec<_>>();
 
-            let (vs, fs) = build_shader_strings(
-                ShaderVersion::Gles,
-                &features,
-                shader,
-                &|f| webrender::get_unoptimized_shader_source(f, None)
-            );
+            let (vs, fs) = build_shader_strings(ShaderVersion::Gles, &features, shader, &|f| {
+                webrender::get_unoptimized_shader_source(f, None)
+            });
 
             let full_shader_name = format!("{} {}", shader, config);
             validate(&vs_validator, &full_shader_name, vs);
@@ -45,8 +47,12 @@ fn validate_shaders() {
 fn validate(validator: &ShaderValidator, name: &str, source: String) {
     // Check for each `switch` to have a `default`, see
     // https://github.com/servo/webrender/wiki/Driver-issues#lack-of-default-case-in-a-switch
-    assert_eq!(source.matches("switch").count(), source.matches("default:").count(),
-        "Shader '{}' doesn't have all `switch` covered with `default` cases", name);
+    assert_eq!(
+        source.matches("switch").count(),
+        source.matches("default:").count(),
+        "Shader '{}' doesn't have all `switch` covered with `default` cases",
+        name
+    );
     // Run Angle validator
     match validator.compile_and_translate(&[&source]) {
         Ok(_) => {
@@ -59,7 +65,9 @@ fn validate(validator: &ShaderValidator, name: &str, source: String) {
             assert!(
                 varying_vectors <= max_varying_vectors,
                 "Shader {} uses {} varying vectors. Max allowed {}",
-                name, varying_vectors, max_varying_vectors
+                name,
+                varying_vectors,
+                max_varying_vectors
             );
 
             println!("Shader translated succesfully: {}", name);

@@ -2,33 +2,31 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::intern::{Internable, InternDebug, Handle as InternHandle};
-use crate::internal_types::LayoutPrimitiveInfo;
-use crate::prim_store::{
-    InternablePrimitive, PrimitiveInstanceKind, PrimKey, PrimTemplate,
-    PrimTemplateCommonData, PrimitiveStore, PictureIndex,
+use crate::{
+    intern::{Handle as InternHandle, InternDebug, Internable},
+    internal_types::LayoutPrimitiveInfo,
+    prim_store::{
+        InternablePrimitive, PictureIndex, PrimKey, PrimTemplate, PrimTemplateCommonData,
+        PrimitiveInstanceKind, PrimitiveStore,
+    },
+    scene_building::IsVisible,
 };
-use crate::scene_building::IsVisible;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct BackdropCapture {
-}
+pub struct BackdropCapture {}
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct BackdropRender {
-}
+pub struct BackdropRender {}
 
 impl From<BackdropCapture> for BackdropCaptureData {
     fn from(_backdrop: BackdropCapture) -> Self {
-        BackdropCaptureData {
-        }
+        BackdropCaptureData {}
     }
 }
 
 impl From<BackdropRender> for BackdropRenderData {
     fn from(_backdrop: BackdropRender) -> Self {
-        BackdropRenderData {
-        }
+        BackdropRenderData {}
     }
 }
 
@@ -36,10 +34,7 @@ pub type BackdropCaptureKey = PrimKey<BackdropCapture>;
 pub type BackdropRenderKey = PrimKey<BackdropRender>;
 
 impl BackdropCaptureKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        backdrop_capture: BackdropCapture,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, backdrop_capture: BackdropCapture) -> Self {
         BackdropCaptureKey {
             common: info.into(),
             kind: backdrop_capture,
@@ -48,10 +43,7 @@ impl BackdropCaptureKey {
 }
 
 impl BackdropRenderKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        backdrop_render: BackdropRender,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, backdrop_render: BackdropRender) -> Self {
         BackdropRenderKey {
             common: info.into(),
             kind: backdrop_render,
@@ -63,12 +55,10 @@ impl InternDebug for BackdropCaptureKey {}
 impl InternDebug for BackdropRenderKey {}
 
 #[derive(Debug)]
-pub struct BackdropCaptureData {
-}
+pub struct BackdropCaptureData {}
 
 #[derive(Debug)]
-pub struct BackdropRenderData {
-}
+pub struct BackdropRenderData {}
 
 pub type BackdropCaptureTemplate = PrimTemplate<BackdropCaptureData>;
 pub type BackdropRenderTemplate = PrimTemplate<BackdropRenderData>;
@@ -113,10 +103,7 @@ impl Internable for BackdropRender {
 }
 
 impl InternablePrimitive for BackdropCapture {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> BackdropCaptureKey {
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> BackdropCaptureKey {
         BackdropCaptureKey::new(info, self)
     }
 
@@ -125,17 +112,12 @@ impl InternablePrimitive for BackdropCapture {
         data_handle: BackdropCaptureDataHandle,
         _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::BackdropCapture {
-            data_handle,
-        }
+        PrimitiveInstanceKind::BackdropCapture { data_handle }
     }
 }
 
 impl InternablePrimitive for BackdropRender {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> BackdropRenderKey {
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> BackdropRenderKey {
         BackdropRenderKey::new(info, self)
     }
 

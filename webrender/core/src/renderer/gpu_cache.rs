@@ -3,9 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::{cmp, mem};
+
 use api::units::*;
+
 use crate::{
-    device::{CustomVAO, Device, DrawTarget, Program, ReadTarget, Texture, TextureFilter, UploadPBOPool, VBO},
+    device::{
+        CustomVAO, Device, DrawTarget, Program, ReadTarget, Texture, TextureFilter, UploadPBOPool,
+        VBO,
+    },
     gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList},
     internal_types::{FrameId, RenderTargetInfo, Swizzle},
     prim_store::DeferredResolve,
@@ -53,7 +58,7 @@ impl CacheRow {
     }
 
     fn dirty_blocks(&self) -> &[GpuBlockData] {
-        return &self.cpu_blocks[self.min_dirty as usize .. self.max_dirty as usize];
+        return &self.cpu_blocks[self.min_dirty as usize..self.max_dirty as usize];
     }
 }
 
@@ -92,7 +97,11 @@ impl GpuCacheTexture {
     /// Ensures that we have an appropriately-sized texture.
     fn ensure_texture(&mut self, device: &mut Device, height: i32) {
         // If we already have a texture that works, we're done.
-        if self.texture.as_ref().map_or(false, |t| t.get_dimensions().height >= height) {
+        if self
+            .texture
+            .as_ref()
+            .map_or(false, |t| t.get_dimensions().height >= height)
+        {
             if GPU_CACHE_RESIZE_TEST {
                 // Special debug mode - resize the texture even though it's fine.
             } else {
@@ -161,18 +170,15 @@ impl GpuCacheTexture {
                 device.get_capabilities().supports_color_buffer_float,
                 "GpuCache scatter method requires EXT_color_buffer_float",
             );
-            let program = device.create_program_linked(
-                "gpu_cache_update",
-                &[],
-                &GPU_CACHE_UPDATE,
-            )?;
+            let program =
+                device.create_program_linked("gpu_cache_update", &[], &GPU_CACHE_UPDATE)?;
             let buf_position = device.create_vbo();
             let buf_value = device.create_vbo();
             //Note: the vertex attributes have to be supplied in the same order
             // as for program creation, but each assigned to a different stream.
             let vao = device.create_custom_vao(&[
                 buf_position.stream_with(&GPU_CACHE_UPDATE.vertex_attributes[0..1]),
-                buf_value   .stream_with(&GPU_CACHE_UPDATE.vertex_attributes[1..2]),
+                buf_value.stream_with(&GPU_CACHE_UPDATE.vertex_attributes[1..2]),
             ]);
             GpuCacheBus::Scatter {
                 program,
@@ -182,22 +188,24 @@ impl GpuCacheTexture {
                 count: 0,
             }
         } else {
-            GpuCacheBus::PixelBuffer {
-                rows: Vec::new(),
-            }
+            GpuCacheBus::PixelBuffer { rows: Vec::new() }
         };
 
-        Ok(GpuCacheTexture {
-            texture: None,
-            bus,
-        })
+        Ok(GpuCacheTexture { texture: None, bus })
     }
 
     pub fn deinit(mut self, device: &mut Device) {
         if let Some(t) = self.texture.take() {
             device.delete_texture(t);
         }
-        if let GpuCacheBus::Scatter { program, vao, buf_position, buf_value, .. } = self.bus {
+        if let GpuCacheBus::Scatter {
+            program,
+            vao,
+            buf_position,
+            buf_value,
+            ..
+        } = self.bus
+        {
             device.delete_program(program);
             device.delete_custom_vao(vao);
             device.delete_vbo(buf_position);
@@ -206,7 +214,9 @@ impl GpuCacheTexture {
     }
 
     pub fn get_height(&self) -> i32 {
-        self.texture.as_ref().map_or(0, |t| t.get_dimensions().height)
+        self.texture
+            .as_ref()
+            .map_or(0, |t| t.get_dimensions().height)
     }
 
     #[cfg(feature = "capture")]
@@ -222,7 +232,7 @@ impl GpuCacheTexture {
     ) {
         self.ensure_texture(device, max_height);
         match self.bus {
-            GpuCacheBus::PixelBuffer { .. } => {},
+            GpuCacheBus::PixelBuffer { .. } => {}
             GpuCacheBus::Scatter {
                 ref mut buf_position,
                 ref mut buf_value,
@@ -231,8 +241,12 @@ impl GpuCacheTexture {
             } => {
                 *count = 0;
                 if total_block_count > buf_value.allocated_count() {
-                    device.allocate_vbo(buf_position, total_block_count, super::ONE_TIME_USAGE_HINT);
-                    device.allocate_vbo(buf_value,    total_block_count, super::ONE_TIME_USAGE_HINT);
+                    device.allocate_vbo(
+                        buf_position,
+                        total_block_count,
+                        super::ONE_TIME_USAGE_HINT,
+                    );
+                    device.allocate_vbo(buf_value, total_block_count, super::ONE_TIME_USAGE_HINT);
                 }
             }
         }
@@ -274,7 +288,7 @@ impl GpuCacheTexture {
                             // Copy the blocks from the patch array in the shadow CPU copy.
                             let block_offset = address.u as usize;
                             let data = &mut rows[row].cpu_blocks;
-                            for i in 0 .. block_count {
+                            for i in 0..block_count {
                                 data[block_offset + i] = updates.blocks[block_index + i];
                             }
 
@@ -304,9 +318,9 @@ impl GpuCacheTexture {
                             address,
                         } => {
                             // Convert the absolute texel position into normalized
-                            let y = ((2*address.v as usize + 1) << 15) / size.height;
-                            for i in 0 .. block_count {
-                                let x = ((2*address.u as usize + 2*i + 1) << 15) / size.width;
+                            let y = ((2 * address.v as usize + 1) << 15) / size.height;
+                            for i in 0..block_count {
+                                let x = ((2 * address.u as usize + 2 * i + 1) << 15) / size.width;
                                 position_data[block_index + i] = [x as _, y as _];
                             }
                         }
@@ -324,12 +338,9 @@ impl GpuCacheTexture {
         let texture = self.texture.as_ref().unwrap();
         match self.bus {
             GpuCacheBus::PixelBuffer { ref mut rows } => {
-                let rows_dirty = rows
-                    .iter()
-                    .filter(|row| row.is_dirty())
-                    .count();
+                let rows_dirty = rows.iter().filter(|row| row.is_dirty()).count();
                 if rows_dirty == 0 {
-                    return 0
+                    return 0;
                 }
 
                 let mut uploader = device.upload_texture(pbo_pool);
@@ -345,7 +356,15 @@ impl GpuCacheTexture {
                         DeviceIntSize::new(blocks.len() as i32, 1),
                     );
 
-                    uploader.upload(device, texture, rect, None, None, blocks.as_ptr(), blocks.len());
+                    uploader.upload(
+                        device,
+                        texture,
+                        rect,
+                        None,
+                        None,
+                        blocks.as_ptr(),
+                        blocks.len(),
+                    );
 
                     row.clear_dirty();
                 }
@@ -354,17 +373,17 @@ impl GpuCacheTexture {
 
                 rows_dirty
             }
-            GpuCacheBus::Scatter { ref program, ref vao, count, .. } => {
+            GpuCacheBus::Scatter {
+                ref program,
+                ref vao,
+                count,
+                ..
+            } => {
                 device.disable_depth();
                 device.set_blend(false);
                 device.bind_program(program);
                 device.bind_custom_vao(vao);
-                device.bind_draw_target(
-                    DrawTarget::from_texture(
-                        texture,
-                        false,
-                    ),
-                );
+                device.bind_draw_target(DrawTarget::from_texture(texture, false));
                 device.draw_nonindexed_points(0, count as _);
                 0
             }
@@ -392,7 +411,7 @@ impl GpuCacheTexture {
                 };
                 // fill up the CPU cache from the contents we just loaded
                 rows.clear();
-                rows.extend((0 .. dim.height).map(|_| CacheRow::new()));
+                rows.extend((0..dim.height).map(|_| CacheRow::new()));
                 let chunks = blocks.chunks(super::MAX_VERTEX_TEXTURE_WIDTH);
                 debug_assert_eq!(chunks.len(), rows.len());
                 for (row, chunk) in rows.iter_mut().zip(chunks) {
@@ -404,8 +423,7 @@ impl GpuCacheTexture {
         self.texture = Some(texture);
     }
 
-    pub fn report_memory_to(&self, report: &mut MemoryReport) {
-    }
+    pub fn report_memory_to(&self, report: &mut MemoryReport) {}
 
     pub fn gpu_size_in_bytes(&self) -> usize {
         match &self.texture {
@@ -442,7 +460,8 @@ impl super::Renderer {
 
         if max_requested_height > self.get_max_texture_size() && !self.gpu_cache_overflow {
             self.gpu_cache_overflow = true;
-            self.renderer_errors.push(super::RendererError::MaxTextureSize);
+            self.renderer_errors
+                .push(super::RendererError::MaxTextureSize);
         }
 
         // Note: if we decide to switch to scatter-style GPU cache update
@@ -464,14 +483,15 @@ impl super::Renderer {
         }
 
         self.profile.start_time(profiler::GPU_CACHE_UPLOAD_TIME);
-        let updated_rows = self.gpu_cache_texture.flush(
-            &mut self.device,
-            &mut self.texture_upload_pbo_pool
-        );
+        let updated_rows = self
+            .gpu_cache_texture
+            .flush(&mut self.device, &mut self.texture_upload_pbo_pool);
         self.gpu_cache_upload_time += self.profile.end_time(profiler::GPU_CACHE_UPLOAD_TIME);
 
-        self.profile.set(profiler::GPU_CACHE_ROWS_UPDATED, updated_rows);
-        self.profile.set(profiler::GPU_CACHE_BLOCKS_UPDATED, updated_blocks);
+        self.profile
+            .set(profiler::GPU_CACHE_ROWS_UPDATED, updated_rows);
+        self.profile
+            .set(profiler::GPU_CACHE_BLOCKS_UPDATED, updated_blocks);
     }
 
     pub fn prepare_gpu_cache(
@@ -481,8 +501,7 @@ impl super::Renderer {
         self.profile.start_time(profiler::GPU_CACHE_PREPARE_TIME);
 
         if self.pending_gpu_cache_clear {
-            let use_scatter =
-                matches!(self.gpu_cache_texture.bus, GpuCacheBus::Scatter { .. });
+            let use_scatter = matches!(self.gpu_cache_texture.bus, GpuCacheBus::Scatter { .. });
             let new_cache = match GpuCacheTexture::new(&mut self.device, use_scatter) {
                 Ok(cache) => cache,
                 Err(err) => {
@@ -518,12 +537,10 @@ impl super::Renderer {
         let size = device_size_as_framebuffer_size(texture.get_dimensions());
         let mut texels = vec![0; (size.width * size.height * 16) as usize];
         self.device.begin_frame();
-        self.device.bind_read_target(ReadTarget::from_texture(texture));
-        self.device.read_pixels_into(
-            size.into(),
-            api::ImageFormat::RGBAF32,
-            &mut texels,
-        );
+        self.device
+            .bind_read_target(ReadTarget::from_texture(texture));
+        self.device
+            .read_pixels_into(size.into(), api::ImageFormat::RGBAF32, &mut texels);
         self.device.reset_read_target();
         self.device.end_frame();
         (texture.get_dimensions(), texels)

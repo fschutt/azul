@@ -2,16 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-
-use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::{
+    cmp::Ordering,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
 // local imports
 use crate::IdNamespace;
-use crate::channel::Sender;
-use crate::units::LayoutPoint;
+use crate::{channel::Sender, units::LayoutPoint};
 
 /// Hashable floating-point storage for font size.
 #[repr(C)]
@@ -33,23 +34,37 @@ impl Hash for FontSize {
 }
 
 impl From<f32> for FontSize {
-    fn from(size: f32) -> Self { FontSize(size) }
+    fn from(size: f32) -> Self {
+        FontSize(size)
+    }
 }
 
 impl From<FontSize> for f32 {
-    fn from(size: FontSize) -> Self { size.0 }
+    fn from(size: FontSize) -> Self {
+        size.0
+    }
 }
 
 impl FontSize {
-    pub fn zero() -> Self { FontSize(0.0) }
+    pub fn zero() -> Self {
+        FontSize(0.0)
+    }
 
-    pub fn from_f32_px(size: f32) -> Self { FontSize(size) }
+    pub fn from_f32_px(size: f32) -> Self {
+        FontSize(size)
+    }
 
-    pub fn to_f32_px(&self) -> f32 { self.0 }
+    pub fn to_f32_px(&self) -> f32 {
+        self.0
+    }
 
-    pub fn from_f64_px(size: f64) -> Self { FontSize(size as f32) }
+    pub fn from_f64_px(size: f64) -> Self {
+        FontSize(size as f32)
+    }
 
-    pub fn to_f64_px(&self) -> f64 { self.0 as f64 }
+    pub fn to_f64_px(&self) -> f64 {
+        self.0 as f64
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -144,15 +159,15 @@ pub struct FontVariation {
 
 impl Ord for FontVariation {
     fn cmp(&self, other: &FontVariation) -> Ordering {
-        self.tag.cmp(&other.tag)
+        self.tag
+            .cmp(&other.tag)
             .then(self.value.to_bits().cmp(&other.value.to_bits()))
     }
 }
 
 impl PartialEq for FontVariation {
     fn eq(&self, other: &FontVariation) -> bool {
-        self.tag == other.tag &&
-        self.value.to_bits() == other.value.to_bits()
+        self.tag == other.tag && self.value.to_bits() == other.value.to_bits()
     }
 }
 
@@ -238,8 +253,7 @@ impl Default for FontInstanceFlags {
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn default() -> FontInstanceFlags {
-        FontInstanceFlags::SUBPIXEL_POSITION |
-        FontInstanceFlags::FONT_SMOOTHING
+        FontInstanceFlags::SUBPIXEL_POSITION | FontInstanceFlags::FONT_SMOOTHING
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
@@ -247,7 +261,6 @@ impl Default for FontInstanceFlags {
         FontInstanceFlags::SUBPIXEL_POSITION
     }
 }
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
@@ -260,7 +273,9 @@ impl SyntheticItalics {
     pub const ANGLE_SCALE: f32 = 256.0;
 
     pub fn from_degrees(degrees: f32) -> Self {
-        SyntheticItalics { angle: (degrees.max(-89.0).min(89.0) * Self::ANGLE_SCALE) as i16 }
+        SyntheticItalics {
+            angle: (degrees.max(-89.0).min(89.0) * Self::ANGLE_SCALE) as i16,
+        }
     }
 
     pub fn to_degrees(self) -> f32 {
@@ -322,8 +337,8 @@ impl Default for FontInstanceOptions {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct FontInstancePlatformOptions {
-    pub gamma: u16, // percent
-    pub contrast: u8, // percent
+    pub gamma: u16,          // percent
+    pub contrast: u8,        // percent
     pub cleartype_level: u8, // percent
 }
 
@@ -348,9 +363,7 @@ pub struct FontInstancePlatformOptions {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 impl Default for FontInstancePlatformOptions {
     fn default() -> FontInstancePlatformOptions {
-        FontInstancePlatformOptions {
-            unused: 0,
-        }
+        FontInstancePlatformOptions { unused: 0 }
     }
 }
 
@@ -394,8 +407,9 @@ impl Default for FontInstancePlatformOptions {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Ord, PartialOrd)]
-#[derive(Deserialize, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Ord, PartialOrd, Deserialize, Serialize,
+)]
 pub struct FontInstanceKey(pub IdNamespace, pub u32);
 
 impl FontInstanceKey {

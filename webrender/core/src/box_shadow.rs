@@ -1,34 +1,38 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF, ColorU, PrimitiveKeyKind, PropertyBinding};
-use api::units::*;
-use crate::border::{ensure_no_corner_overlap, BorderRadiusAu};
-use crate::clip::{ClipDataHandle, ClipInternData, ClipItemKey, ClipItemKeyKind, ClipNodeId};
-use crate::command_buffer::QuadFlags;
-use crate::intern::{Handle as InternHandle, InternDebug, Internable};
-use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
-use crate::picture::calculate_uv_rect_kind;
-use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData};
-use crate::prim_store::{PrimitiveInstanceKind, PrimitiveStore, RectangleKey};
-use crate::quad;
-use crate::render_target::RenderTargetKind;
-use crate::render_task::{BlurTask, MaskSubPass, PrimTask, RenderTask, RenderTaskKind, SubPass};
-use crate::scene_building::{SceneBuilder, IsVisible};
-use crate::segment::EdgeAaSegmentMask;
-use crate::spatial_tree::SpatialNodeIndex;
-use crate::gpu_types::{BoxShadowStretchMode, TransformPaletteId, UvRectKind};
-use crate::render_task_graph::RenderTaskId;
-use crate::internal_types::LayoutPrimitiveInfo;
-use crate::util::{extract_inner_rect_k, ScaleOffset};
+use api::{
+    units::*, BorderRadius, BoxShadowClipMode, ClipMode, ColorF, ColorU, PrimitiveKeyKind,
+    PropertyBinding,
+};
+
+use crate::{
+    border::{ensure_no_corner_overlap, BorderRadiusAu},
+    clip::{ClipDataHandle, ClipInternData, ClipItemKey, ClipItemKeyKind, ClipNodeId},
+    command_buffer::QuadFlags,
+    gpu_types::{BoxShadowStretchMode, TransformPaletteId, UvRectKind},
+    intern::{Handle as InternHandle, InternDebug, Internable},
+    internal_types::LayoutPrimitiveInfo,
+    pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState},
+    picture::calculate_uv_rect_kind,
+    prim_store::{
+        InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceKind,
+        PrimitiveStore, RectangleKey,
+    },
+    quad,
+    render_target::RenderTargetKind,
+    render_task::{BlurTask, MaskSubPass, PrimTask, RenderTask, RenderTaskKind, SubPass},
+    render_task_graph::RenderTaskId,
+    scene_building::{IsVisible, SceneBuilder},
+    segment::EdgeAaSegmentMask,
+    spatial_tree::SpatialNodeIndex,
+    util::{extract_inner_rect_k, ScaleOffset},
+};
 
 pub type BoxShadowKey = PrimKey<BoxShadow>;
 
 impl BoxShadowKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        shadow: BoxShadow,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, shadow: BoxShadow) -> Self {
         BoxShadowKey {
             common: info.into(),
             kind: shadow,
@@ -64,7 +68,6 @@ impl PatternBuilder for BoxShadowTemplate {
         ctx: &PatternBuilderContext,
         state: &mut PatternBuilderState,
     ) -> crate::pattern::Pattern {
-
         let raster_spatial_node_index = ctx.spatial_tree.root_reference_frame_index();
         let pattern_rect = self.kind.outer_shadow_rect;
 
@@ -83,14 +86,12 @@ impl PatternBuilder for BoxShadowTemplate {
                     uv_rect_kind,
                 )
             }
-            None => {
-                (
-                    pattern_rect.size().cast_unit().to_i32(),
-                    pattern_rect.min.cast_unit(),
-                    DevicePixelScale::new(1.0),
-                    UvRectKind::Rect,
-                )
-            }
+            None => (
+                pattern_rect.size().cast_unit().to_i32(),
+                pattern_rect.min.cast_unit(),
+                DevicePixelScale::new(1.0),
+                UvRectKind::Rect,
+            ),
         };
 
         let blur_radius = self.kind.blur_radius * scale_factor.0;
@@ -118,7 +119,8 @@ impl PatternBuilder for BoxShadowTemplate {
                 prim_address_f: pattern_prim_address_f,
                 transform_id: TransformPaletteId::IDENTITY,
                 edge_flags: EdgeAaSegmentMask::empty(),
-                quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP | QuadFlags::IGNORE_DEVICE_PIXEL_SCALE,
+                quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP
+                    | QuadFlags::IGNORE_DEVICE_PIXEL_SCALE,
                 prim_needs_scissor_rect: false,
                 texture_input: color_pattern.texture_input.task_id,
             }),
@@ -141,34 +143,31 @@ impl PatternBuilder for BoxShadowTemplate {
                 blur_region: task_size,
             }),
         ));
-        state.rg_builder.add_dependency(blur_task_v, pattern_task_id);
+        state
+            .rg_builder
+            .add_dependency(blur_task_v, pattern_task_id);
 
-        let blur_task_h = state.rg_builder.add().init(RenderTask::new_dynamic(
-            task_size,
-            RenderTaskKind::HorizontalBlur(BlurTask {
-                blur_std_deviation: blur_radius,
-                target_kind: RenderTargetKind::Color,
-                blur_region: task_size,
-            }),
-        ).with_uv_rect_kind(uv_rect_kind));
+        let blur_task_h = state.rg_builder.add().init(
+            RenderTask::new_dynamic(
+                task_size,
+                RenderTaskKind::HorizontalBlur(BlurTask {
+                    blur_std_deviation: blur_radius,
+                    target_kind: RenderTargetKind::Color,
+                    blur_region: task_size,
+                }),
+            )
+            .with_uv_rect_kind(uv_rect_kind),
+        );
         state.rg_builder.add_dependency(blur_task_h, blur_task_v);
 
-        Pattern::texture(
-            blur_task_h,
-            self.kind.color,
-        )
+        Pattern::texture(blur_task_h, self.kind.color)
     }
 
-    fn get_base_color(
-        &self,
-        _ctx: &PatternBuilderContext,
-    ) -> ColorF {
+    fn get_base_color(&self, _ctx: &PatternBuilderContext) -> ColorF {
         self.kind.color
     }
 
-    fn use_shared_pattern(
-        &self,
-    ) -> bool {
+    fn use_shared_pattern(&self) -> bool {
         false
     }
 
@@ -178,10 +177,7 @@ impl PatternBuilder for BoxShadowTemplate {
 }
 
 impl InternablePrimitive for BoxShadow {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> BoxShadowKey {
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> BoxShadowKey {
         BoxShadowKey::new(info, self)
     }
 
@@ -190,9 +186,7 @@ impl InternablePrimitive for BoxShadow {
         data_handle: BoxShadowDataHandle,
         _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::BoxShadow {
-            data_handle,
-        }
+        PrimitiveInstanceKind::BoxShadow { data_handle }
     }
 }
 
@@ -374,11 +368,7 @@ impl<'a> SceneBuilder<'a> {
             };
 
             clips.push(ClipItemKey {
-                kind: ClipItemKeyKind::rounded_rect(
-                    final_prim_rect,
-                    clip_radius,
-                    ClipMode::Clip,
-                ),
+                kind: ClipItemKeyKind::rounded_rect(final_prim_rect, clip_radius, ClipMode::Clip),
                 spatial_node_index,
             });
 
@@ -395,10 +385,11 @@ impl<'a> SceneBuilder<'a> {
             // If we know that this is an axis-aligned (root-coord) outset box-shadow,
             // enable the new quad based render path. Complex transformed and inset
             // box-shadow support will be added to this path as a follow up.
-            if is_root_coord_system &&
-               clip_mode == BoxShadowClipMode::Outset &&
-               blur_radius < 32.0 &&
-               false {
+            if is_root_coord_system
+                && clip_mode == BoxShadowClipMode::Outset
+                && blur_radius < 32.0
+                && false
+            {
                 // Make sure corners don't overlap.
                 ensure_no_corner_overlap(&mut shadow_radius, shadow_rect.size());
 
@@ -419,26 +410,20 @@ impl<'a> SceneBuilder<'a> {
 
                 // Clip for the pattern primitive
                 let item = ClipItemKey {
-                    kind: ClipItemKeyKind::rounded_rect(
-                        shadow_rect,
-                        shadow_radius,
-                        ClipMode::Clip,
-                    ),
+                    kind: ClipItemKeyKind::rounded_rect(shadow_rect, shadow_radius, ClipMode::Clip),
                     spatial_node_index: self.spatial_tree.root_reference_frame_index(),
                 };
 
                 let clip = self
                     .interners
                     .clip
-                    .intern(&item, || {
-                        ClipInternData {
-                            key: item,
-                        }
-                    });
+                    .intern(&item, || ClipInternData { key: item });
 
                 let inner_shadow_rect = shadow_rect.inflate(-sig3, -sig3);
-                let outer_shadow_rect = shadow_rect.inflate( sig3,  sig3);
-                let inner_shadow_rect = extract_inner_rect_k(&inner_shadow_rect, &shadow_radius, 0.5).unwrap_or(LayoutRect::zero());
+                let outer_shadow_rect = shadow_rect.inflate(sig3, sig3);
+                let inner_shadow_rect =
+                    extract_inner_rect_k(&inner_shadow_rect, &shadow_radius, 0.5)
+                        .unwrap_or(LayoutRect::zero());
 
                 let prim = BoxShadow {
                     color: color.into(),
@@ -452,10 +437,8 @@ impl<'a> SceneBuilder<'a> {
                 };
 
                 // Out rect is the shadow rect + extent of blur
-                let prim_info = LayoutPrimitiveInfo::with_clip_rect(
-                    outer_shadow_rect,
-                    prim_info.clip_rect,
-                );
+                let prim_info =
+                    LayoutPrimitiveInfo::with_clip_rect(outer_shadow_rect, prim_info.clip_rect);
 
                 self.add_nonshadowable_primitive(
                     spatial_node_index,
@@ -519,9 +502,10 @@ impl<'a> SceneBuilder<'a> {
                     BoxShadowClipMode::Inset => {
                         // If the inner shadow rect contains the prim
                         // rect, no pixels will be shadowed.
-                        if border_radius.is_zero() && shadow_rect
-                            .inflate(-blur_radius, -blur_radius)
-                            .contains_box(&prim_info.rect)
+                        if border_radius.is_zero()
+                            && shadow_rect
+                                .inflate(-blur_radius, -blur_radius)
+                                .contains_box(&prim_info.rect)
                         {
                             return;
                         }

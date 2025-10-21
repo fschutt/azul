@@ -3,20 +3,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    ColorF, ColorU, RasterSpace,
-    LineOrientation, LineStyle, PremultipliedColorF, Shadow,
+    units::*, ColorF, ColorU, LineOrientation, LineStyle, PremultipliedColorF, RasterSpace, Shadow,
 };
-use api::units::*;
-use crate::scene_building::{CreateShadow, IsVisible};
-use crate::frame_builder::{FrameBuildingState};
-use crate::gpu_cache::GpuDataRequest;
-use crate::intern;
-use crate::internal_types::LayoutPrimitiveInfo;
-use crate::prim_store::{
-    PrimKey, PrimTemplate, PrimTemplateCommonData,
-    InternablePrimitive, PrimitiveStore,
+
+use crate::{
+    frame_builder::FrameBuildingState,
+    gpu_cache::GpuDataRequest,
+    intern,
+    internal_types::LayoutPrimitiveInfo,
+    prim_store::{
+        InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceKind,
+        PrimitiveStore,
+    },
+    scene_building::{CreateShadow, IsVisible},
 };
-use crate::prim_store::PrimitiveInstanceKind;
 
 /// Maximum resolution in device pixels at which line decorations are rasterized.
 pub const MAX_LINE_DECORATION_RESOLUTION: u32 = 4096;
@@ -43,10 +43,7 @@ pub struct LineDecoration {
 pub type LineDecorationKey = PrimKey<LineDecoration>;
 
 impl LineDecorationKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        line_dec: LineDecoration,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, line_dec: LineDecoration) -> Self {
         LineDecorationKey {
             common: info.into(),
             kind: line_dec,
@@ -55,7 +52,6 @@ impl LineDecorationKey {
 }
 
 impl intern::InternDebug for LineDecorationKey {}
-
 
 pub struct LineDecorationData {
     pub cache_key: Option<LineDecorationCacheKey>,
@@ -77,10 +73,7 @@ impl LineDecorationData {
         }
     }
 
-    fn write_prim_gpu_blocks(
-        &self,
-        request: &mut GpuDataRequest
-    ) {
+    fn write_prim_gpu_blocks(&self, request: &mut GpuDataRequest) {
         match self.cache_key.as_ref() {
             Some(cache_key) => {
                 request.push(self.color.premultiplied());
@@ -109,7 +102,7 @@ impl From<LineDecorationKey> for LineDecorationTemplate {
             kind: LineDecorationData {
                 cache_key: line_dec.kind.cache_key,
                 color: line_dec.kind.color.into(),
-            }
+            },
         }
     }
 }
@@ -124,14 +117,8 @@ impl intern::Internable for LineDecoration {
 }
 
 impl InternablePrimitive for LineDecoration {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> LineDecorationKey {
-        LineDecorationKey::new(
-            info,
-            self,
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> LineDecorationKey {
+        LineDecorationKey::new(info, self)
     }
 
     fn make_instance_kind(
@@ -147,12 +134,7 @@ impl InternablePrimitive for LineDecoration {
 }
 
 impl CreateShadow for LineDecoration {
-    fn create_shadow(
-        &self,
-        shadow: &Shadow,
-        _: bool,
-        _: RasterSpace,
-    ) -> Self {
+    fn create_shadow(&self, shadow: &Shadow, _: bool, _: RasterSpace) -> Self {
         LineDecoration {
             color: shadow.color.into(),
             cache_key: self.cache_key.clone(),
@@ -244,7 +226,19 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<LineDecoration>(), 20, "LineDecoration size changed");
-    assert_eq!(mem::size_of::<LineDecorationTemplate>(), 60, "LineDecorationTemplate size changed");
-    assert_eq!(mem::size_of::<LineDecorationKey>(), 40, "LineDecorationKey size changed");
+    assert_eq!(
+        mem::size_of::<LineDecoration>(),
+        20,
+        "LineDecoration size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LineDecorationTemplate>(),
+        60,
+        "LineDecorationTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LineDecorationKey>(),
+        40,
+        "LineDecorationKey size changed"
+    );
 }

@@ -20,8 +20,7 @@
 //! TODO(gw): Add an occupied list head, for fast iteration of the occupied list
 //! to implement retain() style functionality.
 
-use std::{fmt, u32};
-use std::marker::PhantomData;
+use std::{fmt, marker::PhantomData, u32};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct Epoch(u32);
@@ -39,7 +38,6 @@ impl Epoch {
         Epoch(0)
     }
 }
-
 
 pub struct FreeListHandle<M> {
     index: u32,
@@ -77,8 +75,7 @@ impl<M> FreeListHandle<M> {
     /// Returns true if this handle and the supplied weak handle reference
     /// the same underlying location in the freelist.
     pub fn matches(&self, weak_handle: &WeakFreeListHandle<M>) -> bool {
-        self.index == weak_handle.index &&
-        self.epoch == weak_handle.epoch
+        self.index == weak_handle.index && self.epoch == weak_handle.epoch
     }
 }
 
@@ -97,7 +94,6 @@ impl<M> PartialEq for WeakFreeListHandle<M> {
         self.index == other.index && self.epoch == other.epoch
     }
 }
-
 
 pub struct WeakFreeListHandle<M> {
     index: u32,

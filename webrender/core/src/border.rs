@@ -2,20 +2,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, BorderSide, BorderStyle, ColorF, ColorU};
-use api::{NormalBorder as ApiNormalBorder, RepeatMode};
-use api::units::*;
-use crate::clip::ClipNodeId;
-use crate::ellipse::Ellipse;
+use api::{
+    units::*, BorderRadius, BorderSide, BorderStyle, ColorF, ColorU,
+    NormalBorder as ApiNormalBorder, RepeatMode,
+};
 use euclid::vec2;
-use crate::scene_building::SceneBuilder;
-use crate::spatial_tree::SpatialNodeIndex;
-use crate::gpu_types::{BorderInstance, BorderSegment, BrushFlags};
-use crate::prim_store::{BorderSegmentInfo, BrushSegment, NinePatchDescriptor};
-use crate::prim_store::borders::{NormalBorderPrim, NormalBorderData};
-use crate::util::{lerp, RectHelpers};
-use crate::internal_types::LayoutPrimitiveInfo;
-use crate::segment::EdgeAaSegmentMask;
+
+use crate::{
+    clip::ClipNodeId,
+    ellipse::Ellipse,
+    gpu_types::{BorderInstance, BorderSegment, BrushFlags},
+    internal_types::LayoutPrimitiveInfo,
+    prim_store::{
+        borders::{NormalBorderData, NormalBorderPrim},
+        BorderSegmentInfo, BrushSegment, NinePatchDescriptor,
+    },
+    scene_building::SceneBuilder,
+    segment::EdgeAaSegmentMask,
+    spatial_tree::SpatialNodeIndex,
+    util::{lerp, RectHelpers},
+};
 
 // Using 2048 as the maximum radius in device space before which we
 // start stretching is up for debate.
@@ -157,10 +163,7 @@ pub struct BorderSegmentCacheKey {
     pub v_adjacent_corner_radius: LayoutSizeAu,
 }
 
-pub fn ensure_no_corner_overlap(
-    radius: &mut BorderRadius,
-    size: LayoutSize,
-) {
+pub fn ensure_no_corner_overlap(radius: &mut BorderRadius, size: LayoutSize) {
     let mut ratio = 1.0;
     let top_left_radius = &mut radius.top_left;
     let top_right_radius = &mut radius.top_right;
@@ -255,7 +258,7 @@ impl BorderSideHelpers for BorderSide {
         // get_colors_for_side in cs_border_segment.glsl.
         if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
             let scale = if lighter { 1.0 } else { 2.0 / 3.0 };
-            return self.color.scale_rgb(scale)
+            return self.color.scale_rgb(scale);
         }
 
         let black = if lighter { 0.7 } else { 0.3 };
@@ -283,15 +286,9 @@ fn compute_outer_and_clip_sign(
         BorderSegment::BottomLeft => DeviceVector2D::new(0.0, 1.0),
         _ => panic!("bug: expected a corner segment"),
     };
-    let outer = DevicePoint::new(
-        outer_scale.x * radius.width,
-        outer_scale.y * radius.height,
-    );
+    let outer = DevicePoint::new(outer_scale.x * radius.width, outer_scale.y * radius.height);
 
-    let clip_sign = DeviceVector2D::new(
-        1.0 - 2.0 * outer_scale.x,
-        1.0 - 2.0 * outer_scale.y,
-    );
+    let clip_sign = DeviceVector2D::new(1.0 - 2.0 * outer_scale.x, 1.0 - 2.0 * outer_scale.y);
 
     (outer, clip_sign)
 }
@@ -321,8 +318,7 @@ fn write_dashed_corner_instances(
     let instance_count = num_half_dashes / 4 + 1;
     instances.reserve(instance_count as usize);
 
-    let half_dash_arc_length =
-        ellipse.total_arc_length / num_half_dashes as f32;
+    let half_dash_arc_length = ellipse.total_arc_length / num_half_dashes as f32;
     let dash_length = 2. * half_dash_arc_length;
 
     let mut current_length = 0.;
@@ -348,34 +344,22 @@ fn write_dashed_corner_instances(
             outer.y + clip_sign.y * (corner_radius.height - point0.y),
         );
 
-        let tangent0 = DeviceVector2D::new(
-            -tangent0.x * clip_sign.x,
-            -tangent0.y * clip_sign.y,
-        );
+        let tangent0 = DeviceVector2D::new(-tangent0.x * clip_sign.x, -tangent0.y * clip_sign.y);
 
         let point1 = DevicePoint::new(
             outer.x + clip_sign.x * (corner_radius.width - point1.x),
             outer.y + clip_sign.y * (corner_radius.height - point1.y),
         );
 
-        let tangent1 = DeviceVector2D::new(
-            -tangent1.x * clip_sign.x,
-            -tangent1.y * clip_sign.y,
-        );
+        let tangent1 = DeviceVector2D::new(-tangent1.x * clip_sign.x, -tangent1.y * clip_sign.y);
 
         instances.push(BorderInstance {
             flags: base_instance.flags | ((BorderClipKind::DashCorner as i32) << 24),
             clip_params: [
-                point0.x,
-                point0.y,
-                tangent0.x,
-                tangent0.y,
-                point1.x,
-                point1.y,
-                tangent1.x,
+                point0.x, point0.y, tangent0.x, tangent0.y, point1.x, point1.y, tangent1.x,
                 tangent1.y,
             ],
-            .. *base_instance
+            ..*base_instance
         });
     }
 
@@ -397,28 +381,27 @@ fn write_dotted_corner_instances(
         corner_radius.height = 0.0;
     }
 
-    let (ellipse, max_dot_count) =
-        if corner_radius.width == 0. && corner_radius.height == 0. {
-            (Ellipse::new(corner_radius), 1)
-        } else {
-            // The centers of dots follow an ellipse along the middle of the
-            // border radius.
-            let inner_radius = (corner_radius - widths * 0.5).abs();
-            let ellipse = Ellipse::new(inner_radius);
+    let (ellipse, max_dot_count) = if corner_radius.width == 0. && corner_radius.height == 0. {
+        (Ellipse::new(corner_radius), 1)
+    } else {
+        // The centers of dots follow an ellipse along the middle of the
+        // border radius.
+        let inner_radius = (corner_radius - widths * 0.5).abs();
+        let ellipse = Ellipse::new(inner_radius);
 
-            // Allocate a "worst case" number of dot clips. This can be
-            // calculated by taking the minimum edge radius, since that
-            // will result in the maximum number of dots along the path.
-            let min_diameter = widths.width.min(widths.height);
+        // Allocate a "worst case" number of dot clips. This can be
+        // calculated by taking the minimum edge radius, since that
+        // will result in the maximum number of dots along the path.
+        let min_diameter = widths.width.min(widths.height);
 
-            // Get the number of circles (assuming spacing of one diameter
-            // between dots).
-            let max_dot_count = 0.5 * ellipse.total_arc_length / min_diameter;
+        // Get the number of circles (assuming spacing of one diameter
+        // between dots).
+        let max_dot_count = 0.5 * ellipse.total_arc_length / min_diameter;
 
-            // Add space for one extra dot since they are centered at the
-            // start of the arc.
-            (ellipse, max_dot_count.ceil() as usize)
-        };
+        // Add space for one extra dot since they are centered at the
+        // start of the arc.
+        (ellipse, max_dot_count.ceil() as usize)
+    };
 
     if max_dot_count == 0 {
         return Err(());
@@ -429,10 +412,16 @@ fn write_dotted_corner_instances(
         instances.push(BorderInstance {
             flags: base_instance.flags | ((BorderClipKind::Dot as i32) << 24),
             clip_params: [
-                widths.width / 2.0, widths.height / 2.0, 0.5 * dot_diameter, 0.,
-                0., 0., 0., 0.,
+                widths.width / 2.0,
+                widths.height / 2.0,
+                0.5 * dot_diameter,
+                0.,
+                0.,
+                0.,
+                0.,
+                0.,
             ],
-            .. *base_instance
+            ..*base_instance
         });
         return Ok(());
     }
@@ -454,7 +443,7 @@ fn write_dotted_corner_instances(
     ));
 
     let (outer, clip_sign) = compute_outer_and_clip_sign(segment, corner_radius);
-    for dot_index in 0 .. max_dot_count {
+    for dot_index in 0..max_dot_count {
         let prev_forward_pos = *forward_dots.last().unwrap();
         let prev_back_pos = *back_dots.last().unwrap();
 
@@ -465,8 +454,7 @@ fn write_dotted_corner_instances(
         let going_forward = dot_index & 1 == 0;
 
         let (next_dot_pos, leftover) = if going_forward {
-            let next_dot_pos =
-                prev_forward_pos.arc_pos + 2.0 * prev_forward_pos.diameter;
+            let next_dot_pos = prev_forward_pos.arc_pos + 2.0 * prev_forward_pos.diameter;
             (next_dot_pos, prev_back_pos.arc_pos - next_dot_pos)
         } else {
             let next_dot_pos = prev_back_pos.arc_pos - 2.0 * prev_back_pos.diameter;
@@ -523,7 +511,7 @@ fn write_dotted_corner_instances(
         instances.push(BorderInstance {
             flags: base_instance.flags | ((BorderClipKind::Dot as i32) << 24),
             clip_params: create_dot_data(dot.arc_pos + extra_dist, 0.5 * dot.diameter),
-            .. *base_instance
+            ..*base_instance
         });
     }
 
@@ -532,7 +520,7 @@ fn write_dotted_corner_instances(
         instances.push(BorderInstance {
             flags: base_instance.flags | ((BorderClipKind::Dot as i32) << 24),
             clip_params: create_dot_data(dot.arc_pos - extra_dist, 0.5 * dot.diameter),
-            .. *base_instance
+            ..*base_instance
         });
     }
 
@@ -563,11 +551,7 @@ struct EdgeInfo {
 }
 
 impl EdgeInfo {
-    fn new(
-        local_offset: f32,
-        local_size: f32,
-        stretch_size: f32,
-    ) -> Self {
+    fn new(local_offset: f32, local_size: f32, stretch_size: f32) -> Self {
         Self {
             local_offset,
             local_size,
@@ -600,15 +584,10 @@ fn compute_half_dash(side_width: f32, total_size: f32) -> (f32, u32) {
     (half_dash, num_half_dashes)
 }
 
-
 // Get the needed size in device pixels for an edge,
 // based on the border style of that edge. This is used
 // to determine how big the render task should be.
-fn get_edge_info(
-    style: BorderStyle,
-    side_width: f32,
-    avail_size: f32,
-) -> EdgeInfo {
+fn get_edge_info(style: BorderStyle, side_width: f32, avail_size: f32) -> EdgeInfo {
     // To avoid division by zero below.
     if side_width <= 0.0 || avail_size <= 0.0 {
         return EdgeInfo::new(0.0, 0.0, 0.0);
@@ -617,8 +596,7 @@ fn get_edge_info(
     match style {
         BorderStyle::Dashed => {
             // Basically, two times the dash size.
-            let (half_dash, _num_half_dashes) =
-                compute_half_dash(side_width, avail_size);
+            let (half_dash, _num_half_dashes) = compute_half_dash(side_width, avail_size);
             let stretch_size = 2.0 * 2.0 * half_dash;
             EdgeInfo::new(0., avail_size, stretch_size)
         }
@@ -635,9 +613,7 @@ fn get_edge_info(
             let offset = (extra_space * 0.5).round();
             EdgeInfo::new(offset, used_size, stretch_size)
         }
-        _ => {
-            EdgeInfo::new(0.0, avail_size, 8.0)
-        }
+        _ => EdgeInfo::new(0.0, avail_size, 8.0),
     }
 }
 
@@ -707,7 +683,10 @@ pub fn create_border_segments(
             rect.min.x,
             rect.min.y + local_size_tl.height + left_edge_info.local_offset,
             rect.min.x + non_overlapping_widths.left,
-            rect.min.y + local_size_tl.height + left_edge_info.local_offset + left_edge_info.local_size,
+            rect.min.y
+                + local_size_tl.height
+                + left_edge_info.local_offset
+                + left_edge_info.local_size,
         ),
         &left_edge_info,
         border.left,
@@ -722,7 +701,10 @@ pub fn create_border_segments(
         LayoutRect::from_floats(
             rect.min.x + local_size_tl.width + top_edge_info.local_offset,
             rect.min.y,
-            rect.min.x + local_size_tl.width + top_edge_info.local_offset + top_edge_info.local_size,
+            rect.min.x
+                + local_size_tl.width
+                + top_edge_info.local_offset
+                + top_edge_info.local_size,
             rect.min.y + non_overlapping_widths.top,
         ),
         &top_edge_info,
@@ -739,7 +721,10 @@ pub fn create_border_segments(
             rect.min.x + rect.width() - non_overlapping_widths.right,
             rect.min.y + local_size_tr.height + right_edge_info.local_offset,
             rect.min.x + rect.width(),
-            rect.min.y + local_size_tr.height + right_edge_info.local_offset + right_edge_info.local_size,
+            rect.min.y
+                + local_size_tr.height
+                + right_edge_info.local_offset
+                + right_edge_info.local_size,
         ),
         &right_edge_info,
         border.right,
@@ -754,7 +739,10 @@ pub fn create_border_segments(
         LayoutRect::from_floats(
             rect.min.x + local_size_bl.width + bottom_edge_info.local_offset,
             rect.min.y + rect.height() - non_overlapping_widths.bottom,
-            rect.min.x + local_size_bl.width + bottom_edge_info.local_offset + bottom_edge_info.local_size,
+            rect.min.x
+                + local_size_bl.width
+                + bottom_edge_info.local_offset
+                + bottom_edge_info.local_size,
             rect.min.y + rect.height(),
         ),
         &bottom_edge_info,
@@ -778,7 +766,7 @@ pub fn create_border_segments(
             rect.min.x,
             rect.min.y,
             rect.max.x - non_overlapping_widths.right,
-            rect.max.y - non_overlapping_widths.bottom
+            rect.max.y - non_overlapping_widths.bottom,
         ),
         border.left,
         border.top,
@@ -881,9 +869,7 @@ pub fn create_border_segments(
 /// capping the scale will result in rendering very large corners at a lower
 /// resolution and stretching them, so they will have the right shape, but
 /// blurrier.
-pub fn get_max_scale_for_border(
-    border_data: &NormalBorderData,
-) -> LayoutToDeviceScale {
+pub fn get_max_scale_for_border(border_data: &NormalBorderData) -> LayoutToDeviceScale {
     let mut r = 1.0;
     for segment in &border_data.border_segments {
         let size = segment.local_task_size;
@@ -909,10 +895,10 @@ fn add_segment(
     v_adjacent_corner_outer: DevicePoint,
     v_adjacent_corner_radius: DeviceSize,
 ) {
-    let base_flags = (segment as i32) |
-                     ((style0 as i32) << 8) |
-                     ((style1 as i32) << 16) |
-                     ((do_aa as i32) << 28);
+    let base_flags = (segment as i32)
+        | ((style0 as i32) << 8)
+        | ((style1 as i32) << 16)
+        | ((do_aa as i32) << 28);
 
     let base_instance = BorderInstance {
         task_origin: DevicePoint::zero(),
@@ -926,38 +912,35 @@ fn add_segment(
     };
 
     match segment {
-        BorderSegment::TopLeft |
-        BorderSegment::TopRight |
-        BorderSegment::BottomLeft |
-        BorderSegment::BottomRight => {
+        BorderSegment::TopLeft
+        | BorderSegment::TopRight
+        | BorderSegment::BottomLeft
+        | BorderSegment::BottomRight => {
             // TODO(gw): Similarly to the old border code, we don't correctly handle a a corner
             //           that is dashed on one edge, and dotted on another. We can handle this
             //           in the future by submitting two instances, each one with one side
             //           color set to have an alpha of 0.
-            if (style0 == BorderStyle::Dotted && style1 == BorderStyle::Dashed) ||
-               (style0 == BorderStyle::Dashed && style0 == BorderStyle::Dotted) {
+            if (style0 == BorderStyle::Dotted && style1 == BorderStyle::Dashed)
+                || (style0 == BorderStyle::Dashed && style0 == BorderStyle::Dotted)
+            {
                 warn!("TODO: Handle a corner with dotted / dashed transition.");
             }
 
             let dashed_or_dotted_corner = match style0 {
-                BorderStyle::Dashed => {
-                    write_dashed_corner_instances(
-                        radius,
-                        widths,
-                        segment,
-                        &base_instance,
-                        instances,
-                    )
-                }
-                BorderStyle::Dotted => {
-                    write_dotted_corner_instances(
-                        radius,
-                        widths,
-                        segment,
-                        &base_instance,
-                        instances,
-                    )
-                }
+                BorderStyle::Dashed => write_dashed_corner_instances(
+                    radius,
+                    widths,
+                    segment,
+                    &base_instance,
+                    instances,
+                ),
+                BorderStyle::Dotted => write_dotted_corner_instances(
+                    radius,
+                    widths,
+                    segment,
+                    &base_instance,
+                    instances,
+                ),
                 _ => Err(()),
             };
 
@@ -979,12 +962,8 @@ fn add_segment(
                 });
             }
         }
-        BorderSegment::Top |
-        BorderSegment::Bottom |
-        BorderSegment::Right |
-        BorderSegment::Left => {
-            let is_vertical = segment == BorderSegment::Left ||
-                              segment == BorderSegment::Right;
+        BorderSegment::Top | BorderSegment::Bottom | BorderSegment::Right | BorderSegment::Left => {
+            let is_vertical = segment == BorderSegment::Left || segment == BorderSegment::Right;
 
             match style0 {
                 BorderStyle::Dashed => {
@@ -998,28 +977,20 @@ fn add_segment(
 
                     instances.push(BorderInstance {
                         flags: base_flags | ((BorderClipKind::DashEdge as i32) << 24),
-                        clip_params: [
-                            x, y, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        ],
+                        clip_params: [x, y, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                         ..base_instance
                     });
                 }
                 BorderStyle::Dotted => {
                     let (x, y, r) = if is_vertical {
-                        (widths.width * 0.5,
-                         widths.width,
-                         widths.width * 0.5)
+                        (widths.width * 0.5, widths.width, widths.width * 0.5)
                     } else {
-                        (widths.height,
-                         widths.height * 0.5,
-                         widths.height * 0.5)
+                        (widths.height, widths.height * 0.5, widths.height * 0.5)
                     };
 
                     instances.push(BorderInstance {
                         flags: base_flags | ((BorderClipKind::Dot as i32) << 24),
-                        clip_params: [
-                            x, y, r, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        ],
+                        clip_params: [x, y, r, 0.0, 0.0, 0.0, 0.0, 0.0],
                         ..base_instance
                     });
                 }
@@ -1073,15 +1044,18 @@ fn add_corner_segment(
         .translate(-image_rect.min.to_vector())
         .scale(1.0 / image_rect.width(), 1.0 / image_rect.height());
 
-    brush_segments.push(
-        BrushSegment::new(
-            segment_rect,
-            /* may_need_clip_mask = */ true,
-            edge_flags,
-            [texture_rect.min.x, texture_rect.min.y, texture_rect.max.x, texture_rect.max.y],
-            BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_TEXEL_RECT,
-        )
-    );
+    brush_segments.push(BrushSegment::new(
+        segment_rect,
+        /* may_need_clip_mask = */ true,
+        edge_flags,
+        [
+            texture_rect.min.x,
+            texture_rect.min.y,
+            texture_rect.max.x,
+            texture_rect.max.y,
+        ],
+        BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_TEXEL_RECT,
+    ));
 
     // If the radii of the adjacent corners do not overlap with this segment,
     // then set the outer position to this segment's corner and the radii to zero.
@@ -1092,21 +1066,30 @@ fn add_corner_segment(
             if h_adjacent_corner_outer.x - h_adjacent_corner_radius.width < image_rect.max.x {
                 (h_adjacent_corner_outer, h_adjacent_corner_radius)
             } else {
-                (LayoutPoint::new(image_rect.max.x, image_rect.min.y), LayoutSize::zero())
+                (
+                    LayoutPoint::new(image_rect.max.x, image_rect.min.y),
+                    LayoutSize::zero(),
+                )
             }
         }
         BorderSegment::TopRight => {
             if h_adjacent_corner_outer.x + h_adjacent_corner_radius.width > image_rect.min.x {
                 (h_adjacent_corner_outer, h_adjacent_corner_radius)
             } else {
-                (LayoutPoint::new(image_rect.min.x, image_rect.min.y), LayoutSize::zero())
+                (
+                    LayoutPoint::new(image_rect.min.x, image_rect.min.y),
+                    LayoutSize::zero(),
+                )
             }
         }
         BorderSegment::BottomRight => {
             if h_adjacent_corner_outer.x + h_adjacent_corner_radius.width > image_rect.min.x {
                 (h_adjacent_corner_outer, h_adjacent_corner_radius)
             } else {
-                (LayoutPoint::new(image_rect.min.x, image_rect.max.y), LayoutSize::zero())
+                (
+                    LayoutPoint::new(image_rect.min.x, image_rect.max.y),
+                    LayoutSize::zero(),
+                )
             }
         }
         BorderSegment::BottomLeft => {
@@ -1116,7 +1099,7 @@ fn add_corner_segment(
                 (image_rect.max, LayoutSize::zero())
             }
         }
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     let (v_corner_outer, v_corner_radius) = match segment {
@@ -1124,7 +1107,10 @@ fn add_corner_segment(
             if v_adjacent_corner_outer.y - v_adjacent_corner_radius.height < image_rect.max.y {
                 (v_adjacent_corner_outer, v_adjacent_corner_radius)
             } else {
-                (LayoutPoint::new(image_rect.min.x, image_rect.max.y), LayoutSize::zero())
+                (
+                    LayoutPoint::new(image_rect.min.x, image_rect.max.y),
+                    LayoutSize::zero(),
+                )
             }
         }
         BorderSegment::TopRight => {
@@ -1138,17 +1124,23 @@ fn add_corner_segment(
             if v_adjacent_corner_outer.y + v_adjacent_corner_radius.height > image_rect.min.y {
                 (v_adjacent_corner_outer, v_adjacent_corner_radius)
             } else {
-                (LayoutPoint::new(image_rect.max.x, image_rect.min.y), LayoutSize::zero())
+                (
+                    LayoutPoint::new(image_rect.max.x, image_rect.min.y),
+                    LayoutSize::zero(),
+                )
             }
         }
         BorderSegment::BottomLeft => {
             if v_adjacent_corner_outer.y + v_adjacent_corner_radius.height > image_rect.min.y {
                 (v_adjacent_corner_outer, v_adjacent_corner_radius)
             } else {
-                (LayoutPoint::new(image_rect.min.x, image_rect.min.y), LayoutSize::zero())
+                (
+                    LayoutPoint::new(image_rect.min.x, image_rect.min.y),
+                    LayoutSize::zero(),
+                )
             }
         }
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     border_segments.push(BorderSegmentInfo {
@@ -1190,12 +1182,14 @@ fn add_edge_segment(
     }
 
     let (size, brush_flags) = match segment {
-        BorderSegment::Left | BorderSegment::Right => {
-            (LayoutSize::new(width, edge_info.stretch_size), BrushFlags::SEGMENT_REPEAT_Y)
-        }
-        BorderSegment::Top | BorderSegment::Bottom => {
-            (LayoutSize::new(edge_info.stretch_size, width), BrushFlags::SEGMENT_REPEAT_X)
-        }
+        BorderSegment::Left | BorderSegment::Right => (
+            LayoutSize::new(width, edge_info.stretch_size),
+            BrushFlags::SEGMENT_REPEAT_Y,
+        ),
+        BorderSegment::Top | BorderSegment::Bottom => (
+            LayoutSize::new(edge_info.stretch_size, width),
+            BrushFlags::SEGMENT_REPEAT_X,
+        ),
         _ => {
             unreachable!();
         }
@@ -1205,15 +1199,13 @@ fn add_edge_segment(
         return;
     }
 
-    brush_segments.push(
-        BrushSegment::new(
-            image_rect,
-            /* may_need_clip_mask = */ true,
-            edge_flags,
-            [0.0, 0.0, size.width, size.height],
-            BrushFlags::SEGMENT_RELATIVE | brush_flags,
-        )
-    );
+    brush_segments.push(BrushSegment::new(
+        image_rect,
+        /* may_need_clip_mask = */ true,
+        edge_flags,
+        [0.0, 0.0, size.width, size.height],
+        BrushFlags::SEGMENT_RELATIVE | brush_flags,
+    ));
 
     border_segments.push(BorderSegmentInfo {
         local_task_size: size,
@@ -1296,10 +1288,7 @@ pub fn build_border_instances(
 }
 
 impl NinePatchDescriptor {
-    pub fn create_segments(
-        &self,
-        size: LayoutSize,
-    ) -> Vec<BrushSegment> {
+    pub fn create_segments(&self, size: LayoutSize) -> Vec<BrushSegment> {
         let rect = LayoutRect::from_size(size);
 
         // Calculate the local texel coords of the slices.
@@ -1341,9 +1330,7 @@ impl NinePatchDescriptor {
             // Use segment relative interpolation for all
             // instances in this primitive.
             let mut brush_flags =
-                BrushFlags::SEGMENT_RELATIVE |
-                BrushFlags::SEGMENT_TEXEL_RECT |
-                extra_flags;
+                BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_TEXEL_RECT | extra_flags;
 
             // Enable repeat modes on the segment.
             if repeat_horizontal == RepeatMode::Repeat {
@@ -1362,12 +1349,7 @@ impl NinePatchDescriptor {
                 rect,
                 true,
                 EdgeAaSegmentMask::empty(),
-                [
-                    uv_rect.uv0.x,
-                    uv_rect.uv0.y,
-                    uv_rect.uv1.x,
-                    uv_rect.uv1.y,
-                ],
+                [uv_rect.uv0.x, uv_rect.uv0.y, uv_rect.uv1.x, uv_rect.uv1.y],
                 brush_flags,
             );
 

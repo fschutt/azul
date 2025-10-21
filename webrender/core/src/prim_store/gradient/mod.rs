@@ -2,20 +2,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, ColorU, GradientStop, PremultipliedColorF};
-use api::units::{LayoutRect, LayoutSize, LayoutVector2D};
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF};
 use std::hash;
 
+use api::{
+    units::{LayoutRect, LayoutSize, LayoutVector2D},
+    ColorF, ColorU, GradientStop, PremultipliedColorF,
+};
+
+use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF};
+
+mod conic;
 mod linear;
 mod radial;
-mod conic;
 
-pub use linear::MAX_CACHED_SIZE as LINEAR_MAX_CACHED_SIZE;
-
-pub use linear::*;
-pub use radial::*;
 pub use conic::*;
+pub use linear::{MAX_CACHED_SIZE as LINEAR_MAX_CACHED_SIZE, *};
+pub use radial::*;
 
 /// A hashable gradient stop that can be used in primitive keys.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -47,15 +49,18 @@ impl Into<GradientStopKey> for GradientStop {
 // minimum stop alpha along the way.
 fn stops_and_min_alpha(stop_keys: &[GradientStopKey]) -> (Vec<GradientStop>, f32) {
     let mut min_alpha: f32 = 1.0;
-    let stops = stop_keys.iter().map(|stop_key| {
-        let color: ColorF = stop_key.color.into();
-        min_alpha = min_alpha.min(color.a);
+    let stops = stop_keys
+        .iter()
+        .map(|stop_key| {
+            let color: ColorF = stop_key.color.into();
+            min_alpha = min_alpha.min(color.a);
 
-        GradientStop {
-            offset: stop_key.offset,
-            color,
-        }
-    }).collect();
+            GradientStop {
+                offset: stop_key.offset,
+                color,
+            }
+        })
+        .collect();
 
     (stops, min_alpha)
 }
@@ -81,7 +86,8 @@ pub const GRADIENT_DATA_TABLE_END: usize = GRADIENT_DATA_LAST_STOP;
 // The number of entries in the gradient data table.
 pub const GRADIENT_DATA_TABLE_SIZE: usize = 128;
 
-// The number of entries in a gradient data: GRADIENT_DATA_TABLE_SIZE + first stop entry + last stop entry
+// The number of entries in a gradient data: GRADIENT_DATA_TABLE_SIZE + first stop entry + last stop
+// entry
 pub const GRADIENT_DATA_SIZE: usize = GRADIENT_DATA_TABLE_SIZE + 2;
 
 /// An entry in a gradient data table representing a segment of the gradient
@@ -134,13 +140,17 @@ impl GradientGpuBlockBuilder {
             // Modify the step alpha value as if by nextafter(). The difference
             // here should be so small as to be unnoticeable, but yet allow it
             // to compare differently.
-            step.a = f32::from_bits(if step.a == 0.0 { 1 } else { step.a.to_bits() + 1 });
+            step.a = f32::from_bits(if step.a == 0.0 {
+                1
+            } else {
+                step.a.to_bits() + 1
+            });
         }
 
         let mut cur_color = *start_color;
 
         // Walk the ramp writing start and end colors for each entry.
-        for index in start_idx .. end_idx {
+        for index in start_idx..end_idx {
             let entry = &mut entries[index];
             entry.start_color = cur_color;
             cur_color.r += step.r;
@@ -154,11 +164,12 @@ impl GradientGpuBlockBuilder {
     }
 
     /// Compute an index into the gradient entry table based on a gradient stop offset. This
-    /// function maps offsets from [0, 1] to indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END].
+    /// function maps offsets from [0, 1] to indices in [GRADIENT_DATA_TABLE_BEGIN,
+    /// GRADIENT_DATA_TABLE_END].
     #[inline]
     fn get_index(offset: f32) -> usize {
-        (offset.max(0.0).min(1.0) * GRADIENT_DATA_TABLE_SIZE as f32 +
-            GRADIENT_DATA_TABLE_BEGIN as f32)
+        (offset.max(0.0).min(1.0) * GRADIENT_DATA_TABLE_SIZE as f32
+            + GRADIENT_DATA_TABLE_BEGIN as f32)
             .round() as usize
     }
 
@@ -184,31 +195,33 @@ impl GradientGpuBlockBuilder {
             }
         };
 
-        // A table of gradient entries, with two colors per entry, that specify the start and end color
-        // within the segment of the gradient space represented by that entry. To lookup a gradient result,
-        // first the entry index is calculated to determine which two colors to interpolate between, then
-        // the offset within that entry bucket is used to interpolate between the two colors in that entry.
-        // This layout is motivated by the fact that if one naively tries to store a single color per entry
-        // and interpolate directly between entries, then hard stops will become softened because the end
-        // color of an entry actually differs from the start color of the next entry, even though they fall
-        // at the same edge offset in the gradient space. Instead, the two-color-per-entry layout preserves
-        // hard stops, as the end color for a given entry can differ from the start color for the following
-        // entry.
-        // Colors are stored in RGBA32F format (in the GPU cache). This table requires the gradient color
-        // stops to be normalized to the range [0, 1]. The first and last entries hold the first and last
-        // color stop colors respectively, while the entries in between hold the interpolated color stop
-        // values for the range [0, 1].
-        // As a further optimization, rather than directly storing the end color, the difference of the end
-        // color from the start color is stored instead, so that an entry can be evaluated more cheaply
-        // with start+diff*offset instead of mix(start,end,offset). Further, the color difference in two
-        // adjacent entries will always be the same if they were generated from the same set of stops/run.
-        // To allow fast searching of the table, if two adjacent entries generated from different sets of
-        // stops (a boundary) have the same difference, the floating-point bits of the stop will be nudged
-        // so that they compare differently without perceptibly altering the interpolation result. This way,
-        // one can quickly scan the table and recover runs just by comparing the color differences of the
-        // current and next entry.
-        // For example, a table with 2 inside entries (startR,startG,startB):(diffR,diffG,diffB) might look
-        // like so:
+        // A table of gradient entries, with two colors per entry, that specify the start and end
+        // color within the segment of the gradient space represented by that entry. To
+        // lookup a gradient result, first the entry index is calculated to determine which
+        // two colors to interpolate between, then the offset within that entry bucket is
+        // used to interpolate between the two colors in that entry. This layout is
+        // motivated by the fact that if one naively tries to store a single color per entry
+        // and interpolate directly between entries, then hard stops will become softened because
+        // the end color of an entry actually differs from the start color of the next
+        // entry, even though they fall at the same edge offset in the gradient space.
+        // Instead, the two-color-per-entry layout preserves hard stops, as the end color
+        // for a given entry can differ from the start color for the following entry.
+        // Colors are stored in RGBA32F format (in the GPU cache). This table requires the gradient
+        // color stops to be normalized to the range [0, 1]. The first and last entries hold
+        // the first and last color stop colors respectively, while the entries in between
+        // hold the interpolated color stop values for the range [0, 1].
+        // As a further optimization, rather than directly storing the end color, the difference of
+        // the end color from the start color is stored instead, so that an entry can be
+        // evaluated more cheaply with start+diff*offset instead of mix(start,end,offset).
+        // Further, the color difference in two adjacent entries will always be the same if
+        // they were generated from the same set of stops/run. To allow fast searching of
+        // the table, if two adjacent entries generated from different sets of
+        // stops (a boundary) have the same difference, the floating-point bits of the stop will be
+        // nudged so that they compare differently without perceptibly altering the
+        // interpolation result. This way, one can quickly scan the table and recover runs
+        // just by comparing the color differences of the current and next entry.
+        // For example, a table with 2 inside entries (startR,startG,startB):(diffR,diffG,diffB)
+        // might look like so:
         //     first           | 0.0              | 0.5              | last
         //     (0,0,0):(0,0,0) | (1,0,0):(-1,1,0) | (0,0,1):(0,1,-1) | (1,1,1):(0,0,0)
         //     ^ solid black     ^ red to green     ^ blue to green    ^ solid white
@@ -225,9 +238,10 @@ impl GradientGpuBlockBuilder {
                 &prev_step,
             );
 
-            // Fill in the center of the gradient table, generating a color ramp between each consecutive pair
-            // of gradient stops. Each iteration of a loop will fill the indices in [next_idx, cur_idx). The
-            // loop will then fill indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
+            // Fill in the center of the gradient table, generating a color ramp between each
+            // consecutive pair of gradient stops. Each iteration of a loop will fill
+            // the indices in [next_idx, cur_idx). The loop will then fill indices in
+            // [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
             let mut cur_idx = GRADIENT_DATA_TABLE_END;
             for next in src_stops {
                 let next_color = next.color.premultiplied();
@@ -248,7 +262,10 @@ impl GradientGpuBlockBuilder {
                 cur_color = next_color;
             }
             if cur_idx != GRADIENT_DATA_TABLE_BEGIN {
-                error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
+                error!(
+                    "Gradient stops abruptly at {}, auto-completing to white",
+                    cur_idx
+                );
             }
 
             // Fill in the last entry (for reversed stops) with the last color stop
@@ -271,9 +288,10 @@ impl GradientGpuBlockBuilder {
                 &prev_step,
             );
 
-            // Fill in the center of the gradient table, generating a color ramp between each consecutive pair
-            // of gradient stops. Each iteration of a loop will fill the indices in [cur_idx, next_idx). The
-            // loop will then fill indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
+            // Fill in the center of the gradient table, generating a color ramp between each
+            // consecutive pair of gradient stops. Each iteration of a loop will fill
+            // the indices in [cur_idx, next_idx). The loop will then fill indices in
+            // [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
             let mut cur_idx = GRADIENT_DATA_TABLE_BEGIN;
             for next in src_stops {
                 let next_color = next.color.premultiplied();
@@ -294,7 +312,10 @@ impl GradientGpuBlockBuilder {
                 cur_color = next_color;
             }
             if cur_idx != GRADIENT_DATA_TABLE_END {
-                error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
+                error!(
+                    "Gradient stops abruptly at {}, auto-completing to white",
+                    cur_idx
+                );
             }
 
             // Fill in the last entry with the last color stop
@@ -376,15 +397,51 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<LinearGradient>(), 72, "LinearGradient size changed");
-    assert_eq!(mem::size_of::<LinearGradientTemplate>(), 144, "LinearGradientTemplate size changed");
-    assert_eq!(mem::size_of::<LinearGradientKey>(), 88, "LinearGradientKey size changed");
+    assert_eq!(
+        mem::size_of::<LinearGradient>(),
+        72,
+        "LinearGradient size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LinearGradientTemplate>(),
+        144,
+        "LinearGradientTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LinearGradientKey>(),
+        88,
+        "LinearGradientKey size changed"
+    );
 
-    assert_eq!(mem::size_of::<RadialGradient>(), 72, "RadialGradient size changed");
-    assert_eq!(mem::size_of::<RadialGradientTemplate>(), 144, "RadialGradientTemplate size changed");
-    assert_eq!(mem::size_of::<RadialGradientKey>(), 96, "RadialGradientKey size changed");
+    assert_eq!(
+        mem::size_of::<RadialGradient>(),
+        72,
+        "RadialGradient size changed"
+    );
+    assert_eq!(
+        mem::size_of::<RadialGradientTemplate>(),
+        144,
+        "RadialGradientTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<RadialGradientKey>(),
+        96,
+        "RadialGradientKey size changed"
+    );
 
-    assert_eq!(mem::size_of::<ConicGradient>(), 72, "ConicGradient size changed");
-    assert_eq!(mem::size_of::<ConicGradientTemplate>(), 144, "ConicGradientTemplate size changed");
-    assert_eq!(mem::size_of::<ConicGradientKey>(), 96, "ConicGradientKey size changed");
+    assert_eq!(
+        mem::size_of::<ConicGradient>(),
+        72,
+        "ConicGradient size changed"
+    );
+    assert_eq!(
+        mem::size_of::<ConicGradientTemplate>(),
+        144,
+        "ConicGradientTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<ConicGradientKey>(),
+        96,
+        "ConicGradientKey size changed"
+    );
 }

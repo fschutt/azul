@@ -16,8 +16,8 @@ use azul_layout::solver3::display_list::DisplayList;
 use webrender::{
     api::{
         units::{DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
-        BorderRadius as WrBorderRadius, ClipId as WrClipId, ClipMode as WrClipMode, ColorF,
-        CommonItemProperties, ComplexClipRegion as WrComplexClipRegion,
+        BorderRadius as WrBorderRadius, ClipChainId as WrClipChainId, ClipMode as WrClipMode,
+        ColorF, CommonItemProperties, ComplexClipRegion as WrComplexClipRegion,
         DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ItemTag, PipelineId,
         SpaceAndClipInfo, SpatialId,
     },
@@ -46,10 +46,10 @@ pub fn translate_displaylist_to_wr(
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
     let spatial_id = SpatialId::root_scroll_node(pipeline_id);
-    let root_clip_id = WrClipId::root(pipeline_id);
+    let root_clip_id = WrClipChainId::root(pipeline_id);
 
     // Clip stack management (for PushClip/PopClip)
-    let mut clip_stack: Vec<WrClipId> = vec![root_clip_id];
+    let mut clip_stack: Vec<WrClipChainId> = vec![root_clip_id];
 
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
@@ -75,7 +75,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -102,7 +102,7 @@ pub fn translate_displaylist_to_wr(
 
                     let info_clipped = CommonItemProperties {
                         clip_rect: rect,
-                        clip_id: new_clip_id,
+                        clip_chain_id: new_clip_id,
                         spatial_id: *spatial_stack.last().unwrap(),
                         flags: Default::default(),
                     };
@@ -132,7 +132,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -154,7 +154,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -176,7 +176,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -212,7 +212,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -257,7 +257,7 @@ pub fn translate_displaylist_to_wr(
                     let new_clip_id = builder.define_clip_rect(
                         &SpaceAndClipInfo {
                             spatial_id: *spatial_stack.last().unwrap(),
-                            clip_id: *clip_stack.last().unwrap(),
+                            clip_chain_id: *clip_stack.last().unwrap(),
                         },
                         rect,
                     );
@@ -297,7 +297,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -321,7 +321,7 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_id: *clip_stack.last().unwrap(),
+                    clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
@@ -416,8 +416,8 @@ fn define_border_radius_clip(
     layout_rect: azul_core::geom::LogicalRect,
     wr_border_radius: WrBorderRadius,
     rect_spatial_id: SpatialId,
-    parent_clip_id: WrClipId,
-) -> WrClipId {
+    parent_clip_chain_id: WrClipChainId,
+) -> WrClipChainId {
     use crate::desktop::wr_translate2::wr_translate_logical_size;
 
     // NOTE: only translate the size, position is always (0.0, 0.0)
@@ -428,7 +428,7 @@ fn define_border_radius_clip(
         builder.define_clip_rect(
             &SpaceAndClipInfo {
                 spatial_id: rect_spatial_id,
-                clip_id: parent_clip_id,
+                clip_chain_id: parent_clip_chain_id,
             },
             wr_layout_rect,
         )
@@ -436,7 +436,7 @@ fn define_border_radius_clip(
         builder.define_clip_rounded_rect(
             &SpaceAndClipInfo {
                 spatial_id: rect_spatial_id,
-                clip_id: parent_clip_id,
+                clip_chain_id: parent_clip_chain_id,
             },
             WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
         )

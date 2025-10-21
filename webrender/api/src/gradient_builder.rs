@@ -2,9 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::display_item as di;
-use crate::units::*;
-
+use crate::{display_item as di, units::*};
 
 /// Construct a gradient to be used in display lists.
 ///
@@ -16,9 +14,7 @@ pub struct GradientBuilder {
 impl GradientBuilder {
     /// Create a new gradient builder.
     pub fn new() -> Self {
-        GradientBuilder {
-            stops: Vec::new(),
-        }
+        GradientBuilder { stops: Vec::new() }
     }
 
     /// Create a gradient builder with a list of stops.
@@ -75,8 +71,14 @@ impl GradientBuilder {
             let last_color = self.stops.last().unwrap().color;
 
             self.stops.clear();
-            self.stops.push(di::GradientStop { offset: 0.0, color: last_color, });
-            self.stops.push(di::GradientStop { offset: 1.0, color: last_color, });
+            self.stops.push(di::GradientStop {
+                offset: 0.0,
+                color: last_color,
+            });
+            self.stops.push(di::GradientStop {
+                offset: 1.0,
+                color: last_color,
+            });
 
             return di::RadialGradient {
                 center,
@@ -87,8 +89,7 @@ impl GradientBuilder {
             };
         }
 
-        let (start_offset, end_offset) =
-            self.normalize(extend_mode);
+        let (start_offset, end_offset) = self.normalize(extend_mode);
 
         di::RadialGradient {
             center,
@@ -106,8 +107,7 @@ impl GradientBuilder {
         angle: f32,
         extend_mode: di::ExtendMode,
     ) -> di::ConicGradient {
-        let (start_offset, end_offset) =
-            self.normalize(extend_mode);
+        let (start_offset, end_offset) = self.normalize(extend_mode);
 
         di::ConicGradient {
             center,
@@ -144,8 +144,14 @@ impl GradientBuilder {
             // We have no good way to render a NaN offset, but make something
             // that is at least renderable.
             stops.clear();
-            stops.push(di::GradientStop { color: last.color, offset: 0.0, });
-            stops.push(di::GradientStop { color: last.color, offset: 1.0, });
+            stops.push(di::GradientStop {
+                color: last.color,
+                offset: 0.0,
+            });
+            stops.push(di::GradientStop {
+                color: last.color,
+                offset: 1.0,
+            });
 
             (0.0, 1.0)
         } else {
@@ -159,10 +165,22 @@ impl GradientBuilder {
                     // This gradient is two colors split at the offset of the stops,
                     // so create a gradient with two colors split at 0.5 and adjust
                     // the gradient line so 0.5 is at the offset of the stops
-                    stops.push(di::GradientStop { color: first.color, offset: 0.0, });
-                    stops.push(di::GradientStop { color: first.color, offset: 0.5, });
-                    stops.push(di::GradientStop { color: last.color, offset: 0.5, });
-                    stops.push(di::GradientStop { color: last.color, offset: 1.0, });
+                    stops.push(di::GradientStop {
+                        color: first.color,
+                        offset: 0.0,
+                    });
+                    stops.push(di::GradientStop {
+                        color: first.color,
+                        offset: 0.5,
+                    });
+                    stops.push(di::GradientStop {
+                        color: last.color,
+                        offset: 0.5,
+                    });
+                    stops.push(di::GradientStop {
+                        color: last.color,
+                        offset: 1.0,
+                    });
 
                     let offset = last.offset;
 
@@ -173,8 +191,14 @@ impl GradientBuilder {
                     // position should just display the last color. I believe the
                     // spec says that it should be the average color of the gradient,
                     // but this matches what Gecko and Blink does
-                    stops.push(di::GradientStop { color: last.color, offset: 0.0, });
-                    stops.push(di::GradientStop { color: last.color, offset: 1.0, });
+                    stops.push(di::GradientStop {
+                        color: last.color,
+                        offset: 0.0,
+                    });
+                    stops.push(di::GradientStop {
+                        color: last.color,
+                        offset: 1.0,
+                    });
 
                     (0.0, 1.0)
                 }

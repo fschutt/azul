@@ -9,14 +9,15 @@
 //! is for any textured primitive to be able to read from any source (texture cache, render
 //! tasks, etc.) without primitive-specific code.
 
-use crate::api::ExternalImageType;
-use crate::api::units::*;
-use crate::gpu_cache::GpuCache;
-use crate::prim_store::DeferredResolve;
-use crate::renderer::BLOCKS_PER_UV_RECT;
-use crate::render_task_cache::RenderTaskCacheEntryHandle;
-use crate::resource_cache::{ResourceCache, ImageRequest, CacheItem};
-use crate::internal_types::{TextureSource, TextureSourceExternal, DeferredResolveIndex, FrameVec};
+use crate::{
+    api::{units::*, ExternalImageType},
+    gpu_cache::GpuCache,
+    internal_types::{DeferredResolveIndex, FrameVec, TextureSource, TextureSourceExternal},
+    prim_store::DeferredResolve,
+    render_task_cache::RenderTaskCacheEntryHandle,
+    renderer::BLOCKS_PER_UV_RECT,
+    resource_cache::{CacheItem, ImageRequest, ResourceCache},
+};
 
 /// Resolve a resource cache's imagre request into a texture cache item.
 pub fn resolve_image(
@@ -36,12 +37,11 @@ pub fn resolve_image(
                     // the render thread...
                     let cache_handle = gpu_cache.push_deferred_per_frame_blocks(BLOCKS_PER_UV_RECT);
 
-                    let deferred_resolve_index = DeferredResolveIndex(deferred_resolves.len() as u32);
+                    let deferred_resolve_index =
+                        DeferredResolveIndex(deferred_resolves.len() as u32);
 
                     let image_buffer_kind = match external_image.image_type {
-                        ExternalImageType::TextureHandle(target) => {
-                            target
-                        }
+                        ExternalImageType::TextureHandle(target) => target,
                         ExternalImageType::Buffer => {
                             // The ExternalImageType::Buffer should be handled by resource_cache.
                             // It should go through the non-external case.
@@ -56,9 +56,7 @@ pub fn resolve_image(
                             normalized_uvs: external_image.normalized_uvs,
                         }),
                         uv_rect_handle: cache_handle,
-                        uv_rect: DeviceIntRect::from_size(
-                            image_properties.descriptor.size,
-                        ),
+                        uv_rect: DeviceIntRect::from_size(image_properties.descriptor.size),
                         user_data: [0.0; 4],
                     };
 
@@ -74,15 +72,14 @@ pub fn resolve_image(
                     if let Ok(cache_item) = resource_cache.get_cached_image(request) {
                         cache_item
                     } else {
-                        // There is no usable texture entry for the image key. Just return an invalid texture here.
+                        // There is no usable texture entry for the image key. Just return an
+                        // invalid texture here.
                         CacheItem::invalid()
                     }
                 }
             }
         }
-        None => {
-            CacheItem::invalid()
-        }
+        None => CacheItem::invalid(),
     }
 }
 
@@ -90,8 +87,7 @@ pub fn resolve_cached_render_task(
     handle: &RenderTaskCacheEntryHandle,
     resource_cache: &ResourceCache,
 ) -> CacheItem {
-    let rt_cache_entry = resource_cache
-        .get_cached_render_task(&handle);
+    let rt_cache_entry = resource_cache.get_cached_render_task(&handle);
 
     resource_cache.get_texture_cache_item(&rt_cache_entry.handle)
 }

@@ -18,7 +18,6 @@ app_units = "0.7.3"
 bitflags = { version = "2", features = ["serde"] }
 byteorder = "1.2.1"
 euclid = { version = "0.22.6", features = ["serde"] }
-malloc_size_of_derive = { path = "../malloc_size_of_derive_stub", package = "malloc_size_of_derive_stub" }
 serde = { version = "1.0", features = ["rc"] }
 serde_derive = "1.0"
 serde_bytes = "0.11"

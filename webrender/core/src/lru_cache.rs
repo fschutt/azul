@@ -2,40 +2,41 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use std::{mem, num};
 
+use crate::freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
+
 /*
-  This module implements a least recently used cache structure, which is
-  used by the texture cache to manage the lifetime of items inside the
-  texture cache. It has a few special pieces of functionality that the
-  texture cache requires, but should be usable as a general LRU cache
-  type if useful in other areas.
+ This module implements a least recently used cache structure, which is
+ used by the texture cache to manage the lifetime of items inside the
+ texture cache. It has a few special pieces of functionality that the
+ texture cache requires, but should be usable as a general LRU cache
+ type if useful in other areas.
 
-  The cache is implemented with two types of backing freelists. These allow
-  random access to the underlying data, while being efficient in both
-  memory access and allocation patterns.
+ The cache is implemented with two types of backing freelists. These allow
+ random access to the underlying data, while being efficient in both
+ memory access and allocation patterns.
 
-  The "entries" freelist stores the elements being cached (for example, the
-  CacheEntry structure for the texture cache). These elements are stored
-  in arbitrary order, reusing empty slots in the freelist where possible.
+ The "entries" freelist stores the elements being cached (for example, the
+ CacheEntry structure for the texture cache). These elements are stored
+ in arbitrary order, reusing empty slots in the freelist where possible.
 
-  The "lru_index" freelists store the LRU tracking information. Although the
-  tracking elements are stored in arbitrary order inside a freelist for
-  efficiency, they use next/prev links to represent a doubly-linked list,
-  kept sorted in order of recent use. The next link is also used to store
-  the current freelist within the array when the element is not occupied.
+ The "lru_index" freelists store the LRU tracking information. Although the
+ tracking elements are stored in arbitrary order inside a freelist for
+ efficiency, they use next/prev links to represent a doubly-linked list,
+ kept sorted in order of recent use. The next link is also used to store
+ the current freelist within the array when the element is not occupied.
 
-  The LRU cache allows having multiple LRU "partitions". Every entry is tracked
-  by exactly one partition at any time; all partitions refer to entries in the
-  shared freelist. Entries can move between partitions, if replace_or_insert is
-  called with a new partition index for an existing handle.
-  The partitioning is used by the texture cache so that, for example, allocating
-  more glyph entries does not cause eviction of image entries (which go into
-  a different shared texture). If an existing handle's entry is reallocated with
-  a new size, it might need to move from a shared texture to a standalone
-  texture; in this case the handle will move to a different LRU partition.
- */
+ The LRU cache allows having multiple LRU "partitions". Every entry is tracked
+ by exactly one partition at any time; all partitions refer to entries in the
+ shared freelist. Entries can move between partitions, if replace_or_insert is
+ called with a new partition index for an existing handle.
+ The partitioning is used by the texture cache so that, for example, allocating
+ more glyph entries does not cause eviction of image entries (which go into
+ a different shared texture). If an existing handle's entry is reallocated with
+ a new size, it might need to move from a shared texture to a standalone
+ texture; in this case the handle will move to a different LRU partition.
+*/
 
 /// Stores the data supplied by the user to be cached, and an index
 /// into the LRU tracking freelist for this element.
@@ -67,18 +68,16 @@ impl<T, M> LRUCache<T, M> {
         assert!(lru_partition_count <= u8::MAX as usize + 1);
         LRUCache {
             entries: FreeList::new(),
-            lru: (0..lru_partition_count).map(|_| LRUTracker::new()).collect(),
+            lru: (0..lru_partition_count)
+                .map(|_| LRUTracker::new())
+                .collect(),
         }
     }
 
     /// Insert a new element into the cache. Returns a weak handle for callers to
     /// access the data, since the lifetime is managed by the LRU algorithm and it
     /// may be evicted at any time.
-    pub fn push_new(
-        &mut self,
-        partition_index: u8,
-        value: T,
-    ) -> WeakFreeListHandle<M> {
+    pub fn push_new(&mut self, partition_index: u8, value: T) -> WeakFreeListHandle<M> {
         // It's a slightly awkward process to insert an element, since we don't know
         // the index of the LRU tracking element until we've got a handle for the
         // underlying cached data.
@@ -87,7 +86,7 @@ impl<T, M> LRUCache<T, M> {
         let handle = self.entries.insert(LRUCacheEntry {
             partition_index: 0,
             lru_index: ItemIndex(num::NonZeroU32::new(1).unwrap()),
-            value
+            value,
         });
 
         // Get a weak handle to return to the caller
@@ -105,28 +104,16 @@ impl<T, M> LRUCache<T, M> {
 
     /// Get immutable access to the data at a given slot. Since this takes a weak
     /// handle, it may have been evicted, so returns an Option.
-    pub fn get_opt(
-        &self,
-        handle: &WeakFreeListHandle<M>,
-    ) -> Option<&T> {
-        self.entries
-            .get_opt(handle)
-            .map(|entry| {
-                &entry.value
-            })
+    pub fn get_opt(&self, handle: &WeakFreeListHandle<M>) -> Option<&T> {
+        self.entries.get_opt(handle).map(|entry| &entry.value)
     }
 
     /// Get mutable access to the data at a given slot. Since this takes a weak
     /// handle, it may have been evicted, so returns an Option.
-    pub fn get_opt_mut(
-        &mut self,
-        handle: &WeakFreeListHandle<M>,
-    ) -> Option<&mut T> {
+    pub fn get_opt_mut(&mut self, handle: &WeakFreeListHandle<M>) -> Option<&mut T> {
         self.entries
             .get_opt_mut(handle)
-            .map(|entry| {
-                &mut entry.value
-            })
+            .map(|entry| &mut entry.value)
     }
 
     /// Return a reference to the oldest item in the cache, keeping it in the cache.
@@ -142,10 +129,7 @@ impl<T, M> LRUCache<T, M> {
 
     /// Remove the oldest item from the cache. This is used to select elements to
     /// be evicted. If the cache is empty, this will return None.
-    pub fn pop_oldest(
-        &mut self,
-        partition_index: u8,
-    ) -> Option<T> {
+    pub fn pop_oldest(&mut self, partition_index: u8) -> Option<T> {
         self.lru[partition_index as usize]
             .pop_front()
             .map(|handle| {
@@ -170,7 +154,8 @@ impl<T, M> LRUCache<T, M> {
             Some(entry) => {
                 if entry.partition_index != partition_index {
                     // Move to a different partition.
-                    let strong_handle = self.lru[entry.partition_index as usize].remove(entry.lru_index);
+                    let strong_handle =
+                        self.lru[entry.partition_index as usize].remove(entry.lru_index);
                     let lru_index = self.lru[partition_index as usize].push_new(strong_handle);
                     entry.partition_index = partition_index;
                     entry.lru_index = lru_index;
@@ -198,18 +183,13 @@ impl<T, M> LRUCache<T, M> {
     /// references has been used on this frame. Internally, it updates the links in
     /// the LRU tracking element to move this item to the end of the LRU list. Returns
     /// the underlying data in case the client wants to mutate it.
-    pub fn touch(
-        &mut self,
-        handle: &WeakFreeListHandle<M>,
-    ) -> Option<&mut T> {
+    pub fn touch(&mut self, handle: &WeakFreeListHandle<M>) -> Option<&mut T> {
         let lru = &mut self.lru;
 
-        self.entries
-            .get_opt_mut(handle)
-            .map(|entry| {
-                lru[entry.partition_index as usize].mark_used(entry.lru_index);
-                &mut entry.value
-            })
+        self.entries.get_opt_mut(handle).map(|entry| {
+            lru[entry.partition_index as usize].mark_used(entry.lru_index);
+            &mut entry.value
+        })
     }
 
     /// Try to validate that the state of the cache is consistent
@@ -255,18 +235,19 @@ struct LRUTracker<H> {
     items: Vec<Item<H>>,
 }
 
-impl<H> LRUTracker<H> where H: std::fmt::Debug {
+impl<H> LRUTracker<H>
+where
+    H: std::fmt::Debug,
+{
     /// Construct a new LRU tracker
     fn new() -> Self {
         // Push a dummy entry in the vec that is never used. This ensures the NonZeroU32
         // property is respected, and we never create an ItemIndex(0).
-        let items = vec![
-            Item {
-                prev: None,
-                next: None,
-                handle: None,
-            },
-        ];
+        let items = vec![Item {
+            prev: None,
+            next: None,
+            handle: None,
+        }];
 
         LRUTracker {
             head: None,
@@ -278,10 +259,7 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
 
     /// Internal function that takes an item index, and links it to the
     /// end of the tracker list (makes it the newest item).
-    fn link_as_new_tail(
-        &mut self,
-        item_index: ItemIndex,
-    ) {
+    fn link_as_new_tail(&mut self, item_index: ItemIndex) {
         match (self.head, self.tail) {
             (Some(..), Some(tail)) => {
                 // Both a head and a tail
@@ -309,10 +287,7 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
     /// Internal function that takes an LRU item index, and removes it from
     /// the current doubly linked list. Used during removal of items, and also
     /// when items are moved to the back of the list as they're touched.
-    fn unlink(
-        &mut self,
-        item_index: ItemIndex,
-    ) {
+    fn unlink(&mut self, item_index: ItemIndex) {
         let (next, prev) = {
             let item = &self.items[item_index.as_usize()];
             (item.next, item.prev)
@@ -341,10 +316,7 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
 
     /// Push a new LRU tracking item on to the back of the list, marking
     /// it as the most recent item.
-    fn push_new(
-        &mut self,
-        handle: H,
-    ) -> ItemIndex {
+    fn push_new(&mut self, handle: H) -> ItemIndex {
         // See if there is a slot available in the current free list
         let item_index = match self.free_list_head {
             Some(index) => {
@@ -380,14 +352,13 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
 
     /// Returns a reference to the oldest element, or None if the list is empty.
     fn peek_front(&self) -> Option<&H> {
-        self.head.map(|head| self.items[head.as_usize()].handle.as_ref().unwrap())
+        self.head
+            .map(|head| self.items[head.as_usize()].handle.as_ref().unwrap())
     }
 
     /// Remove the oldest element from the front of the LRU list. Returns None
     /// if the list is empty.
-    fn pop_front(
-        &mut self,
-    ) -> Option<H> {
+    fn pop_front(&mut self) -> Option<H> {
         let handle = match (self.head, self.tail) {
             (Some(head), Some(tail)) => {
                 let item_index = head;
@@ -425,10 +396,7 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
 
     /// Manually remove an item from the LRU tracking list. This is used
     /// when an element switches from one LRU partition to a different one.
-    fn remove(
-        &mut self,
-        index: ItemIndex,
-    ) -> H {
+    fn remove(&mut self, index: ItemIndex) -> H {
         // Remove from the LRU list
         self.unlink(index);
 
@@ -443,10 +411,7 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
 
     /// Called to mark that an item was used on this frame. It unlinks the
     /// tracking item, and then re-links it to the back of the list.
-    fn mark_used(
-        &mut self,
-        index: ItemIndex,
-    ) {
+    fn mark_used(&mut self, index: ItemIndex) {
         self.unlink(index);
         self.link_as_new_tail(index);
     }
@@ -457,7 +422,10 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
         use std::collections::HashSet;
 
         // Must have a valid head/tail or be empty
-        assert!((self.head.is_none() && self.tail.is_none()) || (self.head.is_some() && self.tail.is_some()));
+        assert!(
+            (self.head.is_none() && self.tail.is_none())
+                || (self.head.is_some() && self.tail.is_some())
+        );
 
         // If there is a head, the prev of the head must be none
         if let Some(head) = self.head {
@@ -502,25 +470,38 @@ impl<H> LRUTracker<H> where H: std::fmt::Debug {
             current = item.prev;
         }
 
-        // Ensure set lengths match the vec lengths (should be enforced by the assert check during insert anyway)
+        // Ensure set lengths match the vec lengths (should be enforced by the assert check during
+        // insert anyway)
         assert_eq!(valid_items_front.len(), valid_items_front_set.len());
         assert_eq!(valid_items_reverse.len(), valid_items_reverse_set.len());
 
         // Length of the array should equal free + valid items count + 1 (dummy entry)
-        assert_eq!(free_items.len() + valid_items_front.len() + 1, self.items.len());
+        assert_eq!(
+            free_items.len() + valid_items_front.len() + 1,
+            self.items.len()
+        );
 
         // Should be same number of items whether iterating forwards or reverse
         assert_eq!(valid_items_front.len(), valid_items_reverse.len());
 
         // Ensure there are no items considered in the free list that are also in the valid list
-        assert!(free_items_set.intersection(&valid_items_reverse_set).collect::<HashSet<_>>().is_empty());
-        assert!(free_items_set.intersection(&valid_items_front_set).collect::<HashSet<_>>().is_empty());
+        assert!(free_items_set
+            .intersection(&valid_items_reverse_set)
+            .collect::<HashSet<_>>()
+            .is_empty());
+        assert!(free_items_set
+            .intersection(&valid_items_front_set)
+            .collect::<HashSet<_>>()
+            .is_empty());
 
         // Should be the same number of items regardless of iteration direction
         assert_eq!(valid_items_front_set.len(), valid_items_reverse_set.len());
 
         // Ensure that the ordering is exactly the same, regardless of iteration direction
-        for (i0, i1) in valid_items_front.iter().zip(valid_items_reverse.iter().rev()) {
+        for (i0, i1) in valid_items_front
+            .iter()
+            .zip(valid_items_reverse.iter().rev())
+        {
             assert_eq!(i0, i1);
         }
     }
@@ -540,7 +521,7 @@ fn test_lru_tracker_push_peek() {
 
     assert_eq!(cache.peek_oldest(0), None);
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         cache.push_new(0, i);
     }
     cache.validate();
@@ -563,12 +544,12 @@ fn test_lru_tracker_push_pop() {
     let mut cache: LRUCache<usize, CacheMarker> = LRUCache::new(1);
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         cache.push_new(0, i);
     }
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         assert_eq!(cache.pop_oldest(0), Some(i));
     }
     cache.validate();
@@ -588,22 +569,22 @@ fn test_lru_tracker_push_touch_pop() {
     let mut handles = Vec::new();
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         handles.push(cache.push_new(0, i));
     }
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS/2 {
-        cache.touch(&handles[i*2]);
+    for i in 0..NUM_ELEMENTS / 2 {
+        cache.touch(&handles[i * 2]);
     }
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS/2 {
-        assert_eq!(cache.pop_oldest(0), Some(i*2+1));
+    for i in 0..NUM_ELEMENTS / 2 {
+        assert_eq!(cache.pop_oldest(0), Some(i * 2 + 1));
     }
     cache.validate();
-    for i in 0 .. NUM_ELEMENTS/2 {
-        assert_eq!(cache.pop_oldest(0), Some(i*2));
+    for i in 0..NUM_ELEMENTS / 2 {
+        assert_eq!(cache.pop_oldest(0), Some(i * 2));
     }
     cache.validate();
 
@@ -621,12 +602,12 @@ fn test_lru_tracker_push_get() {
     let mut handles = Vec::new();
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         handles.push(cache.push_new(0, i));
     }
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS/2 {
+    for i in 0..NUM_ELEMENTS / 2 {
         assert!(cache.get_opt(&handles[i]) == Some(&i));
     }
     cache.validate();
@@ -644,17 +625,17 @@ fn test_lru_tracker_push_replace_get() {
     let mut handles = Vec::new();
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         handles.push(cache.push_new(0, i));
     }
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS {
+    for i in 0..NUM_ELEMENTS {
         assert_eq!(cache.replace_or_insert(&mut handles[i], 0, i * 2), Some(i));
     }
     cache.validate();
 
-    for i in 0 .. NUM_ELEMENTS/2 {
+    for i in 0..NUM_ELEMENTS / 2 {
         assert!(cache.get_opt(&handles[i]) == Some(&(i * 2)));
     }
     cache.validate();

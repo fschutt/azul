@@ -5,28 +5,32 @@
 //! # Visibility pass
 //!
 //! TODO: document what this pass does!
-//!
 
-use api::{DebugFlags};
-use api::units::*;
-use std::{usize};
-use crate::clip::ClipStore;
-use crate::composite::CompositeState;
-use crate::profiler::TransactionProfile;
-use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
-use crate::clip::{ClipChainInstance, ClipTree};
-use crate::frame_builder::FrameBuilderConfig;
-use crate::gpu_cache::GpuCache;
-use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo, TileCacheInstance};
-use crate::picture::{SurfaceIndex, RasterConfig, SubSliceIndex};
-use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveInstanceKind};
-use crate::prim_store::{PrimitiveStore, PrimitiveInstance};
-use crate::render_backend::{DataStores, ScratchBuffer};
-use crate::render_task_graph::RenderTaskGraphBuilder;
-use crate::resource_cache::ResourceCache;
-use crate::scene::SceneProperties;
-use crate::space::SpaceMapper;
-use crate::util::{MaxRect};
+use std::usize;
+
+use api::{units::*, DebugFlags};
+
+use crate::{
+    clip::{ClipChainInstance, ClipStore, ClipTree},
+    composite::CompositeState,
+    frame_builder::FrameBuilderConfig,
+    gpu_cache::GpuCache,
+    picture::{
+        ClusterFlags, PictureCompositeMode, RasterConfig, SubSliceIndex, SurfaceIndex, SurfaceInfo,
+        TileCacheInstance,
+    },
+    prim_store::{
+        ClipTaskIndex, PictureIndex, PrimitiveInstance, PrimitiveInstanceKind, PrimitiveStore,
+    },
+    profiler::TransactionProfile,
+    render_backend::{DataStores, ScratchBuffer},
+    render_task_graph::RenderTaskGraphBuilder,
+    resource_cache::ResourceCache,
+    scene::SceneProperties,
+    space::SpaceMapper,
+    spatial_tree::{SpatialNodeIndex, SpatialTree},
+    util::MaxRect,
+};
 
 pub struct FrameVisibilityContext<'a> {
     pub spatial_tree: &'a SpatialTree,
@@ -53,11 +57,7 @@ pub struct FrameVisibilityState<'a> {
 }
 
 impl<'a> FrameVisibilityState<'a> {
-    pub fn push_surface(
-        &mut self,
-        pic_index: PictureIndex,
-        surface_index: SurfaceIndex,
-    ) {
+    pub fn push_surface(&mut self, pic_index: PictureIndex, surface_index: SurfaceIndex) {
         self.surface_stack.push((pic_index, surface_index));
     }
 
@@ -148,18 +148,17 @@ pub fn update_prim_visibility(
     frame_state: &mut FrameVisibilityState,
     tile_cache: &mut TileCacheInstance,
     profile: &mut TransactionProfile,
- ) {
+) {
     let pic = &store.pictures[pic_index.0];
 
     let (surface_index, pop_surface) = match pic.raster_config {
-        Some(RasterConfig { surface_index, composite_mode: PictureCompositeMode::TileCache { .. }, .. }) => {
-            (surface_index, false)
-        }
+        Some(RasterConfig {
+            surface_index,
+            composite_mode: PictureCompositeMode::TileCache { .. },
+            ..
+        }) => (surface_index, false),
         Some(ref raster_config) => {
-            frame_state.push_surface(
-                pic_index,
-                raster_config.surface_index,
-            );
+            frame_state.push_surface(pic_index, raster_config.surface_index);
 
             let surface_local_rect = surfaces[raster_config.surface_index.0]
                 .unclipped_local_rect
@@ -175,9 +174,10 @@ pub fn update_prim_visibility(
 
             (raster_config.surface_index, true)
         }
-        None => {
-            (parent_surface_index.expect("bug: pass-through with no parent"), false)
-        }
+        None => (
+            parent_surface_index.expect("bug: pass-through with no parent"),
+            false,
+        ),
     };
 
     let surface = &surfaces[surface_index.0 as usize];
@@ -191,7 +191,6 @@ pub fn update_prim_visibility(
     );
 
     for cluster in &pic.prim_list.clusters {
-
         // Each prim instance must have reset called each frame, to clear
         // indices into various scratch buffers. If this doesn't occur,
         // the primitive may incorrectly be considered visible, which can
@@ -213,13 +212,13 @@ pub fn update_prim_visibility(
             continue;
         }
 
-        map_local_to_picture.set_target_spatial_node(
-            cluster.spatial_node_index,
-            frame_context.spatial_tree,
-        );
+        map_local_to_picture
+            .set_target_spatial_node(cluster.spatial_node_index, frame_context.spatial_tree);
 
         for prim_instance_index in cluster.prim_range() {
-            if let PrimitiveInstanceKind::Picture { pic_index, .. } = prim_instances[prim_instance_index].kind {
+            if let PrimitiveInstanceKind::Picture { pic_index, .. } =
+                prim_instances[prim_instance_index].kind
+            {
                 if !store.pictures[pic_index.0].is_visible(frame_context.spatial_tree) {
                     continue;
                 }
@@ -230,16 +229,12 @@ pub fn update_prim_visibility(
                 };
 
                 if !is_passthrough {
-                    let clip_root = store
-                        .pictures[pic_index.0]
-                        .clip_root
-                        .unwrap_or_else(|| {
-                            // If we couldn't find a common ancestor then just use the
-                            // clip node of the picture primitive itself
-                            let leaf_id = prim_instances[prim_instance_index].clip_leaf_id;
-                            frame_state.clip_tree.get_leaf(leaf_id).node_id
-                        }
-                    );
+                    let clip_root = store.pictures[pic_index.0].clip_root.unwrap_or_else(|| {
+                        // If we couldn't find a common ancestor then just use the
+                        // clip node of the picture primitive itself
+                        let leaf_id = prim_instances[prim_instance_index].clip_leaf_id;
+                        frame_state.clip_tree.get_leaf(leaf_id).node_id
+                    });
 
                     frame_state.clip_tree.push_clip_root_node(clip_root);
                 }
@@ -285,21 +280,19 @@ pub fn update_prim_visibility(
                 frame_state.clip_tree,
             );
 
-            let clip_chain = frame_state
-                .clip_store
-                .build_clip_chain_instance(
-                    local_coverage_rect,
-                    &map_local_to_picture,
-                    &map_surface_to_world,
-                    &frame_context.spatial_tree,
-                    frame_state.gpu_cache,
-                    frame_state.resource_cache,
-                    device_pixel_scale,
-                    &world_culling_rect,
-                    &mut frame_state.data_stores.clip,
-                    frame_state.rg_builder,
-                    true,
-                );
+            let clip_chain = frame_state.clip_store.build_clip_chain_instance(
+                local_coverage_rect,
+                &map_local_to_picture,
+                &map_surface_to_world,
+                &frame_context.spatial_tree,
+                frame_state.gpu_cache,
+                frame_state.resource_cache,
+                device_pixel_scale,
+                &world_culling_rect,
+                &mut frame_state.data_stores.clip,
+                frame_state.rg_builder,
+                true,
+            );
 
             prim_instance.vis.clip_chain = match clip_chain {
                 Some(clip_chain) => clip_chain,

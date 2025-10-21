@@ -2,25 +2,31 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::{
+    cell::UnsafeCell,
+    ptr::NonNull,
+    sync::atomic::{AtomicI32, Ordering},
+};
+
 ///! A custom allocator for memory allocations that have the lifetime of a frame.
 ///!
 ///! See also `internal_types::FrameVec`.
 ///!
+use allocator_api2::alloc::{AllocError, Allocator, Global, Layout};
 
-use allocator_api2::alloc::{Allocator, AllocError, Layout, Global};
-
-use std::{cell::UnsafeCell, ptr::NonNull, sync::atomic::{AtomicI32, Ordering}};
-
-use crate::{bump_allocator::{BumpAllocator, Stats}, internal_types::{FrameId, FrameVec}};
+use crate::{
+    bump_allocator::{BumpAllocator, Stats},
+    internal_types::{FrameId, FrameVec},
+};
 
 /// A memory allocator for allocations that have the same lifetime as a built frame.
 ///
 /// A custom allocator is used because:
-/// - The frame is created on a thread and dropped on another thread, which causes
-///   lock contention in jemalloc.
-/// - Since all allocations have a very similar lifetime, we can implement much faster
-///   allocation and deallocation with a specialized allocator than can be achieved
-///   with a general purpose allocator.
+/// - The frame is created on a thread and dropped on another thread, which causes lock contention
+///   in jemalloc.
+/// - Since all allocations have a very similar lifetime, we can implement much faster allocation
+///   and deallocation with a specialized allocator than can be achieved with a general purpose
+///   allocator.
 ///
 /// If the allocator is created using `FrameAllocator::fallback()`, it is not
 /// attached to a `FrameMemory` and simply falls back to the global allocator. This
@@ -58,13 +64,13 @@ impl FrameAllocator {
     /// Creates a `FrameAllocator` that defaults to the global allocator.
     ///
     /// Should only be used for testing purposes or desrialization in wrench replays.
-	pub fn fallback() -> Self {
-		FrameAllocator {
-			inner: std::ptr::null_mut(),
+    pub fn fallback() -> Self {
+        FrameAllocator {
+            inner: std::ptr::null_mut(),
             #[cfg(debug_assertions)]
             frame_id: None,
         }
-	}
+    }
 
     /// Shorthand for creating a FrameVec.
     #[inline]
@@ -79,7 +85,10 @@ impl FrameAllocator {
     }
 
     #[inline]
-    fn allocate_impl(mem: *mut FrameInnerAllocator, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+    fn allocate_impl(
+        mem: *mut FrameInnerAllocator,
+        layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         unsafe {
             (*mem).live_alloc_count.fetch_add(1, Ordering::Relaxed);
             (*mem).bump.allocate_item(layout)
@@ -93,12 +102,22 @@ impl FrameAllocator {
     }
 
     #[inline]
-    unsafe fn grow_impl(mem: *mut FrameInnerAllocator, ptr: NonNull<u8>, old_layout: Layout, new_layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+    unsafe fn grow_impl(
+        mem: *mut FrameInnerAllocator,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         (*mem).bump.grow_item(ptr, old_layout, new_layout)
     }
 
     #[inline]
-    unsafe fn shrink_impl(mem: *mut FrameInnerAllocator, ptr: NonNull<u8>, old_layout: Layout, new_layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+    unsafe fn shrink_impl(
+        mem: *mut FrameInnerAllocator,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         (*mem).bump.shrink_item(ptr, old_layout, new_layout)
     }
 
@@ -116,7 +135,11 @@ impl FrameAllocator {
 
     #[cold]
     #[inline(never)]
-    fn grow_fallback(ptr: NonNull<u8>, old_layout: Layout, new_layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+    fn grow_fallback(
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         unsafe { Global.grow(ptr, old_layout, new_layout) }
     }
 
@@ -168,7 +191,7 @@ unsafe impl Send for FrameAllocator {}
 
 unsafe impl Allocator for FrameAllocator {
     #[inline(never)]
-	fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if self.inner.is_null() {
             return FrameAllocator::allocate_fallback(layout);
         }
@@ -176,7 +199,7 @@ unsafe impl Allocator for FrameAllocator {
         self.check_frame_id();
 
         FrameAllocator::allocate_impl(self.inner, layout)
-	}
+    }
 
     #[inline(never)]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
@@ -194,7 +217,7 @@ unsafe impl Allocator for FrameAllocator {
         &self,
         ptr: NonNull<u8>,
         old_layout: Layout,
-        new_layout: Layout
+        new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
         if self.inner.is_null() {
             return FrameAllocator::grow_fallback(ptr, old_layout, new_layout);
@@ -210,7 +233,7 @@ unsafe impl Allocator for FrameAllocator {
         &self,
         ptr: NonNull<u8>,
         old_layout: Layout,
-        new_layout: Layout
+        new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
         if self.inner.is_null() {
             return FrameAllocator::grow_fallback(ptr, old_layout, new_layout);
@@ -224,11 +247,12 @@ unsafe impl Allocator for FrameAllocator {
 
 #[cfg(feature = "capture")]
 impl serde::Serialize for FrameAllocator {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-	where S: serde::Serializer
-	{
-		().serialize(serializer)
-	}
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        ().serialize(serializer)
+    }
 }
 
 #[cfg(feature = "replay")]
@@ -237,8 +261,8 @@ impl<'de> serde::Deserialize<'de> for FrameAllocator {
     where
         D: serde::Deserializer<'de>,
     {
-		let _ = <() as serde::Deserialize>::deserialize(deserializer)?;
-		Ok(FrameAllocator::fallback())
+        let _ = <() as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(FrameAllocator::fallback())
     }
 }
 
@@ -264,7 +288,6 @@ pub struct FrameMemory {
     // Box would be nice but it is not adequate for this purpose because
     // it is "no-alias". So we do it the hard way and manage this pointer
     // manually.
-
     /// Safety: The pointed `FrameInnerAllocator` must not move or be deallocated
     /// while there are live `FrameAllocator`s pointing to it. This is ensured
     /// by respecting that the `FrameMemory` is dropped last and by the
@@ -287,7 +310,7 @@ impl FrameMemory {
     pub fn fallback() -> Self {
         FrameMemory {
             allocator: None,
-            references_created: UnsafeCell::new(0)
+            references_created: UnsafeCell::new(0),
         }
     }
 
@@ -300,7 +323,8 @@ impl FrameMemory {
         let layout = Layout::from_size_align(
             std::mem::size_of::<FrameInnerAllocator>(),
             std::mem::align_of::<FrameInnerAllocator>(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let uninit_u8 = Global.allocate(layout).unwrap();
 
@@ -348,7 +372,7 @@ impl FrameMemory {
     pub fn new_vec_with_capacity<T>(&self, cap: usize) -> FrameVec<T> {
         FrameVec::with_capacity_in(cap, self.allocator())
     }
-    
+
     /// Panics if there are still live allocations or `FrameAllocator`s.
     pub fn assert_memory_reusable(&self) {
         if let Some(ptr) = self.allocator {
@@ -358,7 +382,10 @@ impl FrameMemory {
                 // If this assert blows up, it means one or several FrameAllocators
                 // from the previous frame are still alive.
                 let references_created = *self.references_created.get();
-                assert_eq!(ptr.as_ref().references_dropped.load(Ordering::Acquire), references_created);
+                assert_eq!(
+                    ptr.as_ref().references_dropped.load(Ordering::Acquire),
+                    references_created
+                );
             }
         }
     }
@@ -383,7 +410,9 @@ impl FrameMemory {
     #[allow(unused)]
     pub fn get_stats(&self) -> Stats {
         unsafe {
-            self.allocator.map(|ptr| (*ptr.as_ptr()).bump.get_stats()).unwrap_or_else(Stats::default)
+            self.allocator
+                .map(|ptr| (*ptr.as_ptr()).bump.get_stats())
+                .unwrap_or_else(Stats::default)
         }
     }
 }
@@ -407,11 +436,12 @@ unsafe impl Send for FrameMemory {}
 
 #[cfg(feature = "capture")]
 impl serde::Serialize for FrameMemory {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-	where S: serde::Serializer
-	{
-		().serialize(serializer)
-	}
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        ().serialize(serializer)
+    }
 }
 
 #[cfg(feature = "replay")]
@@ -420,8 +450,8 @@ impl<'de> serde::Deserialize<'de> for FrameMemory {
     where
         D: serde::Deserializer<'de>,
     {
-		let _ = <() as serde::Deserialize>::deserialize(deserializer)?;
-		Ok(FrameMemory::fallback())
+        let _ = <() as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(FrameMemory::fallback())
     }
 }
 
@@ -434,7 +464,6 @@ struct FrameInnerAllocator {
     // Since the point of keeping track of the number of live allocations is to
     // check that the allocator is indeed used correctly, we stay on the safe
     // side for now.
-
     live_alloc_count: AtomicI32,
     /// We count the number of references dropped here and compare it against the
     /// number of references created by the `AllocatorMemory` when we need to check

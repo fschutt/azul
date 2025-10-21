@@ -2,7 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::{ops, marker::PhantomData, u32};
+use std::{marker::PhantomData, ops, u32};
+
 use crate::util::Recycler;
 
 #[derive(Debug, Hash)]
@@ -11,7 +12,9 @@ pub struct Index<T>(u32, PhantomData<T>);
 // We explicitly implement Copy + Clone instead of using #[derive(Copy, Clone)]
 // because we don't want to require that T implements Clone + Copy.
 impl<T> Clone for Index<T> {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<T> Copy for Index<T> {}
@@ -29,7 +32,7 @@ impl<T> Index<T> {
     }
 
     pub const INVALID: Index<T> = Index(u32::MAX, PhantomData);
-    pub const UNUSED: Index<T> = Index(u32::MAX-1, PhantomData);
+    pub const UNUSED: Index<T> = Index(u32::MAX - 1, PhantomData);
 }
 
 #[derive(Debug)]
@@ -47,7 +50,10 @@ pub struct Range<T> {
 // because we don't want to require that T implements Clone + Copy.
 impl<T> Clone for Range<T> {
     fn clone(&self) -> Self {
-        Range { start: self.start, end: self.end }
+        Range {
+            start: self.start,
+            end: self.end,
+        }
     }
 }
 impl<T> Copy for Range<T> {}
@@ -100,7 +106,7 @@ impl<T> Storage<T> {
         recycler.recycle_vec(&mut self.data);
     }
 
-    pub fn extend<II: IntoIterator<Item=T>>(&mut self, iter: II) -> Range<T> {
+    pub fn extend<II: IntoIterator<Item = T>>(&mut self, iter: II) -> Range<T> {
         let range = self.open_range();
         self.data.extend(iter);
 
@@ -109,7 +115,7 @@ impl<T> Storage<T> {
 
     pub fn open_range(&self) -> OpenRange<T> {
         OpenRange {
-            start: Index::new(self.data.len())
+            start: Index::new(self.data.len()),
         }
     }
 

@@ -2,24 +2,29 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, you can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::{
+    cmp,
+    hash::{Hash, Hasher},
+    mem,
+    ops::Deref,
+    sync::{Arc, Mutex, MutexGuard},
+};
+
 use api::{
     channel::crossbeam::{unbounded, Receiver, Sender},
+    units::*,
     ColorU, FontInstanceData, FontInstanceFlags, FontInstanceKey, FontInstanceOptions,
     FontInstancePlatformOptions, FontKey, FontRenderMode, FontSize, FontTemplate, FontVariation,
     GlyphDimensions, GlyphIndex, ImageFormat, SyntheticItalics,
 };
-use api::units::*;
-use crate::font::FontContext;
-use crate::types::{FastHashMap, FastHashSet};
 use azul_layout::font::parsed::ParsedFont;
-use rayon::prelude::*;
-use rayon::ThreadPool;
+use rayon::{prelude::*, ThreadPool};
 use smallvec::{smallvec, SmallVec};
-use std::cmp;
-use std::hash::{Hash, Hasher};
-use std::mem;
-use std::ops::Deref;
-use std::sync::{Arc, Mutex, MutexGuard};
+
+use crate::{
+    font::FontContext,
+    types::{FastHashMap, FastHashSet},
+};
 
 const GLYPH_BATCH_SIZE: usize = 32;
 
@@ -52,7 +57,12 @@ impl FontTransform {
     const QUANTIZE_SCALE: f32 = 1024.0;
 
     pub fn new(scale_x: f32, skew_x: f32, skew_y: f32, scale_y: f32) -> Self {
-        FontTransform { scale_x, skew_x, skew_y, scale_y }
+        FontTransform {
+            scale_x,
+            skew_x,
+            skew_y,
+            scale_y,
+        }
     }
 
     pub fn identity() -> Self {
@@ -81,6 +91,43 @@ impl FontTransform {
         } else {
             SubpixelDirection::Mixed
         }
+    }
+
+    /// Scale the transform by a factor
+    pub fn scale(&self, scale: f32) -> Self {
+        FontTransform::new(
+            self.scale_x * scale,
+            self.skew_x * scale,
+            self.skew_y * scale,
+            self.scale_y * scale,
+        )
+    }
+
+    /// Transform a point using this font transform
+    pub fn transform(
+        &self,
+        point: &euclid::Point2D<f32, api::units::LayoutPixel>,
+    ) -> euclid::Point2D<f32, api::units::DevicePixel> {
+        euclid::Point2D::new(
+            self.scale_x * point.x + self.skew_x * point.y,
+            self.skew_y * point.x + self.scale_y * point.y,
+        )
+    }
+}
+
+// Stub: Accept any transform-like type and convert to FontTransform
+impl<Src, Dst> From<euclid::Transform3D<f32, Src, Dst>> for FontTransform {
+    fn from(transform: euclid::Transform3D<f32, Src, Dst>) -> Self {
+        // Extract 2D affine components from 3D transform
+        FontTransform::new(transform.m11, transform.m21, transform.m12, transform.m22)
+    }
+}
+
+// Also support borrowed transforms
+impl<Src, Dst> From<&euclid::Transform3D<f32, Src, Dst>> for FontTransform {
+    fn from(transform: &euclid::Transform3D<f32, Src, Dst>) -> Self {
+        // Extract 2D affine components from 3D transform
+        FontTransform::new(transform.m11, transform.m21, transform.m12, transform.m22)
     }
 }
 
@@ -136,11 +183,11 @@ impl Hash for BaseFontInstance {
 
 impl PartialEq for BaseFontInstance {
     fn eq(&self, other: &BaseFontInstance) -> bool {
-        self.font_key == other.font_key &&
-            self.size == other.size &&
-            self.options == other.options &&
-            self.platform_options == other.platform_options &&
-            self.variations == other.variations
+        self.font_key == other.font_key
+            && self.size == other.size
+            && self.options == other.options
+            && self.platform_options == other.platform_options
+            && self.variations == other.variations
     }
 }
 impl Eq for BaseFontInstance {}
@@ -170,12 +217,12 @@ impl Hash for FontInstance {
 
 impl PartialEq for FontInstance {
     fn eq(&self, other: &FontInstance) -> bool {
-        self.base.instance_key == other.base.instance_key &&
-            self.transform == other.transform &&
-            self.render_mode == other.render_mode &&
-            self.flags == other.flags &&
-            self.color == other.color &&
-            self.size == other.size
+        self.base.instance_key == other.base.instance_key
+            && self.transform == other.transform
+            && self.render_mode == other.render_mode
+            && self.flags == other.flags
+            && self.color == other.color
+            && self.size == other.size
     }
 }
 impl Eq for FontInstance {}
@@ -204,9 +251,7 @@ impl FontInstance {
         }
     }
 
-    pub fn from_base(
-        base: Arc<BaseFontInstance>,
-    ) -> Self {
+    pub fn from_base(base: Arc<BaseFontInstance>) -> Self {
         let color = ColorU::new(0, 0, 0, 255);
         let render_mode = base.render_mode;
         let flags = base.flags;
@@ -214,8 +259,8 @@ impl FontInstance {
     }
 
     pub fn use_subpixel_position(&self) -> bool {
-        self.flags.contains(FontInstanceFlags::SUBPIXEL_POSITION) &&
-        self.render_mode != FontRenderMode::Mono
+        self.flags.contains(FontInstanceFlags::SUBPIXEL_POSITION)
+            && self.render_mode != FontRenderMode::Mono
     }
 
     pub fn get_subpx_offset(&self, glyph: &GlyphKey) -> (f64, f64) {
@@ -226,6 +271,27 @@ impl FontInstance {
             (0.0, 0.0)
         }
     }
+
+    /// Get the subpixel direction (stub for anti-aliasing)
+    pub fn get_subpx_dir(&self) -> SubpixelDirection {
+        if !self.use_subpixel_position() {
+            SubpixelDirection::None
+        } else {
+            // Default to horizontal subpixel rendering
+            SubpixelDirection::Horizontal
+        }
+    }
+
+    /// Disable subpixel AA (stub - modifies flags)
+    pub fn disable_subpixel_aa(&mut self) {
+        self.flags.remove(FontInstanceFlags::SUBPIXEL_POSITION);
+        self.flags.remove(FontInstanceFlags::LCD_VERTICAL);
+    }
+
+    /// Disable subpixel positioning (stub - modifies flags)
+    pub fn disable_subpixel_position(&mut self) {
+        self.flags.remove(FontInstanceFlags::SUBPIXEL_POSITION);
+    }
 }
 
 #[repr(u32)]
@@ -235,6 +301,18 @@ pub enum SubpixelDirection {
     Horizontal,
     Vertical,
     Mixed,
+}
+
+impl SubpixelDirection {
+    /// Limit subpixel direction based on glyph format
+    pub fn limit_by(self, glyph_format: GlyphFormat) -> Self {
+        match glyph_format {
+            GlyphFormat::TransformedAlpha | GlyphFormat::TransformedSubpixel => {
+                SubpixelDirection::None
+            }
+            _ => self,
+        }
+    }
 }
 
 #[repr(u8)]
@@ -306,22 +384,26 @@ impl GlyphKey {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum GlyphFormat {
     Alpha,
-    Subpixel, // Note: Not implemented by azul backend, will fall back to Alpha
-    Bitmap,   // Note: Not implemented by azul backend, will fall back to Alpha
-    ColorBitmap, // Note: Not implemented by azul backend, will fall back to Alpha
+    Subpixel,            // Note: Not implemented by azul backend, will fall back to Alpha
+    Bitmap,              // Note: Not implemented by azul backend, will fall back to Alpha
+    ColorBitmap,         // Note: Not implemented by azul backend, will fall back to Alpha
+    TransformedAlpha,    // Transformed/rotated glyphs with alpha
+    TransformedSubpixel, // Transformed/rotated glyphs with subpixel AA
 }
 
 impl GlyphFormat {
     pub fn image_format(&self, can_use_r8_format: bool) -> ImageFormat {
         match *self {
-            GlyphFormat::Alpha | GlyphFormat::Bitmap => {
+            GlyphFormat::Alpha | GlyphFormat::Bitmap | GlyphFormat::TransformedAlpha => {
                 if can_use_r8_format {
                     ImageFormat::R8
                 } else {
                     ImageFormat::BGRA8
                 }
             }
-            GlyphFormat::Subpixel | GlyphFormat::ColorBitmap => ImageFormat::BGRA8,
+            GlyphFormat::Subpixel | GlyphFormat::ColorBitmap | GlyphFormat::TransformedSubpixel => {
+                ImageFormat::BGRA8
+            }
         }
     }
 }
@@ -430,7 +512,7 @@ impl GlyphRasterizer {
     pub fn delete_font(&mut self, font_key: FontKey) {
         self.fonts_to_remove.push(font_key);
     }
-    
+
     pub fn delete_font_instance(&mut self, instance: &FontInstance) {
         self.font_instances_to_remove.push(instance.clone());
     }
@@ -450,11 +532,17 @@ impl GlyphRasterizer {
         glyph_index: GlyphIndex,
     ) -> Option<GlyphDimensions> {
         let glyph_key = GlyphKey::new(glyph_index, DevicePoint::zero(), SubpixelDirection::None);
-        self.font_contexts[0].lock().unwrap().get_glyph_dimensions(font, &glyph_key)
+        self.font_contexts[0]
+            .lock()
+            .unwrap()
+            .get_glyph_dimensions(font, &glyph_key)
     }
 
     pub fn get_glyph_index(&self, font_key: FontKey, ch: char) -> Option<u32> {
-        self.font_contexts[0].lock().unwrap().get_glyph_index(font_key, ch)
+        self.font_contexts[0]
+            .lock()
+            .unwrap()
+            .get_glyph_index(font_key, ch)
     }
 
     fn flush_glyph_requests(
@@ -487,14 +575,17 @@ impl GlyphRasterizer {
             }
         }
     }
-    
+
     pub fn request_glyphs<F>(&mut self, font: FontInstance, glyph_keys: &[GlyphKey], mut handle: F)
-    where F: FnMut(&GlyphKey) -> bool
+    where
+        F: FnMut(&GlyphKey) -> bool,
     {
         assert!(self.has_font(font.font_key));
         let mut batch_size = 0;
         for key in glyph_keys {
-            if !handle(key) { continue; }
+            if !handle(key) {
+                continue;
+            }
             self.pending_glyph_count += 1;
             match self.pending_glyph_requests.get_mut(&font) {
                 Some(container) => {
@@ -502,7 +593,8 @@ impl GlyphRasterizer {
                     batch_size = container.len();
                 }
                 None => {
-                    self.pending_glyph_requests.insert(font.clone(), smallvec![*key]);
+                    self.pending_glyph_requests
+                        .insert(font.clone(), smallvec![*key]);
                 }
             }
         }
@@ -514,7 +606,8 @@ impl GlyphRasterizer {
     }
 
     pub fn resolve_glyphs<F, G>(&mut self, mut handle: F)
-    where F: FnMut(GlyphRasterJob, bool)
+    where
+        F: FnMut(GlyphRasterJob, bool),
     {
         let mut pending_glyph_requests = mem::take(&mut self.pending_glyph_requests);
         let use_workers = self.pending_glyph_count >= 8;
@@ -524,25 +617,35 @@ impl GlyphRasterizer {
         self.pending_glyph_requests = pending_glyph_requests;
         debug_assert_eq!(self.pending_glyph_count, 0);
 
-        let mut jobs = self.glyph_rx.iter().take(self.pending_glyph_jobs).collect::<Vec<_>>();
-        assert_eq!(jobs.len(), self.pending_glyph_jobs, "Didn't receive all pending glyphs!");
+        let mut jobs = self
+            .glyph_rx
+            .iter()
+            .take(self.pending_glyph_jobs)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            jobs.len(),
+            self.pending_glyph_jobs,
+            "Didn't receive all pending glyphs!"
+        );
         self.pending_glyph_jobs = 0;
-        
+
         jobs.sort_by(|a, b| (*a.font).cmp(&*b.font).then(a.key.cmp(&b.key)));
 
         for job in jobs {
             handle(job, self.can_use_r8_format);
         }
-        
+
         self.remove_dead_fonts();
     }
-    
+
     fn remove_dead_fonts(&mut self) {
-        if self.fonts_to_remove.is_empty() && self.font_instances_to_remove.is_empty() { return; }
-        
+        if self.fonts_to_remove.is_empty() && self.font_instances_to_remove.is_empty() {
+            return;
+        }
+
         let mut fonts_to_remove = mem::take(&mut self.fonts_to_remove);
         fonts_to_remove.retain(|font| self.fonts.remove(font));
-        
+
         for context_mutex in self.font_contexts.iter() {
             let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
             for font_key in &fonts_to_remove {
@@ -565,7 +668,8 @@ fn process_glyph(
         // The azul backend produces an alpha mask (Vec<u8>), so we need to convert it
         // to the format WebRender expects.
         if glyph.format.image_format(can_use_r8_format) == ImageFormat::BGRA8 {
-            glyph.bytes = glyph.bytes
+            glyph.bytes = glyph
+                .bytes
                 .iter()
                 .flat_map(|&alpha| [alpha, alpha, alpha, alpha])
                 .collect();

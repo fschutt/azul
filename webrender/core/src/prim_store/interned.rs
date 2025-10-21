@@ -4,11 +4,12 @@
 
 // list of all interned primitives to match enumerate_interners!
 
-pub use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
-pub use crate::prim_store::borders::{ImageBorder, NormalBorderPrim};
-pub use crate::prim_store::image::{Image, YuvImage};
-pub use crate::prim_store::line_dec::{LineDecoration};
-pub use crate::prim_store::gradient::{LinearGradient, RadialGradient, ConicGradient};
-pub use crate::prim_store::picture::Picture;
-pub use crate::prim_store::text_run::TextRun;
-
+pub use crate::prim_store::{
+    backdrop::{BackdropCapture, BackdropRender},
+    borders::{ImageBorder, NormalBorderPrim},
+    gradient::{ConicGradient, LinearGradient, RadialGradient},
+    image::{Image, YuvImage},
+    line_dec::LineDecoration,
+    picture::Picture,
+    text_run::TextRun,
+};

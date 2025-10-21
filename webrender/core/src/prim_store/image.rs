@@ -3,34 +3,32 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorDepth, ColorF, ColorU, ExternalImageType,
-    ImageKey as ApiImageKey, ImageBufferKind, ImageRendering, PremultipliedColorF,
-    RasterSpace, Shadow, YuvColorSpace, ColorRange, YuvFormat,
+    units::*, AlphaType, ColorDepth, ColorF, ColorRange, ColorU, ExternalImageType,
+    ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, RasterSpace,
+    Shadow, YuvColorSpace, YuvFormat,
 };
-use api::units::*;
-use crate::composite::CompositorSurfaceKind;
-use crate::scene_building::{CreateShadow, IsVisible};
-use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
-use crate::gpu_cache::{GpuCache, GpuDataRequest};
-use crate::intern::{Internable, InternDebug, Handle as InternHandle};
-use crate::internal_types::LayoutPrimitiveInfo;
-use crate::prim_store::{
-    EdgeAaSegmentMask, PrimitiveInstanceKind,
-    PrimitiveOpacity, PrimKey,
-    PrimTemplate, PrimTemplateCommonData, PrimitiveStore, SegmentInstanceIndex,
-    SizeKey, InternablePrimitive,
+
+use crate::{
+    composite::CompositorSurfaceKind,
+    frame_builder::{FrameBuildingContext, FrameBuildingState},
+    gpu_cache::{GpuCache, GpuDataRequest},
+    image_tiling,
+    intern::{Handle as InternHandle, InternDebug, Internable},
+    internal_types::LayoutPrimitiveInfo,
+    prim_store::{
+        EdgeAaSegmentMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData,
+        PrimitiveInstanceKind, PrimitiveOpacity, PrimitiveStore, SegmentInstanceIndex, SizeKey,
+    },
+    render_target::RenderTargetKind,
+    render_task::RenderTask,
+    render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent},
+    render_task_graph::RenderTaskId,
+    resource_cache::{ImageProperties, ImageRequest, ResourceCache},
+    scene_building::{CreateShadow, IsVisible},
+    spatial_tree::SpatialNodeIndex,
+    util::pack_as_float,
+    visibility::{compute_conservative_visible_rect, PrimitiveVisibility},
 };
-use crate::render_target::RenderTargetKind;
-use crate::render_task_graph::RenderTaskId;
-use crate::render_task::RenderTask;
-use crate::render_task_cache::{
-    RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent
-};
-use crate::resource_cache::{ImageRequest, ImageProperties, ResourceCache};
-use crate::util::pack_as_float;
-use crate::visibility::{PrimitiveVisibility, compute_conservative_visible_rect};
-use crate::spatial_tree::SpatialNodeIndex;
-use crate::image_tiling;
 
 #[derive(Debug)]
 pub struct VisibleImageTile {
@@ -82,10 +80,7 @@ pub struct Image {
 pub type ImageKey = PrimKey<Image>;
 
 impl ImageKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        image: Image,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, image: Image) -> Self {
         ImageKey {
             common: info.into(),
             kind: image,
@@ -132,10 +127,7 @@ impl ImageData {
         frame_context: &FrameBuildingContext,
         visibility: &mut PrimitiveVisibility,
     ) {
-
-        let image_properties = frame_state
-            .resource_cache
-            .get_image_properties(self.key);
+        let image_properties = frame_state.resource_cache.get_image_properties(self.key);
 
         common.opacity = match &image_properties {
             Some(properties) => {
@@ -148,9 +140,9 @@ impl ImageData {
             None => PrimitiveOpacity::opaque(),
         };
 
-        if self.stretch_size.width >= common.prim_rect.width() &&
-            self.stretch_size.height >= common.prim_rect.height() {
-
+        if self.stretch_size.width >= common.prim_rect.width()
+            && self.stretch_size.height >= common.prim_rect.height()
+        {
             common.may_need_repetition = false;
         }
 
@@ -162,22 +154,27 @@ impl ImageData {
 
         match image_properties {
             // Non-tiled (most common) path.
-            Some(ImageProperties { tiling: None, ref descriptor, ref external_image, .. }) => {
-                let mut size = frame_state.resource_cache.request_image(
-                    request,
-                    frame_state.gpu_cache,
-                );
+            Some(ImageProperties {
+                tiling: None,
+                ref descriptor,
+                ref external_image,
+                ..
+            }) => {
+                let mut size = frame_state
+                    .resource_cache
+                    .request_image(request, frame_state.gpu_cache);
 
-                let mut task_id = frame_state.rg_builder.add().init(
-                    RenderTask::new_image(size, request)
-                );
+                let mut task_id = frame_state
+                    .rg_builder
+                    .add()
+                    .init(RenderTask::new_image(size, request));
 
                 if let Some(external_image) = external_image {
                     // On some devices we cannot render from an ImageBufferKind::TextureExternal
                     // source using most shaders, so must peform a copy to a regular texture first.
-                    let requires_copy = frame_context.fb_config.external_images_require_copy &&
-                        external_image.image_type ==
-                            ExternalImageType::TextureHandle(ImageBufferKind::TextureExternal);
+                    let requires_copy = frame_context.fb_config.external_images_require_copy
+                        && external_image.image_type
+                            == ExternalImageType::TextureHandle(ImageBufferKind::TextureExternal);
 
                     if requires_copy {
                         let target_kind = if descriptor.format.bytes_per_pixel() == 1 {
@@ -190,13 +187,12 @@ impl ImageData {
                             task_id,
                             frame_state.rg_builder,
                             target_kind,
-                            size
+                            size,
                         );
 
-                        frame_state.surface_builder.add_child_render_task(
-                            task_id,
-                            frame_state.rg_builder,
-                        );
+                        frame_state
+                            .surface_builder
+                            .add_child_render_task(task_id, frame_state.rg_builder);
                     }
 
                     // Ensure the instance is rendered using normalized_uvs if the external image
@@ -217,8 +213,10 @@ impl ImageData {
                 } else {
                     let padding = DeviceIntSideOffsets::new(
                         0,
-                        (self.tile_spacing.width * size.width as f32 / self.stretch_size.width) as i32,
-                        (self.tile_spacing.height * size.height as f32 / self.stretch_size.height) as i32,
+                        (self.tile_spacing.width * size.width as f32 / self.stretch_size.width)
+                            as i32,
+                        (self.tile_spacing.height * size.height as f32 / self.stretch_size.height)
+                            as i32,
                         0,
                     );
 
@@ -273,14 +271,18 @@ impl ImageData {
                                 size.into(),
                                 rg_builder,
                             )
-                        }
+                        },
                     );
 
                     image_instance.src_color = Some(cached_task_handle);
                 }
             }
             // Tiled image path.
-            Some(ImageProperties { tiling: Some(tile_size), visible_rect, .. }) => {
+            Some(ImageProperties {
+                tiling: Some(tile_size),
+                visible_rect,
+                ..
+            }) => {
                 // we'll  have a source handle per visible tile instead.
                 image_instance.src_color = None;
 
@@ -296,7 +298,8 @@ impl ImageData {
                 let tight_clip_rect = visibility
                     .clip_chain
                     .local_clip_rect
-                    .intersection(&common.prim_rect).unwrap();
+                    .intersection(&common.prim_rect)
+                    .unwrap();
                 image_instance.tight_local_clip_rect = tight_clip_rect;
 
                 let visible_rect = compute_conservative_visible_rect(
@@ -314,19 +317,14 @@ impl ImageData {
                 // have it in the shader.
                 common.may_need_repetition = false;
 
-                let repetitions = image_tiling::repetitions(
-                    &common.prim_rect,
-                    &visible_rect,
-                    stride,
-                );
+                let repetitions =
+                    image_tiling::repetitions(&common.prim_rect, &visible_rect, stride);
 
                 for image_tiling::Repetition { origin, edge_flags } in repetitions {
                     let edge_flags = base_edge_flags | edge_flags;
 
-                    let layout_image_rect = LayoutRect::from_origin_and_size(
-                        origin,
-                        self.stretch_size,
-                    );
+                    let layout_image_rect =
+                        LayoutRect::from_origin_and_size(origin, self.stretch_size);
 
                     let tiles = image_tiling::tiles(
                         &layout_image_rect,
@@ -337,14 +335,14 @@ impl ImageData {
 
                     for tile in tiles {
                         let request = request.with_tile(tile.offset);
-                        let size = frame_state.resource_cache.request_image(
-                            request,
-                            frame_state.gpu_cache,
-                        );
+                        let size = frame_state
+                            .resource_cache
+                            .request_image(request, frame_state.gpu_cache);
 
-                        let task_id = frame_state.rg_builder.add().init(
-                            RenderTask::new_image(size, request)
-                        );
+                        let task_id = frame_state
+                            .rg_builder
+                            .add()
+                            .init(RenderTask::new_image(size, request));
 
                         image_instance.visible_tiles.push(VisibleImageTile {
                             src_color: task_id,
@@ -421,10 +419,7 @@ impl Internable for Image {
 }
 
 impl InternablePrimitive for Image {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> ImageKey {
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> ImageKey {
         ImageKey::new(info, self)
     }
 
@@ -452,12 +447,7 @@ impl InternablePrimitive for Image {
 }
 
 impl CreateShadow for Image {
-    fn create_shadow(
-        &self,
-        shadow: &Shadow,
-        _: bool,
-        _: RasterSpace,
-    ) -> Self {
+    fn create_shadow(&self, shadow: &Shadow, _: bool, _: RasterSpace) -> Self {
         Image {
             tile_spacing: self.tile_spacing,
             stretch_size: self.stretch_size,
@@ -490,10 +480,7 @@ pub struct YuvImage {
 pub type YuvImageKey = PrimKey<YuvImage>;
 
 impl YuvImageKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        yuv_image: YuvImage,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, yuv_image: YuvImage) -> Self {
         YuvImageKey {
             common: info.into(),
             kind: yuv_image,
@@ -502,7 +489,6 @@ impl YuvImageKey {
 }
 
 impl InternDebug for YuvImageKey {}
-
 
 pub struct YuvImageData {
     pub color_depth: ColorDepth,
@@ -538,26 +524,25 @@ impl YuvImageData {
         common: &mut PrimTemplateCommonData,
         frame_state: &mut FrameBuildingState,
     ) {
-
-        self.src_yuv = [ None, None, None ];
+        self.src_yuv = [None, None, None];
 
         let channel_num = self.format.get_plane_num();
         debug_assert!(channel_num <= 3);
-        for channel in 0 .. channel_num {
+        for channel in 0..channel_num {
             let request = ImageRequest {
                 key: self.yuv_key[channel],
                 rendering: self.image_rendering,
                 tile: None,
             };
 
-            let size = frame_state.resource_cache.request_image(
-                request,
-                frame_state.gpu_cache,
-            );
+            let size = frame_state
+                .resource_cache
+                .request_image(request, frame_state.gpu_cache);
 
-            let task_id = frame_state.rg_builder.add().init(
-                RenderTask::new_image(size, request)
-            );
+            let task_id = frame_state
+                .rg_builder
+                .add()
+                .init(RenderTask::new_image(size, request));
 
             self.src_yuv[channel] = Some(task_id);
         }
@@ -577,7 +562,7 @@ impl YuvImageData {
     ) {
         let channel_num = self.format.get_plane_num();
         debug_assert!(channel_num <= 3);
-        for channel in 0 .. channel_num {
+        for channel in 0..channel_num {
             resource_cache.request_image(
                 ImageRequest {
                     key: self.yuv_key[channel],
@@ -595,7 +580,7 @@ impl YuvImageData {
             pack_as_float(self.color_depth.bit_depth()),
             pack_as_float(ranged_color_space as u32),
             pack_as_float(self.format as u32),
-            0.0
+            0.0,
         ]);
     }
 }
@@ -623,10 +608,7 @@ impl Internable for YuvImage {
 }
 
 impl InternablePrimitive for YuvImage {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> YuvImageKey {
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> YuvImageKey {
         YuvImageKey::new(info, self)
     }
 
@@ -660,9 +642,21 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<Image>(), 32, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 72, "ImageTemplate size changed");
+    assert_eq!(
+        mem::size_of::<ImageTemplate>(),
+        72,
+        "ImageTemplate size changed"
+    );
     assert_eq!(mem::size_of::<ImageKey>(), 52, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
-    assert_eq!(mem::size_of::<YuvImageTemplate>(), 84, "YuvImageTemplate size changed");
-    assert_eq!(mem::size_of::<YuvImageKey>(), 52, "YuvImageKey size changed");
+    assert_eq!(
+        mem::size_of::<YuvImageTemplate>(),
+        84,
+        "YuvImageTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<YuvImageKey>(),
+        52,
+        "YuvImageKey size changed"
+    );
 }

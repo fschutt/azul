@@ -13,9 +13,10 @@
 //! in the context of coordinate systems.
 
 pub use app_units::Au;
-use euclid::{Length, Rect, Scale, Size2D, Transform3D, Translation2D};
-use euclid::{Point2D, Point3D, Vector2D, Vector3D, SideOffsets2D, Box2D};
-use euclid::HomogeneousVector;
+use euclid::{
+    Box2D, HomogeneousVector, Length, Point2D, Point3D, Rect, Scale, SideOffsets2D, Size2D,
+    Transform3D, Translation2D, Vector2D, Vector3D,
+};
 
 // local imports
 use crate::image::DirtyRect;
@@ -195,55 +196,37 @@ pub trait AuHelpers<T> {
 
 impl AuHelpers<LayoutSizeAu> for LayoutSize {
     fn from_au(size: LayoutSizeAu) -> Self {
-        LayoutSize::new(
-            size.width.to_f32_px(),
-            size.height.to_f32_px(),
-        )
+        LayoutSize::new(size.width.to_f32_px(), size.height.to_f32_px())
     }
 
     fn to_au(&self) -> LayoutSizeAu {
         let width = self.width.min(2.0 * MAX_AU_FLOAT);
         let height = self.height.min(2.0 * MAX_AU_FLOAT);
 
-        LayoutSizeAu::new(
-            Au::from_f32_px(width),
-            Au::from_f32_px(height),
-        )
+        LayoutSizeAu::new(Au::from_f32_px(width), Au::from_f32_px(height))
     }
 }
 
 impl AuHelpers<LayoutVector2DAu> for LayoutVector2D {
     fn from_au(size: LayoutVector2DAu) -> Self {
-        LayoutVector2D::new(
-            size.x.to_f32_px(),
-            size.y.to_f32_px(),
-        )
+        LayoutVector2D::new(size.x.to_f32_px(), size.y.to_f32_px())
     }
 
     fn to_au(&self) -> LayoutVector2DAu {
-        LayoutVector2DAu::new(
-            Au::from_f32_px(self.x),
-            Au::from_f32_px(self.y),
-        )
+        LayoutVector2DAu::new(Au::from_f32_px(self.x), Au::from_f32_px(self.y))
     }
 }
 
 impl AuHelpers<LayoutPointAu> for LayoutPoint {
     fn from_au(point: LayoutPointAu) -> Self {
-        LayoutPoint::new(
-            point.x.to_f32_px(),
-            point.y.to_f32_px(),
-        )
+        LayoutPoint::new(point.x.to_f32_px(), point.y.to_f32_px())
     }
 
     fn to_au(&self) -> LayoutPointAu {
         let x = self.x.min(MAX_AU_FLOAT).max(-MAX_AU_FLOAT);
         let y = self.y.min(MAX_AU_FLOAT).max(-MAX_AU_FLOAT);
 
-        LayoutPointAu::new(
-            Au::from_f32_px(x),
-            Au::from_f32_px(y),
-        )
+        LayoutPointAu::new(Au::from_f32_px(x), Au::from_f32_px(y))
     }
 }
 

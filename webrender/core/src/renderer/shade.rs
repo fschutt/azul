@@ -2,27 +2,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ImageBufferKind, units::DeviceSize};
-use crate::batch::{BatchKey, BatchKind, BrushBatchKind, BatchFeatures};
-use crate::composite::{CompositeFeatures, CompositeSurfaceFormat};
-use crate::device::{Device, Program, ShaderError};
-use crate::pattern::PatternKind;
+use std::{cell::RefCell, rc::Rc};
+
+use api::{units::DeviceSize, ImageBufferKind};
 use euclid::default::Transform3D;
-use glyph_rasterizer::GlyphFormat;
-use crate::renderer::{
-    desc,
-    BlendMode, DebugFlags, RendererError, WebRenderOptions,
-    TextureSampler, VertexArrayKind, ShaderPrecacheFlags,
-};
-use crate::profiler::{self, TransactionProfile, ns_to_ms};
-
 use gleam::gl::GlType;
+use glyph_rasterizer::GlyphFormat;
 use time::precise_time_ns;
+use webrender_build::shader::{get_shader_features, ShaderFeatureFlags, ShaderFeatures};
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use webrender_build::shader::{ShaderFeatures, ShaderFeatureFlags, get_shader_features};
+use crate::{
+    batch::{BatchFeatures, BatchKey, BatchKind, BrushBatchKind},
+    composite::{CompositeFeatures, CompositeSurfaceFormat},
+    device::{Device, Program, ShaderError},
+    pattern::PatternKind,
+    profiler::{self, ns_to_ms, TransactionProfile},
+    renderer::{
+        desc, BlendMode, DebugFlags, RendererError, ShaderPrecacheFlags, TextureSampler,
+        VertexArrayKind, WebRenderOptions,
+    },
+};
 
 /// Which extension version to use for texture external support.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -34,12 +33,17 @@ enum TextureExternalVersion {
     ESSL1,
 }
 
-fn get_feature_string(kind: ImageBufferKind, texture_external_version: TextureExternalVersion) -> &'static str {
+fn get_feature_string(
+    kind: ImageBufferKind,
+    texture_external_version: TextureExternalVersion,
+) -> &'static str {
     match (kind, texture_external_version) {
         (ImageBufferKind::Texture2D, _) => "TEXTURE_2D",
         (ImageBufferKind::TextureRect, _) => "TEXTURE_RECT",
         (ImageBufferKind::TextureExternal, TextureExternalVersion::ESSL3) => "TEXTURE_EXTERNAL",
-        (ImageBufferKind::TextureExternal, TextureExternalVersion::ESSL1) => "TEXTURE_EXTERNAL_ESSL1",
+        (ImageBufferKind::TextureExternal, TextureExternalVersion::ESSL1) => {
+            "TEXTURE_EXTERNAL_ESSL1"
+        }
         (ImageBufferKind::TextureExternalBT709, _) => "TEXTURE_EXTERNAL_BT709",
     }
 }
@@ -51,7 +55,9 @@ fn has_platform_support(kind: ImageBufferKind, device: &Device) -> bool {
         (ImageBufferKind::TextureRect, GlType::Gl) => true,
         (ImageBufferKind::TextureExternal, GlType::Gles) => true,
         (ImageBufferKind::TextureExternal, GlType::Gl) => false,
-        (ImageBufferKind::TextureExternalBT709, GlType::Gles) => device.supports_extension("GL_EXT_YUV_target"),
+        (ImageBufferKind::TextureExternalBT709, GlType::Gles) => {
+            device.supports_extension("GL_EXT_YUV_target")
+        }
         (ImageBufferKind::TextureExternalBT709, GlType::Gl) => false,
     }
 }
@@ -105,7 +111,6 @@ impl LazilyCompiledShader {
         shader_list: &ShaderFeatures,
         profile: &mut TransactionProfile,
     ) -> Result<Self, ShaderError> {
-
         let mut features = unsorted_features.to_vec();
         features.sort();
 
@@ -129,11 +134,14 @@ impl LazilyCompiledShader {
             features,
         };
 
-        if precache_flags.intersects(ShaderPrecacheFlags::ASYNC_COMPILE | ShaderPrecacheFlags::FULL_COMPILE) {
+        if precache_flags
+            .intersects(ShaderPrecacheFlags::ASYNC_COMPILE | ShaderPrecacheFlags::FULL_COMPILE)
+        {
             let t0 = precise_time_ns();
             shader.get_internal(device, precache_flags, profile)?;
             let t1 = precise_time_ns();
-            debug!("[C: {:.1} ms ] Precache {} {:?}",
+            debug!(
+                "[C: {:.1} ms ] Precache {} {:?}",
                 (t1 - t0) as f64 / 1000000.0,
                 name,
                 unsorted_features
@@ -179,48 +187,17 @@ impl LazilyCompiledShader {
         if self.program.is_none() {
             let start_time = precise_time_ns();
             let program = match self.kind {
-                ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text | ShaderKind::Resolve | ShaderKind::Clear | ShaderKind::Copy => {
-                    create_prim_shader(
-                        self.name,
-                        device,
-                        &self.features,
-                    )
-                }
-                ShaderKind::Cache(..) => {
-                    create_prim_shader(
-                        self.name,
-                        device,
-                        &self.features,
-                    )
-                }
-                ShaderKind::VectorStencil => {
-                    create_prim_shader(
-                        self.name,
-                        device,
-                        &self.features,
-                    )
-                }
-                ShaderKind::VectorCover => {
-                    create_prim_shader(
-                        self.name,
-                        device,
-                        &self.features,
-                    )
-                }
-                ShaderKind::Composite => {
-                    create_prim_shader(
-                        self.name,
-                        device,
-                        &self.features,
-                    )
-                }
-                ShaderKind::ClipCache(..) => {
-                    create_clip_shader(
-                        self.name,
-                        device,
-                        &self.features,
-                    )
-                }
+                ShaderKind::Primitive
+                | ShaderKind::Brush
+                | ShaderKind::Text
+                | ShaderKind::Resolve
+                | ShaderKind::Clear
+                | ShaderKind::Copy => create_prim_shader(self.name, device, &self.features),
+                ShaderKind::Cache(..) => create_prim_shader(self.name, device, &self.features),
+                ShaderKind::VectorStencil => create_prim_shader(self.name, device, &self.features),
+                ShaderKind::VectorCover => create_prim_shader(self.name, device, &self.features),
+                ShaderKind::Composite => create_prim_shader(self.name, device, &self.features),
+                ShaderKind::ClipCache(..) => create_clip_shader(self.name, device, &self.features),
             };
             self.program = Some(program?);
 
@@ -234,9 +211,9 @@ impl LazilyCompiledShader {
             let start_time = precise_time_ns();
 
             let vertex_format = match self.kind {
-                ShaderKind::Primitive |
-                ShaderKind::Brush |
-                ShaderKind::Text => VertexArrayKind::Primitive,
+                ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
+                    VertexArrayKind::Primitive
+                }
                 ShaderKind::Cache(format) => format,
                 ShaderKind::VectorStencil => VertexArrayKind::VectorStencil,
                 ShaderKind::VectorCover => VertexArrayKind::VectorCover,
@@ -437,34 +414,35 @@ impl BrushShader {
         })
     }
 
-    fn get(&mut self, blend_mode: BlendMode, features: BatchFeatures, debug_flags: DebugFlags)
-           -> &mut LazilyCompiledShader {
+    fn get(
+        &mut self,
+        blend_mode: BlendMode,
+        features: BatchFeatures,
+        debug_flags: DebugFlags,
+    ) -> &mut LazilyCompiledShader {
         match blend_mode {
             _ if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) => &mut self.debug_overdraw,
             BlendMode::None => &mut self.opaque,
-            BlendMode::Alpha |
-            BlendMode::PremultipliedAlpha |
-            BlendMode::PremultipliedDestOut |
-            BlendMode::Screen |
-            BlendMode::PlusLighter |
-            BlendMode::Exclusion => {
+            BlendMode::Alpha
+            | BlendMode::PremultipliedAlpha
+            | BlendMode::PremultipliedDestOut
+            | BlendMode::Screen
+            | BlendMode::PlusLighter
+            | BlendMode::Exclusion => {
                 if features.contains(BatchFeatures::ALPHA_PASS) {
                     &mut self.alpha
                 } else {
                     &mut self.opaque
                 }
             }
-            BlendMode::Advanced(_) => {
-                self.advanced_blend
-                    .as_mut()
-                    .expect("bug: no advanced blend shader loaded")
-            }
-            BlendMode::SubpixelDualSource |
-            BlendMode::MultiplyDualSource => {
-                self.dual_source
-                    .as_mut()
-                    .expect("bug: no dual source shader loaded")
-            }
+            BlendMode::Advanced(_) => self
+                .advanced_blend
+                .as_mut()
+                .expect("bug: no advanced blend shader loaded"),
+            BlendMode::SubpixelDualSource | BlendMode::MultiplyDualSource => self
+                .dual_source
+                .as_mut()
+                .expect("bug: no dual source shader loaded"),
         }
     }
 
@@ -539,7 +517,11 @@ impl TextShader {
             profile,
         )?;
 
-        Ok(TextShader { simple, glyph_transform, debug_overdraw })
+        Ok(TextShader {
+            simple,
+            glyph_transform,
+            debug_overdraw,
+        })
     }
 
     pub fn get(
@@ -549,12 +531,13 @@ impl TextShader {
     ) -> &mut LazilyCompiledShader {
         match glyph_format {
             _ if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) => &mut self.debug_overdraw,
-            GlyphFormat::Alpha |
-            GlyphFormat::Subpixel |
-            GlyphFormat::Bitmap |
-            GlyphFormat::ColorBitmap => &mut self.simple,
-            GlyphFormat::TransformedAlpha |
-            GlyphFormat::TransformedSubpixel => &mut self.glyph_transform,
+            GlyphFormat::Alpha
+            | GlyphFormat::Subpixel
+            | GlyphFormat::Bitmap
+            | GlyphFormat::ColorBitmap => &mut self.simple,
+            GlyphFormat::TransformedAlpha | GlyphFormat::TransformedSubpixel => {
+                &mut self.glyph_transform
+            }
         }
     }
 
@@ -654,12 +637,11 @@ impl Shaders {
         // so use a dummy one.
         let profile = &mut TransactionProfile::new();
 
-        let use_dual_source_blending =
-            device.get_capabilities().supports_dual_source_blending &&
-            options.allow_dual_source_blending;
+        let use_dual_source_blending = device.get_capabilities().supports_dual_source_blending
+            && options.allow_dual_source_blending;
         let use_advanced_blend_equation =
-            device.get_capabilities().supports_advanced_blend_equation &&
-            options.allow_advanced_blend_equation;
+            device.get_capabilities().supports_advanced_blend_equation
+                && options.allow_advanced_blend_equation;
 
         let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
             TextureExternalVersion::ESSL3
@@ -667,8 +649,14 @@ impl Shaders {
             TextureExternalVersion::ESSL1
         };
         let mut shader_flags = get_shader_feature_flags(gl_type, texture_external_version, device);
-        shader_flags.set(ShaderFeatureFlags::ADVANCED_BLEND_EQUATION, use_advanced_blend_equation);
-        shader_flags.set(ShaderFeatureFlags::DUAL_SOURCE_BLENDING, use_dual_source_blending);
+        shader_flags.set(
+            ShaderFeatureFlags::ADVANCED_BLEND_EQUATION,
+            use_advanced_blend_equation,
+        );
+        shader_flags.set(
+            ShaderFeatureFlags::DUAL_SOURCE_BLENDING,
+            use_dual_source_blending,
+        );
         shader_flags.set(ShaderFeatureFlags::DITHERING, options.enable_dithering);
         let shader_list = get_shader_features(shader_flags);
 
@@ -678,8 +666,8 @@ impl Shaders {
             &[],
             options.precache_flags,
             &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
+            false, /* advanced blend */
+            false, /* dual source */
             profile,
         )?;
 
@@ -689,8 +677,8 @@ impl Shaders {
             &[],
             options.precache_flags,
             &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
+            false, /* advanced blend */
+            false, /* dual source */
             profile,
         )?;
 
@@ -700,8 +688,8 @@ impl Shaders {
             &[],
             options.precache_flags,
             &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
+            false, /* advanced blend */
+            false, /* dual source */
             profile,
         )?;
 
@@ -709,14 +697,14 @@ impl Shaders {
             "brush_linear_gradient",
             device,
             if options.enable_dithering {
-               &[DITHERING_FEATURE]
+                &[DITHERING_FEATURE]
             } else {
-               &[]
+                &[]
             },
             options.precache_flags,
             &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
+            false, /* advanced blend */
+            false, /* dual source */
             profile,
         )?;
 
@@ -726,8 +714,8 @@ impl Shaders {
             &["ANTIALIASING"],
             options.precache_flags,
             &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
+            false, /* advanced blend */
+            false, /* dual source */
             profile,
         )?;
 
@@ -737,8 +725,8 @@ impl Shaders {
             &[],
             options.precache_flags,
             &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
+            false, /* advanced blend */
+            false, /* dual source */
             profile,
         )?;
 
@@ -835,15 +823,13 @@ impl Shaders {
         let mut cs_scale = Vec::new();
         let scale_shader_num = IMAGE_BUFFER_KINDS.len();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
-        for _ in 0 .. scale_shader_num {
+        for _ in 0..scale_shader_num {
             cs_scale.push(None);
         }
         for image_buffer_kind in &IMAGE_BUFFER_KINDS {
             if has_platform_support(*image_buffer_kind, device) {
-                let feature_string = get_feature_string(
-                    *image_buffer_kind,
-                    texture_external_version,
-                );
+                let feature_string =
+                    get_feature_string(*image_buffer_kind, texture_external_version);
 
                 let mut features = Vec::new();
                 if feature_string != "" {
@@ -858,12 +844,10 @@ impl Shaders {
                     options.precache_flags,
                     &shader_list,
                     profile,
-                 )?;
+                )?;
 
-                 let index = Self::get_compositing_shader_index(
-                    *image_buffer_kind,
-                 );
-                 cs_scale[index] = Some(shader);
+                let index = Self::get_compositing_shader_index(*image_buffer_kind);
+                cs_scale[index] = Some(shader);
             }
         }
 
@@ -871,7 +855,8 @@ impl Shaders {
         //           shaders used during normal scene rendering that aren't a brush
         //           shader. Perhaps we can unify these in future?
 
-        let ps_text_run = TextShader::new("ps_text_run",
+        let ps_text_run = TextShader::new(
+            "ps_text_run",
             device,
             &[],
             options.precache_flags,
@@ -881,7 +866,8 @@ impl Shaders {
 
         let ps_text_run_dual_source = if use_dual_source_blending {
             let dual_source_features = vec![DUAL_SOURCE_FEATURE];
-            Some(TextShader::new("ps_text_run",
+            Some(TextShader::new(
+                "ps_text_run",
                 device,
                 &dual_source_features,
                 options.precache_flags,
@@ -957,11 +943,11 @@ impl Shaders {
         let mut brush_image = Vec::new();
         let mut brush_fast_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
-        for _ in 0 .. IMAGE_BUFFER_KINDS.len() {
+        for _ in 0..IMAGE_BUFFER_KINDS.len() {
             brush_image.push(None);
             brush_fast_image.push(None);
         }
-        for buffer_kind in 0 .. IMAGE_BUFFER_KINDS.len() {
+        for buffer_kind in 0..IMAGE_BUFFER_KINDS.len() {
             if !has_platform_support(IMAGE_BUFFER_KINDS[buffer_kind], device)
                 // Brush shaders are not ESSL1 compatible
                 || (IMAGE_BUFFER_KINDS[buffer_kind] == ImageBufferKind::TextureExternal
@@ -970,10 +956,8 @@ impl Shaders {
                 continue;
             }
 
-            let feature_string = get_feature_string(
-                IMAGE_BUFFER_KINDS[buffer_kind],
-                texture_external_version,
-            );
+            let feature_string =
+                get_feature_string(IMAGE_BUFFER_KINDS[buffer_kind], texture_external_version);
             if feature_string != "" {
                 image_features.push(feature_string);
             }
@@ -1013,7 +997,7 @@ impl Shaders {
         let yuv_shader_num = IMAGE_BUFFER_KINDS.len();
         let mut brush_yuv_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
-        for _ in 0 .. yuv_shader_num {
+        for _ in 0..yuv_shader_num {
             brush_yuv_image.push(None);
         }
         for image_buffer_kind in &IMAGE_BUFFER_KINDS {
@@ -1021,14 +1005,10 @@ impl Shaders {
                 yuv_features.push("YUV");
                 fast_path_features.push("FAST_PATH");
 
-                let index = Self::get_compositing_shader_index(
-                    *image_buffer_kind,
-                );
+                let index = Self::get_compositing_shader_index(*image_buffer_kind);
 
-                let feature_string = get_feature_string(
-                    *image_buffer_kind,
-                    texture_external_version,
-                );
+                let feature_string =
+                    get_feature_string(*image_buffer_kind, texture_external_version);
                 if feature_string != "" {
                     yuv_features.push(feature_string);
                     rgba_features.push(feature_string);
@@ -1036,16 +1016,17 @@ impl Shaders {
                 }
 
                 // YUV shaders are not compatible with ESSL1
-                if *image_buffer_kind != ImageBufferKind::TextureExternal ||
-                    texture_external_version == TextureExternalVersion::ESSL3 {
+                if *image_buffer_kind != ImageBufferKind::TextureExternal
+                    || texture_external_version == TextureExternalVersion::ESSL3
+                {
                     let brush_shader = BrushShader::new(
                         "brush_yuv_image",
                         device,
                         &yuv_features,
                         options.precache_flags,
                         &shader_list,
-                        false /* advanced blend */,
-                        false /* dual source */,
+                        false, /* advanced blend */
+                        false, /* dual source */
                         profile,
                     )?;
                     brush_yuv_image[index] = Some(brush_shader);
@@ -1110,9 +1091,9 @@ impl Shaders {
         let cs_border_segment = LazilyCompiledShader::new(
             ShaderKind::Cache(VertexArrayKind::Border),
             "cs_border_segment",
-             &[],
-             device,
-             options.precache_flags,
+            &[],
+            device,
+            options.precache_flags,
             &shader_list,
             profile,
         )?;
@@ -1181,20 +1162,14 @@ impl Shaders {
         self.composite.get(format, buffer_kind, features)
     }
 
-    pub fn get_scale_shader(
-        &mut self,
-        buffer_kind: ImageBufferKind,
-    ) -> &mut LazilyCompiledShader {
+    pub fn get_scale_shader(&mut self, buffer_kind: ImageBufferKind) -> &mut LazilyCompiledShader {
         let shader_index = Self::get_compositing_shader_index(buffer_kind);
         self.cs_scale[shader_index]
             .as_mut()
             .expect("bug: unsupported scale shader requested")
     }
 
-    pub fn get_quad_shader(
-        &mut self,
-        pattern: PatternKind
-    ) -> &mut LazilyCompiledShader {
+    pub fn get_quad_shader(&mut self, pattern: PatternKind) -> &mut LazilyCompiledShader {
         match pattern {
             PatternKind::ColorOrTexture => &mut self.ps_quad_textured,
             PatternKind::RadialGradient => &mut self.ps_quad_radial_gradient,
@@ -1203,29 +1178,21 @@ impl Shaders {
         }
     }
 
-    pub fn get(&
-        mut self,
+    pub fn get(
+        &mut self,
         key: &BatchKey,
         mut features: BatchFeatures,
         debug_flags: DebugFlags,
         device: &Device,
     ) -> &mut LazilyCompiledShader {
         match key.kind {
-            BatchKind::Quad(PatternKind::ColorOrTexture) => {
-                &mut self.ps_quad_textured
-            }
-            BatchKind::Quad(PatternKind::RadialGradient) => {
-                &mut self.ps_quad_radial_gradient
-            }
-            BatchKind::Quad(PatternKind::ConicGradient) => {
-                &mut self.ps_quad_conic_gradient
-            }
+            BatchKind::Quad(PatternKind::ColorOrTexture) => &mut self.ps_quad_textured,
+            BatchKind::Quad(PatternKind::RadialGradient) => &mut self.ps_quad_radial_gradient,
+            BatchKind::Quad(PatternKind::ConicGradient) => &mut self.ps_quad_conic_gradient,
             BatchKind::Quad(PatternKind::Mask) => {
                 unreachable!();
             }
-            BatchKind::SplitComposite => {
-                &mut self.ps_split_composite
-            }
+            BatchKind::SplitComposite => &mut self.ps_split_composite,
             BatchKind::Brush(brush_kind) => {
                 // SWGL uses a native anti-aliasing implementation that bypasses the shader.
                 // Don't consider it in that case when deciding whether or not to use
@@ -1234,13 +1201,11 @@ impl Shaders {
                     features.remove(BatchFeatures::ANTIALIASING);
                 }
                 let brush_shader = match brush_kind {
-                    BrushBatchKind::Solid => {
-                        &mut self.brush_solid
-                    }
+                    BrushBatchKind::Solid => &mut self.brush_solid,
                     BrushBatchKind::Image(image_buffer_kind) => {
-                        if features.contains(BatchFeatures::ANTIALIASING) ||
-                            features.contains(BatchFeatures::REPETITION) {
-
+                        if features.contains(BatchFeatures::ANTIALIASING)
+                            || features.contains(BatchFeatures::REPETITION)
+                        {
                             self.brush_image[image_buffer_kind as usize]
                                 .as_mut()
                                 .expect("Unsupported image shader kind")
@@ -1250,12 +1215,8 @@ impl Shaders {
                                 .expect("Unsupported image shader kind")
                         }
                     }
-                    BrushBatchKind::Blend => {
-                        &mut self.brush_blend
-                    }
-                    BrushBatchKind::MixBlend { .. } => {
-                        &mut self.brush_mix_blend
-                    }
+                    BrushBatchKind::Blend => &mut self.brush_blend,
+                    BrushBatchKind::MixBlend { .. } => &mut self.brush_mix_blend,
                     BrushBatchKind::LinearGradient => {
                         // SWGL uses a native clip mask implementation that bypasses the shader.
                         // Don't consider it in that case when deciding whether or not to use
@@ -1278,8 +1239,7 @@ impl Shaders {
                         }
                     }
                     BrushBatchKind::YuvImage(image_buffer_kind, ..) => {
-                        let shader_index =
-                            Self::get_compositing_shader_index(image_buffer_kind);
+                        let shader_index = Self::get_compositing_shader_index(image_buffer_kind);
                         self.brush_yuv_image[shader_index]
                             .as_mut()
                             .expect("Unsupported YUV shader kind")
@@ -1387,7 +1347,7 @@ impl CompositorShaders {
         device: &mut Device,
         precache_flags: ShaderPrecacheFlags,
         gl_type: GlType,
-    )  -> Result<Self, ShaderError>  {
+    ) -> Result<Self, ShaderError> {
         // We have to pass a profile around a bunch but we aren't recording the initialization
         // so use a dummy one.
         let mut profile = TransactionProfile::new();
@@ -1421,13 +1381,10 @@ impl CompositorShaders {
 
             yuv_features.push("YUV");
             fast_path_features.push("FAST_PATH");
-    
+
             let index = Self::get_shader_index(*image_buffer_kind);
 
-            let feature_string = get_feature_string(
-                *image_buffer_kind,
-                texture_external_version,
-            );
+            let feature_string = get_feature_string(*image_buffer_kind, texture_external_version);
             if feature_string != "" {
                 yuv_features.push(feature_string);
                 rgba_features.push(feature_string);
@@ -1435,9 +1392,9 @@ impl CompositorShaders {
             }
 
             // YUV shaders are not compatible with ESSL1
-            if *image_buffer_kind != ImageBufferKind::TextureExternal ||
-                texture_external_version == TextureExternalVersion::ESSL3 {
-
+            if *image_buffer_kind != ImageBufferKind::TextureExternal
+                || texture_external_version == TextureExternalVersion::ESSL3
+            {
                 yuv[index] = Some(LazilyCompiledShader::new(
                     ShaderKind::Composite,
                     "composite",
@@ -1538,7 +1495,7 @@ impl CompositorShaders {
 fn get_shader_feature_flags(
     gl_type: GlType,
     texture_external_version: TextureExternalVersion,
-    device: &Device
+    device: &Device,
 ) -> ShaderFeatureFlags {
     match gl_type {
         GlType::Gl => ShaderFeatureFlags::GL,
