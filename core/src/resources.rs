@@ -1523,7 +1523,11 @@ pub fn add_fonts_and_images(
     insert_into_active_gl_textures: GlStoreImageFn,
 ) {
     let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
-    let new_font_keys = styled_dom.scan_for_font_keys(&renderer_resources);
+    
+    // NOTE: Font loading now happens directly from UnifiedLayout.used_fonts
+    // instead of pre-scanning the DOM. Font keys will be added when the
+    // layout is generated and UnifiedLayout.used_fonts is populated.
+    // let new_font_keys = styled_dom.scan_for_font_keys(&renderer_resources);
 
     let add_image_resource_updates = build_add_image_resource_updates(
         renderer_resources,
@@ -1534,20 +1538,21 @@ pub fn add_fonts_and_images(
         insert_into_active_gl_textures,
     );
 
-    let add_font_resource_updates = build_add_font_resource_updates(
-        renderer_resources,
-        current_window_dpi,
-        fc_cache,
-        render_api_namespace,
-        &new_font_keys,
-        load_font_fn,
-        parse_font_fn,
-    );
+    // Font resource updates will be built from UnifiedLayout.used_fonts
+    // let add_font_resource_updates = build_add_font_resource_updates(
+    //     renderer_resources,
+    //     current_window_dpi,
+    //     fc_cache,
+    //     render_api_namespace,
+    //     &new_font_keys,
+    //     load_font_fn,
+    //     parse_font_fn,
+    // );
 
     add_resources(
         renderer_resources,
         all_resource_updates,
-        add_font_resource_updates,
+        Vec::new(), // add_font_resource_updates - will be handled later
         add_image_resource_updates,
     );
 }

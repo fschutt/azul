@@ -869,68 +869,6 @@ impl StyledDom {
         self.styled_nodes.as_container()[*node_id].state.clone()
     }
 
-    /// Scans the display list for all font IDs + their font size
-    pub fn scan_for_font_keys(
-        &self,
-        resources: &RendererResources,
-    ) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
-        use crate::{dom::NodeType::*, resources::font_size_to_au};
-
-        let keys = self
-            .node_data
-            .as_ref()
-            .iter()
-            .enumerate()
-            .filter_map(|(node_id, node_data)| {
-                let node_id = NodeId::new(node_id);
-                match node_data.get_node_type() {
-                    Text(_) => {
-                        let css_font_ids = self.get_css_property_cache().get_font_id_or_default(
-                            &node_data,
-                            &node_id,
-                            &self.styled_nodes.as_container()[node_id].state,
-                        );
-
-                        let font_size = self.get_css_property_cache().get_font_size_or_default(
-                            &node_data,
-                            &node_id,
-                            &self.styled_nodes.as_container()[node_id].state,
-                        );
-
-                        let style_font_families_hash =
-                            StyleFontFamiliesHash::new(css_font_ids.as_ref());
-
-                        let existing_font_key = resources
-                            .get_font_family(&style_font_families_hash)
-                            .and_then(|font_family_hash| {
-                                resources
-                                    .get_font_key(&font_family_hash)
-                                    .map(|font_key| (font_family_hash, font_key))
-                            });
-
-                        let font_id = match existing_font_key {
-                            Some((hash, key)) => ImmediateFontId::Resolved((*hash, *key)),
-                            None => ImmediateFontId::Unresolved(css_font_ids),
-                        };
-
-                        Some((font_id, font_size_to_au(font_size)))
-                    }
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let mut map = FastHashMap::default();
-
-        for (font_id, au) in keys.into_iter() {
-            map.entry(font_id)
-                .or_insert_with(|| FastBTreeSet::default())
-                .insert(au);
-        }
-
-        map
-    }
-
     /// Scans the display list for all image keys
     pub fn scan_for_image_keys(&self, css_image_cache: &ImageCache) -> FastBTreeSet<ImageRef> {
         use azul_css::props::style::StyleBackgroundContentVec;
