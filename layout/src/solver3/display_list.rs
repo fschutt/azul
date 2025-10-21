@@ -890,7 +890,7 @@ where
 
         for glyph_run in glyph_runs {
             let clip_rect = container_rect; // Clip to the container rect
-            // Use the font_hash from the glyph run for renderer lookups
+                                            // Use the font_hash from the glyph run for renderer lookups
             let font_ref = FontRef::invalid(); // TODO: Remove this once we fully migrate
             builder.push_text_run(
                 glyph_run.glyphs,

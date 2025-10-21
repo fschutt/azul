@@ -24,10 +24,7 @@ use webrender::{
     Transaction,
 };
 
-use crate::desktop::wr_translate2::{
-    wr_translate_border_radius,
-    wr_translate_color_f,
-};
+use crate::desktop::wr_translate2::{wr_translate_border_radius, wr_translate_color_f};
 
 /// Translate an Azul DisplayList to WebRender Transaction
 pub fn translate_displaylist_to_wr(
@@ -335,7 +332,16 @@ pub fn translate_displaylist_to_wr(
                 // Use push_text helper with font_hash lookup
                 let dpi_factor = azul_core::resources::DpiScaleFactor::new(dpi);
                 let font_size_au = azul_core::resources::Au::from_px(*font_size_px);
-                push_text(&mut builder, &info, glyphs, *font_hash, *color, renderer_resources, dpi_factor, font_size_au);
+                push_text(
+                    &mut builder,
+                    &info,
+                    glyphs,
+                    *font_hash,
+                    *color,
+                    renderer_resources,
+                    dpi_factor,
+                    font_size_au,
+                );
             }
 
             DisplayListItem::Image { .. } => {
@@ -351,10 +357,7 @@ pub fn translate_displaylist_to_wr(
     // Finalize and set display list
     let (_, dl) = builder.end();
     let layout_size = LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32);
-    txn.set_display_list(
-        webrender::api::Epoch(0),
-        (pipeline_id, dl),
-    );
+    txn.set_display_list(webrender::api::Epoch(0), (pipeline_id, dl));
 
     Ok(txn)
 }

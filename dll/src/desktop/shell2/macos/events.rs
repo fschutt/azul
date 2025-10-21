@@ -331,7 +331,16 @@ impl MacOSWindow {
         // Update window state
         self.current_window_state.size.dimensions = new_size;
 
-        // Notify compositor of resize
+        // Check if DPI changed (window may have moved to different display)
+        let current_hidpi = self.get_hidpi_factor();
+        let old_hidpi = self.current_window_state.size.get_hidpi_factor();
+
+        if (current_hidpi - old_hidpi).abs() > 0.001 {
+            eprintln!("[Resize] DPI changed: {} -> {}", old_hidpi, current_hidpi);
+            self.current_window_state.size.dpi = (current_hidpi * 96.0) as u32;
+        }
+
+        // Notify compositor of resize (this is private in mod.rs, so we inline it here)
         if let Err(e) = self.handle_compositor_resize() {
             eprintln!("Compositor resize failed: {}", e);
         }
@@ -876,8 +885,45 @@ impl MacOSWindow {
 
     /// Handle compositor resize notification.
     fn handle_compositor_resize(&mut self) -> Result<(), String> {
-        // TODO: Notify WebRender compositor of new size
-        // TODO: Resize GL viewport or CPU framebuffer
+        use webrender::api::units::{DeviceIntRect, DeviceIntSize};
+
+        // Get new physical size
+        let physical_size = self.current_window_state.size.get_physical_size();
+        let new_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+
+        // Update WebRender document size
+        let mut txn = webrender::Transaction::new();
+        let device_rect = DeviceIntRect::from_size(new_size);
+        txn.set_document_view(device_rect);
+
+        // Send transaction
+        if let Some(ref layout_window) = self.layout_window {
+            let document_id =
+                crate::desktop::wr_translate2::wr_translate_document_id(layout_window.document_id);
+            self.render_api.send_transaction(document_id, txn);
+        }
+
+        // Resize GL viewport (if OpenGL backend)
+        if let Some(ref gl_context) = self.gl_context {
+            // Make context current
+            unsafe {
+                gl_context.makeCurrentContext();
+            }
+
+            // Resize viewport
+            if let Some(ref gl) = self.gl_functions {
+                use azul_core::gl as gl_types;
+                gl.functions.viewport(
+                    0,
+                    0,
+                    physical_size.width as gl_types::GLint,
+                    physical_size.height as gl_types::GLint,
+                );
+            }
+        }
+
+        // TODO: Resize CPU framebuffer if CPU backend
+
         Ok(())
     }
 

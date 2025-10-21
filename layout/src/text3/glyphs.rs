@@ -64,10 +64,14 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
 
                     // Check if we can add to the current run
                     if let Some(run) = current_run.as_mut() {
-                        if run.font_hash == font_hash && run.color == glyph_color && run.font_size_px == font_size_px {
+                        if run.font_hash == font_hash
+                            && run.color == glyph_color
+                            && run.font_size_px == font_size_px
+                        {
                             run.glyphs.push(instance);
                         } else {
-                            // Different font, color, or size: finalize the current run and start a new one
+                            // Different font, color, or size: finalize the current run and start a
+                            // new one
                             runs.push(run.clone());
                             current_run = Some(GlyphRun {
                                 glyphs: vec![instance],

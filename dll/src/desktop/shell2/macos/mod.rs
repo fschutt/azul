@@ -665,6 +665,16 @@ impl MacOSWindow {
             window.makeKeyAndOrderFront(None);
         }
 
+        // Query actual HiDPI factor from NSWindow's screen
+        let actual_hidpi_factor = unsafe {
+            window
+                .screen()
+                .map(|screen| screen.backingScaleFactor() as f32)
+                .unwrap_or(1.0)
+        };
+
+        eprintln!("[Window Init] HiDPI factor: {}", actual_hidpi_factor);
+
         // Make OpenGL context current before initializing WebRender
         if let Some(ref ctx) = gl_context {
             unsafe {
@@ -709,12 +719,10 @@ impl MacOSWindow {
 
         let mut render_api = sender.create_api();
 
-        // Get physical size for framebuffer
+        // Get physical size for framebuffer (using actual HiDPI factor from screen)
         let physical_size = azul_core::geom::PhysicalSize {
-            width: (options.state.size.dimensions.width * options.state.size.get_hidpi_factor())
-                as u32,
-            height: (options.state.size.dimensions.height * options.state.size.get_hidpi_factor())
-                as u32,
+            width: (options.state.size.dimensions.width * actual_hidpi_factor) as u32,
+            height: (options.state.size.dimensions.height * actual_hidpi_factor) as u32,
         };
 
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
@@ -737,10 +745,16 @@ impl MacOSWindow {
             .map(|_| azul_core::gl::GlContextPtr::new(renderer_type, gl_funcs.clone()))
             .into();
 
-        // Initialize window state
+        // Initialize window state with actual HiDPI factor from screen
+        let actual_dpi = (actual_hidpi_factor * 96.0) as u32; // Convert scale factor to DPI
         let mut current_window_state = FullWindowState {
             title: options.state.title.clone(),
-            size: options.state.size,
+            size: azul_core::window::WindowSize {
+                dimensions: options.state.size.dimensions,
+                dpi: actual_dpi, // Use actual DPI from screen
+                min_dimensions: options.state.size.min_dimensions,
+                max_dimensions: options.state.size.max_dimensions,
+            },
             position: options.state.position,
             flags: options.state.flags,
             theme: options.state.theme,
@@ -911,6 +925,43 @@ impl MacOSWindow {
         }
 
         self.frame_needs_regeneration = false;
+    }
+
+    /// Get the current HiDPI scale factor from the NSWindow's screen
+    ///
+    /// This queries the actual backing scale factor from the screen,
+    /// which can change when the window moves between displays.
+    pub fn get_hidpi_factor(&self) -> f32 {
+        unsafe {
+            self.window
+                .screen()
+                .map(|screen| screen.backingScaleFactor() as f32)
+                .unwrap_or(1.0)
+        }
+    }
+
+    /// Handle DPI change notification
+    ///
+    /// This is called when NSWindowDidChangeBackingPropertiesNotification is received,
+    /// indicating the window moved to a display with different DPI.
+    pub fn handle_dpi_change(&mut self) -> Result<(), String> {
+        let new_hidpi = self.get_hidpi_factor();
+        let old_hidpi = self.current_window_state.size.get_hidpi_factor();
+
+        // Only process if DPI actually changed
+        if (new_hidpi - old_hidpi).abs() < 0.001 {
+            return Ok(());
+        }
+
+        eprintln!("[DPI Change] {} -> {}", old_hidpi, new_hidpi);
+
+        // Update window state with new DPI
+        self.current_window_state.size.dpi = (new_hidpi * 96.0) as u32;
+
+        // Regenerate layout with new DPI
+        self.regenerate_layout()?;
+
+        Ok(())
     }
 
     /// Perform GPU scrolling - updates scroll transforms without full relayout
