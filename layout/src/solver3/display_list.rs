@@ -50,7 +50,7 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::ColorU,
+        basic::{ColorU, FontRef},
         layout::{LayoutOverflow, LayoutPosition},
         property::{CssProperty, CssPropertyType},
     },
@@ -70,7 +70,7 @@ use crate::{
         LayoutContext, LayoutError, Result,
     },
     text3::cache::{
-        FontLoaderTrait, FontRef, ImageSource, InlineContent, ParsedFontTrait, ShapedItem,
+        FontHash, FontLoaderTrait, ImageSource, InlineContent, ParsedFontTrait, ShapedItem,
         UnifiedLayout,
     },
 };
@@ -111,9 +111,8 @@ pub enum DisplayListItem {
     },
     Text {
         glyphs: Vec<GlyphInstance>,
-        font: FontRef,
+        font_hash: FontHash, // Changed from FontRef - just store the hash
         font_size_px: f32,
-        font_hash: u64,
         color: ColorU,
         clip_rect: LogicalRect,
     },
@@ -311,18 +310,16 @@ impl DisplayListBuilder {
     pub fn push_text_run(
         &mut self,
         glyphs: Vec<GlyphInstance>,
-        font: FontRef,
+        font_hash: FontHash, // Just the hash, not the full FontRef
         font_size_px: f32,
-        font_hash: u64,
         color: ColorU,
         clip_rect: LogicalRect,
     ) {
         if !glyphs.is_empty() && color.a > 0 {
             self.items.push(DisplayListItem::Text {
                 glyphs,
-                font,
-                font_size_px,
                 font_hash,
+                font_size_px,
                 color,
                 clip_rect,
             });
@@ -890,13 +887,11 @@ where
 
         for glyph_run in glyph_runs {
             let clip_rect = container_rect; // Clip to the container rect
-                                            // Use the font_hash from the glyph run - this is the ParsedFont::hash
-            let font_ref = FontRef::from_hash(glyph_run.font_hash);
+                                            // Store only the font hash in the display list to keep it lean
             builder.push_text_run(
                 glyph_run.glyphs,
-                font_ref,
+                FontHash::from_hash(glyph_run.font_hash),
                 glyph_run.font_size_px,
-                glyph_run.font_hash,
                 glyph_run.color,
                 clip_rect,
             );

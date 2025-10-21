@@ -122,16 +122,27 @@ impl PrintAsCssValue for StyleFontSize {
 
 // --- Font Resource Management ---
 
+/// FontRef is a reference-counted pointer to a parsed font.
+/// It holds a *const c_void that points to the actual parsed font data
+/// (typically a ParsedFont from the layout crate).
+///
+/// The parsed data is managed via atomic reference counting, allowing
+/// safe sharing across threads without duplicating the font data.
 #[repr(C)]
 pub struct FontRef {
-    pub data: *const FontData,
+    /// Pointer to the parsed font data (e.g., ParsedFont)
+    pub parsed: *const c_void,
+    /// Reference counter for memory management
     pub copies: *const AtomicUsize,
+    /// Whether to run the destructor on drop
     pub run_destructor: bool,
+    /// Destructor function for the parsed data
+    pub parsed_destructor: fn(*mut c_void),
 }
-// ... (Implementations for FontRef are unchanged from your provided code) ...
+
 impl fmt::Debug for FontRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FontRef(0x{:x}", self.data as usize)?;
+        write!(f, "FontRef(0x{:x}", self.parsed as usize)?;
         if let Some(c) = unsafe { self.copies.as_ref() } {
             write!(f, ", copies: {})", c.load(AtomicOrdering::SeqCst))?;
         } else {
@@ -140,20 +151,26 @@ impl fmt::Debug for FontRef {
         Ok(())
     }
 }
+
 impl FontRef {
-    #[inline]
-    pub fn get_data<'a>(&'a self) -> &'a FontData {
-        unsafe { &*self.data }
-    }
-    pub fn new(data: FontData) -> Self {
+    /// Create a new FontRef from parsed font data
+    ///
+    /// # Arguments
+    /// * `parsed` - Pointer to parsed font data (e.g., Arc::into_raw(Arc::new(ParsedFont)))
+    /// * `destructor` - Function to clean up the parsed data
+    pub fn new(parsed: *const c_void, destructor: fn(*mut c_void)) -> Self {
         Self {
-            data: Box::into_raw(Box::new(data)),
+            parsed,
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
             run_destructor: true,
+            parsed_destructor: destructor,
         }
     }
-    pub fn get_bytes(&self) -> U8Vec {
-        self.get_data().bytes.clone()
+
+    /// Get a raw pointer to the parsed font data
+    #[inline]
+    pub fn get_parsed(&self) -> *const c_void {
+        self.parsed
     }
 }
 impl_option!(
@@ -166,23 +183,23 @@ unsafe impl Send for FontRef {}
 unsafe impl Sync for FontRef {}
 impl PartialEq for FontRef {
     fn eq(&self, rhs: &Self) -> bool {
-        self.data as usize == rhs.data as usize
+        self.parsed as usize == rhs.parsed as usize
     }
 }
 impl PartialOrd for FontRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some((self.data as usize).cmp(&(other.data as usize)))
+        Some((self.parsed as usize).cmp(&(other.parsed as usize)))
     }
 }
 impl Ord for FontRef {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.data as usize).cmp(&(other.data as usize))
+        (self.parsed as usize).cmp(&(other.parsed as usize))
     }
 }
 impl Eq for FontRef {}
 impl Hash for FontRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.data as usize).hash(state);
+        (self.parsed as usize).hash(state);
     }
 }
 impl Clone for FontRef {
@@ -193,9 +210,10 @@ impl Clone for FontRef {
             }
         }
         Self {
-            data: self.data,
+            parsed: self.parsed,
             copies: self.copies,
             run_destructor: true,
+            parsed_destructor: self.parsed_destructor,
         }
     }
 }
@@ -204,36 +222,11 @@ impl Drop for FontRef {
         if self.run_destructor && !self.copies.is_null() {
             if unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) } == 1 {
                 unsafe {
-                    let _ = Box::from_raw(self.data as *mut FontData);
+                    (self.parsed_destructor)(self.parsed as *mut c_void);
                     let _ = Box::from_raw(self.copies as *mut AtomicUsize);
                 }
             }
         }
-    }
-}
-
-pub struct FontData {
-    pub bytes: U8Vec,
-    pub font_index: u32,
-    pub parsed: *const c_void,
-    pub parsed_destructor: fn(*mut c_void),
-}
-// ... (Implementations for FontData are unchanged from your provided code) ...
-impl fmt::Debug for FontData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "FontData {{ bytes: {} bytes, font_index: {} }}",
-            self.bytes.len(),
-            self.font_index
-        )
-    }
-}
-unsafe impl Send for FontData {}
-unsafe impl Sync for FontData {}
-impl Drop for FontData {
-    fn drop(&mut self) {
-        (self.parsed_destructor)(self.parsed as *mut c_void);
     }
 }
 
@@ -260,7 +253,7 @@ impl StyleFontFamily {
                 }
             }
             StyleFontFamily::File(s) => format!("url({})", s.clone().into_library_owned_string()),
-            StyleFontFamily::Ref(s) => format!("font-ref(0x{:x})", s.data as usize),
+            StyleFontFamily::Ref(s) => format!("font-ref(0x{:x})", s.parsed as usize),
         }
     }
 }
@@ -322,7 +315,7 @@ impl crate::format_rust_code::FormatAsRustCode for StyleFontFamily {
                 format!("StyleFontFamily::File(STRING_{})", path.get_hash())
             }
             StyleFontFamily::Ref(font_ref) => {
-                format!("StyleFontFamily::Ref({:0x})", font_ref.data as usize)
+                format!("StyleFontFamily::Ref({:0x})", font_ref.parsed as usize)
             }
         }
     }

@@ -1,3 +1,4 @@
+/* 
 use std::{env, fs, path::Path, process::exit};
 
 use azul::{
@@ -406,4 +407,10 @@ pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
     let w = w.parse::<f32>().ok()?;
     let h = h.parse::<f32>().ok()?;
     Some((w, h))
+}
+
+*/
+
+fn main() {
+    
 }

@@ -311,7 +311,6 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::Text {
                 glyphs,
-                font,
                 font_size_px,
                 font_hash,
                 color,
@@ -336,7 +335,7 @@ pub fn translate_displaylist_to_wr(
                     &mut builder,
                     &info,
                     glyphs,
-                    *font_hash,
+                    font_hash.font_hash,
                     *color,
                     renderer_resources,
                     dpi_factor,
@@ -465,7 +464,7 @@ fn push_text(
     use crate::desktop::wr_translate2::wr_translate_layouted_glyphs;
 
     // Look up FontKey from the font_hash (which comes from the GlyphRun)
-    // The font_hash is the hash of Arc<ParsedFont> computed during layout
+    // The font_hash is the hash of FontRef computed during layout
     let font_key = match renderer_resources.font_hash_map.get(&font_hash) {
         Some(k) => k,
         None => {

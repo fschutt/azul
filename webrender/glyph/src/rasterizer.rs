@@ -17,6 +17,7 @@ use api::{
     FontInstancePlatformOptions, FontKey, FontRenderMode, FontSize, FontTemplate, FontVariation,
     GlyphDimensions, GlyphIndex, ImageFormat, SyntheticItalics,
 };
+use azul_css::props::basic::font::FontRef;
 use azul_layout::font::parsed::ParsedFont;
 use rayon::{prelude::*, ThreadPool};
 use smallvec::{smallvec, SmallVec};
@@ -490,7 +491,7 @@ impl GlyphRasterizer {
     }
 
     /// Adds a pre-parsed font directly (for efficiency when font is already parsed).
-    pub fn add_parsed_font(&mut self, font_key: FontKey, parsed_font: Arc<ParsedFont>) {
+    pub fn add_parsed_font(&mut self, font_key: FontKey, parsed_font: FontRef) {
         if self.fonts.insert(font_key) {
             for context_mutex in self.font_contexts.iter() {
                 let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();

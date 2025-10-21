@@ -259,15 +259,7 @@ mod text2 {
 
         let parsed_font = create_parsed_font_from_mock(mock_font);
 
-        // Create empty byte vector as font data - not used for mock fonts
-        let bytes = Vec::<u8>::new().into();
-
-        FontRef::new(FontData {
-            bytes,
-            font_index: 0,
-            parsed: Box::into_raw(Box::new(parsed_font)) as *const c_void,
-            parsed_destructor: parsed_font_destructor,
-        })
+        font_ref_to_parsed_font(&parsed_font)
     }
 
     // Helper to create a simple text node DOM

@@ -66,6 +66,7 @@ use std::{
 };
 
 use api::{FontInstanceKey, FontKey, IdNamespace};
+use azul_css::props::basic::font::FontRef;
 
 /// Shared font resources structure
 #[derive(Clone)]
@@ -157,7 +158,7 @@ impl FontKeyMap {
 /// Font templates storage - stores pre-parsed fonts with namespace tracking
 #[derive(Clone)]
 pub struct FontTemplates {
-    parsed_fonts: Arc<RwLock<HashMap<FontKey, Arc<azul_layout::font::parsed::ParsedFont>>>>,
+    parsed_fonts: Arc<RwLock<HashMap<FontKey, FontRef>>>,
     namespace_map: Arc<RwLock<HashMap<IdNamespace, Vec<FontKey>>>>,
 }
 
@@ -169,11 +170,7 @@ impl FontTemplates {
         }
     }
 
-    pub fn add_parsed_font(
-        &mut self,
-        key: FontKey,
-        parsed_font: Arc<azul_layout::font::parsed::ParsedFont>,
-    ) {
+    pub fn add_parsed_font(&mut self, key: FontKey, parsed_font: FontRef) {
         // Track namespace ownership
         let namespace = key.0;
         let mut ns_map = self.namespace_map.write().unwrap();
@@ -224,14 +221,11 @@ impl FontTemplates {
         self.parsed_fonts.read().unwrap().contains_key(key)
     }
 
-    pub fn get_font(&self, key: &FontKey) -> Option<Arc<azul_layout::font::parsed::ParsedFont>> {
+    pub fn get_font(&self, key: &FontKey) -> Option<FontRef> {
         self.parsed_fonts.read().unwrap().get(key).cloned()
     }
 
-    pub fn lock(
-        &self,
-    ) -> std::sync::RwLockReadGuard<'_, HashMap<FontKey, Arc<azul_layout::font::parsed::ParsedFont>>>
-    {
+    pub fn lock(&self) -> std::sync::RwLockReadGuard<'_, HashMap<FontKey, FontRef>> {
         self.parsed_fonts.read().unwrap()
     }
 
@@ -382,7 +376,7 @@ impl api::BlobImageResources for SharedFontResources {
         // Return parsed font as Raw template for compatibility
         self.templates.get_font(&key).map(|parsed_font| {
             // For blob rasterization, we need to provide the font data
-            // Since we have Arc<ParsedFont>, we can't easily convert back to bytes
+            // Since we have FontRef, we can't easily convert back to bytes
             // Return a dummy template - blob rasterization should use parsed fonts directly
             api::FontTemplate::Raw(Arc::new(Vec::new()), 0)
         })

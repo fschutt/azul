@@ -35,6 +35,7 @@ fxhash = "0.2.1"
 # Replaces FreeType, CoreText, and DirectWrite.
 azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
+azul-css = { path = "../../css" }
 tiny-skia = "0.11"
 
 

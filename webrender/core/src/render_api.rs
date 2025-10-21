@@ -7,7 +7,7 @@
 use std::{cell::Cell, fmt, marker::PhantomData, path::PathBuf, sync::Arc, u32};
 
 use api::MinimapData;
-use azul_layout::font::parsed::ParsedFont;
+use azul_css::props::basic::font::FontRef;
 use glyph_rasterizer::SharedFontResources;
 use time::precise_time_ns;
 
@@ -523,7 +523,7 @@ impl Transaction {
 
     /// See `ResourceUpdate::AddFont`.
     /// Add a pre-parsed font to avoid re-parsing on render thread
-    pub fn add_parsed_font(&mut self, key: FontKey, parsed_font: Arc<ParsedFont>) {
+    pub fn add_parsed_font(&mut self, key: FontKey, parsed_font: FontRef) {
         self.resource_updates
             .push(ResourceUpdate::AddFont(AddFont::Parsed(key, parsed_font)));
     }
@@ -746,7 +746,7 @@ pub struct UpdateBlobImage {
 #[derive(Clone)]
 pub enum AddFont {
     /// Add a pre-parsed font (avoids re-parsing on the render thread)
-    Parsed(FontKey, Arc<ParsedFont>),
+    Parsed(FontKey, FontRef),
 }
 
 /// Creates a font instance resource.

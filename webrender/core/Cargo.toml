@@ -35,6 +35,7 @@ webrender_build = { path = "../build" }
 glyph_rasterizer = { version = "0.1.0", path = "../glyph", package = "wr_azul_glyph_rasterizer", default-features = false }
 azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
+azul-css = { path = "../../css" }
 svg_fmt = "0.4"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
 etagere = "0.2.13"

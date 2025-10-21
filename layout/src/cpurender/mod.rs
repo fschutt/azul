@@ -122,7 +122,6 @@ fn render_display_list(
             }
             DisplayListItem::Text {
                 glyphs,
-                font,
                 font_size_px,
                 font_hash,
                 color,

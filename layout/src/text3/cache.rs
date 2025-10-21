@@ -27,7 +27,14 @@ use crate::text3::script::{script_to_language, Script};
 
 // --- Core Data Structures for the New Architecture ---
 
-pub trait ParsedFontTrait: Send + Clone {
+/// Trait for types that support cheap, shallow cloning (e.g., reference-counted types).
+/// This is used to allow UnifiedLayout to store fonts without wrapping them in Arc.
+pub trait ShallowClone {
+    /// Create a shallow clone (increment reference count, don't copy data)
+    fn shallow_clone(&self) -> Self;
+}
+
+pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     fn shape_text(
         &self,
         text: &str,
@@ -48,18 +55,18 @@ pub trait ParsedFontTrait: Send + Clone {
 }
 
 pub trait FontLoaderTrait<T: ParsedFontTrait>: Send + core::fmt::Debug {
-    fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<Arc<T>, LayoutError>;
+    fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<T, LayoutError>;
 }
 
 // Font loading and management
 pub trait FontProviderTrait<T: ParsedFontTrait> {
-    fn load_font(&self, font_selector: &FontSelector) -> Result<Arc<T>, LayoutError>;
+    fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError>; // Changed from Arc<T>
 }
 
 #[derive(Debug)]
-pub struct FontManager<T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
+pub struct FontManager<T, Q> {
     pub fc_cache: FcFontCache,
-    pub parsed_fonts: Mutex<HashMap<FontId, Arc<T>>>,
+    pub parsed_fonts: Mutex<HashMap<FontId, T>>, // Changed from Arc<T>
     pub font_selector_to_id_cache: Mutex<HashMap<FontSelector, FontId>>,
     // Default: System font loader
     // (loads fonts from file - can be intercepted for mocking in tests)
@@ -79,13 +86,13 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
 
 // FontManager with proper rust-fontconfig fallback
 impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontManager<T, Q> {
-    fn load_font(&self, font_selector: &FontSelector) -> Result<Arc<T>, LayoutError> {
+    fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError> {
         // Check cache first
         if let Ok(c) = self.font_selector_to_id_cache.lock() {
             if let Some(cached_id) = c.get(font_selector) {
                 let fonts = self.parsed_fonts.lock().unwrap();
                 if let Some(font) = fonts.get(cached_id) {
-                    return Ok(font.clone());
+                    return Ok(font.shallow_clone()); // Use shallow_clone instead of Arc::clone
                 }
             }
         }
@@ -140,7 +147,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
         }
 
         let fonts = self.parsed_fonts.lock().unwrap();
-        Ok(fonts.get(&fc_match.id).unwrap().clone())
+        Ok(fonts.get(&fc_match.id).unwrap().shallow_clone()) // Use shallow_clone
     }
 }
 
@@ -386,12 +393,12 @@ impl Default for FontSelector {
 /// This hash corresponds to ParsedFont::hash and is used to look up
 /// the actual font data in the renderer's font cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FontRef {
+pub struct FontHash {
     /// The hash of the ParsedFont. 0 means invalid/unknown font.
     pub font_hash: u64,
 }
 
-impl FontRef {
+impl FontHash {
     pub fn invalid() -> Self {
         Self { font_hash: 0 }
     }
@@ -684,7 +691,7 @@ pub struct Glyph<T: ParsedFontTrait> {
     // Core glyph data
     pub glyph_id: u16,
     pub codepoint: char,
-    pub font: Arc<T>,
+    pub font: T, // Changed from Arc<T> - T already has ShallowClone
     pub style: Arc<StyleProperties>,
     pub source: GlyphSource,
 
@@ -1492,7 +1499,7 @@ impl Default for Spacing {
     }
 }
 
-impl Default for FontRef {
+impl Default for FontHash {
     fn default() -> Self {
         Self::invalid()
     }
@@ -2070,7 +2077,7 @@ pub struct ShapedGlyph<T: ParsedFontTrait> {
     pub vertical_offset: Point,
     pub script: Script,
     pub style: Arc<StyleProperties>,
-    pub font: Arc<T>,
+    pub font: T, // Changed from Arc<T>
 }
 
 impl<T: ParsedFontTrait> ShapedGlyph<T> {
@@ -2118,7 +2125,7 @@ pub struct UnifiedLayout<T: ParsedFontTrait> {
     /// Map of font hashes to the actual parsed fonts used in this layout.
     /// This allows the renderer to register all fonts needed for this layout
     /// after the layout is complete, avoiding the need to pre-register fonts.
-    pub used_fonts: std::collections::BTreeMap<u64, Arc<T>>,
+    pub used_fonts: std::collections::BTreeMap<u64, T>, // Changed from Arc<T>
 }
 
 impl<T: ParsedFontTrait> UnifiedLayout<T> {
@@ -2933,20 +2940,24 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
     pub fn collect_used_fonts(&mut self) {
         use std::collections::BTreeMap;
 
-        let mut fonts: BTreeMap<u64, Arc<T>> = BTreeMap::new();
+        let mut fonts: BTreeMap<u64, T> = BTreeMap::new(); // Changed from Arc<T>
 
         for item in &self.items {
             match &item.item {
                 ShapedItem::Cluster(cluster) => {
                     for glyph in &cluster.glyphs {
                         let hash = glyph.font.get_hash();
-                        fonts.entry(hash).or_insert_with(|| glyph.font.clone());
+                        fonts
+                            .entry(hash)
+                            .or_insert_with(|| glyph.font.shallow_clone());
                     }
                 }
                 ShapedItem::CombinedBlock { glyphs, .. } => {
                     for glyph in glyphs {
                         let hash = glyph.font.get_hash();
-                        fonts.entry(hash).or_insert_with(|| glyph.font.clone());
+                        fonts
+                            .entry(hash)
+                            .or_insert_with(|| glyph.font.shallow_clone());
                     }
                 }
                 _ => {}
@@ -3640,7 +3651,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 source,
                 text,
             } => {
-                let font: Arc<T> = font_provider.load_font(&style.font_selector)?;
+                let font: T = font_provider.load_font(&style.font_selector)?; // Changed from Arc<T>
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
@@ -3721,7 +3732,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     script: Script,
     language: hyphenation::Language,
     direction: Direction,
-    font: &Arc<T>,
+    font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
 ) -> Result<Vec<ShapedCluster<T>>, LayoutError> {
@@ -5405,7 +5416,7 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
                 glyph_id: shaped_in_run.glyph_id,
                 codepoint: source_char,
                 style: run.style.clone(),
-                font: font.clone(),
+                font: font.shallow_clone(), // Use shallow_clone instead of clone
                 advance: shaped_in_run.advance,
                 source: GlyphSource::Char,
                 script: run.script,

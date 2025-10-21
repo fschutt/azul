@@ -714,7 +714,7 @@ pub struct RendererResources {
     pub font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
     /// Same as AzString -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
     pub font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
-    /// Direct mapping from font hash (from Arc<ParsedFont>) to FontKey
+    /// Direct mapping from font hash (from FontRef) to FontKey
     /// TODO: This should become part of SharedFontRegistry
     pub font_hash_map: FastHashMap<u64, FontKey>,
 }
@@ -1523,7 +1523,7 @@ pub fn add_fonts_and_images(
     insert_into_active_gl_textures: GlStoreImageFn,
 ) {
     let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
-    
+
     // NOTE: Font loading now happens directly from UnifiedLayout.used_fonts
     // instead of pre-scanning the DOM. Font keys will be added when the
     // layout is generated and UnifiedLayout.used_fonts is populated.
@@ -1869,21 +1869,20 @@ pub struct UpdateImage {
     pub dirty_rect: ImageDirtyRect,
 }
 
+/// Message to add a font to WebRender.
+/// Contains a reference to the parsed font data.
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
-    pub font_bytes: U8Vec,
-    pub font_index: u32,
+    pub font: azul_css::props::basic::FontRef,
 }
 
 impl fmt::Debug for AddFont {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "AddFont {{ key: {:?}, font_bytes: [u8;{}], font_index: {} }}",
-            self.key,
-            self.font_bytes.len(),
-            self.font_index
+            "AddFont {{ key: {:?}, font: {:?} }}",
+            self.key, self.font
         )
     }
 }
@@ -1977,8 +1976,7 @@ impl AddFontMsg {
         match self {
             Font(font_key, _, font_ref) => ResourceUpdate::AddFont(AddFont {
                 key: *font_key,
-                font_bytes: font_ref.get_data().bytes.clone(),
-                font_index: font_ref.get_data().font_index,
+                font: font_ref.clone(),
             }),
             Instance(fi, _) => ResourceUpdate::AddFontInstance(fi.clone()),
         }

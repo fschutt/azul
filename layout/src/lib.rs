@@ -89,12 +89,27 @@ pub fn parse_font_fn(
         source.index as usize,
         source.load_outlines,
     )
-    .map(|parsed_font| {
-        azul_css::props::basic::FontRef::new(azul_css::props::basic::FontData {
-            bytes: source.data,
-            font_index: source.index,
-            parsed: Box::into_raw(Box::new(parsed_font)) as *const c_void,
-            parsed_destructor: parsed_font_destructor,
-        })
-    })
+    .map(|parsed_font| parsed_font_to_font_ref(parsed_font))
+}
+
+pub fn parsed_font_to_font_ref(
+    parsed_font: crate::font::parsed::ParsedFont,
+) -> azul_css::props::basic::FontRef {
+    use core::ffi::c_void;
+
+    fn parsed_font_destructor(ptr: *mut c_void) {
+        unsafe {
+            let _ = Box::from_raw(ptr as *mut crate::font::parsed::ParsedFont);
+        }
+    }
+
+    let boxed = Box::new(parsed_font);
+    let raw_ptr = Box::into_raw(boxed) as *const c_void;
+    azul_css::props::basic::FontRef::new(raw_ptr, parsed_font_destructor)
+}
+
+pub fn font_ref_to_parsed_font(
+    font_ref: &azul_css::props::basic::FontRef,
+) -> &crate::font::parsed::ParsedFont {
+    unsafe { &*(font_ref.parsed as *const crate::font::parsed::ParsedFont) }
 }

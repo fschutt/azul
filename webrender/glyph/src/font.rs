@@ -8,6 +8,7 @@ use api::{FontKey, FontRenderMode, GlyphDimensions};
 use azul_core::resources::{
     GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo, OutlineQuadTo,
 };
+use azul_css::props::basic::font::FontRef;
 use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Transform};
 
@@ -21,7 +22,7 @@ use crate::{
 /// A pure-Rust font context that uses `azul-layout` for font parsing
 /// and `tiny-skia` for glyph rasterization.
 pub struct FontContext {
-    fonts: FastHashMap<FontKey, Arc<ParsedFont>>,
+    fonts: FastHashMap<FontKey, FontRef>,
 }
 
 impl FontContext {
@@ -35,7 +36,7 @@ impl FontContext {
     /// Adds a font directly from a parsed font.
     ///
     /// This avoids re-parsing the font since azul-layout has already parsed it.
-    pub fn add_font(&mut self, font_key: FontKey, parsed_font: Arc<ParsedFont>) {
+    pub fn add_font(&mut self, font_key: FontKey, parsed_font: FontRef) {
         if !self.fonts.contains_key(&font_key) {
             self.fonts.insert(font_key, parsed_font);
         }
@@ -50,7 +51,8 @@ impl FontContext {
         }
 
         if let Some(parsed_font) = ParsedFont::from_bytes(bytes, index as usize, true) {
-            self.fonts.insert(font_key, Arc::new(parsed_font));
+            self.fonts
+                .insert(font_key, azul_layout::parsed_font_to_font_ref(parsed_font));
         } else {
             log::error!("Failed to parse font for key {:?}", font_key);
         }
@@ -64,7 +66,8 @@ impl FontContext {
     /// Looks up the glyph index for a given character.
     pub fn get_glyph_index(&self, font_key: FontKey, ch: char) -> Option<u32> {
         self.fonts
-            .get(&font_key)?
+            .get(&font_key)
+            .map(azul_layout::font_ref_to_parsed_font)?
             .lookup_glyph_index(ch as u32)
             .map(|id| id as u32)
     }
@@ -76,6 +79,7 @@ impl FontContext {
         key: &GlyphKey,
     ) -> Option<GlyphDimensions> {
         let parsed_font = self.fonts.get(&font.font_key)?;
+        let parsed_font = azul_layout::font_ref_to_parsed_font(parsed_font);
         let glyph_id = key.index() as u16;
         let glyph = parsed_font.glyph_records_decoded.get(&glyph_id)?;
 
@@ -114,6 +118,7 @@ impl FontContext {
         let parsed_font = self
             .fonts
             .get(&font.font_key)
+            .map(azul_layout::font_ref_to_parsed_font)
             .ok_or(GlyphRasterError::LoadFailed)?;
         let glyph_id = key.index() as u16;
         let owned_glyph = parsed_font

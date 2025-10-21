@@ -29,12 +29,11 @@ use azul_core::{
     window::{RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
-use azul_css::{parser2::CssApiWrapper, LayoutDebugMessage};
+use azul_css::{parser2::CssApiWrapper, props::basic::FontRef, LayoutDebugMessage};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::{CallCallbacksResult, Callback, ExternalSystemCallbacks, MenuCallback},
-    font::parsed::ParsedFont,
     gpu::GpuStateManager,
     iframe::IFrameManager,
     scroll::{ScrollManager, ScrollStates},
@@ -119,7 +118,7 @@ pub struct DomLayoutResult {
     /// The styled DOM that was laid out
     pub styled_dom: StyledDom,
     /// The layout tree with computed sizes and positions
-    pub layout_tree: LayoutTree<ParsedFont>,
+    pub layout_tree: LayoutTree<FontRef>,
     /// Absolute positions of all nodes
     pub absolute_positions: BTreeMap<usize, LogicalPosition>,
     /// The viewport used for this layout
@@ -146,11 +145,11 @@ pub struct ScrollbarDragState {
 /// - Manage multiple DOMs (for IFrames)
 pub struct LayoutWindow {
     /// Layout cache for solver3 (incremental layout tree) - for the root DOM
-    pub layout_cache: Solver3LayoutCache<ParsedFont>,
+    pub layout_cache: Solver3LayoutCache<FontRef>,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
-    pub text_cache: TextLayoutCache<ParsedFont>,
+    pub text_cache: TextLayoutCache<FontRef>,
     /// Font manager for loading and caching fonts
-    pub font_manager: FontManager<ParsedFont, PathLoader>,
+    pub font_manager: FontManager<FontRef, PathLoader>,
     /// Cache to store decoded images
     pub image_cache: ImageCache,
     /// Cached layout results for all DOMs (root + iframes)
@@ -359,7 +358,7 @@ impl LayoutWindow {
     fn scan_for_iframes(
         &self,
         dom_id: DomId,
-        layout_tree: &LayoutTree<ParsedFont>,
+        layout_tree: &LayoutTree<FontRef>,
         absolute_positions: &BTreeMap<usize, LogicalPosition>,
     ) -> Vec<(NodeId, LogicalRect)> {
         use azul_core::dom::NodeType;
@@ -976,7 +975,7 @@ impl LayoutWindow {
     pub fn synchronize_scrollbar_opacity(
         &mut self,
         dom_id: DomId,
-        layout_tree: &LayoutTree<ParsedFont>,
+        layout_tree: &LayoutTree<FontRef>,
         system_callbacks: &ExternalSystemCallbacks,
         fade_delay: azul_core::task::Duration,
         fade_duration: azul_core::task::Duration,

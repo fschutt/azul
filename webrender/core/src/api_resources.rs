@@ -139,7 +139,7 @@ impl ApiResources {
                 }
                 ResourceUpdate::AddFont(ref font) => {
                     let (key, parsed_font) = match font {
-                        AddFont::Parsed(key, parsed_font) => (key, Arc::clone(parsed_font)),
+                        AddFont::Parsed(key, parsed_font) => (key, parsed_font.clone()),
                     };
                     if let Some(shared_key) = self.fonts.font_keys.add_key(*key) {
                         self.fonts

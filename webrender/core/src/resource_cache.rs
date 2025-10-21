@@ -31,6 +31,7 @@ use api::{
     ImageDescriptorFlags, ImageFormat, ImageKey, ImageRendering, RasterizedBlobImage, TileSize,
     VoidPtrToSizeFn, DEFAULT_TILE_SIZE,
 };
+use azul_css::props::basic::font::FontRef;
 use euclid::{point2, size2};
 use glyph_rasterizer::{
     BaseFontInstance, FontInstance, GlyphFormat, GlyphKey, GlyphRasterJob, GlyphRasterizer,
@@ -774,14 +775,10 @@ impl ResourceCache {
         }
     }
 
-    pub fn add_parsed_font(
-        &mut self,
-        font_key: FontKey,
-        parsed_font: std::sync::Arc<azul_layout::font::parsed::ParsedFont>,
-    ) {
+    pub fn add_parsed_font(&mut self, font_key: FontKey, parsed_font: FontRef) {
         // Push the new font to the font renderer, and also store
         // it locally for glyph metric requests.
-        // Memory tracking removed - fonts are now Arc<ParsedFont>, shared across threads
+        // Memory tracking removed - fonts are now FontRef, shared across threads
         self.glyph_rasterizer
             .add_parsed_font(font_key, parsed_font.clone());
         self.resources
@@ -1690,7 +1687,7 @@ impl ResourceCache {
 
         // Measure fonts. We only need the templates here, because the instances
         // don't have big buffers.
-        // Note: Fonts are now Arc<ParsedFont>, so we report them as zero
+        // Note: Fonts are now FontRef, so we report them as zero
         // since memory profiling is disabled
         report.fonts = 0;
 

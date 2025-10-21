@@ -31,7 +31,7 @@ pub struct GlyphRun<T: ParsedFontTrait> {
     /// The color of the text in this glyph run.
     pub color: ColorU,
     /// The font used for this glyph run.
-    pub font: Arc<T>,
+    pub font: T, // Changed from Arc<T> - T is already cheap to clone (e.g. FontRef)
     /// A hash of the font, useful for caching purposes.
     pub font_hash: u64,
     /// The font size in pixels.

@@ -17,17 +17,10 @@ use azul_core::resources::{
     GlyphOutline, GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
     OutlineQuadTo, OwnedGlyphBoundingBox,
 };
-// NOTE: ShapedTextBufferUnsized removed - was part of text2's unscaled shaping model
-// text3 uses scaled font sizes directly for layout
 use azul_css::props::basic::FontMetrics;
 use mock::MockFont;
 
 use crate::text3::cache::LayoutFontMetrics;
-
-// NOTE: FontImpl trait was removed with text2
-// text3 uses ParsedFontTrait instead
-// #[cfg(feature = "text_layout")]
-// use crate::text2::FontImpl;
 
 pub type GsubCache = Arc<LayoutCacheData<GSUB>>;
 pub type GposCache = Arc<LayoutCacheData<GPOS>>;
@@ -316,6 +309,38 @@ impl ParsedFont {
     /// Get the number of glyphs in this font
     pub fn num_glyphs(&self) -> u16 {
         self.num_glyphs
+    }
+
+    /// Check if this font has a glyph for the given codepoint
+    pub fn has_glyph(&self, codepoint: u32) -> bool {
+        self.lookup_glyph_index(codepoint).is_some()
+    }
+
+    /// Get vertical metrics for a glyph (for vertical text layout)
+    /// Returns None because vertical layout tables (vhea, vmtx) are not parsed yet
+    pub fn get_vertical_metrics(
+        &self,
+        _glyph_id: u16,
+    ) -> Option<crate::text3::cache::VerticalMetrics> {
+        // TODO: Parse vhea and vmtx tables to support vertical text layout
+        None
+    }
+
+    /// Get layout-specific font metrics
+    pub fn get_font_metrics(&self) -> crate::text3::cache::LayoutFontMetrics {
+        // Ensure descent is positive (OpenType may have negative descent)
+        let descent = if self.font_metrics.descent > 0.0 {
+            self.font_metrics.descent
+        } else {
+            -self.font_metrics.descent
+        };
+
+        crate::text3::cache::LayoutFontMetrics {
+            ascent: self.font_metrics.ascent,
+            descent,
+            line_gap: self.font_metrics.line_gap,
+            units_per_em: self.font_metrics.units_per_em,
+        }
     }
 }
 

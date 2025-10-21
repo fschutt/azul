@@ -1214,10 +1214,10 @@ pub(crate) fn wr_translate_resource_update(
 
 #[inline(always)]
 fn wr_translate_add_font(add_font: AddFont) -> WrAddFont {
-    WrAddFont::Raw(
+    // AddFont now contains FontRef directly - just translate the enum
+    WrAddFont::Parsed(
         wr_translate_font_key(add_font.key),
-        u8vec_into_wr_type(add_font.font_bytes),
-        add_font.font_index,
+        add_font.font, // FontRef clones cheaply via reference counting
     )
 }
 
