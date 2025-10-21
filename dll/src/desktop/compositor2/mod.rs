@@ -31,6 +31,8 @@ pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
     viewport_size: DeviceIntSize,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: f32,
 ) -> Result<Transaction, String> {
     use azul_core::geom::LogicalRect;
     use azul_layout::solver3::display_list::DisplayListItem;
@@ -451,8 +453,70 @@ fn push_text(
     glyphs: &[GlyphInstance],
     font: &azul_layout::text3::cache::FontRef,
     color: ColorU,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: azul_core::resources::DpiScaleFactor,
+    font_size: azul_core::resources::Au,
 ) {
-    // TODO: Need to resolve FontRef to FontInstanceKey via font cache
-    // For now, skip text rendering
-    // This requires access to the font cache to map FontRef -> FontInstanceKey
+    use azul_core::resources::StyleFontFamily;
+    use azul_css::props::basic::style::StyleFontFamilyVec;
+
+    use crate::desktop::wr_translate2::wr_translate_layouted_glyphs;
+
+    // Look up FontKey from the FontRef
+    // The font should already be registered in renderer_resources
+    let font_family_vec = StyleFontFamilyVec::from(vec![StyleFontFamily::Ref(font.clone())]);
+    let font_families_hash = azul_core::resources::StyleFontFamiliesHash::new(&font_family_vec);
+
+    let font_family_hash = match renderer_resources
+        .font_families_map
+        .get(&font_families_hash)
+    {
+        Some(h) => h,
+        None => {
+            eprintln!("[push_text] Font not registered: {:?}", font);
+            return;
+        }
+    };
+
+    let font_key = match renderer_resources.font_id_map.get(font_family_hash) {
+        Some(k) => k,
+        None => {
+            eprintln!("[push_text] FontKey not found for family hash");
+            return;
+        }
+    };
+
+    // Look up FontInstanceKey for the given font size and DPI
+    let font_instance_key = match renderer_resources.currently_registered_fonts.get(font_key) {
+        Some((_, instances)) => match instances.get(&(font_size, dpi)) {
+            Some(k) => *k,
+            None => {
+                eprintln!(
+                    "[push_text] FontInstanceKey not found for size {:?} @ dpi {:?}",
+                    font_size, dpi
+                );
+                return;
+            }
+        },
+        None => {
+            eprintln!("[push_text] Font instances not found for FontKey");
+            return;
+        }
+    };
+
+    // Translate to WebRender types
+    let wr_glyphs = wr_translate_layouted_glyphs(glyphs);
+    let wr_font_instance_key =
+        crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
+    let wr_color = azul_css::props::basic::color::ColorF::from(color);
+
+    // Push text to display list
+    builder.push_text(
+        info,
+        info.clip_rect,
+        &wr_glyphs,
+        wr_font_instance_key,
+        wr_color,
+        None, // glyph_options
+    );
 }
