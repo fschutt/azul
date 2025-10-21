@@ -972,8 +972,13 @@ impl LayoutWindow {
         (1.0 - fade_progress).max(0.0)
     }
 
+    /// Synchronize scrollbar opacity values with the GPU value cache.
+    ///
+    /// Static method that takes individual components instead of &mut self to avoid borrow
+    /// conflicts.
     pub fn synchronize_scrollbar_opacity(
-        &mut self,
+        gpu_state_manager: &mut GpuStateManager,
+        scroll_states: &ScrollManager,
         dom_id: DomId,
         layout_tree: &LayoutTree<FontRef>,
         system_callbacks: &ExternalSystemCallbacks,
@@ -983,7 +988,7 @@ impl LayoutWindow {
         use azul_core::{gpu::GpuScrollbarOpacityEvent, resources::OpacityKey};
 
         let mut events = Vec::new();
-        let gpu_cache = self.gpu_state_manager.caches.entry(dom_id).or_default();
+        let gpu_cache = gpu_state_manager.caches.entry(dom_id).or_default();
 
         // Get current time from system callbacks
         let now = (system_callbacks.get_system_time_fn.cb)();
@@ -1004,7 +1009,7 @@ impl LayoutWindow {
             // Calculate current opacity from ScrollManager
             let vertical_opacity = if scrollbar_info.needs_vertical {
                 Self::calculate_scrollbar_opacity(
-                    self.scroll_states.get_last_activity_time(dom_id, node_id),
+                    scroll_states.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
@@ -1015,7 +1020,7 @@ impl LayoutWindow {
 
             let horizontal_opacity = if scrollbar_info.needs_horizontal {
                 Self::calculate_scrollbar_opacity(
-                    self.scroll_states.get_last_activity_time(dom_id, node_id),
+                    scroll_states.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
@@ -1123,7 +1128,7 @@ impl LayoutWindow {
     }
 }
 
-/// Result of a layout operation,包含display list和可能的warnings/debug信息.
+/// Result of a layout operation
 pub struct LayoutResult {
     pub display_list: DisplayList,
     pub warnings: Vec<String>,

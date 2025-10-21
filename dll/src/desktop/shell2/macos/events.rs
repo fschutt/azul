@@ -113,12 +113,113 @@ impl MacOSWindow {
                 EventProcessResult::RequestRedraw
             }
 
-            ScrollbarHitId::VerticalTrack(dom_id, node_id)
-            | ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
-                // TODO: Jump scroll to clicked position
-                EventProcessResult::DoNothing
+            ScrollbarHitId::VerticalTrack(dom_id, node_id) => {
+                // Jump scroll to clicked position on track
+                self.handle_track_click(dom_id, node_id, position, true)
+            }
+
+            ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
+                // Jump scroll to clicked position on track
+                self.handle_track_click(dom_id, node_id, position, false)
             }
         }
+    }
+
+    /// Handle track click - jump scroll to clicked position
+    fn handle_track_click(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::dom::NodeId,
+        click_position: LogicalPosition,
+        is_vertical: bool,
+    ) -> EventProcessResult {
+        // Get scrollbar state to calculate target position
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return EventProcessResult::DoNothing,
+        };
+
+        // Get current scrollbar geometry
+        let scrollbar_state = if is_vertical {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Vertical,
+            )
+        } else {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Horizontal,
+            )
+        };
+
+        let scrollbar_state = match scrollbar_state {
+            Some(s) if s.visible => s,
+            _ => return EventProcessResult::DoNothing,
+        };
+
+        // Get current scroll state
+        let scroll_state = match layout_window
+            .scroll_states
+            .get_scroll_state(dom_id, node_id)
+        {
+            Some(s) => s,
+            None => return EventProcessResult::DoNothing,
+        };
+
+        // Calculate which position on the track was clicked (0.0 = top/left, 1.0 = bottom/right)
+        let click_ratio = if is_vertical {
+            let track_top = scrollbar_state.track_rect.origin.y;
+            let track_height = scrollbar_state.track_rect.size.height;
+            ((click_position.y - track_top) / track_height).clamp(0.0, 1.0)
+        } else {
+            let track_left = scrollbar_state.track_rect.origin.x;
+            let track_width = scrollbar_state.track_rect.size.width;
+            ((click_position.x - track_left) / track_width).clamp(0.0, 1.0)
+        };
+
+        // Calculate target scroll position
+        // click_ratio should center the thumb at the clicked position
+        let container_size = if is_vertical {
+            scroll_state.container_rect.size.height
+        } else {
+            scroll_state.container_rect.size.width
+        };
+
+        let content_size = if is_vertical {
+            scroll_state.content_rect.size.height
+        } else {
+            scroll_state.content_rect.size.width
+        };
+
+        let max_scroll = (content_size - container_size).max(0.0);
+
+        // Center thumb at click position: target_scroll = click_ratio * max_scroll - (thumb_size /
+        // 2) For simplicity, just jump to click_ratio * max_scroll
+        let target_scroll = click_ratio * max_scroll;
+
+        // Calculate delta from current position
+        let current_scroll = if is_vertical {
+            scroll_state.current_offset.y
+        } else {
+            scroll_state.current_offset.x
+        };
+
+        let scroll_delta = target_scroll - current_scroll;
+
+        // Apply scroll using gpu_scroll
+        if let Err(e) = self.gpu_scroll(
+            dom_id.inner as u64,
+            node_id.index() as u64,
+            if is_vertical { 0.0 } else { scroll_delta },
+            if is_vertical { scroll_delta } else { 0.0 },
+        ) {
+            eprintln!("Track click scroll failed: {}", e);
+            return EventProcessResult::DoNothing;
+        }
+
+        EventProcessResult::RequestRedraw
     }
 
     /// Handle scrollbar drag (continuous thumb movement)
@@ -129,23 +230,115 @@ impl MacOSWindow {
         };
 
         use azul_core::hit_test::ScrollbarHitId;
-        let (dom_id, node_id) = match drag_state.hit_id {
-            ScrollbarHitId::VerticalThumb(d, n) | ScrollbarHitId::VerticalTrack(d, n) => (d, n),
-            ScrollbarHitId::HorizontalThumb(d, n) | ScrollbarHitId::HorizontalTrack(d, n) => (d, n),
+        let (dom_id, node_id, is_vertical) = match drag_state.hit_id {
+            ScrollbarHitId::VerticalThumb(d, n) | ScrollbarHitId::VerticalTrack(d, n) => {
+                (d, n, true)
+            }
+            ScrollbarHitId::HorizontalThumb(d, n) | ScrollbarHitId::HorizontalTrack(d, n) => {
+                (d, n, false)
+            }
         };
 
-        // Calculate scroll delta from drag delta
-        let delta = LogicalPosition::new(
-            current_pos.x - drag_state.initial_mouse_pos.x,
-            current_pos.y - drag_state.initial_mouse_pos.y,
-        );
+        // Get scrollbar geometry to convert pixel delta to scroll delta
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return EventProcessResult::DoNothing,
+        };
+
+        let scrollbar_state = if is_vertical {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Vertical,
+            )
+        } else {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Horizontal,
+            )
+        };
+
+        let scrollbar_state = match scrollbar_state {
+            Some(s) if s.visible => s,
+            _ => return EventProcessResult::DoNothing,
+        };
+
+        let scroll_state = match layout_window
+            .scroll_states
+            .get_scroll_state(dom_id, node_id)
+        {
+            Some(s) => s,
+            None => return EventProcessResult::DoNothing,
+        };
+
+        // Calculate mouse delta in pixels
+        let pixel_delta = if is_vertical {
+            current_pos.y - drag_state.initial_mouse_pos.y
+        } else {
+            current_pos.x - drag_state.initial_mouse_pos.x
+        };
+
+        // Convert pixel delta to scroll delta
+        // pixel_delta / track_size = scroll_delta / max_scroll
+        // Therefore: scroll_delta = (pixel_delta / track_size) * max_scroll
+
+        let track_size = if is_vertical {
+            scrollbar_state.track_rect.size.height
+        } else {
+            scrollbar_state.track_rect.size.width
+        };
+
+        let container_size = if is_vertical {
+            scroll_state.container_rect.size.height
+        } else {
+            scroll_state.container_rect.size.width
+        };
+
+        let content_size = if is_vertical {
+            scroll_state.content_rect.size.height
+        } else {
+            scroll_state.content_rect.size.width
+        };
+
+        let max_scroll = (content_size - container_size).max(0.0);
+
+        // Account for thumb size: usable track size is track_size - thumb_size
+        let thumb_size = scrollbar_state.thumb_size_ratio * track_size;
+        let usable_track_size = (track_size - thumb_size).max(1.0); // Avoid division by zero
+
+        // Calculate scroll delta
+        let scroll_delta = if usable_track_size > 0.0 {
+            (pixel_delta / usable_track_size) * max_scroll
+        } else {
+            0.0
+        };
+
+        // Calculate target scroll position (initial + delta from drag start)
+        let target_scroll = if is_vertical {
+            drag_state.initial_scroll_offset.y + scroll_delta
+        } else {
+            drag_state.initial_scroll_offset.x + scroll_delta
+        };
+
+        // Clamp to valid range
+        let target_scroll = target_scroll.clamp(0.0, max_scroll);
+
+        // Calculate delta from current position
+        let current_scroll = if is_vertical {
+            scroll_state.current_offset.y
+        } else {
+            scroll_state.current_offset.x
+        };
+
+        let delta_from_current = target_scroll - current_scroll;
 
         // Use gpu_scroll to update scroll position
         if let Err(e) = self.gpu_scroll(
             dom_id.inner as u64,
             node_id.index() as u64,
-            delta.x,
-            delta.y,
+            if is_vertical { 0.0 } else { delta_from_current },
+            if is_vertical { delta_from_current } else { 0.0 },
         ) {
             eprintln!("Scrollbar drag failed: {}", e);
             return EventProcessResult::DoNothing;

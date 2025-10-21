@@ -13,7 +13,7 @@ use std::{
     rc::Rc,
 };
 
-use azul_core::menu::Menu;
+use azul_core::{dom::DomId, menu::Menu};
 use azul_layout::window_state::{FullWindowState, WindowCreateOptions, WindowState};
 use objc2::{
     define_class,
@@ -893,7 +893,26 @@ impl MacOSWindow {
         // This updates scrollbar geometry (thumb position/size ratios, visibility)
         layout_window.scroll_states.calculate_scrollbar_states();
 
-        // 4. Rebuild display list and send to WebRender (stub for now)
+        // 4. Synchronize scrollbar opacity with GPU cache
+        // This enables smooth fade-in/fade-out without display list rebuild
+        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            azul_layout::window::LayoutWindow::synchronize_scrollbar_opacity(
+                &mut layout_window.gpu_state_manager,
+                &layout_window.scroll_states,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )), // fade_delay
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )), // fade_duration
+            );
+        }
+
+        // 5. Rebuild display list and send to WebRender (stub for now)
         let dpi = self.current_window_state.size.get_hidpi_factor();
         crate::desktop::wr_translate2::rebuild_display_list(
             layout_window,
@@ -904,7 +923,7 @@ impl MacOSWindow {
             dpi,
         );
 
-        // 5. Mark that frame needs regeneration (will be called once at event processing end)
+        // 6. Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
         Ok(())
@@ -1092,6 +1111,25 @@ impl MacOSWindow {
                 *dom_id,
                 &layout_window.scroll_states,
                 &layout_result.layout_tree,
+            );
+        }
+
+        // Update scrollbar opacity based on activity
+        // This triggers fade-in on scroll and keeps scrollbars visible
+        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            azul_layout::window::LayoutWindow::synchronize_scrollbar_opacity(
+                &mut layout_window.gpu_state_manager,
+                &layout_window.scroll_states,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )), // fade_delay
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )), // fade_duration
             );
         }
 

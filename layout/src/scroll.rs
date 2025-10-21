@@ -166,17 +166,17 @@ pub struct ScrollManager {
 
 /// The complete scroll state for a single node
 #[derive(Debug, Clone)]
-struct ScrollState {
+pub struct ScrollState {
     /// Current scroll offset (live, may be animating)
-    current_offset: LogicalPosition,
+    pub current_offset: LogicalPosition,
     /// Ongoing smooth scroll animation, if any
-    animation: Option<ScrollAnimation>,
+    pub animation: Option<ScrollAnimation>,
     /// Last time scroll activity occurred (for fading scrollbars)
-    last_activity: Instant,
+    pub last_activity: Instant,
     /// Bounds of the scrollable container
-    container_rect: LogicalRect,
+    pub container_rect: LogicalRect,
     /// Bounds of the total content (for calculating scroll limits)
-    content_rect: LogicalRect,
+    pub content_rect: LogicalRect,
 }
 
 /// Details of an in-progress smooth scroll animation
@@ -378,6 +378,11 @@ impl ScrollManager {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.last_activity.clone())
+    }
+
+    /// Get the internal scroll state for a node (container and content rects, current offset)
+    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&ScrollState> {
+        self.states.get(&(dom_id, node_id))
     }
 
     pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
