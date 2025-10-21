@@ -825,10 +825,6 @@ pub struct Renderer {
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<dyn ExternalImageHandler>>,
 
-    /// Optional function pointers for measuring memory used by a given
-    /// heap-allocated pointer.
-    size_of_ops: Option<MallocSizeOfOps>,
-
     pub renderer_errors: Vec<RendererError>,
 
     pub(in crate) async_frame_recorder: Option<AsyncScreenshotGrabber>,
@@ -5385,33 +5381,6 @@ impl Renderer {
     /// Collects a memory report.
     pub fn report_memory(&self, swgl: *mut c_void) -> MemoryReport {
         let mut report = MemoryReport::default();
-
-        // GPU cache CPU memory.
-        self.gpu_cache_texture.report_memory_to(&mut report, self.size_of_ops.as_ref().unwrap());
-
-        self.staging_texture_pool.report_memory_to(&mut report, self.size_of_ops.as_ref().unwrap());
-
-        // Render task CPU memory.
-        for (_id, doc) in &self.active_documents {
-            let frame_alloc_stats = doc.frame.allocator_memory.get_stats();
-            report.frame_allocator += frame_alloc_stats.reserved_bytes;
-            report.render_tasks += doc.frame.render_tasks.report_memory();
-        }
-
-        // Vertex data GPU memory.
-        for textures in &self.vertex_data_textures {
-            report.vertex_data_textures += textures.size_in_bytes();
-        }
-
-        // Texture cache and render target GPU memory.
-        report += self.texture_resolver.report_memory();
-
-        // Texture upload PBO memory.
-        report += self.texture_upload_pbo_pool.report_memory();
-
-        // Textures held internally within the device layer.
-        report += self.device.report_memory(self.size_of_ops.as_ref().unwrap(), swgl);
-
         report
     }
 

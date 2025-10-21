@@ -418,7 +418,7 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct PrimKey<T: MallocSizeOf> {
+pub struct PrimKey<T> {
     pub common: PrimKeyCommonData,
     pub kind: T,
 }

@@ -1448,25 +1448,6 @@ impl<T> ::std::ops::Deref for PrimaryArc<T> {
     }
 }
 
-impl<T> MallocShallowSizeOf for PrimaryArc<T> {
-    fn shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        unsafe {
-            // This is a bit sketchy, but std::sync::Arc doesn't expose the
-            // base pointer.
-            let raw_arc_ptr: *const Arc<T> = &self.0;
-            let raw_ptr_ptr: *const *const c_void = raw_arc_ptr as _;
-            let raw_ptr = *raw_ptr_ptr;
-            (ops.size_of_op)(raw_ptr)
-        }
-    }
-}
-
-impl<T: MallocSizeOf> MallocSizeOf for PrimaryArc<T> {
-    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.shallow_size_of(ops) + (**self).size_of(ops)
-    }
-}
-
 /// Computes the scale factors of this matrix; that is,
 /// the amounts each basis vector is scaled by.
 ///

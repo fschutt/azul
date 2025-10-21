@@ -541,7 +541,7 @@ impl ResourceCache {
     }
 
     pub fn enable_multithreading(&mut self, enable: bool) {
-        self.glyph_rasterizer.enable_multithreading(enable);
+        // self.glyph_rasterizer.enable_multithreading(enable);
     }
 
     fn should_tile(limit: i32, descriptor: &ImageDescriptor, data: &CachedImageData) -> bool {
@@ -680,9 +680,6 @@ impl ResourceCache {
                     let (key, template) = match font {
                         AddFont::Raw(key, bytes, index) => {
                             (key, FontTemplate::Raw(bytes, index))
-                        }
-                        AddFont::Native(key, native_font_handle) => {
-                            (key, FontTemplate::Native(native_font_handle))
                         }
                     };
                     let shared_key = self.resources.fonts.font_keys.map_key(&key);
@@ -1652,13 +1649,6 @@ impl ResourceCache {
     }
 
     /// Reports the CPU heap usage of this ResourceCache.
-    ///
-    /// NB: It would be much better to use the derive(MallocSizeOf) machinery
-    /// here, but the Arcs complicate things. The two ways to handle that would
-    /// be to either (a) Implement MallocSizeOf manually for the things that own
-    /// them and manually avoid double-counting, or (b) Use the "seen this pointer
-    /// yet" machinery from the proper malloc_size_of crate. We can do this if/when
-    /// more accurate memory reporting on these resources becomes a priority.
     pub fn report_memory(&self, op: VoidPtrToSizeFn) -> MemoryReport {
         let mut report = MemoryReport::default();
 

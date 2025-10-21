@@ -794,16 +794,8 @@ impl UploadTexturePool {
         }
     }
 
-    pub fn report_memory_to(&self, report: &mut MemoryReport, size_op_funs: &MallocSizeOfOps) {
-        for buf in &self.temporary_buffers {
-            report.upload_staging_memory += unsafe { (size_op_funs.size_of_op)(buf.as_ptr() as *const _) };
-        }
+    pub fn report_memory_to(&self, report: &mut MemoryReport) {
 
-        for format in &self.textures {
-            for texture in format {
-                report.upload_staging_textures += texture.0.size_in_bytes();
-            }
-        }
     }
 }
 

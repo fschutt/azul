@@ -1567,6 +1567,22 @@ macro_rules! profile_scope {
     ($string:expr) => {};
 }
 
+/// Empty macros for tracy profiling since it's disabled
+macro_rules! tracy_frame_marker {
+    () => {};
+}
+
+macro_rules! tracy_begin_frame {
+    ($name:expr) => {};
+}
+
+macro_rules! tracy_end_frame {
+    ($name:expr) => {};
+}
+
+/// Empty function for thread registration since tracy is disabled
+pub fn register_thread_with_profiler(_name: String) {}
+
 #[derive(Debug, Clone)]
 pub struct GpuProfileTag {
     pub label: &'static str,
@@ -1910,20 +1926,15 @@ impl TransactionProfile {
 }
 
 impl GlyphRasterizeProfiler for TransactionProfile {
-    fn start_time(&mut self) {
+    fn start_time(&mut self, _label: &str) {
         let id = GLYPH_RESOLVE_TIME;
         let ns = precise_time_ns();
         self.events[id] = Event::Start(ns);
     }
 
-    fn end_time(&mut self) -> f64 {
+    fn end_time(&mut self, _label: &str) {
         let id = GLYPH_RESOLVE_TIME;
-        self.end_time_if_started(id).unwrap()
-    }
-
-    fn set(&mut self, value: f64) {
-        let id = RASTERIZED_GLYPHS;
-        self.set_f64(id, value);
+        let _ = self.end_time_if_started(id);
     }
 }
 

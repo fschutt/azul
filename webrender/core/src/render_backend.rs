@@ -104,10 +104,7 @@ macro_rules! declare_data_stores {
 
         impl DataStores {
             /// Reports CPU heap usage.
-            fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
-                $(
-                    r.interning.data_stores.$name += self.$name.size_of(ops);
-                )+
+            fn report_memory(&self, r: &mut MemoryReport) {
             }
 
             fn apply_updates(
@@ -708,7 +705,6 @@ pub struct RenderBackend {
 
     notifier: Box<dyn RenderNotifier>,
     sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
-    size_of_ops: Option<MallocSizeOfOps>,
     debug_flags: DebugFlags,
     namespace_alloc_by_client: bool,
 
@@ -740,7 +736,6 @@ impl RenderBackend {
         notifier: Box<dyn RenderNotifier>,
         frame_config: FrameBuilderConfig,
         sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
-        size_of_ops: Option<MallocSizeOfOps>,
         debug_flags: DebugFlags,
         namespace_alloc_by_client: bool,
     ) -> RenderBackend {
@@ -755,7 +750,6 @@ impl RenderBackend {
             documents: FastHashMap::default(),
             notifier,
             sampler,
-            size_of_ops,
             debug_flags,
             namespace_alloc_by_client,
             recycler: Recycler::new(),
@@ -1561,31 +1555,6 @@ impl RenderBackend {
     }
 
     fn report_memory(&mut self, tx: Sender<Box<MemoryReport>>) {
-        let mut report = Box::new(MemoryReport::default());
-        let ops = self.size_of_ops.as_mut().unwrap();
-        let op = ops.size_of_op;
-        report.gpu_cache_metadata = self.gpu_cache.size_of(ops);
-        for doc in self.documents.values() {
-            report.clip_stores += doc.scene.clip_store.size_of(ops);
-            report.hit_testers += match &doc.hit_tester {
-                Some(hit_tester) => hit_tester.size_of(ops),
-                None => 0,
-            };
-
-            doc.data_stores.report_memory(ops, &mut report)
-        }
-
-        (*report) += self.resource_cache.report_memory(op);
-        report.texture_cache_structures = self.resource_cache
-            .texture_cache
-            .report_memory(ops);
-
-        // Send a message to report memory on the scene-builder thread, which
-        // will add its report to this one and send the result back to the original
-        // thread waiting on the request.
-        self.send_backend_message(
-            SceneBuilderRequest::ReportMemory(report, tx)
-        );
     }
 
     #[cfg(feature = "capture")]

@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::u32;
 use api::MinimapData;
+use azul_layout::font::parsed::ParsedFont;
 use time::precise_time_ns;
 use crate::api::channel::{Sender, single_msg_channel, unbounded_channel};
 use crate::api::{BuiltDisplayList, IdNamespace, ExternalScrollId, Parameter, BoolParameter};
@@ -729,12 +730,8 @@ pub struct UpdateBlobImage {
 /// Must be matched with a corresponding `ResourceUpdate::DeleteFont` at some point to prevent
 /// memory leaks.
 #[derive(Clone)]
-#[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]
 pub enum AddFont {
-    ///
-    Raw(FontKey, Arc<Vec<u8>>, u32),
-    ///
-    Native(FontKey, NativeFontHandle),
+    Raw(FontKey, Arc<ParsedFont>, u32),
 }
 
 /// Creates a font instance resource.
@@ -742,7 +739,6 @@ pub enum AddFont {
 /// Must be matched with a corresponding `DeleteFontInstance` at some point
 /// to prevent memory leaks.
 #[derive(Clone)]
-#[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]
 pub struct AddFontInstance {
     /// A key to identify the font instance.
     pub key: FontInstanceKey,
@@ -1157,7 +1153,7 @@ impl RenderApi {
     }
 
     /// Synchronously requests memory report.
-    pub fn report_memory(&self, _ops: malloc_size_of::MallocSizeOfOps) -> MemoryReport {
+    pub fn report_memory(&self) -> MemoryReport {
         let (tx, rx) = single_msg_channel();
         self.api_sender.send(ApiMsg::ReportMemory(tx)).unwrap();
         *rx.recv().unwrap()

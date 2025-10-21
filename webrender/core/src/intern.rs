@@ -442,10 +442,10 @@ use serde::Deserialize as InternDeserialize;
 use self::dummy::Deserialize as InternDeserialize;
 
 /// Implement `Internable` for a type that wants to participate in interning.
-pub trait Internable: MallocSizeOf {
-    type Key: Eq + Hash + Clone + Debug + MallocSizeOf + InternDebug + InternSerialize + for<'a> InternDeserialize<'a>;
-    type StoreData: From<Self::Key> + MallocSizeOf + InternSerialize + for<'a> InternDeserialize<'a>;
-    type InternData: MallocSizeOf + InternSerialize + for<'a> InternDeserialize<'a>;
+pub trait Internable {
+    type Key: Eq + Hash + Clone + Debug + InternDebug + InternSerialize + for<'a> InternDeserialize<'a>;
+    type StoreData: From<Self::Key> + InternSerialize + for<'a> InternDeserialize<'a>;
+    type InternData: InternSerialize + for<'a> InternDeserialize<'a>;
 
     // Profile counter indices, see the list in profiler.rs
     const PROFILE_COUNTER: usize;

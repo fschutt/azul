@@ -46,6 +46,7 @@ use std::{
     path::PathBuf,
 };
 
+use crate::profiler::register_thread_with_profiler;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 /// Use this hint for all vertex data re-initialization. This allows
@@ -547,8 +548,6 @@ pub fn create_webrender_instance(
     let debug_flags = options.debug_flags;
     let size_of_op = options.size_of_op;
     let enclosing_size_of_op = options.enclosing_size_of_op;
-    let make_size_of_ops =
-        move || size_of_op.map(|o| MallocSizeOfOps::new(o, enclosing_size_of_op));
     let workers = options
         .workers
         .take()
@@ -585,7 +584,6 @@ pub fn create_webrender_instance(
 
     let glyph_rasterizer = GlyphRasterizer::new(
         workers,
-        options.dedicated_glyph_raster_thread,
         device.get_capabilities().supports_r8_texture_upload,
     );
 
@@ -601,7 +599,6 @@ pub fn create_webrender_instance(
         let mut scene_builder = SceneBuilderThread::new(
             config,
             sb_fonts,
-            make_size_of_ops(),
             scene_builder_hooks,
             scene_builder_channels,
         );
@@ -695,7 +692,6 @@ pub fn create_webrender_instance(
             backend_notifier,
             config,
             sampler,
-            make_size_of_ops(),
             debug_flags,
             namespace_alloc_by_client,
         );
@@ -754,7 +750,6 @@ pub fn create_webrender_instance(
         pipeline_info: PipelineInfo::default(),
         dither_matrix_texture,
         external_image_handler: None,
-        size_of_ops: make_size_of_ops(),
         cpu_profiles: VecDeque::new(),
         gpu_profiles: VecDeque::new(),
         gpu_cache_texture,

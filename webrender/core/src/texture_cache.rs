@@ -1519,8 +1519,8 @@ impl TextureCache {
         BudgetType::iter().map(|b| self.bytes_allocated[b as usize]).sum()
     }
 
-    pub fn report_memory(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.lru_cache.size_of(ops)
+    pub fn report_memory(&self) -> usize {
+        0
     }
 }
 

@@ -5,7 +5,7 @@
 use api::{
     channel::crossbeam::{unbounded, Receiver, Sender},
     ColorU, FontInstanceData, FontInstanceFlags, FontInstanceKey, FontInstanceOptions,
-    FontInstancePlatformOptions, FontKey, FontRenderMode, FontSize, FontVariation,
+    FontInstancePlatformOptions, FontKey, FontRenderMode, FontSize, FontTemplate, FontVariation,
     GlyphDimensions, GlyphIndex, ImageFormat, SyntheticItalics,
 };
 use api::units::*;
@@ -387,7 +387,28 @@ impl GlyphRasterizer {
         }
     }
 
-    pub fn add_font(&mut self, font_key: FontKey, parsed_font: Arc<ParsedFont>) {
+    /// Adds a font from a FontTemplate (handles both parsed fonts and raw bytes).
+    pub fn add_font(&mut self, font_key: FontKey, template: FontTemplate) {
+        if !self.fonts.insert(font_key) {
+            return; // Font already exists
+        }
+
+        match template {
+            FontTemplate::Raw(ref bytes, index) => {
+                for context_mutex in self.font_contexts.iter() {
+                    let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
+                    context.add_font_from_bytes(font_key, bytes.as_slice(), index);
+                }
+            }
+            FontTemplate::Native(_) => {
+                // Native fonts are not supported in pure Rust implementation
+                // This is intentionally a no-op for API compatibility
+            }
+        }
+    }
+
+    /// Adds a pre-parsed font directly (for efficiency when font is already parsed).
+    pub fn add_parsed_font(&mut self, font_key: FontKey, parsed_font: Arc<ParsedFont>) {
         if self.fonts.insert(font_key) {
             for context_mutex in self.font_contexts.iter() {
                 let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();

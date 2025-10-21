@@ -404,16 +404,7 @@ impl GpuCacheTexture {
         self.texture = Some(texture);
     }
 
-    pub fn report_memory_to(&self, report: &mut MemoryReport, size_op_funs: &MallocSizeOfOps) {
-        if let GpuCacheBus::PixelBuffer{ref rows, ..} = self.bus {
-            for row in rows.iter() {
-                report.gpu_cache_cpu_mirror += unsafe { (size_op_funs.size_of_op)(row.cpu_blocks.as_ptr() as *const _) };
-            }
-        }
-
-        // GPU cache GPU memory.
-        report.gpu_cache_textures +=
-            self.texture.as_ref().map_or(0, |t| t.size_in_bytes());
+    pub fn report_memory_to(&self, report: &mut MemoryReport) {
     }
 
     pub fn gpu_size_in_bytes(&self) -> usize {

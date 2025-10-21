@@ -239,12 +239,8 @@ impl Scene {
 
     pub fn report_memory(
         &self,
-        ops: &mut MallocSizeOfOps,
         report: &mut MemoryReport
     ) {
-        for (_, pipeline) in &self.pipelines {
-            report.display_list += pipeline.display_list.size_of(ops)
-        }
     }
 }
 

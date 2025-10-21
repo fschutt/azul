@@ -178,12 +178,9 @@ macro_rules! declare_interners {
             /// Reports CPU heap memory used by the interners.
             fn report_memory(
                 &self,
-                ops: &mut MallocSizeOfOps,
                 r: &mut MemoryReport,
             ) {
-                $(
-                    r.interning.interners.$name += self.$name.size_of(ops);
-                )+
+
             }
 
             fn end_frame_and_get_pending_updates(&mut self) -> InternerUpdates {
@@ -232,7 +229,6 @@ pub struct SceneBuilderThread {
     tx: Sender<ApiMsg>,
     config: FrameBuilderConfig,
     fonts: SharedFontResources,
-    size_of_ops: Option<MallocSizeOfOps>,
     hooks: Option<Box<dyn SceneBuilderHooks + Send>>,
     simulate_slow_ms: u32,
     removed_pipelines: FastHashSet<PipelineId>,
@@ -267,7 +263,6 @@ impl SceneBuilderThread {
     pub fn new(
         config: FrameBuilderConfig,
         fonts: SharedFontResources,
-        size_of_ops: Option<MallocSizeOfOps>,
         hooks: Option<Box<dyn SceneBuilderHooks + Send>>,
         channels: SceneBuilderThreadChannels,
     ) -> Self {
@@ -751,13 +746,7 @@ impl SceneBuilderThread {
 
     /// Reports CPU heap memory used by the SceneBuilder.
     fn report_memory(&mut self) -> MemoryReport {
-        let ops = self.size_of_ops.as_mut().unwrap();
         let mut report = MemoryReport::default();
-        for doc in self.documents.values() {
-            doc.interners.report_memory(ops, &mut report);
-            doc.scene.report_memory(ops, &mut report);
-        }
-
         report
     }
 }
