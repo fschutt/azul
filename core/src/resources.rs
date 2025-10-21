@@ -1505,58 +1505,6 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
-/// Scans the `StyledDom` for new images and fonts. After this call,
-/// the `all_resource_updates` contains all the `AddFont` / `AddImage`
-/// / `AddFontInstance` messages.
-pub fn add_fonts_and_images(
-    image_cache: &ImageCache,
-    renderer_resources: &mut RendererResources,
-    current_window_dpi: DpiScaleFactor,
-    fc_cache: &FcFontCache,
-    render_api_namespace: IdNamespace,
-    epoch: Epoch,
-    document_id: &DocumentId,
-    all_resource_updates: &mut Vec<ResourceUpdate>,
-    styled_dom: &StyledDom,
-    load_font_fn: LoadFontFn,
-    parse_font_fn: ParseFontFn,
-    insert_into_active_gl_textures: GlStoreImageFn,
-) {
-    let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
-
-    // NOTE: Font loading now happens directly from UnifiedLayout.used_fonts
-    // instead of pre-scanning the DOM. Font keys will be added when the
-    // layout is generated and UnifiedLayout.used_fonts is populated.
-    // let new_font_keys = styled_dom.scan_for_font_keys(&renderer_resources);
-
-    let add_image_resource_updates = build_add_image_resource_updates(
-        renderer_resources,
-        render_api_namespace,
-        epoch,
-        document_id,
-        &new_image_keys,
-        insert_into_active_gl_textures,
-    );
-
-    // Font resource updates will be built from UnifiedLayout.used_fonts
-    // let add_font_resource_updates = build_add_font_resource_updates(
-    //     renderer_resources,
-    //     current_window_dpi,
-    //     fc_cache,
-    //     render_api_namespace,
-    //     &new_font_keys,
-    //     load_font_fn,
-    //     parse_font_fn,
-    // );
-
-    add_resources(
-        renderer_resources,
-        all_resource_updates,
-        Vec::new(), // add_font_resource_updates - will be handled later
-        add_image_resource_updates,
-    );
-}
-
 pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
     use crate::ui_solver::DEFAULT_FONT_SIZE_PX;
     Au::from_px(font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32))

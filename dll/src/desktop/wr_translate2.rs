@@ -9,7 +9,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
-    geom::LogicalPosition,
+    geom::{LogicalPosition, LogicalRect},
     hit_test::{DocumentId, PipelineId},
     window::CursorPosition,
 };
@@ -302,15 +302,18 @@ pub fn fullhittest_new_webrender(
                         .node_id
                         .into_crate_internal()?;
 
-                    // WebRender no longer provides point_relative_to_item or point_in_viewport
-                    // We use the cursor position directly
+                    // Use point_relative_to_item from WebRender - this correctly accounts for
+                    // all CSS transforms, scroll offsets, and stacking contexts
+                    let point_relative_to_item = LogicalPosition::new(
+                        i.point_relative_to_item.x,
+                        i.point_relative_to_item.y,
+                    );
+
                     Some((
                         node_id,
                         HitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
-                            point_relative_to_item: *cursor_relative_to_dom, /* TODO: Calculate
-                                                                              * relative to item
-                                                                              * rect */
+                            point_relative_to_item,
                             is_iframe_hit: None, // TODO: Re-enable iframe support when needed
                             is_focusable: layout_result
                                 .styled_dom
@@ -326,19 +329,18 @@ pub fn fullhittest_new_webrender(
 
             // Process all hit items for this DOM
             for (node_id, item) in hit_items.into_iter() {
-                use azul_core::hit_test::HitTest;
+                use azul_core::hit_test::{HitTest, OverflowingScrollNode, ScrollHitTestItem};
 
                 // If this is an iframe, queue it for next iteration
                 if let Some(i) = item.is_iframe_hit.as_ref() {
                     new_dom_ids.push(*i);
+                    continue;
                 }
 
                 // Update focused node if this item is focusable
                 if item.is_focusable {
                     ret.focused_node = Some((*dom_id, node_id));
                 }
-
-                let az_node_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
 
                 // Always insert into regular_hit_test_nodes
                 ret.hovered_nodes
@@ -347,28 +349,81 @@ pub fn fullhittest_new_webrender(
                     .regular_hit_test_nodes
                     .insert(node_id, item);
 
-                // TODO: Re-enable scroll hit testing once scrollable_nodes is available
-                // The new layout system may store this differently
-                /*
-                if let Some(scroll_node) = layout_result
-                    .scrollable_nodes
-                    .overflowing_nodes
-                    .get(&az_node_id)
-                {
-                    ret.hovered_nodes
-                        .entry(*dom_id)
-                        .or_insert_with(|| HitTest::empty())
-                        .scroll_hit_test_nodes
-                        .insert(
-                            node_id,
-                            ScrollHitTestItem {
-                                point_in_viewport: item.point_in_viewport,
-                                point_relative_to_item: item.point_relative_to_item,
-                                scroll_node: scroll_node.clone(),
-                            },
-                        );
+                // Check if this node is scrollable using the scroll_id_to_node_id mapping
+                // This mapping was precomputed during layout and only contains scrollable nodes
+                let is_scrollable = layout_result
+                    .scroll_id_to_node_id
+                    .values()
+                    .any(|&nid| nid == node_id);
+
+                if !is_scrollable {
+                    continue;
                 }
-                */
+
+                // Get node's absolute position and size from layout tree
+                let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                    Some(indices) => indices,
+                    None => continue,
+                };
+
+                let layout_idx = match layout_indices.first() {
+                    Some(&idx) => idx,
+                    None => continue,
+                };
+
+                let layout_node = match layout_result.layout_tree.get(layout_idx) {
+                    Some(node) => node,
+                    None => continue,
+                };
+
+                // Get node's absolute position and size
+                let node_pos = layout_result
+                    .absolute_positions
+                    .get(&layout_idx)
+                    .copied()
+                    .unwrap_or_default();
+
+                let node_size = layout_node.used_size.unwrap_or_default();
+
+                let parent_rect = LogicalRect::new(node_pos, node_size);
+
+                // Content size is the child bounds
+                // TODO: Calculate actual content bounds from children
+                let child_rect = parent_rect;
+
+                // Get the scroll ID from the precomputed mapping
+                let scroll_id = layout_result
+                    .scroll_ids
+                    .get(&layout_idx)
+                    .copied()
+                    .unwrap_or(0);
+
+                let scroll_node = OverflowingScrollNode {
+                    parent_rect,
+                    child_rect,
+                    virtual_child_rect: child_rect,
+                    parent_external_scroll_id: azul_core::hit_test::ExternalScrollId(
+                        scroll_id,
+                        pipeline_id,
+                    ),
+                    parent_dom_hash: azul_core::dom::DomNodeHash(node_id.index() as u64),
+                    scroll_tag_id: azul_core::dom::ScrollTagId(azul_core::dom::TagId(
+                        node_id.index() as u64,
+                    )),
+                };
+
+                ret.hovered_nodes
+                    .entry(*dom_id)
+                    .or_insert_with(|| HitTest::empty())
+                    .scroll_hit_test_nodes
+                    .insert(
+                        node_id,
+                        ScrollHitTestItem {
+                            point_in_viewport: item.point_in_viewport,
+                            point_relative_to_item: item.point_relative_to_item,
+                            scroll_node,
+                        },
+                    );
             }
         }
 
@@ -450,21 +505,236 @@ pub fn rebuild_display_list(
         // Convert azul_core ResourceUpdates to webrender ResourceUpdates
         let wr_resources: Vec<webrender::ResourceUpdate> = resources
             .into_iter()
-            .filter_map(|r| {
-                // TODO: Implement full resource update translation
-                // For now, just skip all resource updates
-                eprintln!(
-                    "[rebuild_display_list] Skipping resource update (not implemented): {:?}",
-                    r
-                );
-                None
-            })
+            .filter_map(|r| translate_resource_update(r))
             .collect();
 
         if !wr_resources.is_empty() {
             txn.update_resources(wr_resources);
             render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
         }
+    }
+}
+
+/// Translate azul-core ResourceUpdate to WebRender ResourceUpdate
+fn translate_resource_update(
+    update: azul_core::resources::ResourceUpdate,
+) -> Option<webrender::ResourceUpdate> {
+    use azul_core::resources::ResourceUpdate as AzResourceUpdate;
+    use webrender::ResourceUpdate as WrResourceUpdate;
+
+    match update {
+        AzResourceUpdate::AddImage(add_image) => {
+            Some(WrResourceUpdate::AddImage(translate_add_image(add_image)?))
+        }
+        AzResourceUpdate::UpdateImage(update_image) => Some(WrResourceUpdate::UpdateImage(
+            translate_update_image(update_image)?,
+        )),
+        AzResourceUpdate::DeleteImage(key) => {
+            Some(WrResourceUpdate::DeleteImage(translate_image_key(key)))
+        }
+        AzResourceUpdate::AddFont(add_font) => {
+            Some(WrResourceUpdate::AddFont(translate_add_font(add_font)?))
+        }
+        AzResourceUpdate::DeleteFont(key) => {
+            Some(WrResourceUpdate::DeleteFont(translate_font_key(key)))
+        }
+        AzResourceUpdate::AddFontInstance(add_instance) => Some(WrResourceUpdate::AddFontInstance(
+            translate_add_font_instance(add_instance)?,
+        )),
+        AzResourceUpdate::DeleteFontInstance(key) => Some(WrResourceUpdate::DeleteFontInstance(
+            wr_translate_font_instance_key(key),
+        )),
+    }
+}
+
+/// Convert azul-core RawImageFormat to WebRender ImageFormat
+fn translate_image_format(
+    format: azul_core::resources::RawImageFormat,
+) -> webrender::api::ImageFormat {
+    use azul_core::resources::RawImageFormat;
+    use webrender::api::ImageFormat;
+
+    match format {
+        RawImageFormat::R8 => ImageFormat::R8,
+        RawImageFormat::R16 => ImageFormat::R16,
+        RawImageFormat::RG8 => ImageFormat::RG8,
+        RawImageFormat::RG16 => ImageFormat::RG16,
+        RawImageFormat::RGBA8 => ImageFormat::RGBA8,
+        RawImageFormat::BGRA8 => ImageFormat::BGRA8,
+        RawImageFormat::RGBAF32 => ImageFormat::RGBAF32,
+        // Formats not supported by WebRender - convert to closest equivalent
+        RawImageFormat::RGB8 => ImageFormat::RGBA8, // Add alpha channel
+        RawImageFormat::RGB16 => ImageFormat::RGBA8, // Convert to 8-bit with alpha
+        RawImageFormat::RGBA16 => ImageFormat::RGBA8, // Convert to 8-bit
+        RawImageFormat::BGR8 => ImageFormat::BGRA8, // Add alpha channel
+        RawImageFormat::RGBF32 => ImageFormat::RGBAF32, // Add alpha channel
+    }
+}
+
+/// Translate AddImage from azul-core to WebRender
+fn translate_add_image(add_image: azul_core::resources::AddImage) -> Option<webrender::AddImage> {
+    use webrender::api::{
+        units::DeviceIntSize, ImageDescriptor as WrImageDescriptor,
+        ImageDescriptorFlags as WrImageDescriptorFlags,
+    };
+
+    let mut flags = WrImageDescriptorFlags::empty();
+    if add_image.descriptor.flags.is_opaque {
+        flags |= WrImageDescriptorFlags::IS_OPAQUE;
+    }
+    if add_image.descriptor.flags.allow_mipmaps {
+        flags |= WrImageDescriptorFlags::ALLOW_MIPMAPS;
+    }
+
+    Some(webrender::AddImage {
+        key: translate_image_key(add_image.key),
+        descriptor: WrImageDescriptor {
+            format: translate_image_format(add_image.descriptor.format),
+            size: DeviceIntSize::new(
+                add_image.descriptor.width as i32,
+                add_image.descriptor.height as i32,
+            ),
+            stride: add_image.descriptor.stride.into_option(),
+            offset: add_image.descriptor.offset,
+            flags,
+        },
+        data: translate_image_data(add_image.data),
+        tiling: add_image.tiling,
+    })
+}
+
+/// Translate UpdateImage from azul-core to WebRender
+fn translate_update_image(
+    update_image: azul_core::resources::UpdateImage,
+) -> Option<webrender::UpdateImage> {
+    use azul_core::resources::ImageDirtyRect;
+    use webrender::api::{
+        units::{DeviceIntPoint, DeviceIntSize},
+        DirtyRect, ImageDescriptor as WrImageDescriptor,
+        ImageDescriptorFlags as WrImageDescriptorFlags,
+    };
+
+    let mut flags = WrImageDescriptorFlags::empty();
+    if update_image.descriptor.flags.is_opaque {
+        flags |= WrImageDescriptorFlags::IS_OPAQUE;
+    }
+    if update_image.descriptor.flags.allow_mipmaps {
+        flags |= WrImageDescriptorFlags::ALLOW_MIPMAPS;
+    }
+
+    // ImageDirtyRect is an enum in azul-core
+    let dirty_rect = match update_image.dirty_rect {
+        ImageDirtyRect::All => DirtyRect::All,
+        ImageDirtyRect::Partial(rect) => {
+            use webrender::{
+                api::units::DevicePixel,
+                euclid::{Box2D, Point2D},
+            };
+
+            DirtyRect::Partial(Box2D::new(
+                Point2D::new(rect.origin.x as i32, rect.origin.y as i32),
+                Point2D::new(
+                    (rect.origin.x + rect.size.width) as i32,
+                    (rect.origin.y + rect.size.height) as i32,
+                ),
+            ))
+        }
+    };
+
+    Some(webrender::UpdateImage {
+        key: translate_image_key(update_image.key),
+        descriptor: WrImageDescriptor {
+            format: translate_image_format(update_image.descriptor.format),
+            size: DeviceIntSize::new(
+                update_image.descriptor.width as i32,
+                update_image.descriptor.height as i32,
+            ),
+            stride: update_image.descriptor.stride.into_option(),
+            offset: update_image.descriptor.offset,
+            flags,
+        },
+        data: translate_image_data(update_image.data),
+        dirty_rect,
+    })
+}
+
+/// Translate AddFont from azul-core to WebRender
+fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrender::AddFont> {
+    // WebRender's AddFont is an enum with Parsed variant
+    // azul-core's AddFont already has both key and FontRef
+    Some(webrender::AddFont::Parsed(
+        translate_font_key(add_font.key),
+        add_font.font, // FontRef is Clone
+    ))
+}
+
+/// Translate AddFontInstance from azul-core to WebRender  
+fn translate_add_font_instance(
+    add_instance: azul_core::resources::AddFontInstance,
+) -> Option<webrender::AddFontInstance> {
+    use webrender::api::FontInstanceOptions as WrFontInstanceOptions;
+
+    // Convert Au to f32 pixels: Au units are 1/60th of a pixel
+    let glyph_size_px = (add_instance.glyph_size.0 .0 as f32) / 60.0;
+
+    Some(webrender::AddFontInstance {
+        key: wr_translate_font_instance_key(add_instance.key),
+        font_key: translate_font_key(add_instance.font_key),
+        glyph_size: glyph_size_px,
+        options: add_instance.options.map(|opts| WrFontInstanceOptions {
+            flags: wr_translate_font_instance_flags(opts.flags),
+            synthetic_italics: wr_translate_synthetic_italics(opts.synthetic_italics),
+            render_mode: wr_translate_font_render_mode(opts.render_mode),
+            _padding: 0,
+        }),
+        platform_options: add_instance.platform_options.map(|_opts| {
+            // Platform options are platform-specific, for now use defaults
+            webrender::api::FontInstancePlatformOptions::default()
+        }),
+        variations: add_instance
+            .variations
+            .iter()
+            .map(|v| webrender::api::FontVariation {
+                tag: v.tag,
+                value: v.value,
+            })
+            .collect(),
+    })
+}
+
+/// Translate ImageKey from azul-core to WebRender
+fn translate_image_key(key: azul_core::resources::ImageKey) -> webrender::api::ImageKey {
+    webrender::api::ImageKey(wr_translate_id_namespace(key.namespace), key.key)
+}
+
+/// Translate FontKey from azul-core to WebRender
+fn translate_font_key(key: azul_core::resources::FontKey) -> webrender::api::FontKey {
+    webrender::api::FontKey(wr_translate_id_namespace(key.namespace), key.key)
+}
+
+/// Translate ImageData from azul-core to WebRender
+fn translate_image_data(data: azul_core::resources::ImageData) -> webrender::api::ImageData {
+    use azul_core::resources::ImageData as AzImageData;
+    use webrender::api::ImageData as WrImageData;
+
+    match data {
+        // TODO: remove this cloning the image data once imagedata is migrated to ImageRef
+        AzImageData::Raw(arc_vec) => WrImageData::Raw(Arc::new(arc_vec.as_slice().to_vec())),
+        AzImageData::External(ext_data) => {
+            // External images need special handling
+            // For now, treat as raw empty data
+            eprintln!("[translate_image_data] External image data not yet supported");
+            WrImageData::Raw(std::sync::Arc::new(Vec::new()))
+        }
+    }
+}
+
+/// Translate SyntheticItalics from azul-core to WebRender
+fn wr_translate_synthetic_italics(
+    italics: azul_core::resources::SyntheticItalics,
+) -> webrender::api::SyntheticItalics {
+    webrender::api::SyntheticItalics {
+        angle: italics.angle,
     }
 }
 
@@ -503,11 +773,11 @@ pub fn generate_frame(
         framebuffer_size,
     ));
 
-    // TODO: Scroll all nodes - requires scroll_states integration
-    // scroll_all_nodes(&mut layout_window.scroll_states, &mut txn);
+    // Scroll all nodes to their current positions
+    scroll_all_nodes(layout_window, &mut txn);
 
-    // TODO: Synchronize GPU values (transforms, opacities, etc.)
-    // synchronize_gpu_values(&layout_window.layout_results, &dpi_factor, &mut txn);
+    // Synchronize GPU values (transforms, opacities, etc.)
+    synchronize_gpu_values(layout_window, &mut txn);
 
     if !display_list_was_rebuilt {
         txn.skip_scene_builder(); // Optimization: skip scene rebuild if DL unchanged
@@ -516,6 +786,103 @@ pub fn generate_frame(
     txn.generate_frame(0, webrender::api::RenderReasons::SCENE);
 
     render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+}
+
+/// Synchronize scroll positions from ScrollManager to WebRender
+fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
+    use webrender::api::{units::LayoutVector2D as WrLayoutVector2D, SampledScrollOffset};
+
+    // Iterate through all DOMs
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        let pipeline_id = PipelineId(dom_id.inner as u32, layout_window.document_id.id);
+
+        // Get scroll states for this DOM
+        let scroll_states = layout_window
+            .scroll_states
+            .get_scroll_states_for_dom(*dom_id);
+
+        // Update each scrollable node
+        for (node_id, scroll_position) in scroll_states {
+            // Get the scroll ID from the layout result
+            let scroll_id = layout_result
+                .scroll_id_to_node_id
+                .iter()
+                .find(|(_, &nid)| nid == node_id)
+                .map(|(&sid, _)| sid);
+
+            let Some(scroll_id) = scroll_id else {
+                continue;
+            };
+
+            let external_scroll_id = wr_translate_external_scroll_id(
+                azul_core::hit_test::ExternalScrollId(scroll_id, pipeline_id),
+            );
+
+            // Calculate scroll offset (origin of children_rect within parent_rect)
+            let scroll_offset = WrLayoutVector2D::new(
+                scroll_position.children_rect.origin.x,
+                scroll_position.children_rect.origin.y,
+            );
+
+            // WebRender expects scroll offsets as sampled offsets
+            txn.set_scroll_offsets(
+                external_scroll_id,
+                vec![SampledScrollOffset {
+                    offset: scroll_offset,
+                    generation: 0, // Generation counter for APZ
+                }],
+            );
+        }
+    }
+}
+
+/// Synchronize GPU-animated values (transforms, opacities) to WebRender
+fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+    // TODO: Implement transform synchronization
+    // This would iterate through GPU value cache and update property values
+
+    // For now, just synchronize scrollbar opacities as an example
+    for (dom_id, _layout_result) in &layout_window.layout_results {
+        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(*dom_id);
+
+        // Synchronize vertical scrollbar opacities
+        for ((cache_dom_id, node_id), &opacity) in &gpu_cache.scrollbar_v_opacity_values {
+            if cache_dom_id != dom_id {
+                continue;
+            }
+
+            let opacity_key = match gpu_cache.scrollbar_v_opacity_keys.get(&(*dom_id, *node_id)) {
+                Some(&key) => key,
+                None => continue,
+            };
+
+            // TODO: Actually send opacity update to WebRender
+            // This would require a property animation API in WebRender
+            // For now, this is a placeholder
+            eprintln!(
+                "[synchronize_gpu_values] Would set opacity for {:?}:{:?} to {}",
+                dom_id, node_id, opacity
+            );
+        }
+
+        // Synchronize horizontal scrollbar opacities
+        for ((cache_dom_id, node_id), &opacity) in &gpu_cache.scrollbar_h_opacity_values {
+            if cache_dom_id != dom_id {
+                continue;
+            }
+
+            let opacity_key = match gpu_cache.scrollbar_h_opacity_keys.get(&(*dom_id, *node_id)) {
+                Some(&key) => key,
+                None => continue,
+            };
+
+            // TODO: Actually send opacity update to WebRender
+            eprintln!(
+                "[synchronize_gpu_values] Would set opacity for {:?}:{:?} to {}",
+                dom_id, node_id, opacity
+            );
+        }
+    }
 }
 
 // ========== Additional Translation Functions ==========

@@ -367,6 +367,10 @@ pub struct HitTestResultItem {
 
     /// The animation id from the stacking context.
     pub animation_id: u64,
+
+    /// Point relative to the origin of the hit item, in the item's coordinate space.
+    /// This accounts for all transforms (CSS transforms, scroll offsets, etc.)
+    pub point_relative_to_item: LayoutPoint,
 }
 
 /// Returned by `RenderApi::hit_test`.

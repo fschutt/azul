@@ -372,10 +372,15 @@ impl HitTester {
                 continue;
             }
 
+            // Calculate point relative to item's origin (in item's local coordinate space)
+            // This accounts for all transforms applied to this item
+            let point_relative_to_item = point_in_layer - item.rect.min.to_vector();
+
             result.items.push(HitTestResultItem {
                 pipeline: pipeline_id,
                 tag: item.tag,
                 animation_id: item.animation_id,
+                point_relative_to_item,
             });
         }
 

@@ -97,6 +97,8 @@ fn test_basic_layout() {
         tree: None,
         absolute_positions: BTreeMap::new(),
         viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
     let font_manager = create_test_font_manager().expect("Failed to create font manager");
@@ -144,6 +146,8 @@ fn test_layout_with_empty_font_cache() {
         tree: None,
         absolute_positions: BTreeMap::new(),
         viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
     // Create font manager with EMPTY font cache (no fonts loaded)

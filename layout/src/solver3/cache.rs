@@ -71,6 +71,10 @@ pub struct LayoutCache<T: ParsedFontTrait> {
     pub absolute_positions: BTreeMap<usize, LogicalPosition>,
     /// The viewport size from the last layout pass, used to detect resizes.
     pub viewport: Option<LogicalRect>,
+    /// Stable scroll IDs computed from node_data_hash (layout index -> scroll ID)
+    pub scroll_ids: BTreeMap<usize, u64>,
+    /// Mapping from scroll ID to DOM NodeId for hit testing
+    pub scroll_id_to_node_id: BTreeMap<u64, NodeId>,
 }
 
 /// The result of a reconciliation pass.

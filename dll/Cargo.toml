@@ -116,6 +116,11 @@ desktop-staticlib = ["desktop", "staticlib", "all_img_formats", "svg", "xml"]
 rust-static = ["desktop", "rlib", "use_fern_logger"]
 python-extension = ["desktop", "cdylib", "pyo3", "use_pyo3_logger"]
 
+[[bin]]
+name = "test_scrolling"
+path = "examples/test_scrolling.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """

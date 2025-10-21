@@ -125,6 +125,12 @@ pub struct DomLayoutResult {
     pub viewport: LogicalRect,
     /// The generated display list for this DOM.
     pub display_list: DisplayList,
+    /// Stable scroll IDs computed from node_data_hash
+    /// Maps layout node index -> external scroll ID
+    pub scroll_ids: BTreeMap<usize, u64>,
+    /// Mapping from scroll IDs to DOM NodeIds for hit testing
+    /// This allows us to map WebRender scroll IDs back to DOM nodes
+    pub scroll_id_to_node_id: BTreeMap<u64, NodeId>,
 }
 
 /// State for tracking scrollbar drag interaction
@@ -208,6 +214,8 @@ impl LayoutWindow {
                 tree: None,
                 absolute_positions: BTreeMap::new(),
                 viewport: None,
+                scroll_ids: BTreeMap::new(),
+                scroll_id_to_node_id: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -312,6 +320,10 @@ impl LayoutWindow {
             .clone()
             .ok_or(solver3::LayoutError::InvalidTree)?;
 
+        // Get scroll IDs from cache (they were computed during layout_document)
+        let scroll_ids = self.layout_cache.scroll_ids.clone();
+        let scroll_id_to_node_id = self.layout_cache.scroll_id_to_node_id.clone();
+
         // Synchronize scrollbar transforms AFTER layout
         self.gpu_state_manager
             .update_scrollbar_transforms(dom_id, &self.scroll_states, &tree);
@@ -349,6 +361,8 @@ impl LayoutWindow {
                 absolute_positions: self.layout_cache.absolute_positions.clone(),
                 viewport,
                 display_list,
+                scroll_ids,
+                scroll_id_to_node_id,
             },
         );
 
@@ -427,6 +441,8 @@ impl LayoutWindow {
             tree: None,
             absolute_positions: BTreeMap::new(),
             viewport: None,
+            scroll_ids: BTreeMap::new(),
+            scroll_id_to_node_id: BTreeMap::new(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
@@ -1125,6 +1141,61 @@ impl LayoutWindow {
         }
 
         events
+    }
+
+    /// Compute stable scroll IDs for all scrollable nodes in a layout tree
+    ///
+    /// This should be called after layout but before display list generation.
+    /// It creates stable IDs based on node_data_hash that persist across frames.
+    ///
+    /// Returns:
+    /// - scroll_ids: Map from layout node index -> external scroll ID
+    /// - scroll_id_to_node_id: Map from scroll ID -> DOM NodeId (for hit testing)
+    pub fn compute_scroll_ids<T: crate::text3::cache::ParsedFontTrait>(
+        layout_tree: &LayoutTree<T>,
+        styled_dom: &azul_core::styled_dom::StyledDom,
+    ) -> (BTreeMap<usize, u64>, BTreeMap<u64, NodeId>) {
+        use azul_css::props::layout::LayoutOverflow;
+
+        use crate::solver3::getters::{get_overflow_x, get_overflow_y};
+
+        let mut scroll_ids = BTreeMap::new();
+        let mut scroll_id_to_node_id = BTreeMap::new();
+
+        // Iterate through all layout nodes
+        for (layout_idx, node) in layout_tree.nodes.iter().enumerate() {
+            let Some(dom_node_id) = node.dom_node_id else {
+                continue;
+            };
+
+            // Get the node state
+            let styled_node_state = styled_dom
+                .styled_nodes
+                .as_container()
+                .get(dom_node_id)
+                .map(|n| n.state.clone())
+                .unwrap_or_default();
+
+            // Check if this node has scroll overflow
+            let overflow_x = get_overflow_x(styled_dom, dom_node_id, &styled_node_state);
+            let overflow_y = get_overflow_y(styled_dom, dom_node_id, &styled_node_state);
+
+            let is_scrollable = matches!(overflow_x, LayoutOverflow::Scroll | LayoutOverflow::Auto)
+                || matches!(overflow_y, LayoutOverflow::Scroll | LayoutOverflow::Auto);
+
+            if !is_scrollable {
+                continue;
+            }
+
+            // Generate stable scroll ID from node_data_hash
+            // Use node_data_hash to create a stable ID that persists across frames
+            let scroll_id = node.node_data_hash;
+
+            scroll_ids.insert(layout_idx, scroll_id);
+            scroll_id_to_node_id.insert(scroll_id, dom_node_id);
+        }
+
+        (scroll_ids, scroll_id_to_node_id)
     }
 }
 

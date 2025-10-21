@@ -386,6 +386,7 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     tree: &LayoutTree<T>,
     absolute_positions: &BTreeMap<usize, LogicalPosition>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    scroll_ids: &BTreeMap<usize, u64>,
     gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
@@ -399,6 +400,7 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         ctx,
         scroll_offsets,
         &positioned_tree,
+        scroll_ids,
         gpu_value_cache,
         dom_id,
     );
@@ -423,6 +425,7 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     ctx: &'a LayoutContext<'b, T, Q>,
     scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
     positioned_tree: &'a PositionedTree<'a, T>,
+    scroll_ids: &'a BTreeMap<usize, u64>,
     gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
     dom_id: azul_core::dom::DomId,
 }
@@ -446,6 +449,7 @@ where
         ctx: &'a LayoutContext<'b, T, Q>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a, T>,
+        scroll_ids: &'a BTreeMap<usize, u64>,
         gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
         dom_id: azul_core::dom::DomId,
     ) -> Self {
@@ -453,6 +457,7 @@ where
             ctx,
             scroll_offsets,
             positioned_tree,
+            scroll_ids,
             gpu_value_cache,
             dom_id,
         }
@@ -695,33 +700,35 @@ where
 
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
-        if needs_clip {
-            let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
-
-            let border = &node.box_props.border;
-            let clip_rect = LogicalRect {
-                origin: LogicalPosition {
-                    x: paint_rect.origin.x + border.left,
-                    y: paint_rect.origin.y + border.top,
-                },
-                size: LogicalSize {
-                    width: (paint_rect.size.width - border.left - border.right).max(0.0),
-                    height: (paint_rect.size.height - border.top - border.bottom).max(0.0),
-                },
-            };
-
-            if overflow_x.is_scroll() || overflow_y.is_scroll() {
-                // It's a scroll frame
-                let scroll_id = get_scroll_id(node.dom_node_id); // Unique ID for this scrollable area
-                let content_size = get_scroll_content_size(node); // From layout phase
-                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-            } else {
-                // It's a simple clip
-                builder.push_clip(clip_rect, border_radius);
-            }
-            return Ok(true);
+        if !needs_clip {
+            return Ok(false);
         }
-        Ok(false)
+
+        let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+
+        let border = &node.box_props.border;
+        let clip_rect = LogicalRect {
+            origin: LogicalPosition {
+                x: paint_rect.origin.x + border.left,
+                y: paint_rect.origin.y + border.top,
+            },
+            size: LogicalSize {
+                width: (paint_rect.size.width - border.left - border.right).max(0.0),
+                height: (paint_rect.size.height - border.top - border.bottom).max(0.0),
+            },
+        };
+
+        if overflow_x.is_scroll() || overflow_y.is_scroll() {
+            // It's a scroll frame - use precomputed scroll ID
+            let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
+            let content_size = get_scroll_content_size(node);
+            builder.push_scroll_frame(clip_rect, content_size, scroll_id);
+        } else {
+            // It's a simple clip
+            builder.push_clip(clip_rect, border_radius);
+        }
+
+        Ok(true)
     }
 
     /// Pops any clip/scroll commands associated with a node.

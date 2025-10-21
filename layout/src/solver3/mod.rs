@@ -109,11 +109,25 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     if recon_result.is_clean() {
         ctx.debug_log("No changes, returning existing display list");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+
+        // Use cached scroll IDs if available, otherwise compute them
+        let scroll_ids = if cache.scroll_ids.is_empty() {
+            use crate::window::LayoutWindow;
+            let (scroll_ids, scroll_id_to_node_id) =
+                LayoutWindow::compute_scroll_ids(tree, &new_dom);
+            cache.scroll_ids = scroll_ids.clone();
+            cache.scroll_id_to_node_id = scroll_id_to_node_id;
+            scroll_ids
+        } else {
+            cache.scroll_ids.clone()
+        };
+
         return generate_display_list(
             &mut ctx,
             tree,
             &cache.absolute_positions,
             scroll_offsets,
+            &scroll_ids,
             gpu_value_cache,
             dom_id,
         );
@@ -186,12 +200,18 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Pass the viewport to correctly resolve percentage offsets for the root element.
     positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut absolute_positions, viewport)?;
 
+    // --- Step 3.75: Compute Stable Scroll IDs ---
+    // This must be done AFTER layout but BEFORE display list generation
+    use crate::window::LayoutWindow;
+    let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, &new_dom);
+
     // --- Step 4: Generate Display List & Update Cache ---
     let display_list = generate_display_list(
         &mut ctx,
         &new_tree,
         &absolute_positions,
         scroll_offsets,
+        &scroll_ids,
         gpu_value_cache,
         dom_id,
     )?;
@@ -199,6 +219,8 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     cache.tree = Some(new_tree);
     cache.absolute_positions = absolute_positions;
     cache.viewport = Some(viewport);
+    cache.scroll_ids = scroll_ids;
+    cache.scroll_id_to_node_id = scroll_id_to_node_id;
 
     Ok(display_list)
 }
