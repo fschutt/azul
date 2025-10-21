@@ -880,11 +880,14 @@ impl MacOSWindow {
         layout_window.scroll_states.calculate_scrollbar_states();
 
         // 4. Rebuild display list and send to WebRender (stub for now)
+        let dpi = self.current_window_state.size.get_hidpi_factor();
         crate::desktop::wr_translate2::rebuild_display_list(
             layout_window,
             &mut self.render_api,
             &self.image_cache,
             Vec::new(), // No resource updates for now
+            &self.renderer_resources,
+            dpi,
         );
 
         // 5. Mark that frame needs regeneration (will be called once at event processing end)

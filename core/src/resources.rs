@@ -714,6 +714,9 @@ pub struct RendererResources {
     pub font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
     /// Same as AzString -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
     pub font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
+    /// Direct mapping from font hash (from Arc<ParsedFont>) to FontKey
+    /// TODO: This should become part of SharedFontRegistry
+    pub font_hash_map: FastHashMap<u64, FontKey>,
 }
 
 impl fmt::Debug for RendererResources {
@@ -742,6 +745,7 @@ impl Default for RendererResources {
             last_frame_registered_fonts: FastHashMap::default(),
             font_families_map: FastHashMap::default(),
             font_id_map: FastHashMap::default(),
+            font_hash_map: FastHashMap::default(),
         }
     }
 }

@@ -34,6 +34,8 @@ pub struct GlyphRun<T: ParsedFontTrait> {
     pub font: Arc<T>,
     /// A hash of the font, useful for caching purposes.
     pub font_hash: u64,
+    /// The font size in pixels.
+    pub font_size_px: f32,
 }
 
 /// Same as `get_glyph_positions`, but returns a list of `GlyphRun`s instead of a flat list of
@@ -57,20 +59,22 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                 for glyph in positioned_glyphs {
                     let glyph_color = glyph.style.color;
                     let font_hash = glyph.font.get_hash();
+                    let font_size_px = glyph.style.font_size_px;
                     let instance = glyph.into_glyph_instance(writing_mode);
 
                     // Check if we can add to the current run
                     if let Some(run) = current_run.as_mut() {
-                        if run.font_hash == font_hash && run.color == glyph_color {
+                        if run.font_hash == font_hash && run.color == glyph_color && run.font_size_px == font_size_px {
                             run.glyphs.push(instance);
                         } else {
-                            // Different font or color, finalize the current run and start a new one
+                            // Different font, color, or size: finalize the current run and start a new one
                             runs.push(run.clone());
                             current_run = Some(GlyphRun {
                                 glyphs: vec![instance],
                                 color: glyph_color,
                                 font: glyph.font.clone(),
                                 font_hash,
+                                font_size_px,
                             });
                         }
                     } else {
@@ -80,6 +84,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                             color: glyph_color,
                             font: glyph.font.clone(),
                             font_hash,
+                            font_size_px,
                         });
                     }
 

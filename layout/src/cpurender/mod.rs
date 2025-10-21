@@ -123,6 +123,8 @@ fn render_display_list(
             DisplayListItem::Text {
                 glyphs,
                 font,
+                font_size_px,
+                font_hash,
                 color,
                 clip_rect,
             } => {
@@ -130,6 +132,7 @@ fn render_display_list(
                 let clip = clip_stack.last().unwrap();
                 // TODO: Implement text rendering with tiny-skia
                 // This requires loading the font outlines and rendering glyphs
+                // font_hash can be used to look up the font in a registry
             }
             DisplayListItem::Image { bounds, key } => {
                 let transform = transform_stack.last().unwrap();

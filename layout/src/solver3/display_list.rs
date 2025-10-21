@@ -112,6 +112,8 @@ pub enum DisplayListItem {
     Text {
         glyphs: Vec<GlyphInstance>,
         font: FontRef,
+        font_size_px: f32,
+        font_hash: u64,
         color: ColorU,
         clip_rect: LogicalRect,
     },
@@ -310,6 +312,8 @@ impl DisplayListBuilder {
         &mut self,
         glyphs: Vec<GlyphInstance>,
         font: FontRef,
+        font_size_px: f32,
+        font_hash: u64,
         color: ColorU,
         clip_rect: LogicalRect,
     ) {
@@ -317,6 +321,8 @@ impl DisplayListBuilder {
             self.items.push(DisplayListItem::Text {
                 glyphs,
                 font,
+                font_size_px,
+                font_hash,
                 color,
                 clip_rect,
             });
@@ -884,9 +890,16 @@ where
 
         for glyph_run in glyph_runs {
             let clip_rect = container_rect; // Clip to the container rect
-                                            // TODO: Convert Arc<T> to FontRef properly
-            let font_ref = FontRef::invalid();
-            builder.push_text_run(glyph_run.glyphs, font_ref, glyph_run.color, clip_rect);
+            // Use the font_hash from the glyph run for renderer lookups
+            let font_ref = FontRef::invalid(); // TODO: Remove this once we fully migrate
+            builder.push_text_run(
+                glyph_run.glyphs,
+                font_ref,
+                glyph_run.font_size_px,
+                glyph_run.font_hash,
+                glyph_run.color,
+                clip_rect,
+            );
         }
 
         for item in &layout.items {

@@ -24,7 +24,10 @@ use webrender::{
     Transaction,
 };
 
-use crate::desktop::wr_translate2::wr_translate_border_radius;
+use crate::desktop::wr_translate2::{
+    wr_translate_border_radius,
+    wr_translate_color_f,
+};
 
 /// Translate an Azul DisplayList to WebRender Transaction
 pub fn translate_displaylist_to_wr(
@@ -312,6 +315,8 @@ pub fn translate_displaylist_to_wr(
             DisplayListItem::Text {
                 glyphs,
                 font,
+                font_size_px,
+                font_hash,
                 color,
                 clip_rect,
             } => {
@@ -327,8 +332,10 @@ pub fn translate_displaylist_to_wr(
                     flags: Default::default(),
                 };
 
-                // Use push_text helper
-                push_text(&mut builder, &info, glyphs, font, *color);
+                // Use push_text helper with font_hash lookup
+                let dpi_factor = azul_core::resources::DpiScaleFactor::new(dpi);
+                let font_size_au = azul_core::resources::Au::from_px(*font_size_px);
+                push_text(&mut builder, &info, glyphs, *font_hash, *color, renderer_resources, dpi_factor, font_size_au);
             }
 
             DisplayListItem::Image { .. } => {
@@ -342,14 +349,11 @@ pub fn translate_displaylist_to_wr(
     }
 
     // Finalize and set display list
-    let (_, dl) = builder.finalize();
+    let (_, dl) = builder.end();
     let layout_size = LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32);
     txn.set_display_list(
-        Epoch(0),
-        None, // background color
-        layout_size,
+        webrender::api::Epoch(0),
         (pipeline_id, dl),
-        true, // preserve frame state
     );
 
     Ok(txn)
@@ -449,36 +453,20 @@ fn push_text(
     builder: &mut WrDisplayListBuilder,
     info: &CommonItemProperties,
     glyphs: &[GlyphInstance],
-    font: &azul_layout::text3::cache::FontRef,
+    font_hash: u64,
     color: ColorU,
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
 ) {
-    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
-
     use crate::desktop::wr_translate2::wr_translate_layouted_glyphs;
 
-    // Look up FontKey from the FontRef
-    // The font should already be registered in renderer_resources
-    let font_family_vec = StyleFontFamilyVec::from(vec![StyleFontFamily::Ref(font.clone())]);
-    let font_families_hash = azul_core::styled_dom::StyleFontFamiliesHash::new(&font_family_vec);
-
-    let font_family_hash = match renderer_resources
-        .font_families_map
-        .get(&font_families_hash)
-    {
-        Some(h) => h,
-        None => {
-            eprintln!("[push_text] Font not registered: {:?}", font);
-            return;
-        }
-    };
-
-    let font_key = match renderer_resources.font_id_map.get(font_family_hash) {
+    // Look up FontKey from the font_hash (which comes from the GlyphRun)
+    // The font_hash is the hash of Arc<ParsedFont> computed during layout
+    let font_key = match renderer_resources.font_hash_map.get(&font_hash) {
         Some(k) => k,
         None => {
-            eprintln!("[push_text] FontKey not found for family hash");
+            eprintln!("[push_text] FontKey not found for font_hash: {}", font_hash);
             return;
         }
     };
@@ -513,7 +501,7 @@ fn push_text(
         info.clip_rect,
         &wr_glyphs,
         wr_font_instance_key,
-        wr_color,
+        wr_translate_color_f(wr_color),
         None, // glyph_options
     );
 }

@@ -401,6 +401,8 @@ pub fn rebuild_display_list(
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
     resources: Vec<ResourceUpdate>,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: f32,
 ) {
     use webrender::api::units::DeviceIntSize;
 
@@ -423,6 +425,8 @@ pub fn rebuild_display_list(
             &layout_result.display_list,
             pipeline_id,
             viewport_size,
+            renderer_resources,
+            dpi,
         ) {
             Ok(dl_txn) => {
                 // Merge display list transaction into main transaction
@@ -509,7 +513,7 @@ pub fn generate_frame(
         txn.skip_scene_builder(); // Optimization: skip scene rebuild if DL unchanged
     }
 
-    txn.generate_frame(0);
+    txn.generate_frame(0, webrender::api::RenderReasons::SCENE);
 
     render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
 }

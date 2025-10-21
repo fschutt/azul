@@ -845,6 +845,8 @@ impl GlFunctions {
             glWindowPos3iv: get_func("glWindowPos3iv", handle),
             glWindowPos3s: get_func("glWindowPos3s", handle),
             glWindowPos3sv: get_func("glWindowPos3sv", handle),
+            glStartTilingQCOM: get_func("glStartTilingQCOM", handle),
+            glEndTilingQCOM: get_func("glEndTilingQCOM", handle),
         };
 
         Ok(Self {
