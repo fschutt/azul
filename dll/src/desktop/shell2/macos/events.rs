@@ -1318,7 +1318,7 @@ impl MacOSWindow {
             Some(lw) => lw,
             None => return Vec::new(),
         };
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+        let mut fc_cache_clone = (*self.fc_cache).clone();
         let mut results = Vec::new();
 
         for callback_data in callback_data_list {
@@ -1330,7 +1330,7 @@ impl MacOSWindow {
                 &window_handle,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
-                &mut *fc_cache_borrowed,
+                &mut fc_cache_clone,
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,
@@ -1341,7 +1341,6 @@ impl MacOSWindow {
         }
 
         drop(layout_window);
-        drop(fc_cache_borrowed);
 
         results
     }

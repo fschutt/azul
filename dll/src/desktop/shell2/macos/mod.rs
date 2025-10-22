@@ -886,7 +886,7 @@ pub struct MacOSWindow {
     app_data: std::sync::Arc<std::cell::RefCell<azul_core::refany::RefAny>>,
 
     /// Shared font cache (shared across windows to cache font loading)
-    fc_cache: std::sync::Arc<std::cell::RefCell<rust_fontconfig::FcFontCache>>,
+    fc_cache: std::sync::Arc<rust_fontconfig::FcFontCache>,
 
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     frame_needs_regeneration: bool,
@@ -976,9 +976,27 @@ impl MacOSWindow {
         view.expect("Failed to create CPUView")
     }
 
+    /// Create a new macOS window with given options and shared font cache.
+    pub fn new_with_fc_cache(
+        options: WindowCreateOptions,
+        fc_cache: std::sync::Arc<rust_fontconfig::FcFontCache>,
+        mtm: MainThreadMarker,
+    ) -> Result<Self, WindowError> {
+        Self::new_with_options_internal(options, Some(fc_cache), mtm)
+    }
+    
     /// Create a new macOS window with given options.
     pub fn new_with_options(
         options: WindowCreateOptions,
+        mtm: MainThreadMarker,
+    ) -> Result<Self, WindowError> {
+        Self::new_with_options_internal(options, None, mtm)
+    }
+    
+    /// Internal constructor with optional fc_cache parameter
+    fn new_with_options_internal(
+        options: WindowCreateOptions,
+        fc_cache_opt: Option<std::sync::Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
         // Initialize NSApplication if needed
@@ -1226,11 +1244,10 @@ impl MacOSWindow {
         let image_cache = azul_core::resources::ImageCache::default();
         let renderer_resources = azul_core::resources::RendererResources::default();
 
-        // Initialize LayoutWindow (fc_cache will be passed from App later)
-        // For now, use a temporary cache that will be replaced on first layout
-        let temp_fc_cache = rust_fontconfig::FcFontCache::default();
+        // Initialize LayoutWindow with shared fc_cache or build a new one
+        let fc_cache = fc_cache_opt.unwrap_or_else(|| std::sync::Arc::new(rust_fontconfig::FcFontCache::build()));
         let mut layout_window =
-            azul_layout::window::LayoutWindow::new(temp_fc_cache).map_err(|e| {
+            azul_layout::window::LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
                 WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
             })?;
 
@@ -1251,9 +1268,6 @@ impl MacOSWindow {
         // Initialize shared application data (will be replaced by App later)
         let app_data =
             std::sync::Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
-        let fc_cache = std::sync::Arc::new(std::cell::RefCell::new(
-            rust_fontconfig::FcFontCache::default(),
-        ));
 
         // Set the window state pointer in the delegate
         // SAFETY: We hold &mut current_window_state and the pointer remains valid
@@ -1373,12 +1387,11 @@ impl MacOSWindow {
 
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        // Borrow app_data and fc_cache from Arc<RefCell<>>
+        // Borrow app_data from Arc<RefCell<>>
         let mut app_data_borrowed = self.app_data.borrow_mut();
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
 
         // Update layout_window's fc_cache with the shared one from App
-        layout_window.font_manager.fc_cache = fc_cache_borrowed.clone();
+        layout_window.font_manager.fc_cache = self.fc_cache.clone();
 
         // 1. Call layout_callback to get styled_dom
         // Use window's cached image_cache and gl_context_ptr instead of creating empty ones
@@ -1387,7 +1400,7 @@ impl MacOSWindow {
             self.current_window_state.theme,
             &self.image_cache,
             &self.gl_context_ptr,
-            &*fc_cache_borrowed,
+            &*self.fc_cache,
         );
 
         eprintln!("[regenerate_layout] Calling layout_callback");

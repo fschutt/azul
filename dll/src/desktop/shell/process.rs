@@ -18,7 +18,8 @@ use webrender::Transaction as WrTransaction;
 use crate::desktop::shell::appkit::Window;
 #[cfg(target_os = "windows")]
 use crate::desktop::shell::win32::Window;
-use crate::desktop::{app::LazyFcCache, wr_translate::wr_synchronize_updated_images};
+use crate::desktop::{wr_translate::wr_synchronize_updated_images};
+use rust_fontconfig::FcFontCache;
 
 // Assuming that current_window_state and the previous_window_state of the window
 // are set correctly and the hit-test has been performed, will call the callbacks
@@ -27,7 +28,7 @@ use crate::desktop::{app::LazyFcCache, wr_translate::wr_synchronize_updated_imag
 pub(crate) fn process_event(
     window_handle: &RawWindowHandle,
     window: &mut Window,
-    fc_cache: &mut LazyFcCache,
+    fc_cache: &FcFontCache,
     image_cache: &mut ImageCache,
     config: &AppConfig,
     new_windows: &mut Vec<WindowCreateOptions>,
@@ -91,7 +92,7 @@ pub(crate) fn process_timer(
     timer_id: usize,
     window_handle: &RawWindowHandle,
     window: &mut Window,
-    fc_cache: &mut LazyFcCache,
+    fc_cache: &FcFontCache,
     image_cache: &mut ImageCache,
     config: &AppConfig,
     new_windows: &mut Vec<WindowCreateOptions>,
@@ -99,18 +100,16 @@ pub(crate) fn process_timer(
 ) -> ProcessEventResult {
     use azul_core::window::{RawWindowHandle, WindowsHandle};
 
-    let callback_result = fc_cache.apply_closure(|fc_cache| {
-        let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
-        window.internal.run_single_timer(
-            timer_id,
-            frame_start,
-            &window_handle,
-            &window.gl_context_ptr,
-            image_cache,
-            fc_cache,
-            &config.system_callbacks,
-        )
-    });
+    let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
+    let callback_result = window.internal.run_single_timer(
+        timer_id,
+        frame_start,
+        &window_handle,
+        &window.gl_context_ptr,
+        image_cache,
+        fc_cache,
+        &config.system_callbacks,
+    );
 
     return process_callback_results(
         callback_result,
@@ -135,7 +134,7 @@ pub(crate) fn process_threads(
     window_handle: &RawWindowHandle,
     data: &mut RefAny,
     window: &mut Window,
-    fc_cache: &mut LazyFcCache,
+    fc_cache: &FcFontCache,
     image_cache: &mut ImageCache,
     config: &AppConfig,
     new_windows: &mut Vec<WindowCreateOptions>,
@@ -145,17 +144,15 @@ pub(crate) fn process_threads(
     {
         use azul_core::window::{RawWindowHandle, WindowsHandle};
 
-        let callback_result = fc_cache.apply_closure(|fc_cache| {
-            let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
-            window.internal.run_all_threads(
-                data,
-                &window_handle,
-                &window.gl_context_ptr,
-                image_cache,
-                fc_cache,
-                &config.system_callbacks,
-            )
-        });
+        let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
+        let callback_result = window.internal.run_all_threads(
+            data,
+            &window_handle,
+            &window.gl_context_ptr,
+            image_cache,
+            fc_cache,
+            &config.system_callbacks,
+        );
 
         process_callback_results(
             callback_result,
@@ -187,7 +184,7 @@ pub(crate) fn process_callback_results(
     window: &mut Window,
     nodes_to_check: &NodesToCheck,
     image_cache: &mut ImageCache,
-    fc_cache: &mut LazyFcCache,
+    fc_cache: &FcFontCache,
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {

@@ -40,12 +40,6 @@ impl AzAppPtr {
         }
     }
 
-    pub fn add_image(&mut self, css_id: AzString, image: ImageRef) {
-        if let Ok(mut l) = (&*self.ptr).try_lock() {
-            l.add_image(css_id, image);
-        }
-    }
-
     pub fn get_monitors(&self) -> MonitorVec {
         self.ptr
             .lock()
@@ -72,11 +66,8 @@ pub struct App {
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
     /// No window is actually shown until the `.run_inner()` method is called.
     pub windows: Vec<WindowCreateOptions>,
-    /// Initial cache of images that are loaded before the first frame is rendered
-    pub image_cache: ImageCache,
-    /// Font configuration cache - already start building the font cache
-    /// while the app is starting
-    pub fc_cache: LazyFcCache,
+    /// Font configuration cache (shared across all windows)
+    pub fc_cache: std::sync::Arc<FcFontCache>,
 }
 
 impl App {
@@ -86,12 +77,10 @@ impl App {
     /// This does not open any windows, but it starts the event loop
     /// to the display server
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
-        use std::thread;
-
         #[cfg(not(miri))]
-        let fc_cache = LazyFcCache::InProgress(Some(thread::spawn(move || FcFontCache::build())));
+        let fc_cache = std::sync::Arc::new(FcFontCache::build());
         #[cfg(miri)]
-        let fc_cache = LazyFcCache::Resolved(FcFontCache::default());
+        let fc_cache = std::sync::Arc::new(FcFontCache::default());
 
         #[cfg(all(
             feature = "logging",
@@ -118,14 +107,8 @@ impl App {
             windows: Vec::new(),
             data: initial_data,
             config: app_config,
-            image_cache: ImageCache::new(),
             fc_cache,
         }
-    }
-
-    /// Registers an image with a CSS Id so that it can be used in the `background-content` property
-    pub fn add_image(&mut self, css_id: AzString, image: ImageRef) {
-        self.image_cache.add_css_image_id(css_id, image);
     }
 
     /// Spawn a new window on the screen. Note that this should only be used to
@@ -163,7 +146,7 @@ impl App {
     #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
         // Use shell2 for new implementation
-        let err = crate::desktop::shell2::run(self.config.clone(), root_window);
+        let err = crate::desktop::shell2::run(self.config.clone(), self.fc_cache.clone(), root_window);
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
@@ -181,38 +164,6 @@ const fn translate_log_level(log_level: azul_core::resources::AppLogLevel) -> lo
         azul_core::resources::AppLogLevel::Info => log::LevelFilter::Info,
         azul_core::resources::AppLogLevel::Debug => log::LevelFilter::Debug,
         azul_core::resources::AppLogLevel::Trace => log::LevelFilter::Trace,
-    }
-}
-
-#[derive(Debug)]
-pub enum LazyFcCache {
-    Resolved(FcFontCache),
-    InProgress(Option<JoinHandle<FcFontCache>>),
-}
-
-impl LazyFcCache {
-    pub fn apply_closure<T, F: FnOnce(&mut FcFontCache) -> T>(&mut self, closure: F) -> T {
-        let mut replace = None;
-
-        let result = match self {
-            LazyFcCache::Resolved(c) => closure(c),
-            LazyFcCache::InProgress(j) => {
-                let mut font_cache = j
-                    .take()
-                    .and_then(|j| Some(j.join().ok()))
-                    .unwrap_or_default()
-                    .unwrap_or_default();
-                let r = closure(&mut font_cache);
-                replace = Some(font_cache);
-                r
-            }
-        };
-
-        if let Some(replace) = replace {
-            *self = LazyFcCache::Resolved(replace);
-        }
-
-        result
     }
 }
 

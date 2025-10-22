@@ -5,6 +5,8 @@
 
 use azul_core::resources::AppConfig;
 use azul_layout::window_state::WindowCreateOptions;
+use std::sync::Arc;
+use rust_fontconfig::FcFontCache;
 
 #[cfg(target_os = "macos")]
 use super::macos::MacOSWindow;
@@ -24,7 +26,7 @@ use super::{PlatformWindow, WindowError};
 /// - **Windows**: Manual event loop with GetMessage/TranslateMessage/DispatchMessage
 /// - **Linux**: X11/Wayland event loop with appropriate polling
 #[cfg(target_os = "macos")]
-pub fn run(config: AppConfig, root_window: WindowCreateOptions) -> Result<(), WindowError> {
+pub fn run(config: AppConfig, fc_cache: Arc<FcFontCache>, root_window: WindowCreateOptions) -> Result<(), WindowError> {
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
@@ -32,8 +34,8 @@ pub fn run(config: AppConfig, root_window: WindowCreateOptions) -> Result<(), Wi
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
 
-        // Create the root window
-        let mut window = MacOSWindow::new(root_window)?;
+        // Create the root window with fc_cache
+        let mut window = MacOSWindow::new_with_fc_cache(root_window, fc_cache, mtm)?;
 
         // Set window to visible and bring to front
         window.set_properties(super::WindowProperties {
@@ -68,7 +70,7 @@ pub fn run(config: AppConfig, root_window: WindowCreateOptions) -> Result<(), Wi
 }
 
 #[cfg(target_os = "windows")]
-pub fn run(_config: AppConfig, _root_window: WindowCreateOptions) -> Result<(), WindowError> {
+pub fn run(_config: AppConfig, _fc_cache: Arc<FcFontCache>, _root_window: WindowCreateOptions) -> Result<(), WindowError> {
     // TODO: Implement Windows event loop
     Err(WindowError::PlatformError(
         "Windows shell2 not yet implemented".into(),
@@ -76,7 +78,7 @@ pub fn run(_config: AppConfig, _root_window: WindowCreateOptions) -> Result<(), 
 }
 
 #[cfg(target_os = "linux")]
-pub fn run(_config: AppConfig, _root_window: WindowCreateOptions) -> Result<(), WindowError> {
+pub fn run(_config: AppConfig, _fc_cache: Arc<FcFontCache>, _root_window: WindowCreateOptions) -> Result<(), WindowError> {
     // TODO: Implement Linux event loop
     Err(WindowError::PlatformError(
         "Linux shell2 not yet implemented".into(),
