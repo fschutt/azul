@@ -89,7 +89,7 @@ pub fn default_renderer_options(
             b: options.state.background_color.b as f32 / 255.0,
             a: options.state.background_color.a as f32 / 255.0,
         },
-        enable_multithreading: true,
+        enable_multithreading: false,
         debug_flags: webrender::api::DebugFlags::empty(), /* TODO: translate from
                                                            * options.state.debug_state */
         ..WrRendererOptions::default()
@@ -484,12 +484,18 @@ pub fn rebuild_display_list(
             dpi,
         ) {
             Ok(dl_txn) => {
+                eprintln!(
+                    "[rebuild_display_list] Sending display list transaction for DOM {} to \
+                     document {:?}",
+                    dom_id.inner, layout_window.document_id
+                );
                 // Merge display list transaction into main transaction
                 // Note: WebRender Transaction doesn't support merging,
                 // so we need to rebuild the transaction with display list
                 // For now, just send it separately
                 render_api
                     .send_transaction(wr_translate_document_id(layout_window.document_id), dl_txn);
+                eprintln!("[rebuild_display_list] Display list transaction sent");
             }
             Err(e) => {
                 eprintln!(
@@ -763,11 +769,7 @@ pub fn generate_frame(
 
     let mut txn = WrTransaction::new();
 
-    // Set root pipeline to root DOM (DomId::ROOT_ID which is 0)
-    let root_pipeline_id = PipelineId(0, layout_window.document_id.id);
-    txn.set_root_pipeline(wr_translate_pipeline_id(root_pipeline_id));
-
-    // Set document view (framebuffer size)
+    // Update document view size (in case window was resized)
     txn.set_document_view(WrDeviceIntRect::from_origin_and_size(
         WrDeviceIntPoint::new(0, 0),
         framebuffer_size,
@@ -785,6 +787,10 @@ pub fn generate_frame(
 
     txn.generate_frame(0, webrender::api::RenderReasons::SCENE);
 
+    eprintln!(
+        "[generate_frame] Sending frame transaction to document {:?}",
+        layout_window.document_id
+    );
     render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
 }
 

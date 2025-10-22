@@ -40,11 +40,19 @@ pub fn translate_displaylist_to_wr(
     use crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id;
 
     let mut txn = Transaction::new();
+
+    // NOTE: Do NOT set_root_pipeline here - it's set in generate_frame()
+    // Setting it twice may confuse WebRender
+
     let device_rect = DeviceIntRect::from_size(viewport_size);
     txn.set_document_view(device_rect);
 
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
+
+    // CRITICAL: Begin building the display list before pushing items
+    builder.begin();
+
     let spatial_id = SpatialId::root_scroll_node(pipeline_id);
     let root_clip_chain_id = WrClipChainId::INVALID;
 
@@ -361,6 +369,17 @@ pub fn translate_displaylist_to_wr(
 
     // Finalize and set display list
     let (_, dl) = builder.end();
+
+    // Print detailed display list summary before submitting
+    eprintln!("=== Display List Summary ===");
+    eprintln!("Pipeline: {:?}", pipeline_id);
+    eprintln!("Viewport: {:?}", viewport_size);
+    eprintln!("Total items in source: {}", display_list.items.len());
+    for (idx, item) in display_list.items.iter().enumerate() {
+        eprintln!("  Item {}: {:?}", idx + 1, item);
+    }
+    eprintln!("============================");
+
     let layout_size = LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32);
     txn.set_display_list(webrender::api::Epoch(0), (pipeline_id, dl));
 

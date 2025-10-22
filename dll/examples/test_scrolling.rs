@@ -22,15 +22,35 @@ struct XhtmlData {
     xhtml_content: &'static str,
 }
 
-extern "C" fn layout_xhtml(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
-    let xhtml_data = match data.downcast_ref::<XhtmlData>() {
-        Some(d) => d,
-        None => return StyledDom::default(),
-    };
+extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+    use std::io::Write;
+    eprintln!("[layout_xhtml] CALLED!");
+    let _ = std::io::stderr().flush();
 
-    Dom::body()
-    .with_children(vec![Dom::text("hello")].into())
-    .style(CssApiWrapper { css: Css::empty() })
+    // For now, just return the body with "hello" text
+    // The rendering is working (window shows), text rendering might need font setup
+    let mut dom = Dom::body().with_children(
+        vec![
+            Dom::text("Hello from Azul!"),
+            Dom::div().with_inline_style("width: 400px; height: 400px; background: #FF0000;"),
+        ]
+        .into(),
+    );
+
+    eprintln!(
+        "[layout_xhtml] Dom created with {} total children",
+        dom.estimated_total_children
+    );
+    eprintln!("[layout_xhtml] Dom node_count: {}", dom.node_count());
+    let _ = std::io::stderr().flush();
+
+    let styled = dom.style(CssApiWrapper { css: Css::empty() });
+    eprintln!(
+        "[layout_xhtml] StyledDom created with {} nodes",
+        styled.styled_nodes.len()
+    );
+    let _ = std::io::stderr().flush();
+    styled
 }
 
 extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Update {

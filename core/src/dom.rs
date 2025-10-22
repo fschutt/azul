@@ -2381,7 +2381,7 @@ impl Dom {
     }
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self {
-        self.children = children;
+        self.set_children(children);
         self
     }
     #[inline(always)]

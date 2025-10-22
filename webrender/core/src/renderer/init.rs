@@ -239,7 +239,7 @@ impl Default for WebRenderOptions {
             batched_upload_threshold: 512 * 512,
             workers: None,
             dedicated_glyph_raster_thread: None,
-            enable_multithreading: true,
+            enable_multithreading: false,
             blob_image_handler: None,
             crash_annotator: None,
             size_of_op: None,
