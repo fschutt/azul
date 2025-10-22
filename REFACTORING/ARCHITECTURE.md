@@ -16,7 +16,6 @@ pub trait PlatformWindow {
     fn get_state(&self) -> WindowState;
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError>;
     fn poll_event(&mut self) -> Option<Self::EventType>;
-    fn wait_event(&mut self) -> Option<Self::EventType>;
     fn get_render_context(&self) -> RenderContext;
     fn present(&mut self) -> Result<(), WindowError>;
     fn is_open(&self) -> bool;

@@ -39,14 +39,6 @@ impl PlatformWindow for StubWindow {
         None
     }
 
-    fn wait_event(&mut self) -> Option<Self::EventType> {
-        if self.open {
-            Some(StubEvent::Close)
-        } else {
-            None
-        }
-    }
-
     fn get_render_context(&self) -> RenderContext {
         RenderContext::CPU
     }

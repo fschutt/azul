@@ -47,7 +47,7 @@ fn default_renderer_options(options: &WindowCreateOptions) -> WrRendererOptions 
         panic_on_gl_error: false,
         precache_flags: WrShaderPrecacheFlags::EMPTY,
         cached_programs: Some(WrProgramCache::new(None)),
-        enable_multithreading: true,
+        enable_multithreading: false,
         debug_flags: wr_translate_debug_flags(&options.state.debug_state),
         ..WrRendererOptions::default()
     }

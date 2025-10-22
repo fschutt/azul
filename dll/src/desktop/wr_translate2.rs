@@ -5,7 +5,7 @@
 
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::mem;
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::{Condvar, Mutex}};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
@@ -50,24 +50,44 @@ impl AsyncHitTester {
     }
 }
 
-/// WebRender notifier (empty implementation)
-#[derive(Debug, Copy, Clone)]
-pub struct Notifier {}
+/// Notifier for WebRender to signal when a new frame is ready
+#[derive(Clone)]
+pub struct Notifier {
+    pub new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
+}
 
 impl WrRenderNotifier for Notifier {
     fn clone(&self) -> Box<dyn WrRenderNotifier> {
-        Box::new(Notifier {})
+        Box::new(Notifier {
+            new_frame_ready: self.new_frame_ready.clone(),
+        })
     }
-    fn wake_up(&self, _composite_needed: bool) {}
+    
+    fn wake_up(&self, _composite_needed: bool) {
+        // Signal that something happened (non-frame-generating update)
+        let &(ref lock, ref cvar) = &*self.new_frame_ready;
+        let mut new_frame_ready = lock.lock().unwrap();
+        *new_frame_ready = true;
+        cvar.notify_one();
+    }
+    
     fn new_frame_ready(
         &self,
-        _: WrDocumentId,
+        _doc_id: WrDocumentId,
         _scrolled: bool,
         _composite_needed: bool,
         _frame_publish_id: webrender::api::FramePublishId,
     ) {
+        // Signal that a new frame is ready to be rendered
+        eprintln!("[Notifier] new_frame_ready called - signaling main thread");
+        let &(ref lock, ref cvar) = &*self.new_frame_ready;
+        let mut new_frame_ready = lock.lock().unwrap();
+        *new_frame_ready = true;
+        cvar.notify_one();
     }
 }
+
+/// Shader cache (TODO: implement proper caching)
 
 /// Shader cache (TODO: implement proper caching)
 pub const WR_SHADER_CACHE: Option<&Rc<RefCell<webrender::Shaders>>> = None;

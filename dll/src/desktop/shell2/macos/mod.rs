@@ -893,6 +893,9 @@ pub struct MacOSWindow {
 
     /// Current scrollbar drag state (if dragging a scrollbar thumb)
     scrollbar_drag_state: Option<azul_layout::ScrollbarDragState>,
+
+    /// Synchronization for frame readiness (signals when WebRender has a new frame ready)
+    new_frame_ready: std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 }
 
 impl MacOSWindow {
@@ -1140,9 +1143,16 @@ impl MacOSWindow {
         };
 
         eprintln!("[Window Init] Creating WebRender instance");
+        
+        // Create synchronization primitives for frame readiness
+        let new_frame_ready = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let notifier = Notifier {
+            new_frame_ready: new_frame_ready.clone(),
+        };
+        
         let (mut renderer, sender) = webrender::create_webrender_instance(
             gl_funcs.clone(),
-            Box::new(Notifier {}),
+            Box::new(notifier),
             default_renderer_options(&options),
             None, // shaders cache
         )
@@ -1285,6 +1295,7 @@ impl MacOSWindow {
             fc_cache,
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
+            new_frame_ready,
         };
 
         // Set up WebRender document with root pipeline and viewport
@@ -1340,10 +1351,10 @@ impl MacOSWindow {
         eprintln!("[Window Init] Flushing scene builder after generate_frame");
         window.render_api.flush_scene_builder();
 
-        eprintln!("[Window Init] Presenting initial frame");
-        if let Err(e) = window.present() {
-            eprintln!("[Window Init] WARNING: Initial present failed: {:?}", e);
-        }
+        // DO NOT call present() here - this causes a race condition!
+        // The WebRender backend thread needs time to process the scene and build the frame.
+        // The event loop will call present() once the notifier signals that a frame is ready.
+        eprintln!("[Window Init] Initialization complete. Waiting for first frame notification from WebRender.");
 
         Ok(window)
     }
@@ -2235,6 +2246,26 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
+        // Check if a frame is ready without blocking
+        let frame_ready = {
+            let &(ref lock, _) = &*self.new_frame_ready;
+            let mut ready_guard = lock.lock().unwrap();
+            if *ready_guard {
+                *ready_guard = false; // Consume the signal
+                true
+            } else {
+                false
+            }
+        };
+
+        if frame_ready {
+            eprintln!("[poll_event] Frame ready signal received - presenting");
+            // A frame is ready, so we should present it
+            if let Err(e) = self.present() {
+                eprintln!("[poll_event] Present failed after frame ready signal: {:?}", e);
+            }
+        }
+
         // Check for close request from WindowDelegate
         if self.current_window_state.flags.close_requested {
             self.current_window_state.flags.close_requested = false;
@@ -2278,53 +2309,8 @@ impl PlatformWindow for MacOSWindow {
             // Generate frame if needed after event processing
             self.generate_frame_if_needed();
 
-            // Present the frame
-            if let Err(e) = self.present() {
-                eprintln!("[poll_event] Present failed: {:?}", e);
-            }
-
             Some(macos_event)
         } else {
-            None
-        }
-    }
-
-    fn wait_event(&mut self) -> Option<Self::EventType> {
-        let app = NSApplication::sharedApplication(self.mtm);
-
-        // Wait for event (blocking)
-        let event = unsafe {
-            app.nextEventMatchingMask_untilDate_inMode_dequeue(
-                NSEventMask::Any,
-                Some(&objc2_foundation::NSDate::distantFuture()), // Wait indefinitely
-                objc2_foundation::NSDefaultRunLoopMode,
-                true,
-            )
-        };
-
-        if let Some(event) = event {
-            // Convert and process event
-            let macos_event = MacOSEvent::from_nsevent(&event);
-
-            // Dispatch event to handlers
-            self.process_event(&event, &macos_event);
-
-            // Forward event to system
-            unsafe {
-                app.sendEvent(&event);
-            }
-
-            // Generate frame if needed after event processing
-            self.generate_frame_if_needed();
-
-            // Present the frame
-            if let Err(e) = self.present() {
-                eprintln!("[wait_event] Present failed: {:?}", e);
-            }
-
-            Some(macos_event)
-        } else {
-            // Window closed
             None
         }
     }

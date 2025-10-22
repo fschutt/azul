@@ -73,10 +73,6 @@ pub trait PlatformWindow {
     /// Returns None if no events available.
     fn poll_event(&mut self) -> Option<Self::EventType>;
 
-    /// Wait for the next event (blocking).
-    /// Returns None only if window is closed.
-    fn wait_event(&mut self) -> Option<Self::EventType>;
-
     /// Get rendering context for this window.
     fn get_render_context(&self) -> RenderContext;
 
