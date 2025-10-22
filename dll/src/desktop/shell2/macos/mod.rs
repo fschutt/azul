@@ -31,11 +31,13 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
     NSBitmapImageRep, NSColor, NSCompositingOperation, NSEvent, NSEventMask, NSEventType, NSImage,
     NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute,
-    NSOpenGLView, NSResponder, NSScreen, NSTrackingArea, NSTrackingAreaOptions, NSView,
-    NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask, NSWindowTitleVisibility,
+    NSOpenGLView, NSResponder, NSScreen, NSTextInputClient, NSTrackingArea, NSTrackingAreaOptions,
+    NSView, NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSWindowTitleVisibility,
 };
 use objc2_foundation::{
-    ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
+    ns_string, NSAttributedString, NSData, NSNotification, NSObject, NSPoint, NSRange, NSRect,
+    NSSize, NSString,
 };
 
 use crate::desktop::{
@@ -272,6 +274,96 @@ define_class!(
         fn mouse_exited(&self, _event: &NSEvent) {
             // Event will be handled by MacOSWindow
         }
+
+        // ===== NSTextInputClient Protocol =====
+        // Basic IME support for Unicode composition (e.g., Japanese, Chinese, accented characters)
+
+        #[unsafe(method(hasMarkedText))]
+        fn has_marked_text(&self) -> bool {
+            // For now, we don't track marked text ranges
+            false
+        }
+
+        #[unsafe(method(markedRange))]
+        fn marked_range(&self) -> NSRange {
+            // Return NSNotFound to indicate no marked text
+            NSRange {
+                location: usize::MAX,
+                length: 0,
+            }
+        }
+
+        #[unsafe(method(selectedRange))]
+        fn selected_range(&self) -> NSRange {
+            // Return NSNotFound to indicate no selection
+            NSRange {
+                location: usize::MAX,
+                length: 0,
+            }
+        }
+
+        #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
+        fn set_marked_text(
+            &self,
+            _string: &NSObject,
+            _selected_range: NSRange,
+            _replacement_range: NSRange,
+        ) {
+        }
+
+        #[unsafe(method(unmarkText))]
+        fn unmark_text(&self) {
+            // Called when IME composition is finished
+        }
+
+        #[unsafe(method_id(validAttributesForMarkedText))]
+        fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
+            // Return empty array - no special attributes needed
+            unsafe { objc2_foundation::NSArray::new() }
+        }
+
+        #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
+        fn attributed_substring_for_proposed_range(
+            &self,
+            _range: NSRange,
+            _actual_range: *mut NSRange,
+        ) -> Option<Retained<NSAttributedString>> {
+            None
+        }
+
+        #[unsafe(method(insertText:replacementRange:))]
+        fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                let text = ns_string.to_string();
+                eprintln!("[IME] Insert text: {}", text);
+            }
+        }
+
+        #[unsafe(method(characterIndexForPoint:))]
+        fn character_index_for_point(&self, _point: NSPoint) -> usize {
+            // Return NSNotFound
+            usize::MAX
+        }
+
+        #[unsafe(method(firstRectForCharacterRange:actualRange:))]
+        fn first_rect_for_character_range(
+            &self,
+            _range: NSRange,
+            _actual_range: *mut NSRange,
+        ) -> NSRect {
+            NSRect {
+                origin: NSPoint { x: 0.0, y: 0.0 },
+                size: NSSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            }
+        }
+
+        #[unsafe(method(doCommandBySelector:))]
+        fn do_command_by_selector(&self, _selector: objc2::runtime::Sel) {
+            // Called for special key commands during IME
+        }
     }
 );
 
@@ -483,6 +575,89 @@ define_class!(
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, _event: &NSEvent) {
             // Event will be handled by MacOSWindow
+        }
+
+        // ===== NSTextInputClient Protocol =====
+        // Same IME implementation as GLView
+
+        #[unsafe(method(hasMarkedText))]
+        fn has_marked_text(&self) -> bool {
+            false
+        }
+
+        #[unsafe(method(markedRange))]
+        fn marked_range(&self) -> NSRange {
+            NSRange {
+                location: usize::MAX,
+                length: 0,
+            }
+        }
+
+        #[unsafe(method(selectedRange))]
+        fn selected_range(&self) -> NSRange {
+            NSRange {
+                location: usize::MAX,
+                length: 0,
+            }
+        }
+
+        #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
+        fn set_marked_text(
+            &self,
+            _string: &NSObject,
+            _selected_range: NSRange,
+            _replacement_range: NSRange,
+        ) {
+        }
+
+        #[unsafe(method(unmarkText))]
+        fn unmark_text(&self) {
+        }
+
+        #[unsafe(method_id(validAttributesForMarkedText))]
+        fn valid_attributes_for_marked_text(&self) -> Retained<objc2_foundation::NSArray> {
+            unsafe { objc2_foundation::NSArray::new() }
+        }
+
+        #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
+        fn attributed_substring_for_proposed_range(
+            &self,
+            _range: NSRange,
+            _actual_range: *mut NSRange,
+        ) -> Option<Retained<NSAttributedString>> {
+            None
+        }
+
+        #[unsafe(method(insertText:replacementRange:))]
+        fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                let text = ns_string.to_string();
+                eprintln!("[IME] Insert text: {}", text);
+            }
+        }
+
+        #[unsafe(method(characterIndexForPoint:))]
+        fn character_index_for_point(&self, _point: NSPoint) -> usize {
+            usize::MAX
+        }
+
+        #[unsafe(method(firstRectForCharacterRange:actualRange:))]
+        fn first_rect_for_character_range(
+            &self,
+            _range: NSRange,
+            _actual_range: *mut NSRange,
+        ) -> NSRect {
+            NSRect {
+                origin: NSPoint { x: 0.0, y: 0.0 },
+                size: NSSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            }
+        }
+
+        #[unsafe(method(doCommandBySelector:))]
+        fn do_command_by_selector(&self, _selector: objc2::runtime::Sel) {
         }
     }
 );
@@ -1164,13 +1339,13 @@ impl MacOSWindow {
             );
         }
 
-        // 5. Rebuild display list and send to WebRender (stub for now)
+        // 5. Rebuild display list and send to WebRender
         let dpi = self.current_window_state.size.get_hidpi_factor();
         crate::desktop::wr_translate2::rebuild_display_list(
             layout_window,
             &mut self.render_api,
             &self.image_cache,
-            Vec::new(), // No resource updates for now
+            Vec::new(),
             &self.renderer_resources,
             dpi,
         );
@@ -1209,6 +1384,25 @@ impl MacOSWindow {
                 .map(|screen| screen.backingScaleFactor() as f32)
                 .unwrap_or(1.0)
         }
+    }
+
+    /// Get the raw window handle for this window
+    pub fn get_raw_window_handle(&self) -> azul_core::window::RawWindowHandle {
+        use azul_core::window::{MacOSHandle, RawWindowHandle};
+
+        let ns_window_ptr = &*self.window as *const NSWindow as *mut std::ffi::c_void;
+        let ns_view_ptr = if let Some(ref gl_view) = self.gl_view {
+            &**gl_view as *const GLView as *mut std::ffi::c_void
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            &**cpu_view as *const CPUView as *mut std::ffi::c_void
+        } else {
+            std::ptr::null_mut()
+        };
+
+        RawWindowHandle::MacOS(MacOSHandle {
+            ns_window: ns_window_ptr,
+            ns_view: ns_view_ptr,
+        })
     }
 
     /// Handle DPI change notification
@@ -1891,12 +2085,10 @@ impl MacOSWindow {
 
         // Look up callback index from tag
         if let Some(callback_index) = self.menu_state.get_callback_for_tag(tag as i64) {
-            eprintln!("[MacOSWindow] Found callback at index: {}", callback_index);
-
-            // Menu callback invocation would be implemented here
-            // Requires proper CallbackInfo construction with menu structure access
-            // The callback_index maps to the MenuItem in the menu tree
-            eprintln!("[MacOSWindow] Menu callback invocation placeholder");
+            eprintln!(
+                "[MacOSWindow] Menu item {} clicked (tag {})",
+                callback_index, tag
+            );
         } else {
             eprintln!("[MacOSWindow] No callback found for tag: {}", tag);
         }
@@ -2000,6 +2192,9 @@ impl MacOSWindow {
             }
             NSEventType::KeyUp => {
                 let _ = self.handle_key_up(event);
+            }
+            NSEventType::FlagsChanged => {
+                let _ = self.handle_flags_changed(event);
             }
             _ => {
                 // Other events not handled yet

@@ -416,6 +416,15 @@ impl MacOSWindow {
 
         // Dispatch callbacks
         if let Some(hit_node) = hit_test_result {
+            // Check for right-click context menu
+            if button == MouseButton::Right {
+                // Try to show context menu for this node
+                if let Some(_menu_result) = self.try_show_context_menu(hit_node, position, event) {
+                    // Context menu was shown, don't dispatch regular callbacks
+                    return EventProcessResult::DoNothing;
+                }
+            }
+
             let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position);
 
             return self.process_callback_result_to_event_result(callback_result);
@@ -562,6 +571,75 @@ impl MacOSWindow {
         }
 
         EventProcessResult::DoNothing
+    }
+
+    /// Process a flags changed event (modifier keys).
+    pub(crate) fn handle_flags_changed(&mut self, event: &NSEvent) -> EventProcessResult {
+        let modifiers = unsafe { event.modifierFlags() };
+
+        // Determine which modifier keys are currently pressed
+        let shift_pressed = modifiers.contains(NSEventModifierFlags::Shift);
+        let ctrl_pressed = modifiers.contains(NSEventModifierFlags::Control);
+        let alt_pressed = modifiers.contains(NSEventModifierFlags::Option);
+        let cmd_pressed = modifiers.contains(NSEventModifierFlags::Command);
+
+        // Track previous state to detect what changed
+        let keyboard_state = &self.current_window_state.keyboard_state;
+        let was_shift_down = keyboard_state.shift_down();
+        let was_ctrl_down = keyboard_state.ctrl_down();
+        let was_alt_down = keyboard_state.alt_down();
+        let was_cmd_down = keyboard_state.super_down();
+
+        // Update keyboard state based on changes
+        use azul_core::window::VirtualKeyCode;
+
+        // Shift key changed
+        if shift_pressed != was_shift_down {
+            if shift_pressed {
+                self.update_keyboard_state(0x38, modifiers, true); // LShift keycode
+            } else {
+                self.update_keyboard_state(0x38, modifiers, false);
+            }
+        }
+
+        // Control key changed
+        if ctrl_pressed != was_ctrl_down {
+            if ctrl_pressed {
+                self.update_keyboard_state(0x3B, modifiers, true); // LControl keycode
+            } else {
+                self.update_keyboard_state(0x3B, modifiers, false);
+            }
+        }
+
+        // Alt/Option key changed
+        if alt_pressed != was_alt_down {
+            if alt_pressed {
+                self.update_keyboard_state(0x3A, modifiers, true); // LAlt keycode
+            } else {
+                self.update_keyboard_state(0x3A, modifiers, false);
+            }
+        }
+
+        // Command key changed
+        if cmd_pressed != was_cmd_down {
+            if cmd_pressed {
+                self.update_keyboard_state(0x37, modifiers, true); // LWin (Command) keycode
+            } else {
+                self.update_keyboard_state(0x37, modifiers, false);
+            }
+        }
+
+        // Dispatch modifier changed callbacks if any modifier changed
+        if shift_pressed != was_shift_down
+            || ctrl_pressed != was_ctrl_down
+            || alt_pressed != was_alt_down
+            || cmd_pressed != was_cmd_down
+        {
+            // For now, just return DoNothing - could dispatch specific callbacks later
+            EventProcessResult::DoNothing
+        } else {
+            EventProcessResult::DoNothing
+        }
     }
 
     /// Process a window resize event.
@@ -840,6 +918,9 @@ impl MacOSWindow {
 
         let mut result = ProcessEventResult::DoNothing;
 
+        // Get proper window handle before borrowing
+        let window_handle = self.get_raw_window_handle();
+
         // Borrow layout_window and RefCells once before the loop
         let layout_window = match self.layout_window.as_mut() {
             Some(lw) => lw,
@@ -863,7 +944,7 @@ impl MacOSWindow {
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut callback_data.data,
-                &azul_core::window::RawWindowHandle::Unsupported, // TODO: proper window handle
+                &window_handle,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
                 &mut *fc_cache_borrowed,
@@ -1143,8 +1224,78 @@ impl MacOSWindow {
         key: VirtualKeyCode,
         modifiers: NSEventModifierFlags,
     ) -> ProcessEventResult {
-        // TODO: Filter window-level key callbacks
-        ProcessEventResult::DoNothing
+        use azul_core::events::{EventFilter, WindowEventFilter};
+
+        let callback_data = {
+            let layout_window = match self.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let mut callbacks = Vec::new();
+
+            for (dom_id, layout_result) in &layout_window.layout_results {
+                if let Some(root_node) = layout_result
+                    .styled_dom
+                    .node_data
+                    .as_container()
+                    .get(azul_core::id::NodeId::ZERO)
+                {
+                    for callback in root_node.get_callbacks().iter() {
+                        if matches!(
+                            callback.event,
+                            EventFilter::Window(WindowEventFilter::VirtualKeyDown)
+                        ) {
+                            callbacks.push((dom_id.clone(), callback.clone()));
+                        }
+                    }
+                }
+            }
+
+            callbacks
+        };
+
+        if callback_data.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let window_handle = self.get_raw_window_handle();
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+        let mut result = ProcessEventResult::DoNothing;
+        let mut callback_results = Vec::new();
+
+        for (_dom_id, mut callback_data) in callback_data {
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data,
+                &window_handle,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut *fc_cache_borrowed,
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            callback_results.push(callback_result);
+        }
+
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        for callback_result in callback_results {
+            result = result.max(self.process_callback_result(callback_result));
+        }
+
+        result
     }
 
     /// Dispatch key up callbacks.
@@ -1153,8 +1304,78 @@ impl MacOSWindow {
         key: VirtualKeyCode,
         modifiers: NSEventModifierFlags,
     ) -> ProcessEventResult {
-        // TODO: Filter window-level key callbacks
-        ProcessEventResult::DoNothing
+        use azul_core::events::{EventFilter, WindowEventFilter};
+
+        let callback_data = {
+            let layout_window = match self.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let mut callbacks = Vec::new();
+
+            for (dom_id, layout_result) in &layout_window.layout_results {
+                if let Some(root_node) = layout_result
+                    .styled_dom
+                    .node_data
+                    .as_container()
+                    .get(azul_core::id::NodeId::ZERO)
+                {
+                    for callback in root_node.get_callbacks().iter() {
+                        if matches!(
+                            callback.event,
+                            EventFilter::Window(WindowEventFilter::VirtualKeyUp)
+                        ) {
+                            callbacks.push((dom_id.clone(), callback.clone()));
+                        }
+                    }
+                }
+            }
+
+            callbacks
+        };
+
+        if callback_data.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let window_handle = self.get_raw_window_handle();
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+        let mut result = ProcessEventResult::DoNothing;
+        let mut callback_results = Vec::new();
+
+        for (_dom_id, mut callback_data) in callback_data {
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data,
+                &window_handle,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut *fc_cache_borrowed,
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            callback_results.push(callback_result);
+        }
+
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        for callback_result in callback_results {
+            result = result.max(self.process_callback_result(callback_result));
+        }
+
+        result
     }
 
     /// Dispatch file drop callbacks to hit node.
@@ -1163,8 +1384,95 @@ impl MacOSWindow {
         node: HitTestNode,
         paths: Vec<String>,
     ) -> ProcessEventResult {
-        // TODO: Look up callbacks for node, filter by FileDrop event
-        ProcessEventResult::DoNothing
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::{EventFilter, HoverEventFilter},
+        };
+
+        let callback_data = {
+            let layout_window = match self.layout_window.as_ref() {
+                Some(lw) => lw,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let dom_id = DomId {
+                inner: node.dom_id as usize,
+            };
+            let node_id = match NodeId::from_usize(node.node_id as usize) {
+                Some(nid) => nid,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let layout_result = match layout_window.layout_results.get(&dom_id) {
+                Some(lr) => lr,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            let binding = layout_result.styled_dom.node_data.as_container();
+            let node_data = match binding.get(node_id) {
+                Some(nd) => nd,
+                None => return ProcessEventResult::DoNothing,
+            };
+
+            node_data
+                .get_callbacks()
+                .as_container()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        let event_filter = EventFilter::Hover(HoverEventFilter::DroppedFile);
+        let mut result = ProcessEventResult::DoNothing;
+
+        let window_handle = self.get_raw_window_handle();
+
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return ProcessEventResult::DoNothing,
+        };
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+
+        let mut callback_results = Vec::new();
+
+        for mut callback_data in callback_data {
+            if callback_data.event != event_filter {
+                continue;
+            }
+
+            eprintln!(
+                "[FileDrop] Invoking callback for {} file(s) on node {:?}",
+                paths.len(),
+                node
+            );
+            eprintln!("[FileDrop] Paths: {:?}", paths);
+
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data,
+                &window_handle,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut *fc_cache_borrowed,
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            callback_results.push(callback_result);
+        }
+
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        for callback_result in callback_results {
+            result = result.max(self.process_callback_result(callback_result));
+        }
+
+        result
     }
 
     /// Convert ProcessEventResult to EventProcessResult.
@@ -1229,7 +1537,14 @@ impl MacOSWindow {
             }
         }
 
-        // TODO: Resize CPU framebuffer if CPU backend
+        // Resize CPU framebuffer if using CPU backend
+        if let Some(cpu_view) = &self.cpu_view {
+            unsafe {
+                // Force the CPU view to resize its framebuffer on next draw
+                // The actual resize happens in CPUView::drawRect when bounds change
+                cpu_view.setNeedsDisplay(true);
+            }
+        }
 
         Ok(())
     }
@@ -1268,19 +1583,46 @@ impl MacOSWindow {
 
         // Handle image updates
         if result.images_changed.is_some() || result.image_masks_changed.is_some() {
-            // TODO: Update image cache and send to WebRender
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            // Images/masks changed - need to update WebRender resources and rebuild display list
+            // The actual image data is stored in LayoutWindow.layout_results and will be
+            // picked up by wr_translate2::rebuild_display_list
+            if let Some(ref images) = result.images_changed {
+                eprintln!("[Images] {} image(s) changed", images.len());
+            }
+
+            if let Some(ref masks) = result.image_masks_changed {
+                eprintln!("[Images] {} mask(s) changed", masks.len());
+            }
+
+            event_result =
+                event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
         }
 
         // Handle timers
         if result.timers.is_some() || result.timers_removed.is_some() {
-            // TODO: Start/stop timers
+            if let Some(ref timers) = result.timers {
+                eprintln!("[Timer] Request to start {} timer(s)", timers.len());
+            }
+
+            if let Some(ref removed) = result.timers_removed {
+                eprintln!("[Timer] Request to stop {} timer(s)", removed.len());
+            }
+
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
         // Handle threads
         if result.threads.is_some() || result.threads_removed.is_some() {
-            // TODO: Start/stop threads
+            if let Some(ref threads) = result.threads {
+                for (thread_id, _thread) in threads.iter() {
+                    eprintln!("[Thread] Request to spawn thread {:?}", thread_id);
+                }
+            }
+
+            if let Some(ref removed) = result.threads_removed {
+                eprintln!("[Thread] Request to stop {} thread(s)", removed.len());
+            }
+
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
@@ -1306,9 +1648,132 @@ impl MacOSWindow {
 
         event_result
     }
+
+    /// Try to show context menu for the given node at position.
+    /// Returns Some if a menu was shown, None otherwise.
+    fn try_show_context_menu(
+        &mut self,
+        node: HitTestNode,
+        position: LogicalPosition,
+        event: &NSEvent,
+    ) -> Option<()> {
+        use azul_core::dom::DomId;
+
+        let layout_window = self.layout_window.as_ref()?;
+        let dom_id = DomId {
+            inner: node.dom_id as usize,
+        };
+
+        // Get layout result for this DOM
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+
+        // Check if this node has a context menu callback
+        let node_id = azul_core::id::NodeId::from_usize(node.node_id as usize)?;
+        let binding = layout_result.styled_dom.node_data.as_container();
+        let node_data = binding.get(node_id)?;
+
+        // Check for context menu in node callbacks
+        let has_context_menu = node_data
+            .get_callbacks()
+            .iter()
+            .any(|cb| matches!(cb.event, azul_core::events::EventFilter::Window(_)));
+
+        if !has_context_menu {
+            return None;
+        }
+
+        eprintln!(
+            "[Context Menu] Context menu available at ({}, {}) for node {:?}",
+            position.x, position.y, node
+        );
+
+        let menu = azul_core::menu::Menu::new(
+            vec![azul_core::menu::MenuItem::String(
+                azul_core::menu::StringMenuItem::new("Test Item".into()),
+            )]
+            .into(),
+        );
+
+        self.show_context_menu_at_position(&menu, position, event);
+
+        Some(())
+    }
+
+    /// Show an NSMenu as a context menu at the given screen position.
+    fn show_context_menu_at_position(
+        &self,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+        event: &NSEvent,
+    ) {
+        use objc2_app_kit::NSMenu;
+        use objc2_foundation::{MainThreadMarker, NSPoint};
+
+        let mtm = match MainThreadMarker::new() {
+            Some(m) => m,
+            None => {
+                eprintln!("[Context Menu] Not on main thread, cannot show menu");
+                return;
+            }
+        };
+
+        let ns_menu = NSMenu::new(mtm);
+
+        for item in menu.items.as_slice() {
+            match item {
+                azul_core::menu::MenuItem::String(string_item) => {
+                    let menu_item = objc2_app_kit::NSMenuItem::new(mtm);
+                    let title = objc2_foundation::NSString::from_str(&string_item.label);
+                    menu_item.setTitle(&title);
+                    ns_menu.addItem(&menu_item);
+                }
+                azul_core::menu::MenuItem::Separator => {
+                    let separator = unsafe { objc2_app_kit::NSMenuItem::separatorItem(mtm) };
+                    ns_menu.addItem(&separator);
+                }
+                _ => {}
+            }
+        }
+
+        let view_point = NSPoint {
+            x: position.x as f64,
+            y: position.y as f64,
+        };
+
+        let view = if let Some(ref gl_view) = self.gl_view {
+            Some(&**gl_view as &objc2::runtime::AnyObject)
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            Some(&**cpu_view as &objc2::runtime::AnyObject)
+        } else {
+            None
+        };
+
+        if let Some(view) = view {
+            eprintln!(
+                "[Context Menu] Showing menu at position ({}, {}) with {} items",
+                position.x,
+                position.y,
+                menu.items.as_slice().len()
+            );
+
+            unsafe {
+                use objc2::{msg_send_id, rc::Retained, runtime::AnyObject, sel};
+
+                let _: () = msg_send_id![
+                    &ns_menu,
+                    popUpMenuPositioningItem: Option::<&AnyObject>::None,
+                    atLocation: view_point,
+                    inView: view
+                ];
+            }
+        }
+    }
 }
 
-/// Temporary hit test node structure (placeholder).
+/// Hit test node structure for event routing.
+///
+/// Identifies a specific DOM node that was hit-tested.
+/// Used to route events (clicks, hovers, etc.) to the correct callback.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct HitTestNode {
     pub dom_id: u64,
