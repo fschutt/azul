@@ -5,7 +5,12 @@
 //! - Opening a window with the high-level App API
 //! - Testing the wr_translate2.rs implementation
 
-use azul_core::{callbacks::LayoutCallback, dom::Dom, refany::RefAny, styled_dom::StyledDom};
+use azul_core::{
+    callbacks::LayoutCallbackInfo,
+    dom::Dom,
+    refany::RefAny,
+    styled_dom::StyledDom,
+};
 use azul_css::{css::Css, parser2::CssApiWrapper};
 use azul_dll::desktop::{app::App, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;

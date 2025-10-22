@@ -96,6 +96,17 @@ impl Default for WindowCreateOptions {
     }
 }
 
+impl WindowCreateOptions {
+    /// Create a new WindowCreateOptions with a layout callback
+    pub fn new(layout_callback: azul_core::callbacks::LayoutCallbackType) -> Self {
+        let mut options = Self::default();
+        options.state.layout_callback = azul_core::callbacks::LayoutCallback::Raw(
+            azul_core::callbacks::LayoutCallbackInner { cb: layout_callback }
+        );
+        options
+    }
+}
+
 /// Full window state including internal fields not exposed to callbacks
 #[derive(Debug, Clone, PartialEq)]
 pub struct FullWindowState {
