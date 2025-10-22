@@ -37,7 +37,7 @@ impl CallbackExt for azul_layout::callbacks::Callback {
 }
 
 /// Result of processing an event - determines whether to redraw, update layout, etc.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventProcessResult {
     /// No action needed
     DoNothing,
@@ -51,6 +51,15 @@ pub enum EventProcessResult {
 
 // NOTE: ScrollbarDragState is now imported from azul_layout::ScrollbarDragState
 // (was previously defined here as duplicate)
+
+/// Target for callback dispatch - either a specific node or all root nodes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CallbackTarget {
+    /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
+    Node(HitTestNode),
+    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events, keys)
+    RootNodes,
+}
 
 impl MacOSWindow {
     /// Query WebRender hit-tester for scrollbar hits
@@ -356,6 +365,14 @@ impl MacOSWindow {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
+        // Check for scrollbar hit FIRST (before state changes)
+        if let Some(scrollbar_hit_id) = self.perform_scrollbar_hit_test(position) {
+            return self.handle_scrollbar_click(scrollbar_hit_id, position);
+        }
+
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
@@ -367,25 +384,17 @@ impl MacOSWindow {
             _ => {}
         }
 
-        // Check for scrollbar hit FIRST
-        if let Some(scrollbar_hit_id) = self.perform_scrollbar_hit_test(position) {
-            return self.handle_scrollbar_click(scrollbar_hit_id, position);
-        }
+        // Perform hit testing and update last_hit_test
+        self.update_hit_test(position);
 
-        // Perform hit testing to find which node was clicked
-        let hit_test_result = self.perform_hit_test(position);
+        // Use V2 cross-platform event system - it will automatically:
+        // - Detect MouseDown event (left/right/middle)
+        // - Dispatch to hovered nodes
+        // - Handle event propagation
+        // - Process callback results recursively
+        let result = self.process_window_events_v2();
 
-        // Dispatch callbacks for clicked nodes
-        if let Some(hit_node) = hit_test_result {
-            self.last_hovered_node = Some(hit_node);
-
-            // Extract necessary data before borrowing
-            let callback_result = self.dispatch_mouse_down_callbacks(hit_node, button, position);
-
-            return self.process_callback_result_to_event_result(callback_result);
-        }
-
-        EventProcessResult::DoNothing
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process a mouse button up event.
@@ -397,6 +406,15 @@ impl MacOSWindow {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
+        // End scrollbar drag if active (before state changes)
+        if self.scrollbar_drag_state.is_some() {
+            self.scrollbar_drag_state = None;
+            return EventProcessResult::RequestRedraw;
+        }
+
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
         // Update mouse state - clear appropriate button flag
         match button {
             MouseButton::Left => self.current_window_state.mouse_state.left_down = false,
@@ -405,32 +423,22 @@ impl MacOSWindow {
             _ => {}
         }
 
-        // End scrollbar drag if active
-        if self.scrollbar_drag_state.is_some() {
-            self.scrollbar_drag_state = None;
-            return EventProcessResult::RequestRedraw;
-        }
+        // Perform hit testing and update last_hit_test
+        self.update_hit_test(position);
 
-        // Perform hit testing
-        let hit_test_result = self.perform_hit_test(position);
-
-        // Dispatch callbacks
-        if let Some(hit_node) = hit_test_result {
-            // Check for right-click context menu
-            if button == MouseButton::Right {
-                // Try to show context menu for this node
-                if let Some(_menu_result) = self.try_show_context_menu(hit_node, position, event) {
-                    // Context menu was shown, don't dispatch regular callbacks
+        // Check for right-click context menu (before event processing)
+        if button == MouseButton::Right {
+            if let Some(hit_node) = self.get_first_hovered_node() {
+                if self.try_show_context_menu(hit_node, position, event).is_some() {
                     return EventProcessResult::DoNothing;
                 }
             }
-
-            let callback_result = self.dispatch_mouse_up_callbacks(hit_node, button, position);
-
-            return self.process_callback_result_to_event_result(callback_result);
         }
 
-        EventProcessResult::DoNothing
+        // Use V2 cross-platform event system - automatically detects MouseUp
+        let result = self.process_window_events_v2();
+
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process a mouse move event.
@@ -438,32 +446,24 @@ impl MacOSWindow {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
-        // Update mouse state
-        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
-
-        // Handle active scrollbar drag
+        // Handle active scrollbar drag (special case - not part of normal event system)
         if self.scrollbar_drag_state.is_some() {
             return self.handle_scrollbar_drag(position);
         }
 
-        // Update hover state
-        let hit_test_result = self.perform_hit_test(position);
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
 
-        // Check if hovered node changed
-        if let Some(hit_node) = hit_test_result {
-            // Dispatch hover callbacks if node changed
-            if self.last_hovered_node != Some(hit_node) {
-                self.last_hovered_node = Some(hit_node);
+        // Update mouse state
+        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
-                let callback_result = self.dispatch_hover_callbacks(hit_node, position);
+        // Update hit test
+        self.update_hit_test(position);
 
-                return self.process_callback_result_to_event_result(callback_result);
-            }
-        } else {
-            self.last_hovered_node = None;
-        }
+        // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
+        let result = self.process_window_events_v2();
 
-        EventProcessResult::DoNothing
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process mouse entered window event.
@@ -471,21 +471,19 @@ impl MacOSWindow {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
         // Update mouse state - cursor is now in window
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
-        // Perform hit testing to find which node cursor entered
-        let hit_test_result = self.perform_hit_test(position);
+        // Update hit test
+        self.update_hit_test(position);
 
-        if let Some(hit_node) = hit_test_result {
-            self.last_hovered_node = Some(hit_node);
+        // V2 system will detect MouseEnter events from state diff
+        let result = self.process_window_events_v2();
 
-            // Dispatch hover callbacks for enter
-            let callback_result = self.dispatch_hover_callbacks(hit_node, position);
-            return self.process_callback_result_to_event_result(callback_result);
-        }
-
-        EventProcessResult::DoNothing
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process mouse exited window event.
@@ -493,36 +491,70 @@ impl MacOSWindow {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
         // Update mouse state - cursor left window
-        self.current_window_state.mouse_state.cursor_position =
-            CursorPosition::OutOfWindow(position);
+        self.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow(position);
 
-        // Clear hovered node
-        self.last_hovered_node = None;
+        // Clear last hit test since mouse is out
+        self.current_window_state.last_hit_test = FullHitTest::empty(None);
 
-        // Note: Could dispatch OnHoverOut callbacks here if needed
-        EventProcessResult::DoNothing
+        // V2 system will detect MouseLeave events from state diff
+        let result = self.process_window_events_v2();
+
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process a scroll wheel event.
     pub(crate) fn handle_scroll_wheel(&mut self, event: &NSEvent) -> EventProcessResult {
         let delta_x = unsafe { event.scrollingDeltaX() };
         let delta_y = unsafe { event.scrollingDeltaY() };
-        let has_precise = unsafe { event.hasPreciseScrollingDeltas() };
+        let _has_precise = unsafe { event.hasPreciseScrollingDeltas() };
 
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
-        // Perform hit testing to find scrollable node
-        let hit_test_result = self.perform_hit_test(position);
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
 
-        if let Some(hit_node) = hit_test_result {
-            let callback_result =
-                self.dispatch_scroll_callbacks(hit_node, delta_x as f32, delta_y as f32, position);
-            return self.process_callback_result_to_event_result(callback_result);
+        // Update scroll state
+        use azul_css::OptionF32;
+        let current_x = self
+            .current_window_state
+            .mouse_state
+            .scroll_x
+            .into_option()
+            .unwrap_or(0.0);
+        let current_y = self
+            .current_window_state
+            .mouse_state
+            .scroll_y
+            .into_option()
+            .unwrap_or(0.0);
+        
+        self.current_window_state.mouse_state.scroll_x = OptionF32::Some(current_x + delta_x as f32);
+        self.current_window_state.mouse_state.scroll_y = OptionF32::Some(current_y + delta_y as f32);
+
+        // Update hit test
+        self.update_hit_test(position);
+
+        // GPU scroll for visible scrollbars (if delta is significant)
+        if (delta_x.abs() > 0.01 || delta_y.abs() > 0.01) {
+            if let Some(hit_node) = self.get_first_hovered_node() {
+                let _ = self.gpu_scroll(
+                    hit_node.dom_id,
+                    hit_node.node_id,
+                    -delta_x as f32, // Invert for natural scrolling
+                    -delta_y as f32,
+                );
+            }
         }
 
-        EventProcessResult::DoNothing
+        // V2 system will detect Scroll event from state diff
+        let result = self.process_window_events_v2();
+
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process a key down event.
@@ -538,19 +570,19 @@ impl MacOSWindow {
             })
         };
 
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
         // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);
 
         // Update keyboard state with character (for text input)
         self.update_keyboard_state_with_char(character);
 
-        // Convert to VirtualKeyCode
-        if let Some(vk) = self.convert_keycode(key_code) {
-            let callback_result = self.dispatch_key_down_callbacks(vk, modifiers);
-            return self.process_callback_result_to_event_result(callback_result);
-        }
+        // V2 system will detect VirtualKeyDown and TextInput from state diff
+        let result = self.process_window_events_v2();
 
-        EventProcessResult::DoNothing
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process a key up event.
@@ -558,19 +590,19 @@ impl MacOSWindow {
         let key_code = unsafe { event.keyCode() };
         let modifiers = unsafe { event.modifierFlags() };
 
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
         // Update keyboard state
         self.update_keyboard_state(key_code, modifiers, false);
 
         // Clear current character on key up
         self.update_keyboard_state_with_char(None);
 
-        // Convert to VirtualKeyCode
-        if let Some(vk) = self.convert_keycode(key_code) {
-            let callback_result = self.dispatch_key_up_callbacks(vk, modifiers);
-            return self.process_callback_result_to_event_result(callback_result);
-        }
+        // V2 system will detect VirtualKeyUp from state diff
+        let result = self.process_window_events_v2();
 
-        EventProcessResult::DoNothing
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Process a flags changed event (modifier keys).
@@ -674,18 +706,26 @@ impl MacOSWindow {
 
     /// Process a file drop event.
     pub(crate) fn handle_file_drop(&mut self, paths: Vec<String>) -> EventProcessResult {
-        // Find node under cursor for file drop target
-        if let CursorPosition::InWindow(pos) = self.current_window_state.mouse_state.cursor_position
-        {
-            let hit_test_result = self.perform_hit_test(pos);
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
 
-            if let Some(hit_node) = hit_test_result {
-                let callback_result = self.dispatch_file_drop_callbacks(hit_node, paths);
-                return self.process_callback_result_to_event_result(callback_result);
-            }
+        // Update state with dropped file
+        if let Some(first_path) = paths.first() {
+            self.current_window_state.dropped_file = Some(first_path.clone().into());
         }
 
-        EventProcessResult::DoNothing
+        // Update hit test at current cursor position
+        if let CursorPosition::InWindow(pos) = self.current_window_state.mouse_state.cursor_position {
+            self.update_hit_test(pos);
+        }
+
+        // V2 system will detect FileDrop event from state diff
+        let result = self.process_window_events_v2();
+
+        // Clear dropped file after processing
+        self.current_window_state.dropped_file = None;
+
+        self.process_callback_result_to_event_result_v2(result)
     }
 
     /// Perform hit testing at given position using WebRender hit-testing API.
@@ -860,90 +900,83 @@ impl MacOSWindow {
         };
     }
 
-    /// Dispatch mouse down callbacks to hit node.
-    fn dispatch_mouse_down_callbacks(
+    /// Generic callback dispatcher - collects callbacks from node or root, filters, invokes, processes.
+    pub(crate) fn dispatch_callbacks(
         &mut self,
-        node: HitTestNode,
-        button: MouseButton,
-        position: LogicalPosition,
+        target: CallbackTarget,
+        event_filter: azul_core::events::EventFilter,
     ) -> ProcessEventResult {
-        use azul_core::{
-            dom::{DomId, NodeId},
-            events::{EventFilter, HoverEventFilter},
+        use azul_core::{dom::{DomId, NodeId}, id::NodeId as CoreNodeId};
+
+        // Collect callbacks based on target (node-level or window-level)
+        let callback_data_list = match target {
+            CallbackTarget::Node(node) => {
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return ProcessEventResult::DoNothing,
+                };
+
+                let dom_id = DomId { inner: node.dom_id as usize };
+                let node_id = match NodeId::from_usize(node.node_id as usize) {
+                    Some(nid) => nid,
+                    None => return ProcessEventResult::DoNothing,
+                };
+
+                let layout_result = match layout_window.layout_results.get(&dom_id) {
+                    Some(lr) => lr,
+                    None => return ProcessEventResult::DoNothing,
+                };
+
+                let binding = layout_result.styled_dom.node_data.as_container();
+                let node_data = match binding.get(node_id) {
+                    Some(nd) => nd,
+                    None => return ProcessEventResult::DoNothing,
+                };
+
+                node_data.get_callbacks().as_container().iter()
+                    .filter(|cd| cd.event == event_filter)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }
+            CallbackTarget::RootNodes => {
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return ProcessEventResult::DoNothing,
+                };
+
+                let mut callbacks = Vec::new();
+                for (_dom_id, layout_result) in &layout_window.layout_results {
+                    if let Some(root_node) = layout_result.styled_dom.node_data.as_container().get(CoreNodeId::ZERO) {
+                        for callback in root_node.get_callbacks().iter() {
+                            if callback.event == event_filter {
+                                callbacks.push(callback.clone());
+                            }
+                        }
+                    }
+                }
+                callbacks
+            }
         };
 
-        // Get layout result for this DOM
-        let callback_data = {
-            let layout_window = match self.layout_window.as_mut() {
-                Some(lw) => lw,
-                None => return ProcessEventResult::DoNothing,
-            };
+        if callback_data_list.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
 
-            let dom_id = DomId {
-                inner: node.dom_id as usize,
-            };
-            let node_id = match NodeId::from_usize(node.node_id as usize) {
-                Some(nid) => nid,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let layout_result = match layout_window.layout_results.get(&dom_id) {
-                Some(lr) => lr,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            // Get node data to access callbacks
-            let binding = layout_result.styled_dom.node_data.as_container();
-
-            let node_data = match binding.get(node_id) {
-                Some(nd) => nd,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            node_data
-                .get_callbacks()
-                .as_container()
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-
-        // Filter callbacks by event type (MouseDown)
-        let event_filter = match button {
-            MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-            MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseDown),
-            MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseDown),
-            _ => EventFilter::Hover(HoverEventFilter::MouseDown),
-        };
-
-        let mut result = ProcessEventResult::DoNothing;
-
-        // Get proper window handle before borrowing
+        // Invoke all collected callbacks
         let window_handle = self.get_raw_window_handle();
-
-        // Borrow layout_window and RefCells once before the loop
         let layout_window = match self.layout_window.as_mut() {
             Some(lw) => lw,
             None => return ProcessEventResult::DoNothing,
         };
         let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-        // Collect all callback results first
         let mut callback_results = Vec::new();
 
-        // Iterate through callbacks and invoke matching ones
-        for mut callback_data in callback_data {
-            if callback_data.event != event_filter {
-                continue;
-            }
-
-            // Convert CoreCallback to Callback
+        for callback_data in callback_data_list {
             let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
 
-            // Invoke callback
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
-                &mut callback_data.data,
+                &mut callback_data.data.clone(),
                 &window_handle,
                 &self.gl_context_ptr,
                 &mut self.image_cache,
@@ -957,16 +990,35 @@ impl MacOSWindow {
             callback_results.push(callback_result);
         }
 
-        // Drop borrows before processing results
         drop(layout_window);
         drop(fc_cache_borrowed);
 
-        // Process all callback results
+        // Process all results
+        let mut result = ProcessEventResult::DoNothing;
         for callback_result in callback_results {
             result = result.max(self.process_callback_result(callback_result));
         }
 
         result
+    }
+
+    /// Dispatch mouse down callbacks to hit node.
+    fn dispatch_mouse_down_callbacks(
+        &mut self,
+        node: HitTestNode,
+        button: MouseButton,
+        position: LogicalPosition,
+    ) -> ProcessEventResult {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+
+        let event_filter = match button {
+            MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseDown),
+            MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseDown),
+            _ => EventFilter::Hover(HoverEventFilter::MouseDown),
+        };
+
+        self.dispatch_callbacks(CallbackTarget::Node(node), event_filter)
     }
 
     /// Dispatch mouse up callbacks to hit node.
@@ -976,200 +1028,27 @@ impl MacOSWindow {
         button: MouseButton,
         position: LogicalPosition,
     ) -> ProcessEventResult {
-        use azul_core::{
-            dom::{DomId, NodeId},
-            events::{EventFilter, HoverEventFilter},
+        use azul_core::events::{EventFilter, HoverEventFilter};
+
+        let event_filter = match button {
+            MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+            MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
+            _ => EventFilter::Hover(HoverEventFilter::MouseUp),
         };
 
-        // First, collect callback data while borrowing layout_window immutably
-        let (callback_data_list, event_filter) = {
-            let layout_window = match self.layout_window.as_ref() {
-                Some(lw) => lw,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let dom_id = DomId {
-                inner: node.dom_id as usize,
-            };
-            let node_id = match NodeId::from_usize(node.node_id as usize) {
-                Some(nid) => nid,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let layout_result = match layout_window.layout_results.get(&dom_id) {
-                Some(lr) => lr,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let binding = layout_result.styled_dom.node_data.as_container();
-
-            let node_data = match binding.get(node_id) {
-                Some(nd) => nd,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let event_filter = match button {
-                MouseButton::Left => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                MouseButton::Right => EventFilter::Hover(HoverEventFilter::RightMouseUp),
-                MouseButton::Middle => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
-                _ => EventFilter::Hover(HoverEventFilter::MouseUp),
-            };
-
-            (
-                node_data
-                    .get_callbacks()
-                    .as_container()
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-                event_filter,
-            )
-        };
-
-        let mut result = ProcessEventResult::DoNothing;
-
-        // Now borrow layout_window mutably for callback invocation
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // Borrow RefCells once before the loop
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-        // Collect all callback results first
-        let mut callback_results = Vec::new();
-
-        for mut callback_data in callback_data_list {
-            if callback_data.event != event_filter {
-                continue;
-            }
-
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data,
-                &azul_core::window::RawWindowHandle::Unsupported,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut *fc_cache_borrowed,
-                &external,
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            callback_results.push(callback_result);
-        }
-
-        // Drop borrows before processing results
-        drop(layout_window);
-        drop(fc_cache_borrowed);
-
-        // Process all callback results
-        for callback_result in callback_results {
-            result = result.max(self.process_callback_result(callback_result));
-        }
-
-        result
+        self.dispatch_callbacks(CallbackTarget::Node(node), event_filter)
     }
 
-    /// Dispatch hover callbacks to hit node.
-    fn dispatch_hover_callbacks(
+    /// Dispatch node event callbacks (MouseOver/Enter/Leave, etc).
+    fn dispatch_node_event_callbacks(
         &mut self,
         node: HitTestNode,
         position: LogicalPosition,
+        hover_filter: azul_core::events::HoverEventFilter,
     ) -> ProcessEventResult {
-        use azul_core::{
-            dom::{DomId, NodeId},
-            events::{EventFilter, HoverEventFilter},
-        };
-
-        // First, collect callback data while borrowing layout_window immutably
-        let callback_data_list = {
-            let layout_window = match self.layout_window.as_ref() {
-                Some(lw) => lw,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let dom_id = DomId {
-                inner: node.dom_id as usize,
-            };
-            let node_id = match NodeId::from_usize(node.node_id as usize) {
-                Some(nid) => nid,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let layout_result = match layout_window.layout_results.get(&dom_id) {
-                Some(lr) => lr,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let binding = layout_result.styled_dom.node_data.as_container();
-
-            let node_data = match binding.get(node_id) {
-                Some(nd) => nd,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            // Check for MouseOver callback
-            let event_filter = EventFilter::Hover(HoverEventFilter::MouseOver);
-
-            node_data
-                .get_callbacks()
-                .as_container()
-                .iter()
-                .filter(|cd| cd.event == event_filter)
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-
-        let mut result = ProcessEventResult::DoNothing;
-
-        // Now borrow layout_window mutably for callback invocation
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-
-        // Borrow RefCells once before the loop
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-        // Collect all callback results first, then process after loop
-        let mut callback_results = Vec::new();
-
-        for callback_data in callback_data_list {
-            // Event filter already applied during collection
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data.clone(),
-                &azul_core::window::RawWindowHandle::Unsupported,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut *fc_cache_borrowed,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            callback_results.push(callback_result);
-        }
-
-        // Drop borrows before processing results
-        drop(layout_window);
-        drop(fc_cache_borrowed);
-
-        // Process all callback results
-        for callback_result in callback_results {
-            result = result.max(self.process_callback_result(callback_result));
-        }
-
-        result
+        use azul_core::events::EventFilter;
+        self.dispatch_callbacks(CallbackTarget::Node(node), EventFilter::Hover(hover_filter))
     }
 
     /// Dispatch scroll callbacks to hit node.
@@ -1225,77 +1104,10 @@ impl MacOSWindow {
         modifiers: NSEventModifierFlags,
     ) -> ProcessEventResult {
         use azul_core::events::{EventFilter, WindowEventFilter};
-
-        let callback_data = {
-            let layout_window = match self.layout_window.as_ref() {
-                Some(lw) => lw,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let mut callbacks = Vec::new();
-
-            for (dom_id, layout_result) in &layout_window.layout_results {
-                if let Some(root_node) = layout_result
-                    .styled_dom
-                    .node_data
-                    .as_container()
-                    .get(azul_core::id::NodeId::ZERO)
-                {
-                    for callback in root_node.get_callbacks().iter() {
-                        if matches!(
-                            callback.event,
-                            EventFilter::Window(WindowEventFilter::VirtualKeyDown)
-                        ) {
-                            callbacks.push((dom_id.clone(), callback.clone()));
-                        }
-                    }
-                }
-            }
-
-            callbacks
-        };
-
-        if callback_data.is_empty() {
-            return ProcessEventResult::DoNothing;
-        }
-
-        let window_handle = self.get_raw_window_handle();
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-        let mut result = ProcessEventResult::DoNothing;
-        let mut callback_results = Vec::new();
-
-        for (_dom_id, mut callback_data) in callback_data {
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data,
-                &window_handle,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut *fc_cache_borrowed,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            callback_results.push(callback_result);
-        }
-
-        drop(layout_window);
-        drop(fc_cache_borrowed);
-
-        for callback_result in callback_results {
-            result = result.max(self.process_callback_result(callback_result));
-        }
-
-        result
+        self.dispatch_callbacks(
+            CallbackTarget::RootNodes,
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+        )
     }
 
     /// Dispatch key up callbacks.
@@ -1305,77 +1117,10 @@ impl MacOSWindow {
         modifiers: NSEventModifierFlags,
     ) -> ProcessEventResult {
         use azul_core::events::{EventFilter, WindowEventFilter};
-
-        let callback_data = {
-            let layout_window = match self.layout_window.as_ref() {
-                Some(lw) => lw,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let mut callbacks = Vec::new();
-
-            for (dom_id, layout_result) in &layout_window.layout_results {
-                if let Some(root_node) = layout_result
-                    .styled_dom
-                    .node_data
-                    .as_container()
-                    .get(azul_core::id::NodeId::ZERO)
-                {
-                    for callback in root_node.get_callbacks().iter() {
-                        if matches!(
-                            callback.event,
-                            EventFilter::Window(WindowEventFilter::VirtualKeyUp)
-                        ) {
-                            callbacks.push((dom_id.clone(), callback.clone()));
-                        }
-                    }
-                }
-            }
-
-            callbacks
-        };
-
-        if callback_data.is_empty() {
-            return ProcessEventResult::DoNothing;
-        }
-
-        let window_handle = self.get_raw_window_handle();
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-        let mut result = ProcessEventResult::DoNothing;
-        let mut callback_results = Vec::new();
-
-        for (_dom_id, mut callback_data) in callback_data {
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data,
-                &window_handle,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut *fc_cache_borrowed,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            callback_results.push(callback_result);
-        }
-
-        drop(layout_window);
-        drop(fc_cache_borrowed);
-
-        for callback_result in callback_results {
-            result = result.max(self.process_callback_result(callback_result));
-        }
-
-        result
+        self.dispatch_callbacks(
+            CallbackTarget::RootNodes,
+            EventFilter::Window(WindowEventFilter::VirtualKeyUp),
+        )
     }
 
     /// Dispatch file drop callbacks to hit node.
@@ -1384,95 +1129,15 @@ impl MacOSWindow {
         node: HitTestNode,
         paths: Vec<String>,
     ) -> ProcessEventResult {
-        use azul_core::{
-            dom::{DomId, NodeId},
-            events::{EventFilter, HoverEventFilter},
-        };
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        
+        eprintln!("[FileDrop] {} file(s) dropped on node {:?}", paths.len(), node);
+        eprintln!("[FileDrop] Paths: {:?}", paths);
 
-        let callback_data = {
-            let layout_window = match self.layout_window.as_ref() {
-                Some(lw) => lw,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let dom_id = DomId {
-                inner: node.dom_id as usize,
-            };
-            let node_id = match NodeId::from_usize(node.node_id as usize) {
-                Some(nid) => nid,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let layout_result = match layout_window.layout_results.get(&dom_id) {
-                Some(lr) => lr,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            let binding = layout_result.styled_dom.node_data.as_container();
-            let node_data = match binding.get(node_id) {
-                Some(nd) => nd,
-                None => return ProcessEventResult::DoNothing,
-            };
-
-            node_data
-                .get_callbacks()
-                .as_container()
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-
-        let event_filter = EventFilter::Hover(HoverEventFilter::DroppedFile);
-        let mut result = ProcessEventResult::DoNothing;
-
-        let window_handle = self.get_raw_window_handle();
-
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return ProcessEventResult::DoNothing,
-        };
-        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-
-        let mut callback_results = Vec::new();
-
-        for mut callback_data in callback_data {
-            if callback_data.event != event_filter {
-                continue;
-            }
-
-            eprintln!(
-                "[FileDrop] Invoking callback for {} file(s) on node {:?}",
-                paths.len(),
-                node
-            );
-            eprintln!("[FileDrop] Paths: {:?}", paths);
-
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data,
-                &window_handle,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut *fc_cache_borrowed,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            callback_results.push(callback_result);
-        }
-
-        drop(layout_window);
-        drop(fc_cache_borrowed);
-
-        for callback_result in callback_results {
-            result = result.max(self.process_callback_result(callback_result));
-        }
-
-        result
+        self.dispatch_callbacks(
+            CallbackTarget::Node(node),
+            EventFilter::Hover(HoverEventFilter::DroppedFile),
+        )
     }
 
     /// Convert ProcessEventResult to EventProcessResult.
@@ -1550,7 +1215,7 @@ impl MacOSWindow {
     }
 
     /// Process callback result from invoke_single_callback and convert to ProcessEventResult.
-    fn process_callback_result(
+    pub(crate) fn process_callback_result(
         &mut self,
         result: azul_layout::callbacks::CallCallbacksResult,
     ) -> ProcessEventResult {
@@ -1767,6 +1432,319 @@ impl MacOSWindow {
                 ];
             }
         }
+    }
+
+    // ========================================================================
+    // Helper Functions for V2 Event System
+    // ========================================================================
+
+    /// Update hit test at given position and store in current_window_state.
+    fn update_hit_test(&mut self, position: LogicalPosition) {
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            let cursor_position = CursorPosition::InWindow(position);
+            let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
+                &*self.hit_tester.resolve(),
+                self.document_id,
+                self.current_window_state.focused_node,
+                &layout_window.layout_results,
+                &cursor_position,
+                self.current_window_state.size.get_hidpi_factor(),
+            );
+            self.current_window_state.last_hit_test = hit_test;
+        }
+    }
+
+    /// Get the first hovered node from current hit test.
+    fn get_first_hovered_node(&self) -> Option<HitTestNode> {
+        self.current_window_state
+            .last_hit_test
+            .hovered_nodes
+            .iter()
+            .flat_map(|(dom_id, ht)| {
+                ht.regular_hit_test_nodes.keys().next().map(|node_id| {
+                    HitTestNode {
+                        dom_id: dom_id.inner as u64,
+                        node_id: node_id.index() as u64,
+                    }
+                })
+            })
+            .next()
+    }
+
+    /// Convert ProcessEventResult to EventProcessResult for old API compatibility.
+    fn process_callback_result_to_event_result_v2(
+        &self,
+        result: ProcessEventResult,
+    ) -> EventProcessResult {
+        use azul_core::events::ProcessEventResult as PER;
+        
+        match result {
+            PER::DoNothing => EventProcessResult::DoNothing,
+            PER::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            PER::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            PER::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            PER::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            PER::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
+    }
+
+    // ========================================================================
+    // V2 Cross-Platform Event Processing
+    // ========================================================================
+
+    /// V2: Process window events using cross-platform dispatch system.
+    /// This replaces process_window_events with recursive callback handling.
+    pub(crate) fn process_window_events_v2(&mut self) -> ProcessEventResult {
+        self.process_window_events_recursive_v2(0)
+    }
+
+    /// V2: Recursive event processing with depth limit.
+    fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
+        const MAX_EVENT_RECURSION_DEPTH: usize = 5;
+
+        if depth >= MAX_EVENT_RECURSION_DEPTH {
+            eprintln!("[Events] Max recursion depth {} reached", MAX_EVENT_RECURSION_DEPTH);
+            return ProcessEventResult::DoNothing;
+        }
+
+        use azul_core::events::{dispatch_events, CallbackTarget as CoreCallbackTarget};
+        use azul_layout::window_state::create_events_from_states;
+
+        // Get previous state (or use current as fallback for first frame)
+        let previous_state = self.previous_window_state.as_ref().unwrap_or(&self.current_window_state);
+
+        // Detect all events that occurred by comparing states
+        let events = create_events_from_states(&self.current_window_state, previous_state);
+
+        if events.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+
+        // Get hit test if available
+        let hit_test = if !self.current_window_state.last_hit_test.is_empty() {
+            Some(&self.current_window_state.last_hit_test)
+        } else {
+            None
+        };
+
+        // Use cross-platform dispatch logic to determine which callbacks to invoke
+        let dispatch_result = dispatch_events(&events, hit_test);
+
+        if dispatch_result.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+
+        // Invoke all callbacks and collect results
+        let mut result = ProcessEventResult::DoNothing;
+        let mut should_stop_propagation = false;
+        let mut should_recurse = false;
+
+        for callback_to_invoke in &dispatch_result.callbacks {
+            if should_stop_propagation {
+                break;
+            }
+
+            // Convert core CallbackTarget to shell CallbackTarget
+            let target = match &callback_to_invoke.target {
+                CoreCallbackTarget::Node { dom_id, node_id } => {
+                    CallbackTarget::Node(HitTestNode {
+                        dom_id: dom_id.inner as u64,
+                        node_id: node_id.index() as u64,
+                    })
+                }
+                CoreCallbackTarget::RootNodes => CallbackTarget::RootNodes,
+            };
+
+            // Invoke callbacks and collect results
+            let callback_results = self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
+            
+            for callback_result in callback_results {
+                let event_result = self.process_callback_result_v2(&callback_result);
+                result = result.max(event_result);
+
+                // Check if we should stop propagation
+                if callback_result.stop_propagation {
+                    should_stop_propagation = true;
+                    break;
+                }
+
+                // Check if we need to recurse (DOM was regenerated)
+                use azul_core::callbacks::Update;
+                if matches!(callback_result.callbacks_update_screen, 
+                    Update::RefreshDom | Update::RefreshDomAllWindows) {
+                    should_recurse = true;
+                }
+            }
+        }
+
+        // Recurse if needed
+        if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+            let recursive_result = self.process_window_events_recursive_v2(depth + 1);
+            result = result.max(recursive_result);
+        }
+
+        result
+    }
+
+    /// V2: Invoke callbacks for a given target and event filter.
+    /// Returns all callback results (may be multiple callbacks per target).
+    fn invoke_callbacks_v2(
+        &mut self,
+        target: CallbackTarget,
+        event_filter: azul_core::events::EventFilter,
+    ) -> Vec<azul_layout::callbacks::CallCallbacksResult> {
+        use azul_core::{dom::{DomId, NodeId}, id::NodeId as CoreNodeId};
+
+        // Collect callbacks based on target
+        let callback_data_list = match target {
+            CallbackTarget::Node(node) => {
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return Vec::new(),
+                };
+
+                let dom_id = DomId { inner: node.dom_id as usize };
+                let node_id = match NodeId::from_usize(node.node_id as usize) {
+                    Some(nid) => nid,
+                    None => return Vec::new(),
+                };
+
+                let layout_result = match layout_window.layout_results.get(&dom_id) {
+                    Some(lr) => lr,
+                    None => return Vec::new(),
+                };
+
+                let binding = layout_result.styled_dom.node_data.as_container();
+                let node_data = match binding.get(node_id) {
+                    Some(nd) => nd,
+                    None => return Vec::new(),
+                };
+
+                node_data.get_callbacks().as_container().iter()
+                    .filter(|cd| cd.event == event_filter)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }
+            CallbackTarget::RootNodes => {
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return Vec::new(),
+                };
+
+                let mut callbacks = Vec::new();
+                for (_dom_id, layout_result) in &layout_window.layout_results {
+                    if let Some(root_node) = layout_result.styled_dom.node_data.as_container().get(CoreNodeId::ZERO) {
+                        for callback in root_node.get_callbacks().iter() {
+                            if callback.event == event_filter {
+                                callbacks.push(callback.clone());
+                            }
+                        }
+                    }
+                }
+                callbacks
+            }
+        };
+
+        if callback_data_list.is_empty() {
+            return Vec::new();
+        }
+
+        // Invoke all collected callbacks
+        let window_handle = self.get_raw_window_handle();
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return Vec::new(),
+        };
+        let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+        let mut results = Vec::new();
+
+        for callback_data in callback_data_list {
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data.clone(),
+                &window_handle,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut *fc_cache_borrowed,
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            results.push(callback_result);
+        }
+
+        drop(layout_window);
+        drop(fc_cache_borrowed);
+
+        results
+    }
+
+    /// V2: Process callback result and update window state.
+    /// Returns the appropriate ProcessEventResult based on what changed.
+    fn process_callback_result_v2(
+        &mut self,
+        result: &azul_layout::callbacks::CallCallbacksResult,
+    ) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+
+        let mut event_result = ProcessEventResult::DoNothing;
+
+        // Handle window state modifications
+        if let Some(ref modified_state) = result.modified_window_state {
+            self.current_window_state.title = modified_state.title.clone();
+            self.current_window_state.size = modified_state.size;
+            self.current_window_state.position = modified_state.position;
+            self.current_window_state.flags = modified_state.flags;
+            self.current_window_state.background_color = modified_state.background_color;
+
+            // Check if window should close
+            if modified_state.flags.close_requested {
+                self.is_open = false;
+                return ProcessEventResult::DoNothing;
+            }
+
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle focus changes
+        if let Some(new_focus) = result.update_focused_node {
+            self.current_window_state.focused_node = new_focus;
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle image updates
+        if result.images_changed.is_some() || result.image_masks_changed.is_some() {
+            event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+        }
+
+        // Handle timers, threads, etc.
+        if result.timers.is_some() || result.timers_removed.is_some() ||
+           result.threads.is_some() || result.threads_removed.is_some() {
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Process Update screen command
+        match result.callbacks_update_screen {
+            Update::RefreshDom => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!("Layout regeneration error: {}", e);
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            }
+            Update::RefreshDomAllWindows => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!("Layout regeneration error: {}", e);
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+            }
+            Update::DoNothing => {}
+        }
+
+        event_result
     }
 }
 

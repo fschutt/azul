@@ -760,6 +760,33 @@ define_class!(
             }
         }
 
+        /// Called when the window becomes the key window (receives focus)
+        #[unsafe(method(windowDidBecomeKey:))]
+        fn window_did_become_key(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                unsafe {
+                    (*state_ptr).window_focused = true;
+                }
+            }
+        }
+
+        /// Called when the window resigns key window status (loses focus)
+        #[unsafe(method(windowDidResignKey:))]
+        fn window_did_resign_key(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                unsafe {
+                    (*state_ptr).window_focused = false;
+                }
+            }
+        }
+
+        /// Called when the window is moved
+        #[unsafe(method(windowDidMove:))]
+        fn window_did_move(&self, _notification: &NSNotification) {
+            // Window position is tracked in the main event loop
+            // No need to update state here, just for consistency
+        }
+
         #[unsafe(method_id(init))]
         fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
             let this = this.set_ivars(WindowDelegateIvars {
@@ -1195,6 +1222,7 @@ impl MacOSWindow {
             focused_node: None,
             last_hit_test: azul_layout::hit_test::FullHitTest::empty(None),
             selections: Default::default(),
+            window_focused: true,
         };
 
         // Initialize resource caches
@@ -1768,94 +1796,22 @@ impl MacOSWindow {
 
     /// Handle close request from WindowDelegate
     fn handle_close_request(&mut self) {
-        use azul_layout::callbacks::OptionCallback;
+        use azul_core::events::{EventFilter, WindowEventFilter};
+        use crate::azul_impl::shell2::macos::events::CallbackTarget;
 
         eprintln!("[MacOSWindow] Processing close request");
 
-        // Set close_requested to true by default
+        // Set close_requested flag
         self.current_window_state.flags.close_requested = true;
 
-        // Invoke close_callback if present
-        if let OptionCallback::Some(callback) = &self.current_window_state.close_callback {
-            eprintln!("[MacOSWindow] Invoking close callback");
+        // Dispatch CloseRequested to root nodes  
+        // Note: dispatch_callbacks already processes the result internally
+        let _result = self.dispatch_callbacks(
+            CallbackTarget::RootNodes,
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+        );
 
-            // Create minimal CallbackInfo for close callback
-            // Note: This is a simplified version - full CallbackInfo requires more context
-            let layout_window = match self.layout_window.as_mut() {
-                Some(lw) => lw,
-                None => {
-                    eprintln!("[MacOSWindow] No layout window, allowing close");
-                    self.close_window();
-                    return;
-                }
-            };
-
-            let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
-            let mut app_data_borrowed = self.app_data.borrow_mut();
-
-            // Invoke callback with minimal context
-            let mut modifiable_state = WindowState::from(self.current_window_state.clone());
-
-            use std::collections::BTreeMap;
-
-            use azul_core::{
-                dom::DomNodeId, geom::OptionLogicalPosition, FastBTreeSet, FastHashMap,
-            };
-            use azul_layout::callbacks::CallbackInfo;
-
-            let mut timers = FastHashMap::default();
-            let mut threads = FastHashMap::default();
-            let mut timers_removed = FastBTreeSet::default();
-            let mut threads_removed = FastBTreeSet::default();
-            let mut new_windows = Vec::new();
-            let mut stop_propagation = false;
-            let mut focus_target = None;
-            let mut words_changed = BTreeMap::new();
-            let mut images_changed = BTreeMap::new();
-            let mut image_masks_changed = BTreeMap::new();
-            let mut css_properties_changed = BTreeMap::new();
-            let current_scroll_states = BTreeMap::new();
-            let mut nodes_scrolled = BTreeMap::new();
-
-            let mut callback_info = CallbackInfo::new(
-                layout_window,
-                &self.renderer_resources,
-                &self.previous_window_state,
-                &self.current_window_state,
-                &mut modifiable_state,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut *fc_cache_borrowed,
-                &mut timers,
-                &mut threads,
-                &mut timers_removed,
-                &mut threads_removed,
-                &azul_core::window::RawWindowHandle::Unsupported,
-                &mut new_windows,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &mut stop_propagation,
-                &mut focus_target,
-                &mut words_changed,
-                &mut images_changed,
-                &mut image_masks_changed,
-                &mut css_properties_changed,
-                &current_scroll_states,
-                &mut nodes_scrolled,
-                DomNodeId::ROOT,
-                OptionLogicalPosition::None,
-                OptionLogicalPosition::None,
-            );
-
-            let _update = (callback.cb)(&mut *app_data_borrowed, &mut callback_info);
-
-            // Update window state from modifiable_state
-            self.current_window_state.flags = modifiable_state.flags;
-
-            drop(fc_cache_borrowed);
-            drop(app_data_borrowed);
-        }
-
-        // Check if window should actually close
+        // Check if callbacks prevented close (by clearing close_requested flag)
         if self.current_window_state.flags.close_requested {
             eprintln!("[MacOSWindow] Close confirmed, closing window");
             self.close_window();

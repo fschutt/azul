@@ -51,13 +51,13 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
                     // User clicked "Yes" - allow closing
                     eprintln!("[Close Callback] User confirmed close");
                     let mut flags = WindowFlags::default();
-                    flags.is_about_to_close = true;
+                    flags.close_requested = true;
                     info.set_window_flags(flags);
                 } else {
                     // User clicked "No" or closed dialog - prevent closing
                     eprintln!("[Close Callback] User cancelled close");
                     let mut flags = WindowFlags::default();
-                    flags.is_about_to_close = false;
+                    flags.close_requested = false;
                     info.set_window_flags(flags);
                 }
             }
@@ -65,7 +65,7 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
                 eprintln!("[Close Callback] Failed to show dialog: {}", e);
                 // On error, allow closing
                 let mut flags = WindowFlags::default();
-                flags.is_about_to_close = true;
+                flags.close_requested = true;
                 info.set_window_flags(flags);
             }
         }

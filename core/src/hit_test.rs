@@ -304,11 +304,17 @@ pub struct FullHitTest {
 }
 
 impl FullHitTest {
+    /// Create an empty hit-test result
     pub fn empty(focused_node: Option<DomNodeId>) -> Self {
         Self {
             hovered_nodes: BTreeMap::new(),
             focused_node: focused_node.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))),
         }
+    }
+
+    /// Check if no nodes were hit
+    pub fn is_empty(&self) -> bool {
+        self.hovered_nodes.is_empty()
     }
 }
 

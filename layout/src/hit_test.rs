@@ -14,29 +14,8 @@ use azul_css::props::style::StyleCursor;
 
 use crate::window::LayoutWindow;
 
-/// Full hit-test result for a window, including all hovered nodes across all DOMs
-#[derive(Debug, Clone, PartialEq)]
-pub struct FullHitTest {
-    /// Map of DOM ID to hit-tested nodes within that DOM
-    pub hovered_nodes: BTreeMap<DomId, HitTest>,
-    /// Currently focused node (if any)
-    pub focused_node: Option<(DomId, NodeId)>,
-}
-
-impl FullHitTest {
-    /// Create an empty hit-test result
-    pub fn empty(focused_node: Option<DomNodeId>) -> Self {
-        Self {
-            hovered_nodes: BTreeMap::new(),
-            focused_node: focused_node.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))),
-        }
-    }
-
-    /// Check if no nodes were hit
-    pub fn is_empty(&self) -> bool {
-        self.hovered_nodes.is_empty()
-    }
-}
+// Re-export FullHitTest from azul_core for backwards compatibility
+pub use azul_core::hit_test::FullHitTest;
 
 /// Result of cursor type hit-testing, determines which mouse cursor to display
 #[derive(Debug, Clone, Default, PartialEq)]

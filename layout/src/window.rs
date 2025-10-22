@@ -1255,6 +1255,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             cursor_changed: false,
+            stop_propagation: false,
+            prevent_default: false,
         };
 
         let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
@@ -1420,6 +1422,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             cursor_changed: false,
+            stop_propagation: false,
+            prevent_default: false,
         };
 
         let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
@@ -1613,6 +1617,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             cursor_changed: false,
+            stop_propagation: false,
+            prevent_default: false,
         };
 
         let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
@@ -1742,6 +1748,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             cursor_changed: false,
+            stop_propagation: false,
+            prevent_default: false,
         };
 
         let mut ret_modified_window_state: WindowState = current_window_state.clone().into();

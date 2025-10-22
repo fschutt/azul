@@ -1665,6 +1665,201 @@ impl From<On> for EventFilter {
     }
 }
 
+// ============================================================================
+// Cross-Platform Event Dispatch System
+// ============================================================================
+
+/// Target for event dispatch - either a specific node or all root nodes
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallbackTarget {
+    /// Specific node that was hit-tested
+    Node { dom_id: DomId, node_id: NodeId },
+    /// All root nodes (for window-level events)
+    RootNodes,
+}
+
+/// A callback that should be invoked, with all necessary context
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallbackToInvoke {
+    /// Which node/window to invoke the callback on
+    pub target: CallbackTarget,
+    /// The event filter that triggered this callback
+    pub event_filter: EventFilter,
+    /// Hit test item (for node-level events with spatial info)
+    pub hit_test_item: Option<HitTestItem>,
+}
+
+/// Result of dispatching events - contains all callbacks that should be invoked
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventDispatchResult {
+    /// Callbacks to invoke, in order
+    pub callbacks: Vec<CallbackToInvoke>,
+    /// Whether any event had stop_propagation set
+    pub propagation_stopped: bool,
+}
+
+impl EventDispatchResult {
+    pub fn empty() -> Self {
+        Self {
+            callbacks: Vec::new(),
+            propagation_stopped: false,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.callbacks.is_empty()
+    }
+}
+
+/// Main cross-platform event dispatch function.
+///
+/// This function takes the detected events and hit test results, and determines
+/// which callbacks should be invoked. It handles:
+/// - Window-level events (to root nodes)
+/// - Node-level hover events (MouseEnter/Leave/Over)
+/// - Node-level focus events
+/// - Proper event ordering and filtering
+///
+/// The shell layer just needs to call this function and then invoke the returned callbacks.
+pub fn dispatch_events(
+    events: &Events,
+    hit_test: Option<&FullHitTest>,
+) -> EventDispatchResult {
+    let mut result = EventDispatchResult::empty();
+
+    // Early exit if no events
+    if events.is_empty() {
+        return result;
+    }
+
+    // 1. Dispatch window-level events to root nodes
+    for window_event in &events.window_events {
+        result.callbacks.push(CallbackToInvoke {
+            target: CallbackTarget::RootNodes,
+            event_filter: EventFilter::Window(*window_event),
+            hit_test_item: None,
+        });
+    }
+
+    // 2. Dispatch node-level events if we have a hit test
+    if let Some(hit_test) = hit_test {
+        if events.needs_hit_test() {
+            // Create NodesToCheck to determine MouseEnter/Leave
+            let nodes_to_check = NodesToCheck::new(hit_test, events);
+
+            // 2a. Dispatch MouseEnter events to newly entered nodes
+            for (dom_id, nodes) in &nodes_to_check.onmouseenter_nodes {
+                for (node_id, hit_item) in nodes {
+                    result.callbacks.push(CallbackToInvoke {
+                        target: CallbackTarget::Node {
+                            dom_id: *dom_id,
+                            node_id: *node_id,
+                        },
+                        event_filter: EventFilter::Hover(HoverEventFilter::MouseEnter),
+                        hit_test_item: Some(hit_item.clone()),
+                    });
+                }
+            }
+
+            // 2b. Dispatch MouseLeave events to nodes that were left
+            for (dom_id, nodes) in &nodes_to_check.onmouseleave_nodes {
+                for (node_id, hit_item) in nodes {
+                    result.callbacks.push(CallbackToInvoke {
+                        target: CallbackTarget::Node {
+                            dom_id: *dom_id,
+                            node_id: *node_id,
+                        },
+                        event_filter: EventFilter::Hover(HoverEventFilter::MouseLeave),
+                        hit_test_item: Some(hit_item.clone()),
+                    });
+                }
+            }
+
+            // 2c. Dispatch hover events to currently hovered nodes
+            for hover_event in &events.hover_events {
+                for (dom_id, nodes) in &nodes_to_check.new_hit_node_ids {
+                    for (node_id, hit_item) in nodes {
+                        result.callbacks.push(CallbackToInvoke {
+                            target: CallbackTarget::Node {
+                                dom_id: *dom_id,
+                                node_id: *node_id,
+                            },
+                            event_filter: EventFilter::Hover(*hover_event),
+                            hit_test_item: Some(hit_item.clone()),
+                        });
+                    }
+                }
+            }
+
+            // 2d. Dispatch focus events to focused node
+            for focus_event in &events.focus_events {
+                if let Some(focused_node) = nodes_to_check.new_focus_node {
+                    if let Some(node_id) = focused_node.node.into_crate_internal() {
+                        // Find hit test item for focused node
+                        let hit_item = nodes_to_check
+                            .new_hit_node_ids
+                            .get(&focused_node.dom)
+                            .and_then(|nodes| nodes.get(&node_id))
+                            .cloned();
+
+                        result.callbacks.push(CallbackToInvoke {
+                            target: CallbackTarget::Node {
+                                dom_id: focused_node.dom,
+                                node_id,
+                            },
+                            event_filter: EventFilter::Focus(*focus_event),
+                            hit_test_item: hit_item,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Process callback results and potentially generate new synthetic events.
+///
+/// This function handles the recursive nature of event processing:
+/// 1. Process immediate callback results (state changes, images, etc.)
+/// 2. Check if new synthetic events should be generated
+/// 3. Recursively process those events (up to max_depth to prevent infinite loops)
+///
+/// Returns true if any callbacks resulted in DOM changes requiring re-layout.
+pub fn should_recurse_callbacks<T: CallbackResultRef>(
+    callback_results: &[T],
+    max_depth: usize,
+    current_depth: usize,
+) -> bool {
+    if current_depth >= max_depth {
+        return false;
+    }
+
+    // Check if any callback result indicates we should continue processing
+    for result in callback_results {
+        // If stop_propagation is set, stop processing further events
+        if result.stop_propagation() {
+            return false;
+        }
+
+        // Check if DOM was modified (requires re-layout and re-processing)
+        if result.should_regenerate_dom() {
+            return current_depth + 1 < max_depth;
+        }
+    }
+
+    false
+}
+
+/// Trait to abstract over callback result types.
+/// This allows the core event system to work with results without depending on layout layer.
+pub trait CallbackResultRef {
+    fn stop_propagation(&self) -> bool;
+    fn prevent_default(&self) -> bool;
+    fn should_regenerate_dom(&self) -> bool;
+}
+
 #[cfg(test)]
 mod tests {
     //! Unit tests for the Phase 3.5 event system

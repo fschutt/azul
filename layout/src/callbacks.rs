@@ -714,6 +714,10 @@ pub struct CallCallbacksResult {
     pub windows_created: Vec<WindowCreateOptions>,
     /// Whether the cursor changed
     pub cursor_changed: bool,
+    /// Whether stopPropagation() was called (prevents bubbling up in DOM-style event propagation)
+    pub stop_propagation: bool,
+    /// Whether preventDefault() was called (prevents default browser behavior)
+    pub prevent_default: bool,
 }
 
 impl CallCallbacksResult {
@@ -723,6 +727,24 @@ impl CallCallbacksResult {
 
     pub fn focus_changed(&self) -> bool {
         self.update_focused_node.is_some()
+    }
+}
+
+impl azul_core::events::CallbackResultRef for CallCallbacksResult {
+    fn stop_propagation(&self) -> bool {
+        self.stop_propagation
+    }
+
+    fn prevent_default(&self) -> bool {
+        self.prevent_default
+    }
+
+    fn should_regenerate_dom(&self) -> bool {
+        use azul_core::callbacks::Update;
+        matches!(
+            self.callbacks_update_screen,
+            Update::RefreshDom | Update::RefreshDomAllWindows
+        )
     }
 }
 
