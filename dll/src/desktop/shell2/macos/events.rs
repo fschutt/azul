@@ -457,6 +457,44 @@ impl MacOSWindow {
         EventProcessResult::DoNothing
     }
 
+    /// Process mouse entered window event.
+    pub(crate) fn handle_mouse_entered(&mut self, event: &NSEvent) -> EventProcessResult {
+        let location = unsafe { event.locationInWindow() };
+        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+
+        // Update mouse state - cursor is now in window
+        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+
+        // Perform hit testing to find which node cursor entered
+        let hit_test_result = self.perform_hit_test(position);
+
+        if let Some(hit_node) = hit_test_result {
+            self.last_hovered_node = Some(hit_node);
+
+            // Dispatch hover callbacks for enter
+            let callback_result = self.dispatch_hover_callbacks(hit_node, position);
+            return self.process_callback_result_to_event_result(callback_result);
+        }
+
+        EventProcessResult::DoNothing
+    }
+
+    /// Process mouse exited window event.
+    pub(crate) fn handle_mouse_exited(&mut self, event: &NSEvent) -> EventProcessResult {
+        let location = unsafe { event.locationInWindow() };
+        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+
+        // Update mouse state - cursor left window
+        self.current_window_state.mouse_state.cursor_position =
+            CursorPosition::OutOfWindow(position);
+
+        // Clear hovered node
+        self.last_hovered_node = None;
+
+        // Note: Could dispatch OnHoverOut callbacks here if needed
+        EventProcessResult::DoNothing
+    }
+
     /// Process a scroll wheel event.
     pub(crate) fn handle_scroll_wheel(&mut self, event: &NSEvent) -> EventProcessResult {
         let delta_x = unsafe { event.scrollingDeltaX() };
@@ -483,8 +521,19 @@ impl MacOSWindow {
         let key_code = unsafe { event.keyCode() };
         let modifiers = unsafe { event.modifierFlags() };
 
-        // Update keyboard state
+        // Extract Unicode character from event
+        let character = unsafe {
+            event.characters().and_then(|s| {
+                let s_str = s.to_string();
+                s_str.chars().next()
+            })
+        };
+
+        // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);
+
+        // Update keyboard state with character (for text input)
+        self.update_keyboard_state_with_char(character);
 
         // Convert to VirtualKeyCode
         if let Some(vk) = self.convert_keycode(key_code) {
@@ -502,6 +551,9 @@ impl MacOSWindow {
 
         // Update keyboard state
         self.update_keyboard_state(key_code, modifiers, false);
+
+        // Clear current character on key up
+        self.update_keyboard_state_with_char(None);
 
         // Convert to VirtualKeyCode
         if let Some(vk) = self.convert_keycode(key_code) {
@@ -676,7 +728,58 @@ impl MacOSWindow {
         modifiers: NSEventModifierFlags,
         is_down: bool,
     ) {
-        // TODO: Update self.current_window_state.keyboard_state
+        use azul_core::window::VirtualKeyCode;
+
+        // Convert keycode to VirtualKeyCode first (before borrowing)
+        let vk = match self.convert_keycode(keycode) {
+            Some(k) => k,
+            None => return,
+        };
+
+        let keyboard_state = &mut self.current_window_state.keyboard_state;
+
+        if is_down {
+            // Add to pressed keys if not already present
+            let mut already_pressed = false;
+            for pressed_key in keyboard_state.pressed_virtual_keycodes.as_ref() {
+                if *pressed_key == vk {
+                    already_pressed = true;
+                    break;
+                }
+            }
+            if !already_pressed {
+                // Convert to Vec, add, convert back
+                let mut pressed_vec: Vec<VirtualKeyCode> =
+                    keyboard_state.pressed_virtual_keycodes.as_ref().to_vec();
+                pressed_vec.push(vk);
+                keyboard_state.pressed_virtual_keycodes =
+                    azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
+            }
+            keyboard_state.current_virtual_keycode =
+                azul_core::window::OptionVirtualKeyCode::Some(vk);
+        } else {
+            // Remove from pressed keys
+            let pressed_vec: Vec<VirtualKeyCode> = keyboard_state
+                .pressed_virtual_keycodes
+                .as_ref()
+                .iter()
+                .copied()
+                .filter(|k| *k != vk)
+                .collect();
+            keyboard_state.pressed_virtual_keycodes =
+                azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
+            keyboard_state.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
+        }
+    }
+
+    /// Update keyboard state with character from event
+    fn update_keyboard_state_with_char(&mut self, character: Option<char>) {
+        use azul_core::window::OptionChar;
+
+        self.current_window_state.keyboard_state.current_char = match character {
+            Some(ch) => OptionChar::Some(ch as u32),
+            None => OptionChar::None,
+        };
     }
 
     /// Dispatch mouse down callbacks to hit node.

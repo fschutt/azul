@@ -31,8 +31,8 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
     NSBitmapImageRep, NSColor, NSCompositingOperation, NSEvent, NSEventMask, NSEventType, NSImage,
     NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute,
-    NSOpenGLView, NSResponder, NSScreen, NSView, NSVisualEffectView, NSWindow, NSWindowDelegate,
-    NSWindowStyleMask, NSWindowTitleVisibility,
+    NSOpenGLView, NSResponder, NSScreen, NSTrackingArea, NSTrackingAreaOptions, NSView,
+    NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{
     ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
@@ -70,6 +70,7 @@ pub enum RenderBackend {
 pub struct GLViewIvars {
     gl_functions: RefCell<Option<Rc<gl_context_loader::GenericGlContext>>>,
     needs_reshape: Cell<bool>,
+    tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
 }
 
@@ -222,11 +223,54 @@ define_class!(
             let this = this.set_ivars(GLViewIvars {
                 gl_functions: RefCell::new(None),
                 needs_reshape: Cell::new(true),
+                tracking_area: RefCell::new(None),
                 mtm,
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
             }
+        }
+
+        #[unsafe(method(updateTrackingAreas))]
+        fn update_tracking_areas(&self) {
+            // Remove old tracking area if exists
+            if let Some(old_area) = self.ivars().tracking_area.borrow_mut().take() {
+                unsafe {
+                    self.removeTrackingArea(&old_area);
+                }
+            }
+
+            // Create new tracking area for mouse enter/exit events
+            let bounds = unsafe { self.bounds() };
+            let options = NSTrackingAreaOptions::MouseEnteredAndExited
+                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | NSTrackingAreaOptions::InVisibleRect;
+
+            let tracking_area = unsafe {
+                NSTrackingArea::initWithRect_options_owner_userInfo(
+                    NSTrackingArea::alloc(),
+                    bounds,
+                    options,
+                    Some(self),
+                    None,
+                )
+            };
+
+            unsafe {
+                self.addTrackingArea(&tracking_area);
+            }
+
+            *self.ivars().tracking_area.borrow_mut() = Some(tracking_area);
+        }
+
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, _event: &NSEvent) {
+            // Event will be handled by MacOSWindow
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, _event: &NSEvent) {
+            // Event will be handled by MacOSWindow
         }
     }
 );
@@ -241,6 +285,7 @@ pub struct CPUViewIvars {
     width: Cell<usize>,
     height: Cell<usize>,
     needs_redraw: Cell<bool>,
+    tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
 }
 
@@ -390,11 +435,54 @@ define_class!(
                 width: Cell::new(0),
                 height: Cell::new(0),
                 needs_redraw: Cell::new(true),
+                tracking_area: RefCell::new(None),
                 mtm,
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
             }
+        }
+
+        #[unsafe(method(updateTrackingAreas))]
+        fn update_tracking_areas(&self) {
+            // Remove old tracking area if exists
+            if let Some(old_area) = self.ivars().tracking_area.borrow_mut().take() {
+                unsafe {
+                    self.removeTrackingArea(&old_area);
+                }
+            }
+
+            // Create new tracking area for mouse enter/exit events
+            let bounds = unsafe { self.bounds() };
+            let options = NSTrackingAreaOptions::MouseEnteredAndExited
+                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | NSTrackingAreaOptions::InVisibleRect;
+
+            let tracking_area = unsafe {
+                NSTrackingArea::initWithRect_options_owner_userInfo(
+                    NSTrackingArea::alloc(),
+                    bounds,
+                    options,
+                    Some(self),
+                    None,
+                )
+            };
+
+            unsafe {
+                self.addTrackingArea(&tracking_area);
+            }
+
+            *self.ivars().tracking_area.borrow_mut() = Some(tracking_area);
+        }
+
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, _event: &NSEvent) {
+            // Event will be handled by MacOSWindow
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, _event: &NSEvent) {
+            // Event will be handled by MacOSWindow
         }
     }
 );
@@ -1897,6 +1985,12 @@ impl MacOSWindow {
             | NSEventType::LeftMouseDragged
             | NSEventType::RightMouseDragged => {
                 let _ = self.handle_mouse_move(event);
+            }
+            NSEventType::MouseEntered => {
+                let _ = self.handle_mouse_entered(event);
+            }
+            NSEventType::MouseExited => {
+                let _ = self.handle_mouse_exited(event);
             }
             NSEventType::ScrollWheel => {
                 let _ = self.handle_scroll_wheel(event);
