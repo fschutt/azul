@@ -84,46 +84,55 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
             font_selector_to_id_cache: Mutex::new(HashMap::new()),
             system_font_fallbacks: Mutex::new(HashMap::new()),
         };
-        
+
         // Initialize system font fallbacks
         manager.init_system_fonts();
-        
+
         Ok(manager)
     }
-    
+
     /// Initialize system font fallbacks for common generic font families
     fn init_system_fonts(&self) {
         use crate::font::load_system_font;
-        
+
         let mut fallbacks = self.system_font_fallbacks.lock().unwrap();
         let mut parsed = self.parsed_fonts.lock().unwrap();
-        
+
         // Try to load OS-specific system fonts first (these know the correct font names per OS)
         if let Some((font_bytes, font_index)) = load_system_font("sans-serif", &self.fc_cache) {
-            if let Ok(font) = self.font_loader.load_font(font_bytes.as_slice(), font_index as usize) {
+            if let Ok(font) = self
+                .font_loader
+                .load_font(font_bytes.as_slice(), font_index as usize)
+            {
                 let font_id = FontId::new();
                 parsed.insert(font_id.clone(), font);
                 fallbacks.insert("sans-serif".to_string(), font_id.clone());
                 fallbacks.insert("system-ui".to_string(), font_id.clone());
             }
         }
-        
+
         if let Some((font_bytes, font_index)) = load_system_font("serif", &self.fc_cache) {
-            if let Ok(font) = self.font_loader.load_font(font_bytes.as_slice(), font_index as usize) {
+            if let Ok(font) = self
+                .font_loader
+                .load_font(font_bytes.as_slice(), font_index as usize)
+            {
                 let font_id = FontId::new();
                 parsed.insert(font_id.clone(), font);
                 fallbacks.insert("serif".to_string(), font_id);
             }
         }
-        
+
         if let Some((font_bytes, font_index)) = load_system_font("monospace", &self.fc_cache) {
-            if let Ok(font) = self.font_loader.load_font(font_bytes.as_slice(), font_index as usize) {
+            if let Ok(font) = self
+                .font_loader
+                .load_font(font_bytes.as_slice(), font_index as usize)
+            {
                 let font_id = FontId::new();
                 parsed.insert(font_id.clone(), font);
                 fallbacks.insert("monospace".to_string(), font_id);
             }
         }
-        
+
         // Only if no system fonts could be loaded, fall back to first available font
         if fallbacks.is_empty() {
             let available_fonts = self.fc_cache.list();
@@ -178,10 +187,9 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
 
         let mut trace = Vec::new();
         let fc_match = self.fc_cache.query(&pattern, &mut trace);
-        
+
         // If fontconfig query fails, try system font fallbacks
         let fc_match = if fc_match.is_none() {
-
             // Try to use system font fallback
             let fallbacks = self.system_font_fallbacks.lock().unwrap();
             if let Some(fallback_id) = fallbacks.get(&font_selector.family.to_lowercase()) {
@@ -190,14 +198,20 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
                     // Cache this mapping
                     let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
                     ref_cache.insert(font_selector.clone(), fallback_id.clone());
-                    eprintln!("[FontManager] Using system fallback for '{}': {:?}", font_selector.family, fallback_id);
+                    eprintln!(
+                        "[FontManager] Using system fallback for '{}': {:?}",
+                        font_selector.family, fallback_id
+                    );
                     return Ok(font.shallow_clone());
                 }
             }
-            
+
             // Ultimate fallback: use ANY available font
             if let Some((_, any_font_id)) = fallbacks.iter().next() {
-                eprintln!("[FontManager] Using ultimate fallback font for '{}'", font_selector.family);
+                eprintln!(
+                    "[FontManager] Using ultimate fallback font for '{}'",
+                    font_selector.family
+                );
                 let fonts = self.parsed_fonts.lock().unwrap();
                 if let Some(font) = fonts.get(any_font_id) {
                     let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
@@ -205,7 +219,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
                     return Ok(font.shallow_clone());
                 }
             }
-            
+
             return Err(LayoutError::FontNotFound(font_selector.clone()));
         } else {
             fc_match.unwrap()

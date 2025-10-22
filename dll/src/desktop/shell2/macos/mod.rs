@@ -74,6 +74,9 @@ pub struct GLViewIvars {
     needs_reshape: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
+    /// Back-pointer to the owning MacOSWindow (as *mut to avoid forward reference)
+    /// This is set after window creation via set_window_ptr()
+    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
 }
 
 define_class!(
@@ -86,12 +89,30 @@ define_class!(
     impl GLView {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _rect: NSRect) {
-            // drawRect is called by the system when the view needs redrawing
-            // WebRender handles its own rendering via present(), so we don't need to do anything here
-            // Just flush the buffer to show what WebRender rendered
+            eprintln!("[GLView] drawRect: called - this is where ALL rendering happens");
+
+            // Get the back-pointer to our MacOSWindow
+            let window_ptr = match self.get_window_ptr() {
+                Some(ptr) => ptr,
+                None => {
+                    eprintln!("[GLView] drawRect: No window pointer set yet, skipping render");
+                    return;
+                }
+            };
+
+            // SAFETY: We trust that the window pointer is valid and points to a MacOSWindow
+            // The window owns the view, so the window outlives the view
             unsafe {
-                if let Some(context) = self.openGLContext() {
-                    context.flushBuffer();
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+
+                // Call the rendering method on MacOSWindow
+                // This will:
+                // 1. Make GL context current
+                // 2. Call renderer.update()
+                // 3. Call renderer.render() to composite WebRender's scene
+                // 4. Call flushBuffer() to swap
+                if let Err(e) = macos_window.render_and_present_in_draw_rect() {
+                    eprintln!("[GLView] drawRect: Error during rendering: {:?}", e);
                 }
             }
         }
@@ -195,6 +216,7 @@ define_class!(
                 needs_reshape: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
+                window_ptr: RefCell::new(None),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
@@ -631,6 +653,23 @@ define_class!(
 );
 
 // ============================================================================
+// GLView Helper Methods (outside define_class!)
+// ============================================================================
+
+impl GLView {
+    /// Set the back-pointer to the owning MacOSWindow
+    /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
+    pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
+        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+    }
+
+    /// Get the back-pointer to the owning MacOSWindow
+    fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
+        *self.ivars().window_ptr.borrow()
+    }
+}
+
+// ============================================================================
 // WindowDelegate - Handles window lifecycle events (close, resize, etc.)
 // ============================================================================
 
@@ -984,7 +1023,7 @@ impl MacOSWindow {
     ) -> Result<Self, WindowError> {
         Self::new_with_options_internal(options, Some(fc_cache), mtm)
     }
-    
+
     /// Create a new macOS window with given options.
     pub fn new_with_options(
         options: WindowCreateOptions,
@@ -992,7 +1031,7 @@ impl MacOSWindow {
     ) -> Result<Self, WindowError> {
         Self::new_with_options_internal(options, None, mtm)
     }
-    
+
     /// Internal constructor with optional fc_cache parameter
     fn new_with_options_internal(
         options: WindowCreateOptions,
@@ -1085,13 +1124,15 @@ impl MacOSWindow {
             return Err(WindowError::PlatformError("No content view created".into()));
         }
 
+        // DO NOT show the window yet - we will show it after the first frame is ready
+        // to prevent white flash
         unsafe {
             window.center();
-            window.makeKeyAndOrderFront(None);
+            // REMOVED: makeKeyAndOrderFront - will be called after first frame is ready
         }
 
         // Apply initial window state based on options.state.flags.frame
-        // These must be applied after makeKeyAndOrderFront for proper initialization
+        // Note: These will be applied before window is visible
         unsafe {
             match options.state.flags.frame {
                 azul_core::window::WindowFrame::Fullscreen => {
@@ -1161,13 +1202,14 @@ impl MacOSWindow {
         };
 
         eprintln!("[Window Init] Creating WebRender instance");
-        
+
         // Create synchronization primitives for frame readiness
-        let new_frame_ready = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let new_frame_ready =
+            std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
         let notifier = Notifier {
             new_frame_ready: new_frame_ready.clone(),
         };
-        
+
         let (mut renderer, sender) = webrender::create_webrender_instance(
             gl_funcs.clone(),
             Box::new(notifier),
@@ -1245,9 +1287,10 @@ impl MacOSWindow {
         let renderer_resources = azul_core::resources::RendererResources::default();
 
         // Initialize LayoutWindow with shared fc_cache or build a new one
-        let fc_cache = fc_cache_opt.unwrap_or_else(|| std::sync::Arc::new(rust_fontconfig::FcFontCache::build()));
-        let mut layout_window =
-            azul_layout::window::LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+        let fc_cache = fc_cache_opt
+            .unwrap_or_else(|| std::sync::Arc::new(rust_fontconfig::FcFontCache::build()));
+        let mut layout_window = azul_layout::window::LayoutWindow::new((*fc_cache).clone())
+            .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
             })?;
 
@@ -1365,11 +1408,28 @@ impl MacOSWindow {
         eprintln!("[Window Init] Flushing scene builder after generate_frame");
         window.render_api.flush_scene_builder();
 
-        // DO NOT call present() here - this causes a race condition!
-        // The WebRender backend thread needs time to process the scene and build the frame.
-        // The event loop will call present() once the notifier signals that a frame is ready.
-        eprintln!("[Window Init] Initialization complete. Waiting for first frame notification from WebRender.");
+        // SOLUTION TO FIRST-FRAME RACE CONDITION:
+        // Block this thread until the Notifier signals that the first frame is ready.
+        // This prevents showing the window before WebRender has rendered the first frame.
+        eprintln!("[Window Init] Waiting for first frame from WebRender...");
+        {
+            let &(ref lock, ref cvar) = &*window.new_frame_ready;
+            let mut ready = lock.lock().unwrap();
+            while !*ready {
+                ready = cvar.wait(ready).unwrap();
+            }
+            *ready = false; // Consume the signal
+            eprintln!("[Window Init] ✓ First frame is ready!");
+        }
 
+        // Now that the first frame is ready in WebRender's backbuffer,
+        // we can safely show the window without a white flash.
+        eprintln!("[Window Init] Making window visible...");
+        unsafe {
+            window.window.makeKeyAndOrderFront(None);
+        }
+
+        eprintln!("[Window Init] Window initialization complete");
         Ok(window)
     }
 
@@ -2128,17 +2188,16 @@ impl MacOSWindow {
             }
         }
 
-        // After processing event, regenerate frame if needed and present
+        // After processing event, regenerate frame if needed
         let needs_flush = self.frame_needs_regeneration;
         self.generate_frame_if_needed();
 
         // Flush scene builder if frame was regenerated (WebRender multi-threading)
         if needs_flush {
             self.render_api.flush_scene_builder();
-        }
-
-        if let Err(e) = self.present() {
-            eprintln!("[process_event] Present failed: {:?}", e);
+            // Request a redraw to display the new frame
+            // This tells macOS to schedule a drawRect: call
+            self.request_redraw();
         }
     }
 
@@ -2196,6 +2255,135 @@ impl MacOSWindow {
     /// Reset cursor to default arrow
     pub fn reset_cursor(&self) {
         self.set_cursor("arrow");
+    }
+
+    // =========================================================================
+    // RENDERING METHODS - macOS Drawing Model Integration
+    // =========================================================================
+
+    /// Set up the GLView's back-pointer to this MacOSWindow.
+    ///
+    /// This MUST be called after window construction to enable drawRect: to find
+    /// the window and call render_and_present_in_draw_rect().
+    ///
+    /// SAFETY: This creates a self-referential pointer. The caller must ensure:
+    /// - The window is not moved in memory (use Box/Arc or keep it on the stack)
+    /// - The view is owned by the window and doesn't outlive it
+    pub unsafe fn setup_gl_view_back_pointer(&mut self) {
+        // Get the window pointer first, before borrowing gl_view
+        let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
+
+        if let Some(ref gl_view) = self.gl_view {
+            gl_view.set_window_ptr(window_ptr);
+            eprintln!("[setup_gl_view_back_pointer] ✓ GLView can now call back to MacOSWindow");
+        }
+    }
+
+    /// This is the MAIN rendering entry point, called ONLY from GLView::drawRect:
+    ///
+    /// This method follows the idiomatic macOS drawing pattern where all rendering
+    /// happens inside drawRect:. It:
+    /// 1. Makes the GL context current and updates it
+    /// 2. Sets the viewport
+    /// 3. Calls renderer.update() and renderer.render() to composite WebRender's scene
+    /// 4. Swaps buffers via flushBuffer()
+    ///
+    /// IMPORTANT: This should NEVER be called directly from Rust code. It's only
+    /// called by the Objective-C drawRect: method when macOS schedules a redraw.
+    pub fn render_and_present_in_draw_rect(&mut self) -> Result<(), WindowError> {
+        eprintln!("[render_and_present_in_draw_rect] START");
+
+        // Step 1: Prepare OpenGL context (if using OpenGL backend)
+        if self.backend == RenderBackend::OpenGL {
+            let gl_context = self
+                .gl_context
+                .as_ref()
+                .ok_or_else(|| WindowError::PlatformError("OpenGL context is missing".into()))?;
+
+            let gl_fns = self
+                .gl_functions
+                .as_ref()
+                .ok_or_else(|| WindowError::PlatformError("OpenGL functions are missing".into()))?;
+
+            unsafe {
+                // Make context current before any GL operations
+                gl_context.makeCurrentContext();
+
+                // CRITICAL: Synchronize context with the view's drawable surface
+                // This must be called every frame to handle window moves/resizes
+                gl_context.update(self.mtm);
+
+                // CRITICAL: Set the viewport to the physical size of the window
+                let physical_size = self.current_window_state.size.get_physical_size();
+                eprintln!(
+                    "[render_and_present_in_draw_rect] Setting glViewport to: {}x{}",
+                    physical_size.width, physical_size.height
+                );
+                gl_fns.functions.viewport(
+                    0,
+                    0,
+                    physical_size.width as i32,
+                    physical_size.height as i32,
+                );
+            }
+        }
+
+        // Step 2: Call WebRender to composite the scene
+        if let Some(ref mut renderer) = self.renderer {
+            eprintln!("[render_and_present_in_draw_rect] Calling renderer.update()");
+            renderer.update();
+
+            let physical_size = self.current_window_state.size.get_physical_size();
+            let device_size = webrender::api::units::DeviceIntSize::new(
+                physical_size.width as i32,
+                physical_size.height as i32,
+            );
+
+            eprintln!(
+                "[render_and_present_in_draw_rect] Calling renderer.render() with size: {:?}",
+                device_size
+            );
+
+            match renderer.render(device_size, 0) {
+                Ok(results) => {
+                    eprintln!(
+                        "[render_and_present_in_draw_rect] ✓ Render successful! Stats: {:?}",
+                        results.stats
+                    );
+                }
+                Err(errors) => {
+                    eprintln!(
+                        "[render_and_present_in_draw_rect] ✗ Render errors: {:?}",
+                        errors
+                    );
+                    return Err(WindowError::PlatformError(
+                        format!("WebRender render failed: {:?}", errors).into(),
+                    ));
+                }
+            }
+        } else {
+            eprintln!("[render_and_present_in_draw_rect] WARNING: No renderer available!");
+            return Ok(());
+        }
+
+        // Step 3: Swap buffers to show the rendered frame
+        match self.backend {
+            RenderBackend::OpenGL => {
+                if let Some(ref gl_context) = self.gl_context {
+                    eprintln!("[render_and_present_in_draw_rect] Flushing OpenGL buffer");
+                    unsafe {
+                        gl_context.flushBuffer();
+                    }
+                }
+            }
+            RenderBackend::CPU => {
+                // CPU backend doesn't need explicit buffer swap
+                // The drawRect: itself updates the view
+            }
+        }
+
+        eprintln!("[render_and_present_in_draw_rect] DONE");
+        Ok(())
     }
 }
 
@@ -2272,11 +2460,10 @@ impl PlatformWindow for MacOSWindow {
         };
 
         if frame_ready {
-            eprintln!("[poll_event] Frame ready signal received - presenting");
-            // A frame is ready, so we should present it
-            if let Err(e) = self.present() {
-                eprintln!("[poll_event] Present failed after frame ready signal: {:?}", e);
-            }
+            eprintln!("[poll_event] Frame ready signal received - requesting redraw");
+            // A frame is ready in WebRender's backbuffer.
+            // Tell macOS to schedule a drawRect: call, which will display it.
+            self.request_redraw();
         }
 
         // Check for close request from WindowDelegate
@@ -2347,93 +2534,15 @@ impl PlatformWindow for MacOSWindow {
 
     // In macos/mod.rs
 
+    /// Present the rendered frame to the screen.
+    ///
+    /// NOTE: In the macOS drawing model, this is now a NO-OP for the OpenGL backend.
+    /// All rendering is driven by drawRect:, which is triggered by calling request_redraw().
+    ///
+    /// This method exists only to satisfy the PlatformWindow trait.
     fn present(&mut self) -> Result<(), WindowError> {
-        eprintln!("[present] Called - backend: {:?}", self.backend);
-
-        if self.backend == RenderBackend::OpenGL {
-            let gl_context = self
-                .gl_context
-                .as_ref()
-                .ok_or_else(|| WindowError::PlatformError("OpenGL context is missing".into()))?;
-
-            let gl_fns = self
-                .gl_functions
-                .as_ref()
-                .ok_or_else(|| WindowError::PlatformError("OpenGL functions are missing".into()))?;
-
-            unsafe {
-                // Make context current before any GL operations
-                gl_context.makeCurrentContext();
-
-                // CRITICAL: Synchronize context with the view's drawable surface
-                gl_context.update(self.mtm);
-                eprintln!("[present] Updated GL context to sync with drawable");
-
-                // CRITICAL: Set the viewport to the physical size of the window
-                let physical_size = self.current_window_state.size.get_physical_size();
-                eprintln!(
-                    "[present] Setting glViewport to: {}x{}",
-                    physical_size.width, physical_size.height
-                );
-                gl_fns.functions.viewport(
-                    0,
-                    0,
-                    physical_size.width as i32,
-                    physical_size.height as i32,
-                );
-            }
-        }
-
-        if let Some(ref mut renderer) = self.renderer {
-            eprintln!("[present] Calling renderer.update()");
-            renderer.update();
-
-            let physical_size = self.current_window_state.size.get_physical_size();
-            let device_size = webrender::api::units::DeviceIntSize::new(
-                physical_size.width as i32,
-                physical_size.height as i32,
-            );
-
-            eprintln!(
-                "[present] Calling renderer.render() with size: {:?}",
-                device_size
-            );
-
-            match renderer.render(device_size, 0) {
-                Ok(results) => {
-                    eprintln!("[present] Render successful! Stats: {:?}", results.stats);
-                }
-                Err(errors) => {
-                    eprintln!("[present] Render errors: {:?}", errors);
-                    return Err(WindowError::PlatformError(
-                        format!("WebRender render failed: {:?}", errors).into(),
-                    ));
-                }
-            }
-        } else {
-            eprintln!("[present] WARNING: No renderer available!");
-            return Ok(());
-        }
-
-        match self.backend {
-            RenderBackend::OpenGL => {
-                if let Some(ref gl_context) = self.gl_context {
-                    eprintln!("[present] Flushing OpenGL buffer");
-                    unsafe {
-                        gl_context.flushBuffer();
-                    }
-                }
-            }
-            RenderBackend::CPU => {
-                if let Some(ref cpu_view) = self.cpu_view {
-                    unsafe {
-                        cpu_view.setNeedsDisplay(true);
-                    }
-                }
-            }
-        }
-
-        eprintln!("[present] Done");
+        // Rendering is now handled by drawRect: -> render_and_present_in_draw_rect()
+        // This method is effectively deprecated for the macOS backend.
         Ok(())
     }
 
@@ -2446,9 +2555,24 @@ impl PlatformWindow for MacOSWindow {
         self.is_open = false;
     }
 
+    /// Request a redraw of the window.
+    ///
+    /// This is the idiomatic macOS way to trigger rendering: we call setNeedsDisplay(true)
+    /// on the content view, which tells macOS to schedule a drawRect: call on the next
+    /// display refresh cycle.
+    ///
+    /// This decouples our asynchronous rendering backend (WebRender) from the synchronous
+    /// OS drawing model.
     fn request_redraw(&mut self) {
-        // Redraw is handled automatically via event loop
-        // macOS triggers windowDidResize: and other events that cause redraws
+        eprintln!("[request_redraw] Marking view as needing display");
+
+        // Tell macOS to schedule a drawRect: call
+        if let Some(view) = unsafe { self.window.contentView() } {
+            unsafe {
+                view.setNeedsDisplay(true);
+            }
+        }
+
         self.frame_needs_regeneration = true;
     }
 }

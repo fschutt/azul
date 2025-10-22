@@ -146,7 +146,8 @@ impl App {
     #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
         // Use shell2 for new implementation
-        let err = crate::desktop::shell2::run(self.config.clone(), self.fc_cache.clone(), root_window);
+        let err =
+            crate::desktop::shell2::run(self.config.clone(), self.fc_cache.clone(), root_window);
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));

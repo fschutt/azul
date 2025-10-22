@@ -5,7 +5,11 @@
 
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::mem;
-use std::{cell::RefCell, rc::Rc, sync::{Condvar, Mutex}};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Condvar, Mutex},
+};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
@@ -62,7 +66,7 @@ impl WrRenderNotifier for Notifier {
             new_frame_ready: self.new_frame_ready.clone(),
         })
     }
-    
+
     fn wake_up(&self, _composite_needed: bool) {
         // Signal that something happened (non-frame-generating update)
         let &(ref lock, ref cvar) = &*self.new_frame_ready;
@@ -70,7 +74,7 @@ impl WrRenderNotifier for Notifier {
         *new_frame_ready = true;
         cvar.notify_one();
     }
-    
+
     fn new_frame_ready(
         &self,
         _doc_id: WrDocumentId,
@@ -79,7 +83,11 @@ impl WrRenderNotifier for Notifier {
         _frame_publish_id: webrender::api::FramePublishId,
     ) {
         // Signal that a new frame is ready to be rendered
-        eprintln!("[Notifier] new_frame_ready called - signaling main thread");
+        eprintln!(
+            "[Notifier] new_frame_ready called - signaling main thread {_doc_id:?} _scrolled: \
+             {_scrolled:?} _composite_needed: {_composite_needed:?} _frame_publish_id: \
+             {_frame_publish_id:?}"
+        );
         let &(ref lock, ref cvar) = &*self.new_frame_ready;
         let mut new_frame_ready = lock.lock().unwrap();
         *new_frame_ready = true;
