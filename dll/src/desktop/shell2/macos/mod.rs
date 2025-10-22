@@ -1125,6 +1125,7 @@ impl MacOSWindow {
 
         // Make OpenGL context current before initializing WebRender
         if let Some(ref ctx) = gl_context {
+            eprintln!("[Window Init] Making OpenGL context current");
             unsafe {
                 ctx.makeCurrentContext();
             }
@@ -1138,9 +1139,13 @@ impl MacOSWindow {
             RenderBackend::CPU => RendererType::Software,
         };
 
+        eprintln!("[Window Init] Renderer type: {:?}", renderer_type);
+
         let gl_funcs = if let Some(ref f) = gl_functions {
+            eprintln!("[Window Init] Using GL functions from context");
             f.functions.clone()
         } else {
+            eprintln!("[Window Init] Loading GL functions for CPU fallback");
             // Fallback for CPU backend - initialize GL functions or fail gracefully
             match gl::GlFunctions::initialize() {
                 Ok(f) => f.functions.clone(),
@@ -1153,6 +1158,7 @@ impl MacOSWindow {
             }
         };
 
+        eprintln!("[Window Init] Creating WebRender instance");
         let (mut renderer, sender) = webrender::create_webrender_instance(
             gl_funcs.clone(),
             Box::new(Notifier {}),
@@ -1243,13 +1249,10 @@ impl MacOSWindow {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
 
-        // Clear OpenGL context after initialization
-        if gl_context.is_some() {
-            unsafe {
-                use objc2_app_kit::NSOpenGLContext;
-                NSOpenGLContext::clearCurrentContext();
-            }
-        }
+        eprintln!("[Window Init] LayoutWindow configured with document_id: {:?}", document_id);
+
+        // NOTE: Keep OpenGL context current - WebRender needs it for rendering
+        // Do NOT call clearCurrentContext() here
 
         // Initialize shared application data (will be replaced by App later)
         let app_data =
@@ -1263,7 +1266,12 @@ impl MacOSWindow {
         // for the lifetime of the MacOSWindow
         window_delegate.set_window_state(&mut current_window_state as *mut FullWindowState);
 
-        Ok(Self {
+        eprintln!("[Window Init] Window created successfully");
+        eprintln!("[Window Init] Backend: {:?}", backend);
+        eprintln!("[Window Init] Renderer initialized: true");
+        eprintln!("[Window Init] GL Context: {}", if gl_context.is_some() { "Some" } else { "None" });
+
+        let mut window = Self {
             window,
             window_delegate,
             backend,
@@ -1290,7 +1298,23 @@ impl MacOSWindow {
             fc_cache,
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
-        })
+        };
+
+        // Perform initial layout and render
+        eprintln!("[Window Init] Performing initial layout");
+        if let Err(e) = window.regenerate_layout() {
+            eprintln!("[Window Init] WARNING: Initial layout failed: {}", e);
+        }
+        
+        eprintln!("[Window Init] Generating initial frame");
+        window.generate_frame_if_needed();
+        
+        eprintln!("[Window Init] Presenting initial frame");
+        if let Err(e) = window.present() {
+            eprintln!("[Window Init] WARNING: Initial present failed: {:?}", e);
+        }
+
+        Ok(window)
     }
 
     /// Synchronize window state with the OS based on diff between previous and current state
@@ -2026,6 +2050,12 @@ impl MacOSWindow {
                 // Other events not handled yet
             }
         }
+
+        // After processing event, regenerate frame if needed and present
+        self.generate_frame_if_needed();
+        if let Err(e) = self.present() {
+            eprintln!("[process_event] Present failed: {:?}", e);
+        }
     }
 
     /// Set the mouse cursor to a specific system cursor
@@ -2185,6 +2215,14 @@ impl PlatformWindow for MacOSWindow {
                 app.sendEvent(&event);
             }
 
+            // Generate frame if needed after event processing
+            self.generate_frame_if_needed();
+            
+            // Present the frame
+            if let Err(e) = self.present() {
+                eprintln!("[poll_event] Present failed: {:?}", e);
+            }
+
             Some(macos_event)
         } else {
             None
@@ -2216,6 +2254,14 @@ impl PlatformWindow for MacOSWindow {
                 app.sendEvent(&event);
             }
 
+            // Generate frame if needed after event processing
+            self.generate_frame_if_needed();
+            
+            // Present the frame
+            if let Err(e) = self.present() {
+                eprintln!("[wait_event] Present failed: {:?}", e);
+            }
+
             Some(macos_event)
         } else {
             // Window closed
@@ -2241,8 +2287,54 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn present(&mut self) -> Result<(), WindowError> {
+        eprintln!("[present] Called - backend: {:?}", self.backend);
+        
+        // Make GL context current before rendering
+        if let Some(ref gl_context) = self.gl_context {
+            unsafe {
+                gl_context.makeCurrentContext();
+            }
+        }
+
+        // Update WebRender (process pending transactions)
+        if let Some(ref mut renderer) = self.renderer {
+            eprintln!("[present] Calling renderer.update()");
+            renderer.update();
+            
+            // Get framebuffer size
+            let physical_size = self.current_window_state.size.get_physical_size();
+            let device_size = webrender::api::units::DeviceIntSize::new(
+                physical_size.width as i32,
+                physical_size.height as i32,
+            );
+            
+            eprintln!("[present] Calling renderer.render() with size: {:?}", device_size);
+            
+            // Render the frame
+            match renderer.render(device_size, 0) {
+                Ok(results) => {
+                    eprintln!("[present] Render successful! Stats: {:?}", results.stats);
+                }
+                Err(errors) => {
+                    eprintln!("[present] Render errors: {:?}", errors);
+                    return Err(WindowError::PlatformError(
+                        format!("WebRender render failed: {:?}", errors).into()
+                    ));
+                }
+            }
+        } else {
+            eprintln!("[present] WARNING: No renderer available!");
+        }
+
+        // Swap buffers
         match self.backend {
             RenderBackend::OpenGL => {
+                if let Some(ref gl_context) = self.gl_context {
+                    eprintln!("[present] Flushing OpenGL buffer");
+                    unsafe {
+                        gl_context.flushBuffer();
+                    }
+                }
                 if let Some(ref gl_view) = self.gl_view {
                     unsafe {
                         gl_view.setNeedsDisplay(true);
@@ -2257,6 +2349,8 @@ impl PlatformWindow for MacOSWindow {
                 }
             }
         }
+        
+        eprintln!("[present] Done");
         Ok(())
     }
 

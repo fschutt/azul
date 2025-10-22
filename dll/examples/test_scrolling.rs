@@ -28,7 +28,9 @@ extern "C" fn layout_xhtml(data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
         None => return StyledDom::default(),
     };
 
-    Dom::from_xml(xhtml_data.xhtml_content).style(CssApiWrapper { css: Css::empty() })
+    Dom::body()
+    .with_children(vec![Dom::text("hello")].into())
+    .style(CssApiWrapper { css: Css::empty() })
 }
 
 extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
