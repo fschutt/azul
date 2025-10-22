@@ -738,10 +738,11 @@ impl Default for ImePosition {
 pub struct WindowFlags {
     /// Is the window currently maximized, minimized or fullscreen
     pub frame: WindowFrame,
-    /// Is the window about to close on the next frame?
-    pub is_about_to_close: bool,
-    /// Does the window have decorations (close, minimize, maximize, title bar)?
-    pub has_decorations: bool,
+    /// User clicked the close button (set by WindowDelegate, checked by event loop)
+    /// The close_callback can set this to false to prevent closing
+    pub close_requested: bool,
+    /// Window decoration style (title bar, native controls)
+    pub decorations: WindowDecorations,
     /// Is the window currently visible?
     pub is_visible: bool,
     /// Is the window always on top?
@@ -750,11 +751,8 @@ pub struct WindowFlags {
     pub is_resizable: bool,
     /// Whether the window has focus or not (mutating this will request user attention)
     pub has_focus: bool,
-    /// Whether the window has an "extended frame", i.e. the title bar is not rendered
-    /// and the maximize / minimize / close buttons bleed into the window content
-    pub has_extended_window_frame: bool,
-    /// Whether or not the compositor should blur the application background
-    pub has_blur_behind_window: bool,
+    /// Compositor blur/transparency effect material
+    pub background_material: WindowBackgroundMaterial,
     /// Is smooth scrolling enabled for this window?
     pub smooth_scroll_enabled: bool,
     /// Is automatic TAB switching supported?
@@ -770,18 +768,63 @@ pub enum WindowFrame {
     Fullscreen,
 }
 
+/// Window decoration style
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub enum WindowDecorations {
+    /// Full decorations: title bar with controls
+    Normal,
+    /// No title text but controls visible (extended frame)
+    NoTitle,
+    /// No controls visible but title bar area present
+    NoControls,
+    /// No decorations at all (borderless)
+    None,
+}
+
+impl Default for WindowDecorations {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+/// Compositor blur/transparency effects for window background
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub enum WindowBackgroundMaterial {
+    /// No transparency or blur
+    Opaque,
+    /// Transparent without blur
+    Transparent,
+    /// macOS: Sidebar material, Windows: Acrylic light
+    Sidebar,
+    /// macOS: Menu material, Windows: Acrylic
+    Menu,
+    /// macOS: HUD material, Windows: Acrylic dark
+    HUD,
+    /// macOS: Titlebar material, Windows: Mica
+    Titlebar,
+    /// Windows: Mica Alt material
+    MicaAlt,
+}
+
+impl Default for WindowBackgroundMaterial {
+    fn default() -> Self {
+        Self::Opaque
+    }
+}
+
 impl Default for WindowFlags {
     fn default() -> Self {
         Self {
             frame: WindowFrame::Normal,
-            is_about_to_close: false,
-            has_decorations: true,
+            close_requested: false,
+            decorations: WindowDecorations::Normal,
             is_visible: true,
             is_always_on_top: false,
             is_resizable: true,
             has_focus: true,
-            has_extended_window_frame: false,
-            has_blur_behind_window: false,
+            background_material: WindowBackgroundMaterial::Opaque,
             smooth_scroll_enabled: true,
             autotab_enabled: true,
         }
@@ -1019,7 +1062,8 @@ impl_option!(
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct MacWindowOptions {
-    pub reserved: u8,
+    // empty for now, single field must be present for ABI compat - always set to 0
+    pub _reserved: u8,
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]

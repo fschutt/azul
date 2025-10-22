@@ -17,9 +17,10 @@ use azul_core::{dom::DomId, menu::Menu};
 use azul_layout::window_state::{FullWindowState, WindowCreateOptions, WindowState};
 use objc2::{
     define_class,
+    msg_send,
     msg_send_id,
     rc::{Allocated, Retained},
-    runtime::{NSObjectProtocol, ProtocolObject},
+    runtime::{Bool, NSObjectProtocol, ProtocolObject},
     AnyThread, // For alloc() method
     ClassType,
     DeclaredClass,
@@ -30,7 +31,8 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
     NSBitmapImageRep, NSColor, NSCompositingOperation, NSEvent, NSEventMask, NSEventType, NSImage,
     NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute,
-    NSOpenGLView, NSResponder, NSScreen, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSOpenGLView, NSResponder, NSScreen, NSView, NSVisualEffectView, NSWindow, NSWindowDelegate,
+    NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{
     ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
@@ -416,42 +418,82 @@ define_class!(
 
     impl WindowDelegate {
         #[unsafe(method(windowShouldClose:))]
-        fn window_should_close(&self, _sender: Option<&NSWindow>) -> bool {
-            // Get access to the window state
+        fn window_should_close(&self, _sender: Option<&NSWindow>) -> Bool {
             let state_ptr = *self.ivars().window_state.borrow();
 
             if let Some(state_ptr) = state_ptr {
                 let state = unsafe { &mut *state_ptr };
 
-                // Set the flag to true initially (default: allow close)
-                state.flags.is_about_to_close = true;
+                // Set close_requested flag to signal event loop
+                state.flags.close_requested = true;
+                eprintln!("[WindowDelegate] Close requested, preventing immediate close");
 
-                // First, invoke the close_callback if present
-                // The callback can set is_about_to_close to false to prevent closing
-                if let azul_layout::callbacks::OptionCallback::Some(callback) = &state.close_callback {
-                    eprintln!("[WindowDelegate] Invoking close callback");
-
-                    // TODO: For proper callback invocation we need CallbackInfo
-                    // For now, just log that we would call it
-                    // The callback would need access to:
-                    // - app_data (RefAny)
-                    // - CallbackInfo (window state, layout info, etc.)
-
-                    // In a complete implementation, the callback would be invoked here like:
-                    // let update = (callback.cb)(&mut app_data, &mut callback_info);
-                    // For now, we just respect the flag that can be set elsewhere
-                }
-
-                // Check if the window should actually close
-                let should_close = state.flags.is_about_to_close;
-
-                eprintln!("[WindowDelegate] windowShouldClose: {}", should_close);
-
-                should_close
+                // Always return NO to prevent immediate close
+                // The event loop will invoke close_callback and check is_about_to_close
+                Bool::NO
             } else {
                 // No state pointer, allow close by default
                 eprintln!("[WindowDelegate] No state pointer, allowing close");
-                true
+                Bool::YES
+            }
+        }
+
+        /// Called when the window is minimized to the Dock
+        #[unsafe(method(windowDidMiniaturize:))]
+        fn window_did_miniaturize(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                unsafe {
+                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Minimized;
+                }
+                eprintln!("[WindowDelegate] Window minimized");
+            }
+        }
+
+        /// Called when the window is restored from the Dock
+        #[unsafe(method(windowDidDeminiaturize:))]
+        fn window_did_deminiaturize(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                unsafe {
+                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Normal;
+                }
+                eprintln!("[WindowDelegate] Window deminiaturized");
+            }
+        }
+
+        /// Called when the window enters fullscreen mode
+        #[unsafe(method(windowDidEnterFullScreen:))]
+        fn window_did_enter_fullscreen(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                unsafe {
+                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Fullscreen;
+                }
+                eprintln!("[WindowDelegate] Window entered fullscreen");
+            }
+        }
+
+        /// Called when the window exits fullscreen mode
+        #[unsafe(method(windowDidExitFullScreen:))]
+        fn window_did_exit_fullscreen(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                unsafe {
+                    // Return to normal frame, will be updated by resize check if maximized
+                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Normal;
+                }
+                eprintln!("[WindowDelegate] Window exited fullscreen");
+            }
+        }
+
+        /// Called when the window is resized
+        #[unsafe(method(windowDidResize:))]
+        fn window_did_resize(&self, _notification: &NSNotification) {
+            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+                let frame = unsafe { (*state_ptr).flags.frame };
+                // Only check for maximized state if not in fullscreen
+                if frame != azul_core::window::WindowFrame::Fullscreen {
+                    // Set flag to check maximized state in event loop
+                    // The event loop will compare window.frame() to screen.visibleFrame()
+                    eprintln!("[WindowDelegate] Window resized");
+                }
             }
         }
 
@@ -753,6 +795,25 @@ impl MacOSWindow {
         unsafe {
             window.center();
             window.makeKeyAndOrderFront(None);
+        }
+
+        // Apply initial window state based on options.state.flags.frame
+        // These must be applied after makeKeyAndOrderFront for proper initialization
+        unsafe {
+            match options.state.flags.frame {
+                azul_core::window::WindowFrame::Fullscreen => {
+                    window.toggleFullScreen(None);
+                }
+                azul_core::window::WindowFrame::Maximized => {
+                    window.performZoom(None);
+                }
+                azul_core::window::WindowFrame::Minimized => {
+                    window.miniaturize(None);
+                }
+                azul_core::window::WindowFrame::Normal => {
+                    // Window is already in normal state
+                }
+            }
         }
 
         // Create and set window delegate for handling window events
@@ -1375,7 +1436,7 @@ impl MacOSWindow {
             if current.flags.is_resizable {
                 style_mask |= NSWindowStyleMask::Resizable;
             }
-            if current.flags.has_decorations {
+            if current.flags.decorations != azul_core::window::WindowDecorations::None {
                 style_mask |= NSWindowStyleMask::Closable | NSWindowStyleMask::Miniaturizable;
             }
 
@@ -1421,6 +1482,392 @@ impl MacOSWindow {
 
         // Synchronize with OS
         self.sync_window_state();
+    }
+
+    /// Handle close request from WindowDelegate
+    fn handle_close_request(&mut self) {
+        use azul_layout::callbacks::OptionCallback;
+
+        eprintln!("[MacOSWindow] Processing close request");
+
+        // Set close_requested to true by default
+        self.current_window_state.flags.close_requested = true;
+
+        // Invoke close_callback if present
+        if let OptionCallback::Some(callback) = &self.current_window_state.close_callback {
+            eprintln!("[MacOSWindow] Invoking close callback");
+
+            // Create minimal CallbackInfo for close callback
+            // Note: This is a simplified version - full CallbackInfo requires more context
+            let layout_window = match self.layout_window.as_mut() {
+                Some(lw) => lw,
+                None => {
+                    eprintln!("[MacOSWindow] No layout window, allowing close");
+                    self.close_window();
+                    return;
+                }
+            };
+
+            let mut fc_cache_borrowed = self.fc_cache.borrow_mut();
+            let mut app_data_borrowed = self.app_data.borrow_mut();
+
+            // Invoke callback with minimal context
+            let mut modifiable_state = WindowState::from(self.current_window_state.clone());
+
+            use std::collections::BTreeMap;
+
+            use azul_core::{
+                dom::DomNodeId, geom::OptionLogicalPosition, FastBTreeSet, FastHashMap,
+            };
+            use azul_layout::callbacks::CallbackInfo;
+
+            let mut timers = FastHashMap::default();
+            let mut threads = FastHashMap::default();
+            let mut timers_removed = FastBTreeSet::default();
+            let mut threads_removed = FastBTreeSet::default();
+            let mut new_windows = Vec::new();
+            let mut stop_propagation = false;
+            let mut focus_target = None;
+            let mut words_changed = BTreeMap::new();
+            let mut images_changed = BTreeMap::new();
+            let mut image_masks_changed = BTreeMap::new();
+            let mut css_properties_changed = BTreeMap::new();
+            let current_scroll_states = BTreeMap::new();
+            let mut nodes_scrolled = BTreeMap::new();
+
+            let mut callback_info = CallbackInfo::new(
+                layout_window,
+                &self.renderer_resources,
+                &self.previous_window_state,
+                &self.current_window_state,
+                &mut modifiable_state,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut *fc_cache_borrowed,
+                &mut timers,
+                &mut threads,
+                &mut timers_removed,
+                &mut threads_removed,
+                &azul_core::window::RawWindowHandle::Unsupported,
+                &mut new_windows,
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &mut stop_propagation,
+                &mut focus_target,
+                &mut words_changed,
+                &mut images_changed,
+                &mut image_masks_changed,
+                &mut css_properties_changed,
+                &current_scroll_states,
+                &mut nodes_scrolled,
+                DomNodeId::ROOT,
+                OptionLogicalPosition::None,
+                OptionLogicalPosition::None,
+            );
+
+            let _update = (callback.cb)(&mut *app_data_borrowed, &mut callback_info);
+
+            // Update window state from modifiable_state
+            self.current_window_state.flags = modifiable_state.flags;
+
+            drop(fc_cache_borrowed);
+            drop(app_data_borrowed);
+        }
+
+        // Check if window should actually close
+        if self.current_window_state.flags.close_requested {
+            eprintln!("[MacOSWindow] Close confirmed, closing window");
+            self.close_window();
+        } else {
+            eprintln!("[MacOSWindow] Close cancelled by callback");
+        }
+    }
+
+    /// Actually close the window
+    fn close_window(&mut self) {
+        unsafe {
+            self.window.close();
+        }
+        self.is_open = false;
+    }
+
+    /// Apply window decorations changes
+    fn apply_decorations(&mut self, decorations: azul_core::window::WindowDecorations) {
+        use azul_core::window::WindowDecorations;
+
+        let mut style_mask = self.window.styleMask();
+
+        match decorations {
+            WindowDecorations::Normal => {
+                // Full decorations with title and controls
+                style_mask.insert(NSWindowStyleMask::Titled);
+                style_mask.insert(NSWindowStyleMask::Closable);
+                style_mask.insert(NSWindowStyleMask::Miniaturizable);
+                style_mask.insert(NSWindowStyleMask::Resizable);
+                unsafe {
+                    self.window.setTitlebarAppearsTransparent(false);
+                    self.window
+                        .setTitleVisibility(NSWindowTitleVisibility::Visible);
+                }
+            }
+            WindowDecorations::NoTitle => {
+                // Extended frame: controls visible but no title
+                style_mask.insert(NSWindowStyleMask::Titled);
+                style_mask.insert(NSWindowStyleMask::Closable);
+                style_mask.insert(NSWindowStyleMask::Miniaturizable);
+                style_mask.insert(NSWindowStyleMask::Resizable);
+                style_mask.insert(NSWindowStyleMask::FullSizeContentView);
+                unsafe {
+                    self.window.setTitlebarAppearsTransparent(true);
+                    self.window
+                        .setTitleVisibility(NSWindowTitleVisibility::Hidden);
+                }
+            }
+            WindowDecorations::NoControls => {
+                // Title bar but no controls
+                style_mask.insert(NSWindowStyleMask::Titled);
+                style_mask.remove(NSWindowStyleMask::Closable);
+                style_mask.remove(NSWindowStyleMask::Miniaturizable);
+                unsafe {
+                    self.window.setTitlebarAppearsTransparent(false);
+                    self.window
+                        .setTitleVisibility(NSWindowTitleVisibility::Visible);
+                }
+            }
+            WindowDecorations::None => {
+                // Borderless window
+                style_mask.remove(NSWindowStyleMask::Titled);
+                style_mask.remove(NSWindowStyleMask::Closable);
+                style_mask.remove(NSWindowStyleMask::Miniaturizable);
+                style_mask.remove(NSWindowStyleMask::Resizable);
+            }
+        }
+
+        self.window.setStyleMask(style_mask);
+    }
+
+    /// Apply window visibility
+    fn apply_visibility(&mut self, visible: bool) {
+        if visible {
+            unsafe {
+                self.window.makeKeyAndOrderFront(None);
+            }
+        } else {
+            unsafe {
+                self.window.orderOut(None);
+            }
+        }
+    }
+
+    /// Apply window resizable state
+    fn apply_resizable(&mut self, resizable: bool) {
+        let mut style_mask = self.window.styleMask();
+        if resizable {
+            style_mask.insert(NSWindowStyleMask::Resizable);
+        } else {
+            style_mask.remove(NSWindowStyleMask::Resizable);
+        }
+        self.window.setStyleMask(style_mask);
+    }
+
+    /// Apply window background material
+    fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
+        use azul_core::window::WindowBackgroundMaterial;
+        use objc2_app_kit::{
+            NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+            NSVisualEffectView,
+        };
+
+        match material {
+            WindowBackgroundMaterial::Opaque => {
+                // Remove any effect view and restore normal window
+                if let Some(content_view) = self.window.contentView() {
+                    // Check if content view is an effect view
+                    unsafe {
+                        let content_ptr = Retained::as_ptr(&content_view);
+                        let is_effect_view: bool =
+                            msg_send![content_ptr, isKindOfClass: NSVisualEffectView::class()];
+
+                        if is_effect_view {
+                            // Get the original view (first subview)
+                            let subviews = content_view.subviews();
+                            if subviews.count() > 0 {
+                                let original_view = subviews.objectAtIndex(0);
+                                self.window.setContentView(Some(&original_view));
+                            }
+                        }
+
+                        self.window.setOpaque(true);
+                        self.window.setBackgroundColor(None);
+                        self.window.setTitlebarAppearsTransparent(false);
+                    }
+                }
+            }
+            WindowBackgroundMaterial::Transparent => {
+                // Transparent window without blur
+                unsafe {
+                    self.window.setOpaque(false);
+                    self.window.setBackgroundColor(Some(&NSColor::clearColor()));
+                }
+            }
+            WindowBackgroundMaterial::Sidebar
+            | WindowBackgroundMaterial::Menu
+            | WindowBackgroundMaterial::HUD
+            | WindowBackgroundMaterial::Titlebar
+            | WindowBackgroundMaterial::MicaAlt => {
+                // Create or update NSVisualEffectView
+                let content_view = match self.window.contentView() {
+                    Some(view) => view,
+                    None => return,
+                };
+
+                let ns_material = match material {
+                    WindowBackgroundMaterial::Sidebar => NSVisualEffectMaterial::Sidebar,
+                    WindowBackgroundMaterial::Menu => NSVisualEffectMaterial::Menu,
+                    WindowBackgroundMaterial::HUD => NSVisualEffectMaterial::HUDWindow,
+                    WindowBackgroundMaterial::Titlebar => NSVisualEffectMaterial::Titlebar,
+                    WindowBackgroundMaterial::MicaAlt => NSVisualEffectMaterial::Titlebar, /* Closest match on macOS */
+                    _ => unreachable!(),
+                };
+
+                unsafe {
+                    let content_ptr = Retained::as_ptr(&content_view);
+                    let is_effect_view: bool =
+                        msg_send![content_ptr, isKindOfClass: NSVisualEffectView::class()];
+
+                    if is_effect_view {
+                        // Update existing effect view
+                        let effect_view: *const NSVisualEffectView =
+                            content_ptr as *const NSVisualEffectView;
+                        (*effect_view).setMaterial(ns_material);
+                    } else {
+                        // Create new effect view
+                        let frame = content_view.frame();
+                        let effect_view: Option<Retained<NSVisualEffectView>> =
+                            msg_send_id![NSVisualEffectView::alloc(self.mtm), initWithFrame: frame];
+
+                        if let Some(effect_view) = effect_view {
+                            effect_view.setMaterial(ns_material);
+                            effect_view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+                            effect_view.setState(NSVisualEffectState::Active);
+
+                            // Add original view as subview
+                            effect_view.addSubview(&content_view);
+
+                            // Set effect view as content view
+                            let effect_view_ptr = Retained::as_ptr(&effect_view) as *const NSView;
+                            let effect_view_ref = &*effect_view_ptr;
+                            self.window.setContentView(Some(effect_view_ref));
+                        }
+                    }
+
+                    self.window.setOpaque(false);
+                    self.window.setBackgroundColor(Some(&NSColor::clearColor()));
+                    self.window.setTitlebarAppearsTransparent(true);
+                }
+            }
+        }
+    }
+
+    /// Check for window state changes and apply them
+    fn apply_window_state_changes(&mut self, prev_state: &FullWindowState) {
+        // Copy values to avoid borrow checker issues
+        let curr_decorations = self.current_window_state.flags.decorations;
+        let curr_visible = self.current_window_state.flags.is_visible;
+        let curr_resizable = self.current_window_state.flags.is_resizable;
+        let curr_material = self.current_window_state.flags.background_material;
+
+        // Check decorations
+        if curr_decorations != prev_state.flags.decorations {
+            self.apply_decorations(curr_decorations);
+        }
+
+        // Check visibility
+        if curr_visible != prev_state.flags.is_visible {
+            self.apply_visibility(curr_visible);
+        }
+
+        // Check resizable
+        if curr_resizable != prev_state.flags.is_resizable {
+            self.apply_resizable(curr_resizable);
+        }
+
+        // Check background material (Note: applying at runtime may cause visual glitches)
+        if curr_material != prev_state.flags.background_material {
+            self.apply_background_material(curr_material);
+        }
+    }
+
+    /// Handle a menu action from a menu item click
+    fn handle_menu_action(&mut self, tag: isize) {
+        eprintln!("[MacOSWindow] Handling menu action for tag: {}", tag);
+
+        // Look up callback index from tag
+        if let Some(callback_index) = self.menu_state.get_callback_for_tag(tag as i64) {
+            eprintln!("[MacOSWindow] Found callback at index: {}", callback_index);
+
+            // Menu callback invocation would be implemented here
+            // Requires proper CallbackInfo construction with menu structure access
+            // The callback_index maps to the MenuItem in the menu tree
+            eprintln!("[MacOSWindow] Menu callback invocation placeholder");
+        } else {
+            eprintln!("[MacOSWindow] No callback found for tag: {}", tag);
+        }
+    }
+
+    /// Check if window is maximized by comparing frame to screen size
+    ///
+    /// Updates the window frame state based on the actual window and screen dimensions.
+    /// Should be called after resize events.
+    fn check_maximized_state(&mut self) {
+        // Skip check if in fullscreen mode
+        if self.current_window_state.flags.frame == azul_core::window::WindowFrame::Fullscreen {
+            return;
+        }
+
+        let window_frame = self.window.frame();
+
+        // Get the visible frame of the screen (excludes menu bar and dock)
+        let screen_frame = unsafe {
+            if let Some(screen) = self.window.screen() {
+                screen.visibleFrame()
+            } else {
+                // No screen available, can't determine maximized state
+                return;
+            }
+        };
+
+        // Consider window maximized if it matches the screen's visible frame
+        // Allow small tolerance for rounding errors
+        let tolerance = 5.0;
+        let is_maximized = (window_frame.origin.x - screen_frame.origin.x).abs() < tolerance
+            && (window_frame.origin.y - screen_frame.origin.y).abs() < tolerance
+            && (window_frame.size.width - screen_frame.size.width).abs() < tolerance
+            && (window_frame.size.height - screen_frame.size.height).abs() < tolerance;
+
+        let new_frame = if is_maximized {
+            azul_core::window::WindowFrame::Maximized
+        } else {
+            azul_core::window::WindowFrame::Normal
+        };
+
+        if new_frame != self.current_window_state.flags.frame {
+            self.current_window_state.flags.frame = new_frame;
+            eprintln!("[MacOSWindow] Window frame changed to: {:?}", new_frame);
+        }
+    }
+
+    /// Set the application menu
+    ///
+    /// Updates the macOS menu bar with the provided menu structure.
+    /// Uses hash-based diffing to avoid unnecessary menu recreation.
+    pub fn set_application_menu(&mut self, menu: &azul_core::menu::Menu) {
+        if self.menu_state.update_if_changed(menu, self.mtm) {
+            eprintln!("[MacOSWindow] Application menu updated");
+            if let Some(ns_menu) = self.menu_state.get_nsmenu() {
+                let app = NSApplication::sharedApplication(self.mtm);
+                app.setMainMenu(Some(ns_menu));
+            }
+        }
     }
 
     /// Process an NSEvent and dispatch to appropriate handler
@@ -1583,6 +2030,18 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
+        // Check for close request from WindowDelegate
+        if self.current_window_state.flags.close_requested {
+            self.current_window_state.flags.close_requested = false;
+            self.handle_close_request();
+        }
+
+        // Process pending menu actions
+        let pending_actions = menu::take_pending_menu_actions();
+        for tag in pending_actions {
+            self.handle_menu_action(tag);
+        }
+
         let app = NSApplication::sharedApplication(self.mtm);
 
         // Poll event (non-blocking)
@@ -1601,6 +2060,10 @@ impl PlatformWindow for MacOSWindow {
 
             // Dispatch event to handlers
             self.process_event(&event, &macos_event);
+
+            // Check for maximized state after processing events
+            // This handles window resize/zoom events
+            self.check_maximized_state();
 
             // Forward event to system
             unsafe {
@@ -1692,7 +2155,9 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn request_redraw(&mut self) {
-        // TODO: Implement redraw request
+        // Redraw is handled automatically via event loop
+        // macOS triggers windowDidResize: and other events that cause redraws
+        self.frame_needs_regeneration = true;
     }
 }
 

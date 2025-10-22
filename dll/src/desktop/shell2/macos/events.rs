@@ -1149,7 +1149,7 @@ impl MacOSWindow {
             self.current_window_state.background_color = modified_state.background_color;
 
             // Check if window should close
-            if modified_state.flags.is_about_to_close {
+            if modified_state.flags.close_requested {
                 self.is_open = false;
                 return ProcessEventResult::DoNothing;
             }
