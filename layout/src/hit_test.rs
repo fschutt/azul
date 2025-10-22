@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+// Re-export FullHitTest from azul_core for backwards compatibility
+pub use azul_core::hit_test::FullHitTest;
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     hit_test::{HitTest, HitTestItem},
@@ -13,9 +15,6 @@ use azul_core::{
 use azul_css::props::style::StyleCursor;
 
 use crate::window::LayoutWindow;
-
-// Re-export FullHitTest from azul_core for backwards compatibility
-pub use azul_core::hit_test::FullHitTest;
 
 /// Result of cursor type hit-testing, determines which mouse cursor to display
 #[derive(Debug, Clone, Default, PartialEq)]

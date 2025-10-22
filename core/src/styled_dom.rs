@@ -56,10 +56,13 @@ use azul_css::{
 use crate::{
     callbacks::Update,
     dom::{
-        CompactDom, Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex,
-        TabIndex, TagId,
+        Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex, TabIndex,
+        TagId,
     },
-    id::{Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
+    id::{
+        Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,
+        NodeId,
+    },
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
     refany::RefAny,
     resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
@@ -1603,6 +1606,133 @@ impl StyledDom {
 
     // Computes the diff between the two DOMs
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
+}
+
+/// Same as `Dom`, but arena-based for more efficient memory layout and faster traversal.
+#[derive(Debug, PartialEq, PartialOrd, Eq)]
+pub struct CompactDom {
+    /// The arena containing the hierarchical relationships (parent, child, sibling) of all nodes.
+    pub node_hierarchy: NodeHierarchy,
+    /// The arena containing the actual data (`NodeData`) for each node.
+    pub node_data: NodeDataContainer<NodeData>,
+    /// The ID of the root node of the DOM tree.
+    pub root: NodeId,
+}
+
+impl CompactDom {
+    /// Returns the number of nodes in this DOM.
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.node_hierarchy.as_ref().len()
+    }
+}
+
+impl From<Dom> for CompactDom {
+    fn from(dom: Dom) -> Self {
+        convert_dom_into_compact_dom(dom)
+    }
+}
+
+pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
+    // note: somehow convert this into a non-recursive form later on!
+    fn convert_dom_into_compact_dom_internal(
+        dom: &mut Dom,
+        node_hierarchy: &mut [Node],
+        node_data: &mut Vec<NodeData>,
+        parent_node_id: NodeId,
+        node: Node,
+        cur_node_id: &mut usize,
+    ) {
+        // - parent [0]
+        //    - child [1]
+        //    - child [2]
+        //        - child of child 2 [2]
+        //        - child of child 2 [4]
+        //    - child [5]
+        //    - child [6]
+        //        - child of child 4 [7]
+
+        // Write node into the arena here!
+        node_hierarchy[parent_node_id.index()] = node.clone();
+
+        let copy = dom.root.copy_special();
+
+        node_data[parent_node_id.index()] = copy;
+
+        *cur_node_id += 1;
+
+        let mut previous_sibling_id = None;
+        let children_len = dom.children.len();
+        for (child_index, child_dom) in dom.children.as_mut().iter_mut().enumerate() {
+            let child_node_id = NodeId::new(*cur_node_id);
+            let is_last_child = (child_index + 1) == children_len;
+            let child_dom_is_empty = child_dom.children.is_empty();
+            let child_node = Node {
+                parent: Some(parent_node_id),
+                previous_sibling: previous_sibling_id,
+                next_sibling: if is_last_child {
+                    None
+                } else {
+                    Some(child_node_id + child_dom.estimated_total_children + 1)
+                },
+                last_child: if child_dom_is_empty {
+                    None
+                } else {
+                    Some(child_node_id + child_dom.estimated_total_children)
+                },
+            };
+            previous_sibling_id = Some(child_node_id);
+            // recurse BEFORE adding the next child
+            convert_dom_into_compact_dom_internal(
+                child_dom,
+                node_hierarchy,
+                node_data,
+                child_node_id,
+                child_node,
+                cur_node_id,
+            );
+        }
+    }
+
+    // Pre-allocate all nodes (+ 1 root node)
+    const DEFAULT_NODE_DATA: NodeData = NodeData::div();
+
+    let sum_nodes = dom.fixup_children_estimated();
+
+    let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
+    let mut node_data = vec![NodeData::div(); sum_nodes + 1];
+    let mut cur_node_id = 0;
+
+    let root_node_id = NodeId::ZERO;
+    let root_node = Node {
+        parent: None,
+        previous_sibling: None,
+        next_sibling: None,
+        last_child: if dom.children.is_empty() {
+            None
+        } else {
+            Some(root_node_id + dom.estimated_total_children)
+        },
+    };
+
+    convert_dom_into_compact_dom_internal(
+        &mut dom,
+        &mut node_hierarchy,
+        &mut node_data,
+        root_node_id,
+        root_node,
+        &mut cur_node_id,
+    );
+
+    CompactDom {
+        node_hierarchy: NodeHierarchy {
+            internal: node_hierarchy,
+        },
+        node_data: NodeDataContainer {
+            internal: node_data,
+        },
+        root: root_node_id,
+    }
 }
 
 fn fill_content_group_children(

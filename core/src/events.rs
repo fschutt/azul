@@ -1721,10 +1721,7 @@ impl EventDispatchResult {
 /// - Proper event ordering and filtering
 ///
 /// The shell layer just needs to call this function and then invoke the returned callbacks.
-pub fn dispatch_events(
-    events: &Events,
-    hit_test: Option<&FullHitTest>,
-) -> EventDispatchResult {
+pub fn dispatch_events(events: &Events, hit_test: Option<&FullHitTest>) -> EventDispatchResult {
     let mut result = EventDispatchResult::empty();
 
     // Early exit if no events

@@ -8,11 +8,10 @@ use std::{
 };
 
 use azul_core::{
-    dom::{NodeId, NodeType},
+    dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::RendererResources,
     styled_dom::StyledDom,
-    ui_solver::FormattingContext,
 };
 use azul_css::{
     css::CssPropertyValue,

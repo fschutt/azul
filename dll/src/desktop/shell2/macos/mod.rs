@@ -1313,14 +1313,12 @@ impl MacOSWindow {
         layout_window.font_manager.fc_cache = fc_cache_borrowed.clone();
 
         // 1. Call layout_callback to get styled_dom
-        let empty_image_cache = azul_core::resources::ImageCache::default();
-        let empty_gl_context: azul_core::gl::OptionGlContextPtr = None.into();
-
+        // Use window's cached image_cache and gl_context_ptr instead of creating empty ones
         let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
             self.current_window_state.size.clone(),
             self.current_window_state.theme,
-            &empty_image_cache,
-            &empty_gl_context,
+            &self.image_cache,
+            &self.gl_context_ptr,
             &*fc_cache_borrowed,
         );
 
@@ -1348,7 +1346,18 @@ impl MacOSWindow {
         // This updates scrollbar geometry (thumb position/size ratios, visibility)
         layout_window.scroll_states.calculate_scrollbar_states();
 
-        // 4. Synchronize scrollbar opacity with GPU cache
+        // 4. Rebuild display list and send to WebRender
+        let dpi = self.current_window_state.size.get_hidpi_factor();
+        crate::desktop::wr_translate2::rebuild_display_list(
+            layout_window,
+            &mut self.render_api,
+            &self.image_cache,
+            Vec::new(),
+            &self.renderer_resources,
+            dpi,
+        );
+
+        // 5. Synchronize scrollbar opacity with GPU cache AFTER display list submission
         // This enables smooth fade-in/fade-out without display list rebuild
         let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
         for (dom_id, layout_result) in &layout_window.layout_results {
@@ -1366,17 +1375,6 @@ impl MacOSWindow {
                 )), // fade_duration
             );
         }
-
-        // 5. Rebuild display list and send to WebRender
-        let dpi = self.current_window_state.size.get_hidpi_factor();
-        crate::desktop::wr_translate2::rebuild_display_list(
-            layout_window,
-            &mut self.render_api,
-            &self.image_cache,
-            Vec::new(),
-            &self.renderer_resources,
-            dpi,
-        );
 
         // 6. Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
@@ -1516,11 +1514,11 @@ impl MacOSWindow {
 
         // Scroll all nodes in the scroll manager to WebRender
         // This updates external scroll IDs with new offsets
-        Self::scroll_all_nodes(&layout_window.scroll_states, &mut txn);
+        crate::desktop::wr_translate2::scroll_all_nodes(layout_window, &mut txn);
 
         // Synchronize GPU-animated values (transforms, opacities, scrollbar positions)
         // Note: We need mutable access for gpu_state_manager updates
-        Self::synchronize_gpu_values(layout_window, &mut txn);
+        crate::desktop::wr_translate2::synchronize_gpu_values(layout_window, &mut txn);
 
         // Send transaction and generate frame (without rebuilding display list)
         self.render_api.send_transaction(
@@ -1537,176 +1535,12 @@ impl MacOSWindow {
         Ok(())
     }
 
-    /// Internal: Scroll all nodes to WebRender
-    fn scroll_all_nodes(
-        scroll_manager: &azul_layout::scroll::ScrollManager,
-        txn: &mut crate::desktop::wr_translate2::WrTransaction,
-    ) {
-        use crate::desktop::wr_translate2::{
-            wr_translate_external_scroll_id, wr_translate_logical_position, ScrollClamping,
-        };
-
-        // Iterate over all scroll states and update WebRender scroll layers
-        for ((dom_id, node_id), external_scroll_id) in scroll_manager.iter_external_scroll_ids() {
-            // Get current scroll offset
-            if let Some(offset) = scroll_manager.get_current_offset(dom_id, node_id) {
-                // Translate to WebRender types and send scroll command
-                let scroll_offset = wr_translate_logical_position(offset);
-                let sampled_offset = webrender::api::SampledScrollOffset {
-                    offset: webrender::api::units::LayoutVector2D::new(
-                        -scroll_offset.x,
-                        -scroll_offset.y,
-                    ),
-                    generation: 0, // Use 0 for now, proper generation tracking can be added later
-                };
-                txn.set_scroll_offsets(
-                    wr_translate_external_scroll_id(external_scroll_id),
-                    vec![sampled_offset],
-                );
-            }
-        }
-    }
-
-    /// Internal: Synchronize GPU-animated values to WebRender
-    fn synchronize_gpu_values(
-        layout_window: &mut azul_layout::window::LayoutWindow,
-        txn: &mut crate::desktop::wr_translate2::WrTransaction,
-    ) {
-        use webrender::api::{
-            DynamicProperties as WrDynamicProperties, PropertyBindingKey as WrPropertyBindingKey,
-            PropertyValue as WrPropertyValue,
-        };
-
-        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
-
-        // Update scrollbar transforms using GpuStateManager
-        for (dom_id, layout_result) in &layout_window.layout_results {
-            layout_window.gpu_state_manager.update_scrollbar_transforms(
-                *dom_id,
-                &layout_window.scroll_states,
-                &layout_result.layout_tree,
-            );
-        }
-
-        // Update scrollbar opacity based on activity
-        // This triggers fade-in on scroll and keeps scrollbars visible
-        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-        for (dom_id, layout_result) in &layout_window.layout_results {
-            azul_layout::window::LayoutWindow::synchronize_scrollbar_opacity(
-                &mut layout_window.gpu_state_manager,
-                &layout_window.scroll_states,
-                *dom_id,
-                &layout_result.layout_tree,
-                &system_callbacks,
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
-                    500,
-                )), // fade_delay
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
-                    200,
-                )), // fade_duration
-            );
-        }
-
-        // Collect all transform keys and values from GPU caches
-        let transforms = layout_window
-            .gpu_state_manager
-            .caches
-            .values()
-            .flat_map(|gpu_cache| {
-                gpu_cache
-                    .transform_keys
-                    .iter()
-                    .filter_map(|(node_id, key)| {
-                        let mut value = gpu_cache.current_transform_values.get(node_id)?.clone();
-                        value.scale_for_dpi(dpi);
-                        Some((key, value))
-                    })
-            })
-            .map(|(k, v)| WrPropertyValue {
-                key: WrPropertyBindingKey::new(k.id as u64),
-                value: Self::wr_translate_layout_transform(&v),
-            })
-            .collect::<Vec<_>>();
-
-        // Collect all opacity keys and values (including scrollbar opacities)
-        let floats = layout_window
-            .gpu_state_manager
-            .caches
-            .values()
-            .flat_map(|gpu_cache| {
-                // Regular opacity values
-                let mut opacity_values = gpu_cache
-                    .opacity_keys
-                    .iter()
-                    .filter_map(|(node_id, key)| {
-                        let value = gpu_cache.current_opacity_values.get(node_id)?;
-                        Some((key, *value))
-                    })
-                    .collect::<Vec<_>>();
-
-                // Vertical scrollbar opacities
-                opacity_values.extend(gpu_cache.scrollbar_v_opacity_keys.iter().filter_map(
-                    |(key_tuple, key)| {
-                        let value = gpu_cache.scrollbar_v_opacity_values.get(key_tuple)?;
-                        Some((key, *value))
-                    },
-                ));
-
-                // Horizontal scrollbar opacities
-                opacity_values.extend(gpu_cache.scrollbar_h_opacity_keys.iter().filter_map(
-                    |(key_tuple, key)| {
-                        let value = gpu_cache.scrollbar_h_opacity_values.get(key_tuple)?;
-                        Some((key, *value))
-                    },
-                ));
-
-                opacity_values.into_iter()
-            })
-            .map(|(k, v)| WrPropertyValue {
-                key: WrPropertyBindingKey::new(k.id as u64),
-                value: v,
-            })
-            .collect::<Vec<_>>();
-
-        // Update dynamic properties in WebRender
-        txn.append_dynamic_properties(WrDynamicProperties {
-            transforms,
-            floats,
-            colors: Vec::new(), // No color animations for now
-        });
-    }
-
-    /// Helper: Translate ComputedTransform3D to WebRender LayoutTransform
-    fn wr_translate_layout_transform(
-        transform: &azul_core::transform::ComputedTransform3D,
-    ) -> webrender::api::units::LayoutTransform {
-        webrender::api::units::LayoutTransform::new(
-            transform.m[0][0], // m11
-            transform.m[0][1], // m12
-            transform.m[0][2], // m13
-            transform.m[0][3], // m14
-            transform.m[1][0], // m21
-            transform.m[1][1], // m22
-            transform.m[1][2], // m23
-            transform.m[1][3], // m24
-            transform.m[2][0], // m31
-            transform.m[2][1], // m32
-            transform.m[2][2], // m33
-            transform.m[2][3], // m34
-            transform.m[3][0], // m41
-            transform.m[3][1], // m42
-            transform.m[3][2], // m43
-            transform.m[3][3], // m44
-        )
-    }
-
     fn sync_window_state(&mut self) {
-        let previous = match &self.previous_window_state {
-            Some(prev) => prev,
+        // Get copies of previous and current state to avoid borrow checker issues
+        let (previous, current) = match &self.previous_window_state {
+            Some(prev) => (prev.clone(), self.current_window_state.clone()),
             None => return, // First frame, nothing to sync
         };
-
-        let current = &self.current_window_state;
 
         // Title changed?
         if previous.title != current.title {
@@ -1741,16 +1575,20 @@ impl MacOSWindow {
 
         // Window flags changed?
         if previous.flags != current.flags {
-            let mut style_mask = NSWindowStyleMask::Titled;
-
-            if current.flags.is_resizable {
-                style_mask |= NSWindowStyleMask::Resizable;
-            }
-            if current.flags.decorations != azul_core::window::WindowDecorations::None {
-                style_mask |= NSWindowStyleMask::Closable | NSWindowStyleMask::Miniaturizable;
+            // Check decorations
+            if previous.flags.decorations != current.flags.decorations {
+                self.apply_decorations(current.flags.decorations);
             }
 
-            self.window.setStyleMask(style_mask);
+            // Check resizable
+            if previous.flags.is_resizable != current.flags.is_resizable {
+                self.apply_resizable(current.flags.is_resizable);
+            }
+
+            // Check background material
+            if previous.flags.background_material != current.flags.background_material {
+                self.apply_background_material(current.flags.background_material);
+            }
         }
 
         // Visibility changed?
@@ -1760,6 +1598,54 @@ impl MacOSWindow {
             } else {
                 self.window.orderOut(None);
             }
+        }
+
+        // Mouse cursor synchronization - compute from current hit test
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
+            let cursor_name = self.map_cursor_type_to_macos(cursor_test.cursor_icon);
+            self.set_cursor(cursor_name);
+        }
+    }
+
+    /// Map MouseCursorType to macOS cursor name
+    fn map_cursor_type_to_macos(
+        &self,
+        cursor_type: azul_core::window::MouseCursorType,
+    ) -> &'static str {
+        use azul_core::window::MouseCursorType;
+        match cursor_type {
+            MouseCursorType::Default | MouseCursorType::Arrow => "arrow",
+            MouseCursorType::Crosshair => "crosshair",
+            MouseCursorType::Hand => "pointing_hand",
+            MouseCursorType::Move => "open_hand",
+            MouseCursorType::Text => "ibeam",
+            MouseCursorType::Wait | MouseCursorType::Progress => "arrow",
+            MouseCursorType::Help => "arrow",
+            MouseCursorType::NotAllowed | MouseCursorType::NoDrop => "operation_not_allowed",
+            MouseCursorType::ContextMenu => "arrow",
+            MouseCursorType::Cell => "crosshair",
+            MouseCursorType::VerticalText => "ibeam",
+            MouseCursorType::Alias => "drag_link",
+            MouseCursorType::Copy => "drag_copy",
+            MouseCursorType::Grab => "open_hand",
+            MouseCursorType::Grabbing => "closed_hand",
+            MouseCursorType::AllScroll => "open_hand",
+            MouseCursorType::ZoomIn | MouseCursorType::ZoomOut => "arrow",
+            MouseCursorType::EResize
+            | MouseCursorType::WResize
+            | MouseCursorType::EwResize
+            | MouseCursorType::ColResize => "resize_left_right",
+            MouseCursorType::NResize
+            | MouseCursorType::SResize
+            | MouseCursorType::NsResize
+            | MouseCursorType::RowResize => "resize_up_down",
+            MouseCursorType::NeResize
+            | MouseCursorType::NwResize
+            | MouseCursorType::SeResize
+            | MouseCursorType::SwResize
+            | MouseCursorType::NeswResize
+            | MouseCursorType::NwseResize => "arrow",
         }
     }
 
@@ -1796,22 +1682,35 @@ impl MacOSWindow {
 
     /// Handle close request from WindowDelegate
     fn handle_close_request(&mut self) {
-        use azul_core::events::{EventFilter, WindowEventFilter};
-        use crate::azul_impl::shell2::macos::events::CallbackTarget;
-
         eprintln!("[MacOSWindow] Processing close request");
 
-        // Set close_requested flag
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Set close_requested flag in current state
         self.current_window_state.flags.close_requested = true;
 
-        // Dispatch CloseRequested to root nodes  
-        // Note: dispatch_callbacks already processes the result internally
-        let _result = self.dispatch_callbacks(
-            CallbackTarget::RootNodes,
-            EventFilter::Window(WindowEventFilter::CloseRequested),
-        );
+        // Use V2 event system to detect CloseRequested and dispatch callbacks
+        // This allows callbacks to modify DOM or prevent close by clearing the flag
+        let result = self.process_window_events_v2();
 
-        // Check if callbacks prevented close (by clearing close_requested flag)
+        // Process the result - regenerate layout if needed
+        match result {
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!(
+                        "[MacOSWindow] Layout regeneration failed after close callback: {}",
+                        e
+                    );
+                }
+            }
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.frame_needs_regeneration = true;
+            }
+            _ => {}
+        }
+
+        // Check if callback cleared the flag (preventing close)
         if self.current_window_state.flags.close_requested {
             eprintln!("[MacOSWindow] Close confirmed, closing window");
             self.close_window();
@@ -2003,35 +1902,6 @@ impl MacOSWindow {
                     self.window.setTitlebarAppearsTransparent(true);
                 }
             }
-        }
-    }
-
-    /// Check for window state changes and apply them
-    fn apply_window_state_changes(&mut self, prev_state: &FullWindowState) {
-        // Copy values to avoid borrow checker issues
-        let curr_decorations = self.current_window_state.flags.decorations;
-        let curr_visible = self.current_window_state.flags.is_visible;
-        let curr_resizable = self.current_window_state.flags.is_resizable;
-        let curr_material = self.current_window_state.flags.background_material;
-
-        // Check decorations
-        if curr_decorations != prev_state.flags.decorations {
-            self.apply_decorations(curr_decorations);
-        }
-
-        // Check visibility
-        if curr_visible != prev_state.flags.is_visible {
-            self.apply_visibility(curr_visible);
-        }
-
-        // Check resizable
-        if curr_resizable != prev_state.flags.is_resizable {
-            self.apply_resizable(curr_resizable);
-        }
-
-        // Check background material (Note: applying at runtime may cause visual glitches)
-        if curr_material != prev_state.flags.background_material {
-            self.apply_background_material(curr_material);
         }
     }
 

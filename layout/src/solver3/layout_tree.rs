@@ -9,10 +9,10 @@ use std::{
 };
 
 use azul_core::{
-    dom::{NodeId, NodeType},
+    dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::StyledDom,
-    ui_solver::{FormattingContext, ResolvedOffsets},
+    ui_solver::ResolvedOffsets,
 };
 use azul_css::{
     corety::LayoutDebugMessage,

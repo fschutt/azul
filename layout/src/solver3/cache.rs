@@ -18,10 +18,9 @@ use std::{
 };
 
 use azul_core::{
-    dom::NodeId,
+    dom::{FormattingContext, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::{StyledDom, StyledNode},
-    ui_solver::FormattingContext,
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -609,8 +608,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let node = tree.get(node_index).unwrap();
         matches!(
             node.formatting_context,
-            azul_core::ui_solver::FormattingContext::Flex
-                | azul_core::ui_solver::FormattingContext::Grid
+            FormattingContext::Flex | FormattingContext::Grid
         )
     };
 

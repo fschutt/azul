@@ -40,7 +40,6 @@ use crate::{
         Duration as AzDuration, GetSystemTimeCallback, Instant as AzInstant, Instant,
         TerminateTimer, ThreadId, ThreadReceiver, ThreadSendMsg, TimerId,
     },
-    ui_solver::PositionInfo,
     window::{
         AzStringPair, KeyboardState, MouseState, OptionChar, RawWindowHandle, UpdateFocusWarning,
         WindowFlags, WindowSize, WindowTheme,
@@ -149,28 +148,6 @@ pub struct MarshaledLayoutCallbackInner {
 
 impl_callback!(MarshaledLayoutCallbackInner);
 
-// -- normal callback
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct InlineGlyph {
-    pub bounds: LogicalRect,
-    pub unicode_codepoint: OptionChar,
-    pub glyph_index: u32,
-}
-
-impl InlineGlyph {
-    pub fn has_codepoint(&self) -> bool {
-        self.unicode_codepoint.is_some()
-    }
-}
-
-impl_vec!(InlineGlyph, InlineGlyphVec, InlineGlyphVecDestructor);
-impl_vec_clone!(InlineGlyph, InlineGlyphVec, InlineGlyphVecDestructor);
-impl_vec_debug!(InlineGlyph, InlineGlyphVec);
-impl_vec_partialeq!(InlineGlyph, InlineGlyphVec);
-impl_vec_partialord!(InlineGlyph, InlineGlyphVec);
-
 // -- iframe callback
 
 pub type IFrameCallbackType =
@@ -278,9 +255,6 @@ impl IFrameCallbackInfo {
     pub fn get_bounds(&self) -> HidpiAdjustedBounds {
         self.bounds
     }
-
-    // fn get_font()
-    // fn get_image()
 
     fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache {
         unsafe { &*self.system_fonts }
@@ -807,6 +781,8 @@ pub struct FocusTargetPath {
     pub css_path: CssPath,
 }
 
+// -- normal callback
+
 // ============================================================================
 // CORE CALLBACK TYPES (usize-based placeholders)
 // ============================================================================
@@ -905,6 +881,8 @@ impl CoreCallbackDataVec {
         }
     }
 }
+
+// -- image rendering callback
 
 /// Image rendering callback type - uses usize instead of function pointer
 pub type CoreRenderImageCallbackType = usize;

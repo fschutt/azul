@@ -1,3 +1,4 @@
+use azul_core::dom::FormattingContext;
 use azul_css::{
     css::CssPropertyValue,
     props::{
@@ -921,12 +922,8 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let mut bridge = TaffyBridge::new(ctx, tree);
     let node = bridge.tree.get(node_idx).unwrap();
     let output = match node.formatting_context {
-        azul_core::ui_solver::FormattingContext::Flex => {
-            compute_flexbox_layout(&mut bridge, node_idx.into(), inputs)
-        }
-        azul_core::ui_solver::FormattingContext::Grid => {
-            compute_grid_layout(&mut bridge, node_idx.into(), inputs)
-        }
+        FormattingContext::Flex => compute_flexbox_layout(&mut bridge, node_idx.into(), inputs),
+        FormattingContext::Grid => compute_grid_layout(&mut bridge, node_idx.into(), inputs),
         _ => LayoutOutput::HIDDEN,
     };
     output
@@ -1009,12 +1006,8 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
                 .unwrap_or_default();
 
             match fc {
-                azul_core::ui_solver::FormattingContext::Flex => {
-                    compute_flexbox_layout(tree, node_id, inputs)
-                }
-                azul_core::ui_solver::FormattingContext::Grid => {
-                    compute_grid_layout(tree, node_id, inputs)
-                }
+                FormattingContext::Flex => compute_flexbox_layout(tree, node_id, inputs),
+                FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 _ => {
                     let node = tree.tree.get(node_idx).unwrap();
                     let style = tree.get_taffy_style(node_idx);

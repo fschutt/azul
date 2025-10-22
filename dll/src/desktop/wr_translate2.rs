@@ -789,7 +789,7 @@ pub fn generate_frame(
 }
 
 /// Synchronize scroll positions from ScrollManager to WebRender
-fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
+pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
     use webrender::api::{units::LayoutVector2D as WrLayoutVector2D, SampledScrollOffset};
 
     // Iterate through all DOMs
@@ -837,7 +837,7 @@ fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
 }
 
 /// Synchronize GPU-animated values (transforms, opacities) to WebRender
-fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
     // TODO: Implement transform synchronization
     // This would iterate through GPU value cache and update property values
 
