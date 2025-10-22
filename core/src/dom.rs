@@ -2242,7 +2242,7 @@ impl Dom {
     }
 
     /// Parse XML/XHTML string into a DOM
-    /// 
+    ///
     /// This is a simple wrapper that parses XML and converts it to a DOM.
     /// For now, it just creates a text node with the content since full XML parsing
     /// requires the xml feature and more complex parsing logic.
@@ -2250,13 +2250,19 @@ impl Dom {
     pub fn from_xml<S: AsRef<str>>(xml_str: S) -> Self {
         // TODO: Implement full XML parsing
         // For now, just create a text node showing that XML was loaded
-        Self::text(format!("XML content loaded ({} bytes)", xml_str.as_ref().len()))
+        Self::text(format!(
+            "XML content loaded ({} bytes)",
+            xml_str.as_ref().len()
+        ))
     }
 
     /// Parse XML/XHTML string into a DOM (fallback without xml feature)
     #[cfg(not(feature = "xml"))]
     pub fn from_xml<S: AsRef<str>>(xml_str: S) -> Self {
-        Self::text(format!("XML parsing requires 'xml' feature ({} bytes)", xml_str.as_ref().len()))
+        Self::text(format!(
+            "XML parsing requires 'xml' feature ({} bytes)",
+            xml_str.as_ref().len()
+        ))
     }
 
     // Swaps `self` with a default DOM, necessary for builder methods

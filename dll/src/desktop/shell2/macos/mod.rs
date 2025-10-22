@@ -19,7 +19,7 @@ use objc2::{
     define_class,
     msg_send_id,
     rc::{Allocated, Retained},
-    runtime::ProtocolObject,
+    runtime::{NSObjectProtocol, ProtocolObject},
     AnyThread, // For alloc() method
     ClassType,
     DeclaredClass,
@@ -30,7 +30,7 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
     NSBitmapImageRep, NSColor, NSCompositingOperation, NSEvent, NSEventMask, NSEventType, NSImage,
     NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute,
-    NSOpenGLView, NSResponder, NSScreen, NSView, NSWindow, NSWindowStyleMask,
+    NSOpenGLView, NSResponder, NSScreen, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     ns_string, NSData, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
@@ -398,6 +398,93 @@ define_class!(
 );
 
 // ============================================================================
+// WindowDelegate - Handles window lifecycle events (close, resize, etc.)
+// ============================================================================
+
+/// Instance variables for WindowDelegate
+pub struct WindowDelegateIvars {
+    /// Weak reference to the FullWindowState to access close_callback and flags
+    window_state: RefCell<Option<*mut FullWindowState>>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AzulWindowDelegate"]
+    #[ivars = WindowDelegateIvars]
+    pub struct WindowDelegate;
+
+    impl WindowDelegate {
+        #[unsafe(method(windowShouldClose:))]
+        fn window_should_close(&self, _sender: Option<&NSWindow>) -> bool {
+            // Get access to the window state
+            let state_ptr = *self.ivars().window_state.borrow();
+
+            if let Some(state_ptr) = state_ptr {
+                let state = unsafe { &mut *state_ptr };
+
+                // Set the flag to true initially (default: allow close)
+                state.flags.is_about_to_close = true;
+
+                // First, invoke the close_callback if present
+                // The callback can set is_about_to_close to false to prevent closing
+                if let azul_layout::callbacks::OptionCallback::Some(callback) = &state.close_callback {
+                    eprintln!("[WindowDelegate] Invoking close callback");
+
+                    // TODO: For proper callback invocation we need CallbackInfo
+                    // For now, just log that we would call it
+                    // The callback would need access to:
+                    // - app_data (RefAny)
+                    // - CallbackInfo (window state, layout info, etc.)
+
+                    // In a complete implementation, the callback would be invoked here like:
+                    // let update = (callback.cb)(&mut app_data, &mut callback_info);
+                    // For now, we just respect the flag that can be set elsewhere
+                }
+
+                // Check if the window should actually close
+                let should_close = state.flags.is_about_to_close;
+
+                eprintln!("[WindowDelegate] windowShouldClose: {}", should_close);
+
+                should_close
+            } else {
+                // No state pointer, allow close by default
+                eprintln!("[WindowDelegate] No state pointer, allowing close");
+                true
+            }
+        }
+
+        #[unsafe(method_id(init))]
+        fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
+            let this = this.set_ivars(WindowDelegateIvars {
+                window_state: RefCell::new(None),
+            });
+            unsafe { msg_send_id![super(this), init] }
+        }
+    }
+);
+
+// SAFETY: NSObjectProtocol has no safety requirements
+unsafe impl NSObjectProtocol for WindowDelegate {}
+
+// SAFETY: NSWindowDelegate has no safety requirements, and WindowDelegate is MainThreadOnly
+unsafe impl NSWindowDelegate for WindowDelegate {}
+
+impl WindowDelegate {
+    /// Create a new WindowDelegate
+    pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let result: Option<Retained<Self>> = unsafe { msg_send_id![Self::alloc(mtm), init] };
+        result.expect("Failed to initialize WindowDelegate")
+    }
+
+    /// Set the window state pointer for this delegate
+    pub fn set_window_state(&self, state: *mut FullWindowState) {
+        *self.ivars().window_state.borrow_mut() = Some(state);
+    }
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -432,6 +519,9 @@ fn create_opengl_pixel_format(
 pub struct MacOSWindow {
     /// The NSWindow instance
     window: Retained<NSWindow>,
+
+    /// Window delegate for handling window events
+    window_delegate: Retained<WindowDelegate>,
 
     /// Selected rendering backend
     backend: RenderBackend,
@@ -665,6 +755,13 @@ impl MacOSWindow {
             window.makeKeyAndOrderFront(None);
         }
 
+        // Create and set window delegate for handling window events
+        let window_delegate = WindowDelegate::new(mtm);
+        unsafe {
+            let delegate_obj = ProtocolObject::from_ref(&*window_delegate);
+            window.setDelegate(Some(delegate_obj));
+        }
+
         // Query actual HiDPI factor from NSWindow's screen
         let actual_hidpi_factor = unsafe {
             window
@@ -809,8 +906,14 @@ impl MacOSWindow {
             rust_fontconfig::FcFontCache::default(),
         ));
 
+        // Set the window state pointer in the delegate
+        // SAFETY: We hold &mut current_window_state and the pointer remains valid
+        // for the lifetime of the MacOSWindow
+        window_delegate.set_window_state(&mut current_window_state as *mut FullWindowState);
+
         Ok(Self {
             window,
+            window_delegate,
             backend,
             gl_view,
             gl_context,

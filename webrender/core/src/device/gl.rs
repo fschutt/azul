@@ -1062,9 +1062,7 @@ const RESERVE_DEPTH_BITS: i32 = 2;
 pub struct Device {
     gl: Rc<GenericGlContext>,
 
-    /// If non-None, |gl| points to a profiling wrapper, and this points to the
-    /// underling Gl instance.
-    base_gl: Option<Rc<GenericGlContext>>,
+    // Profiling removed - base_gl field deleted
 
     // device state
     bound_textures: [gl::GLuint; 16],
@@ -1898,7 +1896,6 @@ impl Device {
 
         Device {
             gl,
-            base_gl: None,
             crash_annotator,
             annotate_draw_call_crashes: false,
             resource_override_path,
@@ -2175,13 +2172,6 @@ impl Device {
 
         self.textures_created = 0;
         self.textures_deleted = 0;
-
-        // If our profiler state has changed, apply or remove the profiling
-        // wrapper from our GL context.
-        let being_profiled = profiler::thread_is_being_profiled();
-        let using_wrapper = self.base_gl.is_some();
-
-        self.gl = self.base_gl.take().unwrap();
 
         // Retrieve the currently set FBO.
         let mut default_read_fbo = [0];
