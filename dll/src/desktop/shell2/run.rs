@@ -23,17 +23,26 @@ use super::{PlatformWindow, WindowError};
 ///
 /// # Platform-specific behavior
 ///
-/// - **macOS**: Uses NSApplication.run() which blocks until app terminates
+/// - **macOS**: Uses NSApplication.run() which blocks until app terminates, OR uses a manual event
+///   loop if config.termination_behavior == ReturnToMain
 /// - **Windows**: Manual event loop with GetMessage/TranslateMessage/DispatchMessage
 /// - **Linux**: X11/Wayland event loop with appropriate polling
+///
+/// # Termination behavior
+///
+/// The behavior when all windows are closed is controlled by `config.termination_behavior`:
+/// - `ReturnToMain`: Returns control to main() (if platform supports it)
+/// - `RunForever`: Keeps app running until explicitly quit (macOS standard behavior)
+/// - `EndProcess`: Calls std::process::exit(0) when last window closes (default)
 #[cfg(target_os = "macos")]
 pub fn run(
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    use azul_core::resources::AppTerminationBehavior;
     use objc2::{rc::autoreleasepool, MainThreadMarker};
-    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
 
     autoreleasepool(|_| {
         let mtm = MainThreadMarker::new()
@@ -63,10 +72,80 @@ pub fn run(
             app.activateIgnoringOtherApps(true);
         }
 
-        // Enter the main event loop
-        // Note: NSApplication.run() blocks until the app terminates
-        unsafe {
-            app.run();
+        // Choose event loop based on termination behavior
+        match config.termination_behavior {
+            AppTerminationBehavior::RunForever => {
+                // Standard macOS behavior: Use NSApplication.run()
+                // This blocks until the app is explicitly terminated (Cmd+Q or quit menu)
+                eprintln!(
+                    "[Event Loop] Using NSApplication.run() - app will stay in dock when windows \
+                     close"
+                );
+                unsafe {
+                    app.run();
+                }
+            }
+            AppTerminationBehavior::ReturnToMain | AppTerminationBehavior::EndProcess => {
+                // Manual event loop: Checks if windows are closed and takes appropriate action
+                let action = if config.termination_behavior == AppTerminationBehavior::ReturnToMain
+                {
+                    eprintln!(
+                        "[Event Loop] Using manual event loop - will return to main() when all \
+                         windows close"
+                    );
+                    "return to main()"
+                } else {
+                    eprintln!(
+                        "[Event Loop] Using manual event loop - will exit process when all \
+                         windows close"
+                    );
+                    "exit process"
+                };
+
+                loop {
+                    autoreleasepool(|_| {
+                        // Process all pending events
+                        loop {
+                            let event = unsafe {
+                                app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                                    NSEventMask::Any,
+                                    None, // Don't wait - process immediately
+                                    objc2_foundation::ns_string!("kCFRunLoopDefaultMode"),
+                                    true,
+                                )
+                            };
+
+                            if let Some(event) = event {
+                                unsafe {
+                                    app.sendEvent(&event);
+                                }
+                            } else {
+                                // No more events to process
+                                break;
+                            }
+                        }
+
+                        // Check if window is still open
+                        if !window.is_open() {
+                            match config.termination_behavior {
+                                AppTerminationBehavior::ReturnToMain => {
+                                    eprintln!(
+                                        "[Event Loop] All windows closed, returning to main()"
+                                    );
+                                    return;
+                                }
+                                AppTerminationBehavior::EndProcess => {
+                                    eprintln!(
+                                        "[Event Loop] All windows closed, terminating process"
+                                    );
+                                    std::process::exit(0);
+                                }
+                                AppTerminationBehavior::RunForever => unreachable!(),
+                            }
+                        }
+                    });
+                }
+            }
         }
 
         Ok(())

@@ -54,6 +54,29 @@ impl DpiScaleFactor {
     }
 }
 
+/// Determines what happens when all application windows are closed
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum AppTerminationBehavior {
+    /// Return control to main() when all windows are closed (if platform supports it).
+    /// On macOS, this exits the NSApplication run loop and returns to main().
+    /// This is useful if you want to clean up resources or restart the event loop.
+    ReturnToMain,
+    /// Keep the application running even when all windows are closed.
+    /// This is the standard macOS behavior (app stays in dock until explicitly quit).
+    RunForever,
+    /// Immediately terminate the process when all windows are closed.
+    /// Calls std::process::exit(0).
+    EndProcess,
+}
+
+impl Default for AppTerminationBehavior {
+    fn default() -> Self {
+        // Default: End the process when all windows close (cross-platform behavior)
+        AppTerminationBehavior::EndProcess
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -71,6 +94,9 @@ pub struct AppConfig {
     /// (STUB) Whether keyboard navigation should be enabled (default: true).
     /// Currently not implemented.
     pub enable_tab_navigation: bool,
+    /// Determines what happens when all windows are closed.
+    /// Default: EndProcess (terminate when last window closes).
+    pub termination_behavior: AppTerminationBehavior,
 }
 
 impl AppConfig {
@@ -80,6 +106,7 @@ impl AppConfig {
             enable_visual_panic_hook: false,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
+            termination_behavior: AppTerminationBehavior::default(),
         }
     }
 }

@@ -1976,6 +1976,11 @@ impl MacOSWindow {
         self.is_open = false;
     }
 
+    /// Check if the window is still open
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
+
     /// Apply window decorations changes
     fn apply_decorations(&mut self, decorations: azul_core::window::WindowDecorations) {
         use azul_core::window::WindowDecorations;
