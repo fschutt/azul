@@ -141,9 +141,16 @@ def render_ui(app_state):
     ui.label(&app_state.output_text)```
 ```
 
-However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely **ignores it**. Logic 
-and rendering are mixed in a single, procedural pass. In the example, the calculation logic is executed 
-directly inside the rendering
+However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely **ignores it** and creates a hidden
+data binding in a "closure with captured arguments" instead of a "class with state and functions": the form is different, 
+but the operation is the same.
+
+A closure is just a function on a struct containing all captured variables. The effect is the same as a 
+class-with-methods, but on top of that, it provides even less layout flexibility than object-oriented code.
+
+Immediate Mode GUI solves the synchronization problem, but it fails at the other two core problems of data 
+access and inter-widget communication. It doesn't solve the architectural problem, and the performance tradeoffs 
+are — usually — immense.
 
 ## Why Electron Won
 
