@@ -839,9 +839,26 @@ where
             .tree
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
+
+        eprintln!(
+            "[paint_node_content] node_index={}, dom_id={:?}",
+            node_index, node.dom_node_id
+        );
+
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
+            eprintln!("[paint_node_content] No paint_rect for node {}", node_index);
             return Ok(());
         };
+
+        eprintln!("[paint_node_content] paint_rect: {:?}", paint_rect);
+        eprintln!(
+            "[paint_node_content] inline_layout_result: {}",
+            if node.inline_layout_result.is_some() {
+                "Some"
+            } else {
+                "None"
+            }
+        );
 
         // Add a hit-test area for this node if it's interactive.
         if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
@@ -850,8 +867,16 @@ where
 
         // Paint the node's visible content.
         if let Some(inline_layout) = &node.inline_layout_result {
+            eprintln!(
+                "[paint_node_content] ✓ Node {} has inline_layout, calling paint_inline_content",
+                node_index
+            );
             self.paint_inline_content(builder, paint_rect, inline_layout)?;
         } else if let Some(dom_id) = node.dom_node_id {
+            eprintln!(
+                "[paint_node_content] Node {} has no inline_layout, checking for image",
+                node_index
+            );
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if let NodeType::Image(image_data) = node_data.get_node_type() {
@@ -941,6 +966,15 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout<T>,
     ) -> Result<()> {
+        eprintln!(
+            "[paint_inline_content] CALLED with container_rect: {:?}",
+            container_rect
+        );
+        eprintln!(
+            "[paint_inline_content] layout.items.len() = {}",
+            layout.items.len()
+        );
+
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)
@@ -948,16 +982,33 @@ where
         // TODO: Handle text overflowing (based on container_rect and overflow behavior)
         let glyph_runs = crate::text3::glyphs::get_glyph_runs(layout);
 
-        for glyph_run in glyph_runs {
+        eprintln!(
+            "[paint_inline_content] Generated {} glyph runs",
+            glyph_runs.len()
+        );
+
+        for (idx, glyph_run) in glyph_runs.iter().enumerate() {
+            eprintln!(
+                "[paint_inline_content] GlyphRun #{}: {} glyphs, font_hash={}, font_size={}px, \
+                 color={:?}",
+                idx,
+                glyph_run.glyphs.len(),
+                glyph_run.font_hash,
+                glyph_run.font_size_px,
+                glyph_run.color
+            );
+
             let clip_rect = container_rect; // Clip to the container rect
                                             // Store only the font hash in the display list to keep it lean
             builder.push_text_run(
-                glyph_run.glyphs,
+                glyph_run.glyphs.clone(),
                 FontHash::from_hash(glyph_run.font_hash),
                 glyph_run.font_size_px,
                 glyph_run.color,
                 clip_rect,
             );
+
+            eprintln!("[paint_inline_content] ✓ Pushed text run to display list");
         }
 
         for item in &layout.items {

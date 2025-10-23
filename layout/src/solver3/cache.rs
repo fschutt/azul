@@ -364,6 +364,8 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     new_tree_builder: &mut LayoutTreeBuilder<T>,
     recon: &mut ReconciliationResult,
 ) -> Result<usize> {
+    use azul_core::dom::NodeType;
+
     let node_data = &ctx.styled_dom.node_data.as_container()[new_dom_id];
     eprintln!(
         "DEBUG reconcile_recursive: new_dom_id={:?}, node_type={:?}, old_tree_idx={:?}, \
@@ -423,6 +425,26 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     for i in 0..new_children_dom_ids.len() {
         let new_child_dom_id = new_children_dom_ids[i];
+
+        // CSS Spec: Text nodes don't generate layout boxes. They are inline content
+        // that is collected and laid out by their parent's inline formatting context.
+        // Skip creating layout nodes for text, but still hash them for dirty tracking.
+        let node_data = &ctx.styled_dom.node_data.as_container()[new_child_dom_id];
+        if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+            // Hash the text node for subtree tracking purposes
+            let text_hash = hash_styled_node_data(&ctx.styled_dom, new_child_dom_id);
+            new_child_hashes.push(text_hash);
+            // Mark as different if it's a new text node
+            let old_child_idx = old_children_indices.get(i).copied();
+            if old_tree
+                .and_then(|t| old_child_idx.and_then(|idx| t.get(idx)))
+                .is_none()
+            {
+                children_are_different = true;
+            }
+            continue; // Skip creating layout node for text
+        }
+
         let old_child_idx = old_children_indices.get(i).copied();
 
         let reconciled_child_idx = reconcile_recursive(

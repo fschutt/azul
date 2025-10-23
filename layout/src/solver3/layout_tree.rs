@@ -550,6 +550,68 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     )
 }
 
+/// Checks if a node is inline-level (including text nodes).
+/// According to CSS spec, inline-level content includes:
+/// - Elements with display: inline, inline-block, inline-table, inline-flex, inline-grid
+/// - Text nodes
+/// - Generated content
+fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    use azul_core::dom::NodeType;
+
+    // Text nodes are always inline-level
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        return true;
+    }
+
+    // Check the display property
+    matches!(
+        get_display_type(styled_dom, node_id),
+        LayoutDisplay::Inline
+            | LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineTable
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::InlineGrid
+    )
+}
+
+/// Checks if a block container has only inline-level children.
+/// According to CSS 2.2 Section 9.4.2: "An inline formatting context is established
+/// by a block container box that contains no block-level boxes."
+fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_hier = match hierarchy.get(node_id) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // Get the first child
+    let mut current_child = node_hier.first_child_id(node_id);
+
+    // If there are no children, it's not an IFC (it's empty)
+    if current_child.is_none() {
+        return false;
+    }
+
+    // Check all children
+    while let Some(child_id) = current_child {
+        if !is_inline_level(styled_dom, child_id) {
+            // Found a block-level child
+            return false;
+        }
+
+        // Move to next sibling
+        if let Some(child_hier) = hierarchy.get(child_id) {
+            current_child = child_hier.next_sibling_id();
+        } else {
+            break;
+        }
+    }
+
+    // All children are inline-level
+    true
+}
+
 fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     // Use node_state flags and node_type as a reasonable surrogate for now.
@@ -634,11 +696,36 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
 
 /// The logic now correctly identifies all BFC roots.
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
-    match get_display_type(styled_dom, node_id) {
+    // Special case: Text nodes should be treated as inline content.
+    // They participate in their parent's inline formatting context.
+    use azul_core::dom::NodeType;
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+        // Text nodes are inline-level content within their parent's IFC
+        return FormattingContext::Inline;
+    }
+
+    let display_type = get_display_type(styled_dom, node_id);
+
+    match display_type {
         LayoutDisplay::Inline => FormattingContext::Inline,
-        LayoutDisplay::Block | LayoutDisplay::FlowRoot => FormattingContext::Block {
-            establishes_new_context: establishes_new_block_formatting_context(styled_dom, node_id),
-        },
+
+        // CSS 2.2 Section 9.4.2: "An inline formatting context is established by a
+        // block container box that contains no block-level boxes."
+        // Check if this block container has only inline-level children.
+        LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
+            if has_only_inline_children(styled_dom, node_id) {
+                // This block container should establish an IFC for its inline children
+                FormattingContext::Inline
+            } else {
+                // Normal BFC
+                FormattingContext::Block {
+                    establishes_new_context: establishes_new_block_formatting_context(
+                        styled_dom, node_id,
+                    ),
+                }
+            }
+        }
         LayoutDisplay::InlineBlock => FormattingContext::InlineBlock,
         LayoutDisplay::Table | LayoutDisplay::InlineTable => FormattingContext::Table,
         LayoutDisplay::TableRowGroup

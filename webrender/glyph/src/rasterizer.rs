@@ -409,6 +409,7 @@ impl GlyphFormat {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct RasterizedGlyph {
     pub top: f32,
     pub left: f32,
@@ -470,42 +471,12 @@ impl GlyphRasterizer {
         }
     }
 
-    /// Adds a font from a FontTemplate (handles both parsed fonts and raw bytes).
-    pub fn add_font(&mut self, font_key: FontKey, template: FontTemplate) {
-        if !self.fonts.insert(font_key) {
-            return; // Font already exists
-        }
-
-        match template {
-            FontTemplate::Raw(ref bytes, index) => {
-                for context_mutex in self.font_contexts.iter() {
-                    let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
-                    context.add_font_from_bytes(font_key, bytes.as_slice(), index);
-                }
-            }
-            FontTemplate::Native(_) => {
-                // Native fonts are not supported in pure Rust implementation
-                // This is intentionally a no-op for API compatibility
-            }
-        }
-    }
-
     /// Adds a pre-parsed font directly (for efficiency when font is already parsed).
     pub fn add_parsed_font(&mut self, font_key: FontKey, parsed_font: FontRef) {
         if self.fonts.insert(font_key) {
             for context_mutex in self.font_contexts.iter() {
                 let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
                 context.add_font(font_key, parsed_font.clone());
-            }
-        }
-    }
-
-    /// Adds a font from raw bytes (for backward compatibility).
-    pub fn add_font_from_bytes(&mut self, font_key: FontKey, bytes: &[u8], index: u32) {
-        if self.fonts.insert(font_key) {
-            for context_mutex in self.font_contexts.iter() {
-                let mut context: MutexGuard<FontContext> = context_mutex.lock().unwrap();
-                context.add_font_from_bytes(font_key, bytes, index);
             }
         }
     }
@@ -581,7 +552,9 @@ impl GlyphRasterizer {
     where
         F: FnMut(&GlyphKey) -> bool,
     {
+        println!("wr_api: requesting {} glyphs", glyph_keys.len());
         assert!(self.has_font(font.font_key));
+        println!("font found!");
         let mut batch_size = 0;
         for key in glyph_keys {
             if !handle(key) {

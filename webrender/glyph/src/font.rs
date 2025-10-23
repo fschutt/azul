@@ -42,22 +42,6 @@ impl FontContext {
         }
     }
 
-    /// Adds a font from raw bytes (for backward compatibility).
-    ///
-    /// The font is parsed by `azul-layout` and its outlines are stored for later rasterization.
-    pub fn add_font_from_bytes(&mut self, font_key: FontKey, bytes: &[u8], index: u32) {
-        if self.fonts.contains_key(&font_key) {
-            return;
-        }
-
-        if let Some(parsed_font) = ParsedFont::from_bytes(bytes, index as usize, true) {
-            self.fonts
-                .insert(font_key, azul_layout::parsed_font_to_font_ref(parsed_font));
-        } else {
-            log::error!("Failed to parse font for key {:?}", font_key);
-        }
-    }
-
     /// Removes a font from the context.
     pub fn delete_font(&mut self, font_key: &FontKey) {
         self.fonts.remove(font_key);
@@ -78,10 +62,12 @@ impl FontContext {
         font: &FontInstance,
         key: &GlyphKey,
     ) -> Option<GlyphDimensions> {
+        eprintln!("webrender azul glyph: get glyph dimensions: {key:?}");
         let parsed_font = self.fonts.get(&font.font_key)?;
         let parsed_font = azul_layout::font_ref_to_parsed_font(parsed_font);
         let glyph_id = key.index() as u16;
         let glyph = parsed_font.glyph_records_decoded.get(&glyph_id)?;
+        eprintln!("webrender azul glyph: got glyph!");
 
         let units_per_em = parsed_font.font_metrics.units_per_em as f32;
         if units_per_em == 0.0 {
@@ -96,13 +82,17 @@ impl FontContext {
         let height = ((bb.max_y - bb.min_y) as f32 * scale).ceil() as i32;
         let advance = glyph.horz_advance as f32 * scale;
 
-        Some(GlyphDimensions {
+        let dim = GlyphDimensions {
             left: (bb.min_x as f32 * scale).floor() as i32,
             top: (bb.max_y as f32 * scale).ceil() as i32, // Note: Y is up in font coordinates
             width: width.max(0),
             height: height.max(0),
             advance,
-        })
+        };
+
+        eprintln!("webrender azul glyph: got glyph dimensions: {dim:?}");
+
+        Some(dim)
     }
 
     /// Prepares a font instance for rasterization.
@@ -115,6 +105,7 @@ impl FontContext {
 
     /// Rasterizes a single glyph into an alpha mask.
     pub fn rasterize_glyph(&self, font: &FontInstance, key: &GlyphKey) -> GlyphRasterResult {
+        eprintln!("webrender az_glyph: rasterizing glyph {key:?}");
         let parsed_font = self
             .fonts
             .get(&font.font_key)
@@ -173,7 +164,7 @@ impl FontContext {
         // WebRender will later convert this to R8 or BGRA8 as needed.
         let alpha_bytes: Vec<u8> = pixmap.pixels().iter().map(|p| p.alpha()).collect();
 
-        Ok(RasterizedGlyph {
+        let rr = RasterizedGlyph {
             left: left - padding,
             top: -top - padding, // WebRender expects Y-down for bitmap top coordinate
             width: pixel_width as i32,
@@ -181,12 +172,17 @@ impl FontContext {
             scale: 1.0, // The rasterized glyph is already at the correct scale.
             format: GlyphFormat::Alpha,
             bytes: alpha_bytes,
-        })
+        };
+
+        eprintln!("webrender az_glyph: rasterized glyph {rr:?} successfully");
+
+        Ok(rr)
     }
 }
 
 /// Converts an `azul-layout` `OwnedGlyph` outline into a `tiny-skia::Path`.
 fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<tiny_skia::Path> {
+    eprintln!("building tiny_skia path");
     let mut pb = PathBuilder::new();
     let mut has_ops = false;
     for outline in &glyph.outline {

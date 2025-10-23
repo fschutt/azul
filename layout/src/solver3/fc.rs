@@ -251,9 +251,11 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
     match node.formatting_context {
-        FormattingContext::Block { .. } => layout_bfc(ctx, tree, node_index, constraints),
+        FormattingContext::Block { .. } => {
+            layout_bfc(ctx, tree, text_cache, node_index, constraints)
+        }
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints),
-        FormattingContext::Table => layout_table_fc(ctx, tree, node_index, constraints),
+        FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints),
         FormattingContext::Flex | FormattingContext::Grid => {
             let available_space = TaffySize {
                 width: AvailableSpace::Definite(constraints.available_size.width),
@@ -295,7 +297,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
             Ok(output)
         }
-        _ => layout_bfc(ctx, tree, node_index, constraints),
+        _ => layout_bfc(ctx, tree, text_cache, node_index, constraints),
     }
 }
 
@@ -321,6 +323,7 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -514,16 +517,26 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
+    eprintln!("[layout_ifc] CALLED for node_index={}", node_index);
+
     let ifc_root_dom_id = tree
         .get(node_index)
         .and_then(|n| n.dom_node_id)
         .ok_or(LayoutError::InvalidTree)?;
 
+    eprintln!("[layout_ifc] ifc_root_dom_id={:?}", ifc_root_dom_id);
+
     // Phase 1: Collect and measure all inline-level children.
     let (inline_content, child_map) =
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
 
+    eprintln!(
+        "[layout_ifc] Collected {} inline content items",
+        inline_content.len()
+    );
+
     if inline_content.is_empty() {
+        eprintln!("[layout_ifc] WARNING: inline_content is empty, returning default output!");
         return Ok(LayoutOutput::default());
     }
 
@@ -536,15 +549,43 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }];
 
     // Phase 3: Invoke the text layout engine.
-    let text_layout_result = text_cache
-        .layout_flow(&inline_content, &[], &fragments, ctx.font_manager)
-        .map_err(LayoutError::from)?;
+    let text_layout_result =
+        match text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager) {
+            Ok(result) => result,
+            Err(e) => {
+                // Font errors should not stop layout of other elements.
+                // Log the error and return a zero-sized layout.
+                eprintln!("[layout_ifc] ⚠️  WARNING: Text layout failed: {:?}", e);
+                eprintln!(
+                    "[layout_ifc] ⚠️  Continuing with zero-sized layout for node {}",
+                    node_index
+                );
+
+                let mut output = LayoutOutput::default();
+                output.overflow_size = LogicalSize::new(0.0, 0.0);
+                return Ok(output);
+            }
+        };
 
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
     let node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
 
+    eprintln!(
+        "[layout_ifc] text_layout_result has {} fragment_layouts",
+        text_layout_result.fragment_layouts.len()
+    );
+
     if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
+        eprintln!(
+            "[layout_ifc] ✓ Found 'main' fragment with {} items",
+            main_frag.items.len()
+        );
+        eprintln!(
+            "[layout_ifc] ✓ Storing inline_layout_result on node {}",
+            node_index
+        );
+
         // Store the detailed result for the display list generator.
         node.inline_layout_result = Some(main_frag.clone());
 
@@ -710,6 +751,7 @@ fn translate_to_text3_constraints<'a>(
 fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -722,7 +764,7 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // 5. Position cells within the final grid.
 
     // For now, we fall back to simple block stacking.
-    layout_bfc(ctx, tree, node_index, constraints)
+    layout_bfc(ctx, tree, text_cache, node_index, constraints)
 }
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children
@@ -733,26 +775,101 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
     tree: &mut LayoutTree<T>,
     ifc_root_index: usize,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
+    eprintln!(
+        "[collect_and_measure_inline_content] CALLED for node_index={}",
+        ifc_root_index
+    );
+
     let mut content = Vec::new();
     // Maps the `ContentIndex` used by text3 back to the `LayoutNode` index.
     let mut child_map = HashMap::new();
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
 
+    // Get the DOM node ID of the IFC root
+    let Some(ifc_root_dom_id) = ifc_root_node.dom_node_id else {
+        eprintln!("[collect_and_measure_inline_content] WARNING: IFC root has no DOM ID");
+        return Ok((content, child_map));
+    };
+
     // Collect children to avoid holding an immutable borrow during iteration
     let children: Vec<_> = ifc_root_node.children.clone();
     drop(ifc_root_node);
 
-    for (item_idx, child_index) in children.iter().enumerate() {
-        let child_index = *child_index;
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let Some(dom_id) = child_node.dom_node_id else {
-            continue;
-        };
+    eprintln!(
+        "[collect_and_measure_inline_content] Node {} has {} layout children",
+        ifc_root_index,
+        children.len()
+    );
 
+    // IMPORTANT: We need to traverse the DOM, not just the layout tree!
+    // According to CSS spec, a block container with inline-level children establishes
+    // an IFC and should collect ALL inline content, including text nodes.
+    // Text nodes exist in the DOM but might not have their own layout tree nodes.
+
+    // Debug: Check what the node_hierarchy says about this node
+    let node_hier_item = &ctx.styled_dom.node_hierarchy.as_container()[ifc_root_dom_id];
+    eprintln!(
+        "[collect_and_measure_inline_content] DEBUG: node_hier_item.first_child={:?}, \
+         last_child={:?}",
+        node_hier_item.first_child_id(ifc_root_dom_id),
+        node_hier_item.last_child_id()
+    );
+
+    let dom_children: Vec<NodeId> = ifc_root_dom_id
+        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
+        .collect();
+
+    eprintln!(
+        "[collect_and_measure_inline_content] IFC root has {} DOM children",
+        dom_children.len()
+    );
+
+    for (item_idx, &dom_child_id) in dom_children.iter().enumerate() {
         let content_index = ContentIndex {
             run_index: ifc_root_index as u32,
             item_index: item_idx as u32,
         };
+
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_child_id];
+
+        // Check if this is a text node
+        if let NodeType::Text(ref text_content) = node_data.get_node_type() {
+            eprintln!(
+                "[collect_and_measure_inline_content] ✓ Found text node (DOM child {:?}): '{}'",
+                dom_child_id,
+                text_content.as_str()
+            );
+            content.push(InlineContent::Text(StyledRun {
+                text: text_content.to_string(),
+                style: Arc::new(get_style_properties(ctx.styled_dom, dom_child_id)),
+                logical_start_byte: 0,
+            }));
+            // Text nodes don't have layout tree nodes, so we don't add them to child_map
+            continue;
+        }
+
+        // For non-text nodes, find their corresponding layout tree node
+        let child_index = children
+            .iter()
+            .find(|&&idx| {
+                tree.get(idx)
+                    .and_then(|n| n.dom_node_id)
+                    .map(|id| id == dom_child_id)
+                    .unwrap_or(false)
+            })
+            .copied();
+
+        let Some(child_index) = child_index else {
+            eprintln!(
+                "[collect_and_measure_inline_content] WARNING: DOM child {:?} has no layout node",
+                dom_child_id
+            );
+            continue;
+        };
+
+        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        // At this point we have a non-text DOM child with a layout node
+        let dom_id = child_node.dom_node_id.unwrap();
 
         if get_display_property(ctx.styled_dom, Some(dom_id)) != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
@@ -808,22 +925,22 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 baseline_offset,
             }));
             child_map.insert(content_index, child_index);
-        } else if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-            content.push(InlineContent::Text(StyledRun {
-                text,
-                style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
-                logical_start_byte: 0,
-            }));
         } else if let NodeType::Image(image_data) =
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type()
         {
+            // Re-get child_node since we dropped it earlier for the inline-block case
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+
             // This is a simplified image handling. A real implementation would have more robust
             // intrinsic size resolution (e.g., from the image data itself).
-            let intrinsic_size = child_node.intrinsic_sizes.unwrap_or(IntrinsicSizes {
-                max_content_width: 50.0,
-                max_content_height: 50.0,
-                ..Default::default()
-            });
+            let intrinsic_size = child_node
+                .intrinsic_sizes
+                .clone()
+                .unwrap_or(IntrinsicSizes {
+                    max_content_width: 50.0,
+                    max_content_height: 50.0,
+                    ..Default::default()
+                });
             content.push(InlineContent::Image(InlineImage {
                 source: ImageSource::Url(String::new()), // Placeholder
                 intrinsic_size: crate::text3::cache::Size {

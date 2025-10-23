@@ -32,7 +32,7 @@ extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -
     let mut dom = Dom::body().with_children(
         vec![
             Dom::text("Hello from Azul!"),
-            Dom::div().with_inline_style("width: 400px; height: 400px; background: #FF0000;"),
+            Dom::div().with_inline_style("width: 40px; height: 40px; background: #FF0000;"),
         ]
         .into(),
     );
