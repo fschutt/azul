@@ -216,7 +216,9 @@ div(class="parent", children = [
 ])
 ```
 
-Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via inheritance because the latter is often language-specific and not supported in all languages, whereas functions are language agnostic.
+Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via 
+inheritance because the latter is often language-specific and not supported in all languages, 
+whereas functions are language agnostic.
 
 ## Data access: Format and locality
 
@@ -398,3 +400,121 @@ polluted with toolkit-specific `NodeId`s. Instead, the drag callback can use tun
 the application state.
 
 Key takeaway: **backreferences build the State Graph, while tunneling queries the Visual Tree.**
+
+## FAQ from [...] developers
+
+### Isn't this just a more complex way of signals-and-slots or observer patterns?
+
+No. While both are used for communication, signals-and-slots still require manual wiring 
+between UI objects, often leading to a complex web of connections. Azul's backreferences 
+let you create a formal *State Graph* that is independent of the UI layout, making data 
+flow clearer and preventing your application logic from being tied to your visual design.
+
+> "But my class hierarchy *is* my application structure. Separating them sounds like boilerplate."
+
+Fusing your logic to the visual hierarchy makes refactoring the UI difficult and 
+your code untestable outside the toolkit. Decoupling them allows your core logic to be 
+independent, portable, and easier to test.
+
+### How is this different from Redux / Context API?
+
+Redux and Context are workarounds to the default tree-based data flow. Azul's **backreferences** 
+are a primary, built-in architectural pattern, not an escape hatch. They allow you to directly 
+and explicitly define your application's **State Graph** from the ground up, rather than having 
+to route everything through a central store or a common ancestor.
+
+> "But manually passing references down sounds like a return to prop drilling."
+
+This isn't manual pointer management; it's defining the logical connections of your app. 
+This explicitness makes complex interactions (like a node graph) far easier to reason about than 
+tracking where context is provided or how actions are dispatched and mapped to state.
+
+### Why isn't it using Elms `update()` model?
+
+The central `update` function and message (`Msg`) types quicly grow enormous in large applications. 
+Azul allows you to maintain a central data model (`UI = f(data)`) but provides a more direct and 
+decentralized way for events to trigger logic via backreferences. It avoids routing every single 
+interaction through one monolithic function.
+
+> "A single `update` function is a feature, not a bug. It makes all state changes predictable and easy to debug."
+
+Azul retains predictability, but the data flow is still unidirectional (**Event -> State Change -> Re-render**), 
+but the "update" logic is co-located with the relevant part of the State Graph, making the system more modular 
+and scalable without sacrificing clarity.
+
+### SwiftUI and Compose already have `@State`, `@Binding`, and `@EnvironmentObject` to manage state declaratively.
+
+Those tools are still fundamentally designed around the **Visual Tree**. `@EnvironmentObject` is similar 
+to React's Context, and `@Binding` is a form of two-way data binding down the hierarchy. Azul's approach 
+is to formally separate the **State Graph** from the view hierarchy completely (with the exception of 
+tunneling, but this is already marked as "unclean"), which provides a cleaner solution for non-hierarchical 
+data dependencies that often require complex workarounds in other frameworks.
+
+### What about performance?
+
+This is where Azul tricks a bit. **Due to its pure-functional nature**, the `Dom` can in fact be pre-computed to 
+a `const` item, i.e. **constructed at compile time**. Using a separate tool, Azul can compile 
+**HTML/CSS directly to Rust/C code**. It looks a bit like this:
+
+```html
+<style>
+.__azul_native_list-container {
+    
+}
+</style>
+<div class="__azul_native_list-container"></div>
+```
+
+becomes (after compilation):
+
+```rust
+const CSS_MATCH_17553577885456905601_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+    // .__azul_native_list-container
+    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+        LayoutFlexGrow {
+            inner: FloatValue::const_new(1),
+        },
+    ))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS,
+        )),
+    )),
+];
+
+const CSS_MATCH_17553577885456905601: NodeDataInlineCssPropertyVec =
+    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_17553577885456905601_PROPERTIES);
+
+const IDS_AND_CLASSES_9205819539370539587: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul_native_list-container",
+))];
+
+const LIST_VIEW_CONTAINER_CLASS: IdOrClassVec =
+    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9205819539370539587);
+
+const LIST_VIEW_NEVER_CHANGES: StyledDom = StyledDom::div()
+    .with_inline_css_props(CSS_MATCH_17553577885456905601)
+    .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS);
+
+extern "C"
+fn layout(refany: RefAny, info: LayoutCallbackInfo) -> StyledDom {
+    // doesn't actually clone anything, because it's all &'static
+    return LIST_VIEW_NEVER_CHANGES.clone();
+}
+```
+
+This avoids doing the "CSS cascade" at runtime and instead pushes it to compile time.
+The `AzString` and `FooVec` types all allow you to create strings / arrays from compile-time
+data, so the final "re-invocation" is a no-op for never-changing UI components and doesn't
+require memory allocation.
+
+Second, the Windows main `layout` callback is only re-invoked when the callback returns `Update::RefreshDom`,
+and things like GPU transforms, animations or style modifications can be done without requiring calling `layout()` again.
+
+Third, Azul has ways to manage infinite / sparse datasets and you only need to return in the DOM what is 
+actually on-screen, which will be a few hundred DOM nodes at most. So, for the newcomer, Azul is easy to 
+use at first with a simple programming model, while still allowing to optimize the performance heavily - 
+once that actually is a problem. 
+
+Fourth, Azul usese caches internally for everything, including the incremental HTML layout, so window 
+resizing is incredibly fast.
