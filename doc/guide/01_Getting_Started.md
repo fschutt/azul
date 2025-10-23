@@ -1,3 +1,5 @@
+Here is the formatted Markdown document.
+
 ## A simple window
 
 The code to create a simple application with an empty window looks like this:
@@ -21,7 +23,7 @@ int main() {
 }
 ```
 
-or in Python, where up-and downcasting isn't necessary:
+or in Python, where up- and downcasting isn't necessary:
 
 ```python
 from azul import *
@@ -38,22 +40,19 @@ app = App(initial_data, AppConfig.default())
 app.run(WindowCreateOptions(layoutFunc))
 ```
 
-![Simple window](https://i.imgur.com/eY3ra97.png)
+
 
 Even at this stage, Azul forces your application structure to conform to a certain style:
 
-- One application data model (`MyModel`)
-- A function callback that takes an renders a `MyModel` into a `StyledDom`
-- Setup code to intialize the `MyModel` and run the app
+-   One application data model (`MyModel`)
+-   A function callback that takes and renders a `MyModel` into a `StyledDom`
+-   Setup code to initialize the `MyModel` and run the app
 
-Internally, Azul runs a loop processing the input events and calls the 
-`layoutFunc` provided to the framework in the `WindowCreateOptions` once 
-on startup, then it caches the resulting `StyledDom`.
+Internally, Azul runs a loop processing the input events and calls the `layoutFunc` provided to the framework in the `WindowCreateOptions` once on startup, then it caches the resulting `StyledDom`.
 
 ## Adding callbacks
 
-While an empty window is nice to look at, it's not a user
-interface if the application is not interactive. So let's add a callback:
+While an empty window is nice to look at, it's not a user interface if the application is not interactive. So let's add a callback:
 
 ```python
 def layoutFunc(data, info):
@@ -67,29 +66,15 @@ def myCallback(data, callbackinfo):
     return Update.DoNothing
 ```
 
-Now the console will print "hello" if you click anywhere on the window. 
-By default, the `body` node type is expanded to its maximum size
-(so it covers the entire window).
+Now the console will print "hello" if you click anywhere on the window. By default, the `body` node type is expanded to its maximum size (so it covers the entire window).
 
-In this case the callback returns `Update.DoNothing`</code>`, which
-to Azul signifies that nothing in the UI has changed and calling the
-`layoutFunc` again is unnecessary.
+In this case the callback returns `Update.DoNothing`, which to Azul signifies that nothing in the UI has changed and calling the `layoutFunc` again is unnecessary.
 
-If any callbacks change the UI, they need to return
-`Update.RefreshDom`, which will trigger Azul to call
-`layoutFunc` again. Since `Update.RefreshDom`</code>` is
-invoked infrequently, the `layoutFunc`</code>` only gets called a few
-times per second at most: fast enough to be considered "reactive",
-but not fast enough to stress the users CPU.
+If any callbacks change the UI, they need to return `Update.RefreshDom`, which will trigger Azul to call `layoutFunc` again. Since `Update.RefreshDom` is invoked infrequently, the `layoutFunc` only gets called a few times per second at most: fast enough to be considered "reactive", but not fast enough to stress the users CPU.
 
-It is important to note that the callbacks have no
-direct access to the UI objects or the UI hierarchy.
-All changes that modify the DOM hierarchy must be done
-via the data model (there are some exceptions for
-style-only changes, animations and changes to the
-text content of a node).
+It is important to note that the callbacks have no direct access to the UI objects or the UI hierarchy. All changes that modify the DOM hierarchy must be done via the data model (there are some exceptions for style-only changes, animations and changes to the text content of a node).
 
-![Azul Application model](https://i.imgur.com/cTTULrP.png)
+
 
 ## The data model
 
@@ -99,11 +84,7 @@ class DataModel:
         pass
 ```
 
-
-This is where you store application-relevant data: database connections,
-email content, passwords, user names, you name it. The model is custom to the
-application that you are building and in the end it will probably look like
-this:
+This is where you store application-relevant data: database connections, email content, passwords, user names, you name it. The model is custom to the application that you are building and in the end it will probably look like this:
 
 ```python
 class MyDataModel:
@@ -114,50 +95,44 @@ class MyDataModel:
         ]
         self.app_config = AppConfig()
         self.database_connection = None
-        // ... etc.
+        # ... etc.
 ```
 
-Azul itself never accesses this struct. It only needs it to hand it to the user-defined
-callbacks. It wraps the data model in an <code>RefAny</code> struct which is then
-"cloned" onto the callback (so that the callback has mutable access to the application
-data via the <code>data</code> field in the callback). "Cloning" a <code>RefAny</code>
-performs a shallow clone: The data is reference-counted, the actual data only exists once.
-But be careful: Modifying the data will change it for all callbacks that have a reference
-to the data.
+Azul itself never accesses this struct. It only needs it to hand it to the user-defined callbacks. It wraps the data model in an `RefAny` struct which is then "cloned" onto the callback (so that the callback has mutable access to the application data via the `data` field in the callback). "Cloning" a `RefAny` performs a shallow clone: The data is reference-counted, the actual data only exists once. But be careful: Modifying the data will change it for all callbacks that have a reference to the data.
 
 <br/>
-<h2>Layout</h2>
 
-<p>
-    The layout function that needs to be passed to the <code>WindowCreateOptions</code>
-    is defined as:
-</p>
+## Layout
 
-<code class="expand">fn layout(data: &RefAny, info: LayoutInfo) -> StyledDom</code>
+The layout function that needs to be passed to the `WindowCreateOptions` is defined as:
 
-<p>You can construct a <code>StyledDom</code> either directly (via <code>default()</code>)
-or by combining a <code>Dom</code> with a <code>Css</code> object:</p>
+```rust
+fn layout(data: &RefAny, info: LayoutInfo) -> StyledDom
+```
 
-<code class="expand">// DOM + CSS = StyledDom
+You can construct a `StyledDom` either directly (via `default()`) or by combining a `Dom` with a `Css` object:
+
+```python
+# DOM + CSS = StyledDom
 def layout(data, info):
 
     a = StyledDom.default()
-    b = Dom.body().style(Css.empty()) // equivalent
+    b = Dom.body().style(Css.empty()) # equivalent
 
-    // if the CSS contains a syntax error, will return Css.empty()
+    # if the CSS contains a syntax error, will return Css.empty()
     css1 = Css.from_string("div { background: red; }")
     c = Dom.div().style(css1)
 
-    // css1 does not affect this DOM: CSS is local, not global
+    # css1 does not affect this DOM: CSS is local, not global
     css2 = Css.from_string("body { background: green; }")
-    d = Dom.from_xml("&lt;body&gt;&lt;p&gt;Hello&lt;/p&gt;&lt;/body&gt;").style(css2)
+    d = Dom.from_xml("<body><p>Hello</p></body>").style(css2)
 
     e = Dom.body().with_child(Dom.text("Hello"))
     if layout.dark_mode:
-        // Azuls File.open will automatically close the file
-        // when it goes out of scope
-        //
-        // @throws Exception if the file could not be read
+        # Azuls File.open will automatically close the file
+        # when it goes out of scope
+        #
+        # @throws Exception if the file could not be read
         e = e.style(File.open("dark.css").read_to_string())
     else:
         e = e.style(File.open("light.css").read_to_string())
@@ -166,45 +141,39 @@ def layout(data, info):
     a.add_child(b.with_child(c))
 
     return a
-</code>
+```
 
 <br/>
 
-<p>There are six types of DOM nodes:</p>
+There are six types of DOM nodes:
 
 <br/>
-<ol>
-    <li><code>Body</code> Should only be used on the root node, same as div, but automatically expands to the maximum width / height</li>
-    <li><code>Div</code> Rectangular box</li>
-    <li><code>Text(String)</code> Contains a text string</li>
-    <li><code>Br</code> Signifies a line break between two text strings. By default all text strings will be laid out contigouusly.</li>
-    <li><code>Image(ImageRef)</code> Contains an image (decoded image bytes or OpenGL texture ID)</li>
-    <li><code>IFrame(IFrameCallback)</code> Contains an iframe, i.e. a callback that - when being called given the size of the parent node - returns a DOM again: useful to implement infinite-scrolling</li>
-</ol>
 
-<p>
-All other widgets that you are going to see later simply build a DOM tree
-(<code>Button</code>, <code>Label</code>),
-by combining nodes or sub-dom-trees into larger widgets.
-</p>
+1.  `Body` Should only be used on the root node, same as div, but automatically expands to the maximum width / height
+2.  `Div` Rectangular box
+3.  `Text(String)` Contains a text string
+4.  `Br` Signifies a line break between two text strings. By default all text strings will be laid out contiguously.
+5.  `Image(ImageRef)` Contains an image (decoded image bytes or OpenGL texture ID)
+6.  `IFrame(IFrameCallback)` Contains an iframe, i.e. a callback that - when being called given the size of the parent node - returns a DOM again: useful to implement infinite-scrolling
 
 <br/>
-<h2>The callback</h2>
 
-<p>When a user-provided event satisfies the <code>EventFilter.Hover(HoverEventFilter.OnMouseUp)</code>
-    filter, Azul will call the provided callback with the <code>RefAny</code> that
-    was submitted along with it. In this case, it is a mutable reference to the entire application data.
-</p>
+All other widgets that you are going to see later simply build a DOM tree (`Button`, `Label`), by combining nodes or sub-dom-trees into larger widgets.
 
-<code class="expand">fn callback(data: &mut RefAny, info: CallbackInfo) -> Update</code>
+<br/>
 
-<p>
-    The callback type takes a mutable
-    reference to the <code>RefAny</code> and an additional <code>info</code>
-    struct containing many useful functions:
-</p>
+## The callback
 
-<code class="expand">def callback(data, info):
+When a user-provided event satisfies the `EventFilter.Hover(HoverEventFilter.OnMouseUp)` filter, Azul will call the provided callback with the `RefAny` that was submitted along with it. In this case, it is a mutable reference to the entire application data.
+
+```rust
+fn callback(data: &mut RefAny, info: CallbackInfo) -> Update
+```
+
+The callback type takes a mutable reference to the `RefAny` and an additional `info` struct containing many useful functions:
+
+```python
+def callback(data, info):
 
     # in Rust you'd need to downcast_mut() to reference your data mutably
     data.users.append(User("Marilla", "Cuthbert", photo=None))
@@ -217,7 +186,7 @@ by combining nodes or sub-dom-trees into larger widgets.
     keyboard_state = info.get_keyboard_state()
     window_flags = info.get_window_flags()
     if keyboard_state.current_keys.contains(VirtualKeyCode.F11):
-        window_flags.is_fullscreen = !window_flags.is_fullscreen
+        window_flags.is_fullscreen = not window_flags.is_fullscreen
         info.set_window_flags(window_flags)
     elif keyboard_state.current_keys.contains(VirtualKeyCode.Esc):
         window_flags.is_about_to_close = True # close window
@@ -246,7 +215,7 @@ by combining nodes or sub-dom-trees into larger widgets.
 
     # modify a CSS property
     cursor_node_id = hit_node_id.get_first_child()
-    if cursor_node_id None:
+    if cursor_node_id is None:
         return Update.DoNothing
 
     info.set_css_property(cursor_node_id, CssProperty.Transform([
@@ -264,33 +233,29 @@ by combining nodes or sub-dom-trees into larger widgets.
     #
     # etc. - see API reference
 
-    return Update.DoNothing # setting CSS properties does not require re-layout</code>
+    return Update.DoNothing # setting CSS properties does not require re-layout
+```
 
 <br/>
-<h2>Running the application</h2>
 
-<p>Before we can run the application, we have to do the minimal amount of setup:</p>
+## Running the application
+
+Before we can run the application, we have to do the minimal amount of setup:
 
 <br/>
-<ol>
-    <li>Initialize your data model and hand it to Azul</li>
-    <li>Initialize the <code>App</code> with a given <code>LayoutSolver</code></li>
-    <li>Run the app in a root window described by the <code>WindowCreateOptions</code></li>
-</ol>
 
-<p>The reason specifying the layout solver is required is because
-    there might be multiple layout solvers in the future or you may need to
-    work around specific layout bugs on specific versions. In order to keep
-    Azul forward-compatible, this versioned-layout model approach ensures
-    that your layout will never break even with future versions of Azul.
-</p>
+1.  Initialize your data model and hand it to Azul
+2.  Initialize the `App` with a given `LayoutSolver`
+3.  Run the app in a root window described by the `WindowCreateOptions`
 
-<p>
-    The <code>WindowCreateOptions</code> contains fields that you can configure before
-    handing the object to Azul:
-</p>
+<br/>
 
-<code class="expand">window = WindowCreateOptions.new(layoutFunc)
+The reason specifying the layout solver is required is because there might be multiple layout solvers in the future or you may need to work around specific layout bugs on specific versions. In order to keep Azul forward-compatible, this versioned-layout model approach ensures that your layout will never break even with future versions of Azul.
+
+The `WindowCreateOptions` contains fields that you can configure before handing the object to Azul:
+
+```python
+window = WindowCreateOptions.new(layoutFunc)
 
 # use software rendering
 window.renderer_type = RenderType.Software
@@ -305,58 +270,36 @@ window.hot_reload = True
 
 # Set the title of the window
 window.state.title = "MyApp"
-</code>
-<br/>
-<p>
-The <code>App</code> stores, initializes and manages all images / fonts resources,
-windows, threads and the data model for you. You will never interact with the
-`App` directly, but it is still useful to know that it exists. If all windows are
-closed the <code>run()</code> method finishes.</p>
+```
 
 <br/>
-<h2>Conclusion</h2>
 
-<p>
-    Azul caches as much as possible about your UI: the <code>StyledDom</code>,
-    the computed layout, CSS properties, calculated styles, positions and sizes, etc.
-</p>
+The `App` stores, initializes and manages all images / fonts resources, windows, threads and the data model for you. You will never interact with the `App` directly, but it is still useful to know that it exists. If all windows are closed the `run()` method finishes.
 
 <br/>
-<ul>
-    <li>
-        <p>
-            If the DOM hierarchy does not change it is preferred to use the
-            <code>callbackinfo.set_css_property()</code> methods to change the CSS.
-        </p>
-    </li>
-    <li>
-        <p>
-            Changes to <code>opacity</code> and <code>transform</code> properties are GPU-accelerated, meaning they do not
-            require Azul to re-generate a display list.
-        </p>
-    </li>
-    <li>
-        <p>
-            Changing style properties (colors, gradients, images, etc.) requires a
-            new display list, but does not require recomputing the cached layout.
-        </p>
-    </li>
-    <li>
-        <p>
-            Changing layout properties (such as <code>width</code> or <code>height</code>)
-            changes the cached layout, but does not require a call to <code>myLayoutFunc</code>
-            or any CSS re-styling.
-        </p>
-    </li>
-    <li>
-        <p>
-            Only if you need to re-generate the entire UI, return <code>Update.RefreshDom</code> from the callback
-        </p>
-    </li>
-</ul>
 
-<p>Now that you know how Azul runs your application, you should be able to read the simple counter example:</p>
-<code class="expand">from azul import *
+## Conclusion
+
+Azul caches as much as possible about your UI: the `StyledDom`, the computed layout, CSS properties, calculated styles, positions and sizes, etc.
+
+<br/>
+
+-   If the DOM hierarchy does not change it is preferred to use the `callbackinfo.set_css_property()` methods to change the CSS.
+
+-   Changes to `opacity` and `transform` properties are GPU-accelerated, meaning they do not require Azul to re-generate a display list.
+
+-   Changing style properties (colors, gradients, images, etc.) requires a new display list, but does not require recomputing the cached layout.
+
+-   Changing layout properties (such as `width` or `height`) changes the cached layout, but does not require a call to `myLayoutFunc` or any CSS re-styling.
+
+-   Only if you need to re-generate the entire UI, return `Update.RefreshDom` from the callback.
+
+<br/>
+
+Now that you know how Azul runs your application, you should be able to read the simple counter example:
+
+```python
+from azul import *
 
 css = """
     .__azul-native-label { font-size: 50px; }
@@ -388,9 +331,6 @@ def my_on_click(data, info):
 model = DataModel(5)
 app = App(model, AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(my_layout_func))
-</code>
+```
 
-<br/>
-<br/>
-
-<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
+---
