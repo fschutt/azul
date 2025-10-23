@@ -263,7 +263,7 @@ let property_type = CssPropertyType::from_str("background-color", &key_map).unwr
 let color = parse_css_property(property_type, "red").unwrap().get_property().unwrap_or_default();
 ```
 
-### Pseudo-classes: `:hover`, `:focus`, and `:active`
+### Pseudo-classes
 
 Azul handles user interaction pseudo-classes like `:hover`, `:active`, and `:focus` to 
 dynamically change styles based on user actions.
