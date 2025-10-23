@@ -50,7 +50,7 @@ the visual hierarchy. This immediately creates real problems:
     or reusable because it is fundamentally intertwined with the toolkit's base classes, rendering
     system, and event model.
 
-## Second Gen: Constrained Hierarchy (React)
+## Second Gen: Constrained Hierarchy (Elm, React)
 
 The next major step, led by frameworks like React and the Elm Architecture, introduced a new 
 functional paradigm: **`UI = f(data)`**. The UI is a declarative, pure function of the application's 
@@ -79,9 +79,10 @@ def MyApp():
 However, while these frameworks finally decouple the view from imperative manipulation, they 
 still, by default, **constrain the flow of data to the shape of the Visual Tree**. The example 
 above works because `TextInput`, `Button`, and `Label` are all siblings, children of `MyApp`.
-
 But what if the `Button` were in a `Toolbar` and the `TextInput` and `Label` were in a `MainContent` 
-panel? React's solution is to "lift state up" to their lowest common ancestor, `MyApp`. The `MyApp` 
+panel? 
+
+React's solution is to "lift state up" to their lowest common ancestor, `MyApp`. The `MyApp` 
 component must now hold the state and pass both the data and the callback functions down through the 
 intermediate components.
 
@@ -108,6 +109,15 @@ The State Graph is still being forced into the tree structure of the view, leadi
 and components with bloated, indirect APIs. The existence of complex "escape hatches" like Redux or 
 the Context API is evidence of this core constraint—they are patterns invented to work *around* this 
 default tree-based data flow.
+
+Elms solution is to "lift the state up" to the root ancestor and route everything in a single "update" 
+function. Elm therefore represents the philosophical extreme of the constrained hierarchy:
+
+1.  **Model:** The entire state of the application is held in a single, immutable data structure.
+2.  **View:** A pure function that takes the `Model` and returns a description of the UI.
+3.  **Update:** A single, central function that is the *only* entity allowed to modify the state.
+    It does so by taking an incoming `Msg` (a message from the UI) and the current state, and
+    producing a *new* state.
 
 ## Third Gen: Ignoring Hierarchy (IMGUI)
 
@@ -151,9 +161,9 @@ Azul, however, is not an answer from the second era. It is a "Fourth Generation"
 the declarative revolution of `UI = f(data)` but also recognizes the architectural limitations of the 
 constrained hierarchy.
 
-## Quid est: GUI?
+## Quid est GUI, Claude-ia?
 
-So, what is a "GUI toolkit"? How does it differ from just a rendering library?
+So, what *is* a "GUI toolkit"? How does it differ from just a rendering library?
 
 As shown above, one can mainly categorize the toolkit by its handling of the following three "hard GUI problems":
 
@@ -178,27 +188,15 @@ the application.
 
 So what would a "proper" toolkit look like?
 
-The first thing we'd need to decide is some way to 
+The first thing we'd need to decide is whether we'd like to serialize the UI or render it directly, 
+without storing it. Now, as computers got faster and rendering methods evolved, UI toolkits moved 
+away from a direct render-to-screen to a display-list or a "list of commands" for the renderer. 
+Often times this command list is batched or computed against the last frame to minimize changes - 
+while there is a small overhead, it is almost unnoticeable.
 
-
-
-
-
-
-
-
-
-
-
-
-As computers got faster and rendering methods evolved, 
-both browsers and UI toolkits moved away from a direct render-to-screen to a display-list or a "list 
-of commands" for the renderer. Often times this command list is batched or computed against the last 
-frame to minimize changes - while there is a small overhead, it is almost unnoticeable.
-
-The next problem is that widget-specific data has to be either stored on the programmer side (in the application, using inheritance or traits) or in the framework (either using data attributes or - worse - global state modifying functions such as synchronous `setColor(RED); draw(); swap();` calls).
-
-So the only real "sane" way is to serialize the entire UI hierarchy and then perform layout, state and cache analysis in the toolkit. A good comparison is to compare XML to function call stacks - compare:
+The only real "sane" way here is to serialize the entire UI hierarchy and then perform layout, 
+state and cache analysis in the toolkit. A good comparison is to compare XML to function call 
+stacks - compare:
 
 ```xml
 <div class="parent">
@@ -218,418 +216,185 @@ div(class="parent", children = [
 ])
 ```
 
-Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via inheritance because the latter is often language-specific and not supported in all languages, whereas functions are language agnostic. Additionally you can render UI nodes in parallel:
+Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via inheritance because the latter is often language-specific and not supported in all languages, whereas functions are language agnostic.
+
+## Data access: Format and locality
+
+The second decision is where to store the UI data, so that the callbacks may access it again.
+Widget-specific data has to be either stored on the programmer side (in the application, using 
+inheritance or traits) or in the framework (either using data attributes or - worse - global state 
+modifying functions such as synchronous `setColor(RED); draw(); swap();` calls). What format should we use?
+
+Inheritance-based toolkits only allow one format: You have to inherit from a UI object and then construct 
+your application as a series of UI objects. Azul however, stores the application data as an 
+implementation-agnostic `RefAny` struct: similar to `PyObject` or Javascripts `Object` it just stores 
+"some data", but the toolkit doesn't know what the type is. You can upcast your data and wrap it via 
+`RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` or `.downcast_mut()`, 
+respectively:
 
 ```rust
-let children = data_collection
-    .par_iter()
-    .map(|object| render_ui(object))
-    .collect();
+let data = RefAny::new(5); // owns the data
+let data_clone = data.clone(); // only bumps the reference count
 
-return parent.with_children(children);
+let data_ref: &usize = data.downcast_ref::<usize>().unwrap(); // ok
+println!("{}", *data); // prints "5"
+
+let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap(); // error: data_ref still held
+// object destroyed here
 ```
 
-## Data access: A question of format and locality
+Note: The downcast of a `RefAny` is also thread-safe and type-checked (even in C or Python). 
+Effectively this is similar to `Observables`, however, since `RefAny`s are connected to a `Callback`, 
+a `Dom`, a `Task` or a `Thread`, the **topology** of how they are connected is more obvious than 
+with a free-floating `Observable`, whose memory lives "somewhere".
 
-Great, so we need to serialize the UI into a tree structure. But where do we store our widget data? And in what format?
-
-Inheritance-based toolkits only allow one format: You have to inherit from a UI object and then construct your application as a series of UI objects. Azul however, stores the application data as an implementation-agnostic `RefAny` struct: similar to `PyObject` or Javascripts `Object` it just stores "some data", but the toolkit doesn't know what the type is. You can upcast your data and wrap it in a `RefAny` via `RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` or `.downcast_mut()`, respectively:
+Using [insert language]s module system, we can control any errors related to up / downcasting:
 
 ```rust
-let data = RefAny::new(5);
-let data_ref = data.downcast_ref::<usize>();
-println!("{}", data); // prints "5"
-```
+// number_input.rs (private internals)
+struct NumberInputInternal { /* ... */ }
 
-In Python, this process is transparent to the user, since every Python object is already wrapped in an opaque, reference-counted type, so it would look like this:
-
-```python
-data = RefAny(5); # RefAny<PyObject<PyInteger>>
-print(str(data._py_data)) # prints "5"
-```
-
-While Rust only knows about the `RefAny`, the Python bindings automatically perform the front-and-back conversion from python objects. Both the object type and immutable / mutable reference count is checked at runtime: When all references to a `RefAny` are deleted, the internal object is deleted, too.
-
-Azul can store `RefAny` data in three locations:
-
-1.  **Callback-local data:** Data is stored directly on the callback: other callbacks cannot access this.
-2.  **Widget-local data:** Stored on the UI XML nodes as a `dataset` property: Callbacks can have shared access to this data via `callback.get_dataset(node_id)`: but only if they know the `NodeId` that the dataset is attached to.
-3.  **Application-global data:** Stored inside the `App` struct: all layout callbacks are rendered from this data.
-
-A useful property is that `RefAny` structs can contain both callbacks and `RefAny` types themselves (nested `RefAny`). This way you can implement user-provided functionality by simply creating some fields and wrapper-methods that "wrap" a user-provided `RefAny` and a callback to be called when your custom event is ready:
-
-```python
-class MyWidget:
-    def __init__():
-        self.on_text_clicked = None
-
-    # Allow users to set a custom event
-    def set_on_text_clicked(data, callback):
-        self.on_text_clicked = tuple(data, callback)
-
-    def dom():
-        dom = Dom.text("hello")
-        if self.on_text_clicked is not None:
-            dom.add_callback(On.MouseUp, self.on_text_clicked, _handle_event)
-        return dom
-
-# Note that data is the tuple(data, callback):
-# you can use custom classes in order to customize callbacks
-# in total, this provides more flexibility than @override
-def _handle_event(data, callbackinfo):
-
-    # "data" contains the **user-provided** callback
-    # and a RefAny to **user-provided** data
-    #
-    # In this example, we you can now choose to
-    # invoke or not invoke the callback depending on whether
-    # the text of the object was hit
-
-    text = callbackinfo.get_inline_text(callbackinfo.get_hit_node())
-    if text is None:
-        return Update.DoNothing
-
-    text_hit = None
-    hits = text.hit_test(info.get_hit_relative_to_item())
-    if len(text_hits) != 0:
-        text_hit = hits[0]
-    else:
-        return Update.DoNothing
-
-    # do some default processing here
-    print("before invoking user callback: text was hit")
-
-    # invoke the user-provided function with additional information
-    result = (data[1])(data[0], callbackinfo, text_hit)
-
-    print("after invoking user callback: user returned" + str(result))
-
-    # return the result of the user-provided callback to Azul
-    return result
-```
-
-The important part is that you can now customize the callback type (including the return type) and invoke the callback with extra data in order to do pre- and post-processing of user callbacks.
-
-## Backreferences
-
-The programming pattern that naturally emerges from this architecture are "backreferences" or: the lower-level widget (`Dom.div`, `TextInput`, etc.) can take optional function pointers and data references to higher-level widgets (such as `NumberInput`, `EMailInput`), which then perform validation for you.
-
-```python
-class TextInput:
-    text: String
-    # "backreference" to user-provided callback + data
-    user_focus_lost_callback: Optional[tuple(data, callback)]
-
-    def __init__(text):
-        self.text = text
-        self.user_focus_lost_callback = None
-
-    def set_on_focus_lost(data, callback):
-        self.user_focus_lost_callback = tuple(data, callback)
-
-    def dom():
-        dom = Dom.text(self.text)
-        refany = RefAny(self)
-        dom.set_callback(On.TextInput, refany, _on_text_input)
-        dom.add_callback(On.FocusLost, refany, _on_focus_lost)
-        return dom
-
-# callback knows that "data" is of type TextInput
-def _on_text_input(data, callbackinfo):
-    data.text += callbackinfo.get_keyboard_input().current_char
-    callbackinfo.set_text_contents(callbackinfo.get_hit_node_id(), data.text)
-    return Update.DoNothing
-
-def _on_focus_lost(data, callbackinfo):
-    user_cb = None
-    if data.user_focus_lost_callback is None:
-        return Update.DoNothing
-    else:
-        user_cb = data.user_focus_lost_callback
-
-    # invoke the user-provided callback with the extra information
-    return (user_cb[1])(user_cb[0], self.string)
-```
-
-```python
-class NumberInput:
-    number: Integer
-    # "backreference" to user-provided callback + data
-    on_number_input: Optional[tuple(data, callback)]
-
-    def __init__(number):
-        self.number = number
-        self.on_number_input = None
-
-    def set_on_number_input(data, callback):
-        self.on_number_input = tuple(data, callback)
-
-    def dom():
-        ti = TextInput("{}".format(self.number))
-        ti.set_on_focus_lost(RefAny(self), _validate_text_input_as_number)
-        return
-
-def _validate_text_input_as_number(data, callbackinfo, string):
-    if data.on_number_input is None:
-        return Update.DoNothing
-
-    number = string_to_number(string)
-    if number is None:
-        return Update.DoNothing # input string is not a number
-
-    # string has now been validated as a number
-    # optionally can also validate min / max input, etc.
-    (data.on_number_input[1])(data.on_number_input[0], callbackinfo, number)
-```
-
-```python
-class MyApplication:
-    user_age: None
-
-    def __init__(initial_age):
-        self.user_age = initial_age
-
-def layoutFunc(data, layoutinfo):
-    ni = NumberInput(initial_age)
-    ni.set_on_number_input(data, _on_age_input)
-    return ni.dom().style(Css.empty())
-
-# will only get called when the text input is a valid number
-def _on_age_input(data, callbackinfo, new_age):
-    if new_age < 18:
-        MsgBox.ok("You must be older than 18 to proceed")
-        return Update.DoNothing
-    else:
-        data.user_age = new_age
-        return Update.RefreshDom
-```
-
-```python
-app = App(MyApplication(18), AppConfig(LayoutSolver.Default))
-app.run(WindowCreateOptions(layoutFunc))
-```
-
-For the sake of brevity the code uses `RefAny(self)` to create new `RefAny` references. All built-in widgets use extra classes such as `TextInputOnClickedData`, `TextInputOnFocusLostData` to separate the `TextInput` from the data it has to carry even further.
-
-When the user presses the "TAB" or "shift + TAB" key, the current field loses focus and thereby triggers an `On.FocusLost` and `On.FocusReceived` event. If it isn't already clear from reading the code, here is how the event "travels" through the classes (from the low-level `on_focus_lost` to the high-level `on_age_input`):
-
-```
-1. _on_focus_lost(&mut RefAny<TextInput>)
-2. _validate_text_input_as_number(&mut RefAny<NumberInput>, string)
-3. _on_age_input(&mut RefAny<MyApplication>, number)
-```
-
-The closer you get to the application, the more custom your function callback types will be. Note that the only "state" that gets passed into callbacks is via function arguments. Functional programmers can see this as an "application" of function parameters: the actual core state management is hidden completely.
-
-## Non-linear widget hierarchies
-
-Let's take the example of a node graph: Draggable nodes can be added and removed, contain text, number and color inputs, check- and radio boxes, contain inputs and outputs (which need to validate their input and output types when they are connected).
-
-Node graphs are pretty much a litmus test to how flexible your UI toolkit is: In any object-oriented toolkit you will get problems designing the hierarchy here.
-
-![Node graph example](https://docs.unrealengine.com/Images/ProgrammingAndScripting/Blueprints/UserGuide/Nodes/SelectNode.jpg)
-
-Azul includes a built-in `NodeGraph` as a default widget, so let's take a look at the implementation.
-
-The core of the widget is the `NodeGraph` struct. This is a plain data structure; it holds `Vec`s of node types, node instances, and connections. It is the single source of truth for the entire state of the graph. It contains no UI objects.
-
-```rust
-// nodegraph.rs
-
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct NodeGraph {
-    pub node_types: NodeTypeIdInfoMapVec,
-    pub input_output_types: InputOutputTypeIdInfoMapVec,
-    pub nodes: NodeIdNodeMapVec, // A vector of Node structs
-    pub allow_multiple_root_nodes: bool,
-    pub offset: LogicalPosition,
-    // ... other plain data fields
+// number_input.rs (public API)
+pub struct NumberInput {
+    internal: RefAny, // holds NumberInputInternal
 }
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct Node {
-    pub node_type: NodeTypeId,
-    pub position: NodePosition,
-    pub fields: NodeTypeFieldVec,
-    pub connect_in: InputConnectionVec,   // A vector of input connections
-    pub connect_out: OutputConnectionVec, // A vector of output connections
-}
-```
-
-The `dom()` function for the `NodeGraph` is a pure function that takes this data and transforms 
-it into a descriptive tree of `Dom` nodes. It iterates through `self.nodes` and calls `render_node()` 
-for each, and then iterates through the connections and calls `render_connections()`. The UI is a 
-predictable result of the data.
-
-```rust
-// nodegraph.rs
-
-impl NodeGraph {
-    // Takes ownership of the data `self` and returns a UI description `Dom`
+impl NumberInput {
     pub fn dom(self) -> Dom {
-        // ...
-        Dom::div()
-            // ...
-            .with_children({
-                vec![
-                    // connections
-                    render_connections(&self, node_connection_marker),
-                    // nodes
-                    self.nodes
-                        .iter() // Iterates over the node data
-                        .filter_map(|NodeIdNodeMap { node_id, node }| {
-                            // ... find node_type_info
-                            Some(render_node( // Calls render_node() for each
-                                node,
-                                (self.offset.x, self.offset.y),
-                                &node_type_info.node_type_info,
-                                node_local_dataset,
-                                self.scale_factor,
-                            ))
-                        })
-                        .collect::<Dom>()
-                    // ...
-                ]
-                .into()
-            })
-            // ...
+        Dom::new().with_callback(private_callback, self.internal)
     }
 }
-```
 
-So, how does interaction work? Consider what happens when a user clicks on an output port of one node and an input port of another.
-
-1.  Each input and output port is rendered with a callback attached. This callback is created with a `NodeInputOutputLocalDataset`.
-
-```rust
-// nodegraph.rs -> inside render_node() function
-
-// ... iterating through inputs ...
-    Dom::div()
-        .with_callbacks(vec![
-            CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                // The dataset and callback are attached here
-                data: RefAny::new(NodeInputOutputLocalDataset {
-                    io_id: Input(io_id),
-                    backref: node_local_dataset.clone(), // <- IMPORTANT
-                }),
-                callback: CoreCallback { cb: nodegraph_input_output_connect as usize },
-            },
-            // ... other callbacks
-        ].into())
-    // ...
-```
-
-2.  Crucially, this dataset contains a **backreference** (`RefAny`) to its (UI-logical) **parent** `NodeLocalDataset`.
-
-```rust
-// nodegraph.rs
-
-struct NodeInputOutputLocalDataset {
-    io_id: InputOrOutput,
-    backref: RefAny, // RefAny<NodeLocalDataset>
+extern "C"
+fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
+    // only code in this module can downcast to NumberInputInternal
+    // external code can't even name the type, so no downcast error possible
+    let d = data.downcast::<NumberInputInternal>().unwrap();
 }
 ```
 
-3.  The `NodeLocalDataset`, in turn, contains a backreference to the top-level `NodeGraphLocalDataset`, which holds the entire `NodeGraph` state.
+When all references to a `RefAny` are deleted, the internal object is deleted, too.
 
-```rust
-// nodegraph.rs
+## Building a State Graph
 
-struct NodeLocalDataset {
-    node_id: NodeGraphNodeId,
-    backref: RefAny, // RefAny<NodeGraphLocalDataset>
-}
+Azul acknowledges the declarative revolution of `UI = f(data)` but also recognizes the 
+architectural limitations of the constrained hierarchy. It provides a clean, formal 
+architecture for building the State Graph directly, independent of the Visual Tree. 
+To see these principles in action, let's examine a notoriously difficult UI component: 
+a `NodeGraph`.
 
-struct NodeGraphLocalDataset {
-    node_graph: NodeGraph, // The entire state is held here
-    last_input_or_output_clicked: Option<(NodeGraphNodeId, InputOrOutput)>,
-    // ... other fields
-    callbacks: NodeGraphCallbacks,
+The challenge of a node graph is that the *logical* connections between nodes (a complex graph) 
+have no relation to their *visual* layout (a flat list of sibling elements on a canvas). 
+This breaks the core assumptions of almost every other toolkit. Azul solves this through two 
+primary communication mechanisms: **backreferences** and **tunneling**.
+
+### Backreferences: The Clean Path
+
+The primary and most powerful pattern in Azul is the **backreference**. This is 
+a reference (`RefAny`) to a higher-level data model that is passed down to a 
+lower-level component when it's created. This creates a direct, explicit edge 
+in the State Graph.
+
+In the NodeGraph, when a user clicks an input port on a node, how does it tell the 
+top-level `NodeGraph` state to create a connection? It doesn't send a message "up" 
+the Visual Tree. Instead, it follows a pre-defined chain of backreferences:
+
+1.  The `Dom` for the input port has a callback holding a `PortWidget`'s data.
+2.  This `PortWidget` contains a backreference to its logical parent's data, the `NodeWidget`.
+3.  The `NodeWidget` in turn holds a backreference to the top-level `NodeGraphWidget`, which contains
+    the entire application state.
+
+The callback for the click event on a visual node's `Input` / `Output` simply follows 
+this chain of references, making a direct jump from the event source to the top-level data model.
+
+```python
+# Python pseudo-code illustrating the backreference chain
+# NOTE: These are not UI elements, but the logical controllers for them.
+
+class NodeGraphWidget:
+    def __init__(self, graph_state):
+        self.graph_state = graph_state  # The actual application data
+
+    # Logic that lives at the top level
+    def on_port_clicked(self, port_id):
+        print(f"LOGIC(NodeGraph): Port {port_id} clicked. Updating global state.")
+        # ... logic to connect nodes in self.graph_state ...
+
+class NodeWidget:
+    def __init__(self, node_id, graph_widget_ref):
+        self.node_id = node_id
+        self.graph_widget_ref = graph_widget_ref  # Backreference to the graph
+
+    # This method is "lent" to the PortWidget
+    def on_port_clicked(self, port_id):
+        print(f"LOGIC(Node): Click received for port {port_id}. Forwarding to graph.")
+        # Uses its backreference to call the top-level logic
+        self.graph_widget_ref.on_port_clicked(port_id)
+
+class PortWidget:
+    def __init__(self, port_id, node_widget_ref):
+        self.port_id = port_id
+        self.node_widget_ref = node_widget_ref  # Backreference to the node
+
+    # This would be the callback attached to the UI element
+    def handle_click_event(self):
+        print(f"EVENT on Port {self.port_id}")
+        # Uses its backreference to start the logical chain
+        self.node_widget_ref.on_port_clicked(self.port_id)
+```
+
+Wiring it all up:
+
+```python
+# Top-level state and logic controller
+app_state = {"nodes": {}, "connections": []}
+graph_controller = NodeGraphWidget(app_state)
+
+# 2. Create controllers for child components, passing down backreferences
+node_a_controller = NodeWidget("NodeA", graph_controller)
+port_a1_controller = PortWidget("PortA1", node_a_controller)
+
+# 3. Simulate a user clicking the visual port
+port_a1_controller.handle_click_event()
+```
+
+The flow of control follows the logical graph, not a visual one:
+
+1. `Event` -> `PortWidget.handle_click_event()` 
+2. `PortWidget.handle_click_event()` -> `NodeWidget.on_port_clicked()` 
+3. `NodeWidget.on_port_clicked()` -> `NodeGraphWidget.on_port_clicked()`
+
+This data flow is *completely independent* of the visual layout. The `PortWidget` is 
+perfectly decoupled; it doesn't know what the `NodeGraphWidget` is, only that it must 
+call a function on the reference it was given.
+
+#### Tunneling: The Visual Query
+
+The second, more imperative way to access data is **tunneling**. Azul allows you to attach 
+data to any DOM node via a `dataset`. From a callback, you can then "tunnel" to that node 
+and retrieve its data if you know its `NodeId`.
+
+While powerful, this pattern is less clean because it re-introduces a coupling between your logic 
+and the Visual Tree. If you refactor your UI, it can't be statically assured that your callbacks 
+won't break. You can however do things such as `callback_info.find_parent_nodeid(".my_class")` to
+make the "NodeId" lookup more resilient:
+
+```
+extern "C"
+fn my_callback(data: RefAny, cb: CallbackInfo) -> Update {
+     let visual_parent: NodeId = cb.get_parent_id(cb.hit_node, ".my_class").unwrap();
+     let dataset: RefAny = cb.get_dataset(visual_parent).unwrap();
+     let mut downcasted = dataset.downcast_mut::<Foo>();
+     downcasted.bar += 5.0;
+     Update::DoNothing
 }
 ```
 
-When the callback for the second click fires (`nodegraph_input_output_connect`), it uses this chain of backreferences to instantly access the top-level state. It does not traverse a visual tree or send messages up to a parent. It makes a direct jump from the event source (the input port) to the relevant data model (the `NodeGraph` struct) and invokes the logic to create a connection (`backref.node_graph.connect_input_output(...)`).
+Its proper use is for managing purely UI-related state that is not part of the core application 
+model. In the `NodeGraph`, when a node is dragged, the callback needs to update the CSS `transform` 
+property of the specific visual `div` for that node. The core `NodeGraph` data model shouldn't be 
+polluted with toolkit-specific `NodeId`s. Instead, the drag callback can use tunneling to find the 
+`NodeId` of the visual element it needs to manipulate, keeping the UI-specific logic separate from 
+the application state.
 
-```rust
-// nodegraph.rs
-
-extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
-    // Step 1: Downcast to the immediate dataset
-    let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    // Step 2: Use the first backreference to get the node-level dataset
-    let mut backref = match data.backref.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    // Step 3: Use the second backreference to get the top-level graph dataset
-    let mut backref = match backref.backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    // Now `backref` holds the entire NodeGraph state, accessible directly.
-    let (input_node, input_index, output_node, output_index) =
-        match backref.last_input_or_output_clicked.clone() {
-            // ... logic to determine which nodes to connect ...
-        };
-
-    // Direct modification of the data model
-    match backref.node_graph.connect_input_output(
-        input_node,
-        input_index,
-        output_node,
-        output_index,
-    ) {
-        // ... handle result ...
-    }
-    // ...
-}
-```
-
-This modification of the central `NodeGraph` data struct then triggers a UI refresh, and 
-the `dom()` function re-renders the new connection line on the screen. The flow 
-is: **Event -> Direct State Modification -> Declarative Re-render**.
-
-```rust
-// nodegraph.rs
-
-// The callback itself might return Update::DoNothing, but it invokes a user-provided callback
-// which is expected to return the final Update status.
-extern "C" fn nodegraph_input_output_connect(/*...*/) -> Update {
-    // ...
-    let result = match backref.callbacks.on_node_connected.as_mut() {
-        Some(OnNodeConnected { callback, data }) => {
-            // This user-provided callback will modify their application model
-            // and return Update::RefreshDom to signal a redraw.
-            let r = (callback.cb)(
-                data,
-                info,
-                input_node,
-                input_index,
-                output_node,
-                output_index,
-            );
-            backref.last_input_or_output_clicked = None;
-            r // The final Update value comes from here.
-        }
-        None => Update::DoNothing,
-    };
-
-    result
-}
-```
-
-This architecture solves the non-linear hierarchy problem. The communication path is a direct, 
-logical link established by the backreferences, completely independent of whether the nodes are 
-visual siblings, cousins, or in different panels (or even windows or threads, technically). 
-This is the power of separating the **State Graph** from the **Visual Tree**.
+Key takeaway: **backreferences build the State Graph, while tunneling queries the Visual Tree.**
