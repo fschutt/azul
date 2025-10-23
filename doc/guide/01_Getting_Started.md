@@ -1,5 +1,3 @@
-Here is the formatted Markdown document.
-
 ## A simple window
 
 The code to create a simple application with an empty window looks like this:
@@ -282,19 +280,11 @@ The `App` stores, initializes and manages all images / fonts resources, windows,
 
 Azul caches as much as possible about your UI: the `StyledDom`, the computed layout, CSS properties, calculated styles, positions and sizes, etc.
 
-<br/>
-
 -   If the DOM hierarchy does not change it is preferred to use the `callbackinfo.set_css_property()` methods to change the CSS.
-
 -   Changes to `opacity` and `transform` properties are GPU-accelerated, meaning they do not require Azul to re-generate a display list.
-
 -   Changing style properties (colors, gradients, images, etc.) requires a new display list, but does not require recomputing the cached layout.
-
 -   Changing layout properties (such as `width` or `height`) changes the cached layout, but does not require a call to `myLayoutFunc` or any CSS re-styling.
-
 -   Only if you need to re-generate the entire UI, return `Update.RefreshDom` from the callback.
-
-<br/>
 
 Now that you know how Azul runs your application, you should be able to read the simple counter example:
 
@@ -333,4 +323,3 @@ app = App(model, AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(my_layout_func))
 ```
 
----
