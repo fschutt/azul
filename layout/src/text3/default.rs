@@ -90,7 +90,8 @@ impl FontLoaderTrait<FontRef> for PathLoader {
         );
 
         // Parse the font bytes and wrap in FontRef
-        font_ref_from_bytes(font_bytes, font_index, false).ok_or_else(|| {
+        // NOTE: parse_outlines=true is required for rendering (WebRender needs glyph outlines)
+        font_ref_from_bytes(font_bytes, font_index, true).ok_or_else(|| {
             LayoutError::ShapingError("Failed to parse font with allsorts".to_string())
         })
     }
@@ -196,9 +197,7 @@ impl ParsedFont {
         add_variant_features(style, &mut user_features);
 
         // 3. Perform shaping using the full allsorts pipeline.
-        let gdef = self.opt_gdef_table.as_ref().ok_or_else(|| {
-            LayoutError::ShapingError("GDEF table not found, needed for shaping.".to_string())
-        })?;
+        let opt_gdef = self.opt_gdef_table.as_ref().map(|v| &**v);
 
         // 3a. Map text to a `RawGlyph` buffer. We use `liga_component_pos` as a temporary
         // store for the cluster ID (the original byte index of the character).
@@ -233,7 +232,7 @@ impl ParsedFont {
             gsub::apply(
                 dotted_circle_index,
                 gsub,
-                Some(gdef),
+                opt_gdef,
                 script_tag,
                 Some(lang_tag),
                 &features,
@@ -246,7 +245,7 @@ impl ParsedFont {
 
         // 3c. Convert the `RawGlyph` buffer to a `gpos::Info` buffer for positioning.
         // The cluster ID we stored in `liga_component_pos` is preserved inside `info.glyph`.
-        let mut infos = gpos::Info::init_from_glyphs(Some(gdef), raw_glyphs);
+        let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
         // 3d. Apply GPOS positioning.
         if let Some(gpos) = self.gpos_cache.as_ref() {
@@ -258,7 +257,7 @@ impl ParsedFont {
             // The modern `gpos::apply` takes a GlyphDirection enum and an iterator of features.
             gpos::apply(
                 gpos,
-                Some(gdef),
+                opt_gdef,
                 kern_table,
                 apply_kerning,
                 &Features::Custom(user_features),

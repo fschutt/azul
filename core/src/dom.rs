@@ -348,41 +348,6 @@ impl NodeType {
             NodeType::Placeholder => LayoutDisplay::Inline,
         }
     }
-    /// Returns the formatting context that this node type establishes by default.
-    pub fn default_formatting_context(&self) -> FormattingContext {
-        use self::NodeType::*;
-
-        match self {
-            // Regular block elements
-            Body | Div | P | H1 | H2 | H3 | H4 | H5 | H6 | Pre | BlockQuote | Address | Hr | Ul
-            | Ol | Li | Dl | Dt | Dd | Form | FieldSet | Legend => FormattingContext::Block {
-                establishes_new_context: false,
-            },
-
-            // Table elements with specific formatting contexts
-            Table => FormattingContext::Table,
-            Caption => FormattingContext::TableCaption,
-            THead | TBody | TFoot => FormattingContext::TableRowGroup,
-            Tr => FormattingContext::TableRow,
-            Th | Td => FormattingContext::TableCell,
-            ColGroup => FormattingContext::TableColumnGroup,
-            Col => FormattingContext::TableColumnGroup,
-
-            // Inline elements
-            Span | A | Em | Strong | B | I | Code | Samp | Kbd | Var | Cite | Abbr | Acronym
-            | Q | Sub | Sup | Small | Big | Label | Input | Button | Select | OptGroup
-            | SelectOption | TextArea | Text(_) | Br => FormattingContext::Inline,
-
-            // Special elements
-            Image(_) => FormattingContext::Inline,
-            IFrame(_) => FormattingContext::Block {
-                establishes_new_context: true,
-            },
-
-            // Pseudo-elements
-            Before | After | Marker | Placeholder => FormattingContext::Inline,
-        }
-    }
 
     fn into_library_owned_nodetype(&self) -> Self {
         use self::NodeType::*;

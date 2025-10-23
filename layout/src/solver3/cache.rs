@@ -634,6 +634,14 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         )
     };
 
+    // For Block Formatting Context, we need to calculate proper positions AFTER
+    // children have been laid out and have their sizes.
+    let is_block_fc = {
+        let node = tree.get(node_index).unwrap();
+        matches!(node.formatting_context, FormattingContext::Block { .. })
+    };
+
+    // First pass: recursively layout children so they have used_size
     for (&child_index, &child_relative_pos) in &layout_output.positions {
         let child_node = tree.get_mut(child_index).ok_or(LayoutError::InvalidTree)?;
         child_node.relative_position = Some(child_relative_pos);
@@ -652,18 +660,22 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // For other formatting contexts (Block, Inline, Table), we need to recurse
         // to lay out the children's subtrees.
         if !is_flex_or_grid {
+            // CRITICAL: Pass child_absolute_pos as containing_block_pos for the recursive call.
+            // The recursive function interprets containing_block_pos as the absolute position
+            // of the current node (which will add padding to get content-box position for its children).
             calculate_layout_for_subtree(
                 ctx,
                 tree,
                 text_cache,
                 child_index,
-                self_content_box_pos,
+                child_absolute_pos,
                 inner_size_after_scrollbars,
                 absolute_positions,
                 reflow_needed_for_scrollbars,
             )?;
         }
     }
+
     Ok(())
 }
 

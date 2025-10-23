@@ -126,6 +126,11 @@ name = "test_display_list"
 path = "examples/test_display_list.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "test_cpurender"
+path = "examples/test_cpurender.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """

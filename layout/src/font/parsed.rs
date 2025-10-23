@@ -170,8 +170,9 @@ impl ParsedFont {
             line_gap: hhea_table.line_gap as f32,
         };
 
-        // Parse glyph outlines if requested
+        // Parse glyph outlines and metrics (required for rendering and layout)
         let glyph_records_decoded = if parse_outlines {
+            // Full parsing: outlines + metrics
             glyf_table
                 .records_mut()
                 .into_iter()
@@ -200,7 +201,36 @@ impl ParsedFont {
                 .into_iter()
                 .collect::<BTreeMap<_, _>>()
         } else {
-            BTreeMap::new()
+            // Fallback: Parse metrics only (for layout without rendering)
+            // This creates minimal OwnedGlyph records with only advance width
+            (0..num_glyphs as usize)
+                .filter_map(|glyph_index| {
+                    if glyph_index > u16::MAX as usize {
+                        return None;
+                    }
+                    let glyph_index_u16 = glyph_index as u16;
+                    let horz_advance = allsorts::glyph_info::advance(
+                        &maxp_table,
+                        &hhea_table,
+                        &hmtx_data,
+                        glyph_index_u16,
+                    )
+                    .unwrap_or_default();
+                    
+                    Some((glyph_index_u16, OwnedGlyph {
+                        horz_advance,
+                        bounding_box: OwnedGlyphBoundingBox {
+                            min_x: 0,
+                            min_y: 0,
+                            max_x: horz_advance as i16,
+                            max_y: 0,
+                        },
+                        outline: Vec::new(), // No outline data
+                        unresolved_composite: Vec::new(),
+                        phantom_points: None,
+                    }))
+                })
+                .collect::<BTreeMap<_, _>>()
         };
 
         // Resolve composite glyphs in multiple passes
