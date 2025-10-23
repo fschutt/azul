@@ -1,453 +1,313 @@
-<h2>List of supported CSS attributes</h2>
+# Styling Applications with CSS
 
-<style type="text/css">
-    .css-table {
-        min-width: 700px !important;
-        margin-top: 20px;
-        margin-bottom: 20px;
-        padding-left: 10px;
-        font-family: monospace;
+## Supported CSS Properties
+
+This document lists all CSS properties currently supported or pending future support.
+
+| Property | Implementation status |
+| :--- | :--- |
+| [`-azul-box-shadow-bottom`](#) | |
+| [`-azul-box-shadow-left`](#) | |
+| [`-azul-box-shadow-right`](#) | |
+| [`-azul-box-shadow-top`](#) | |
+| [`-azul-scrollbar-style`](#) | |
+| [`-azul-selection-background-color`](#) | |
+| [`-azul-selection-color`](#) | |
+| [`align-content`](https://www.w3schools.com/cssref/css3_pr_align-content.asp) | |
+| [`align-items`](https://www.w3schools.com/cssref/css3_pr_align-items.asp) | |
+| [`align-self`](https://www.w3schools.com/cssref/css3_pr_align-self.asp) | |
+| [`backdrop-filter`](https://www.w3schools.com/cssref/css3_pr_backdrop-filter.asp) | |
+| [`backface-visibility`](https://www.w3schools.com/cssref/css3_pr_backface-visibility.asp) | |
+| [`background`](https://www.w3schools.com/cssref/pr_background.asp) | |
+| [`background-color`](https://www.w3schools.com/cssref/pr_background-color.asp) | |
+| [`background-image`](https://www.w3schools.com/cssref/pr_background-image.asp) | |
+| [`background-position`](https://www.w3schools.com/cssref/pr_background-position.asp) | |
+| [`background-repeat`](https://www.w3schools.com/cssref/pr_background-repeat.asp) | |
+| [`background-size`](https://www.w3schools.com/cssref/css3_pr_background-size.asp) | |
+| [`border`](https://www.w3schools.com/cssref/pr_border.asp) | |
+| [`border-bottom`](https://www.w3schools.com/cssref/pr_border-bottom.asp) | |
+| [`border-bottom-color`](https://www.w3schools.com/cssref/pr_border-bottom_color.asp) | |
+| [`border-bottom-left-radius`](https://www.w3schools.com/cssref/css3_pr_border-bottom-left-radius.asp) | |
+| [`border-bottom-right-radius`](https://www.w3schools.com/cssref/css3_pr_border-bottom-right-radius.asp) | |
+| [`border-bottom-style`](https://www.w3schools.com/cssref/pr_border-bottom_style.asp) | |
+| [`border-bottom-width`](https://www.w3schools.com/cssref/pr_border-bottom_width.asp) | |
+| [`border-left`](https://www.w3schools.com/cssref/pr_border-left.asp) | |
+| [`border-left-color`](https://www.w3schools.com/cssref/pr_border-left_color.asp) | |
+| [`border-left-style`](https://www.w3schools.com/cssref/pr_border-left_style.asp) | |
+| [`border-left-width`](https://www.w3schools.com/cssref/pr_border-left_width.asp) | |
+| [`border-radius`](https://www.w3schools.com/cssref/css3_pr_border-radius.asp) | |
+| [`border-right`](https://www.w3schools.com/cssref/pr_border-right.asp) | |
+| [`border-right-color`](https://www.w3schools.com/cssref/pr_border-right_color.asp) | |
+| [`border-right-style`](https://www.w3schools.com/cssref/pr_border-right_style.asp) | |
+| [`border-right-width`](https://www.w3schools.com/cssref/pr_border-right_width.asp) | |
+| [`border-top`](https://www.w3schools.com/cssref/pr_border-top.asp) | |
+| [`border-top-color`](https://www.w3schools.com/cssref/pr_border-top_color.asp) | |
+| [`border-top-left-radius`](https://www.w3schools.com/cssref/css3_pr_border-top-left-radius.asp) | |
+| [`border-top-right-radius`](https://www.w3schools.com/cssref/css3_pr_border-top-right-radius.asp) | |
+| [`border-top-style`](https://www.w3schools.com/cssref/pr_border-top_style.asp) | |
+| [`border-top-width`](https://www.w3schools.com/cssref/pr_border-top_width.asp) | |
+| [`bottom`](https://www.w3schools.com/cssref/pr_pos_bottom.asp) | |
+| [`box-decoration-break`](https://www.w3schools.com/cssref/css3_pr_box-decoration-break.asp) | |
+| [`box-shadow`](https://www.w3schools.com/cssref/css3_pr_box-shadow.asp) | |
+| [`box-sizing`](https://www.w3schools.com/cssref/css3_pr_box-sizing.asp) | |
+| [`break-after`](https://www.w3schools.com/cssref/css3_pr_break-after.asp) | |
+| [`break-before`](https://www.w3schools.com/cssref/css3_pr_break-before.asp) | |
+| [`break-inside`](https://www.w3schools.com/cssref/css3_pr_break-inside.asp) | |
+| [`caret-animation-duration`](#) | |
+| [`caret-color`](https://www.w3schools.com/cssref/css3_pr_caret-color.asp) | |
+| [`clear`](https://www.w3schools.com/cssref/pr_clear.asp) | |
+| [`color`](https://www.w3schools.com/cssref/pr_text_color.asp) | |
+| [`column-count`](https://www.w3schools.com/cssref/css3_pr_column-count.asp) | |
+| [`column-fill`](https://www.w3schools.com/cssref/css3_pr_column-fill.asp) | |
+| [`column-gap`](https://www.w3schools.com/cssref/css3_pr_column-gap.asp) | |
+| [`column-rule`](https://www.w3schools.com/cssref/css3_pr_column-rule.asp) | |
+| [`column-rule-color`](https://www.w3schools.com/cssref/css3_pr_column-rule-color.asp) | |
+| [`column-rule-style`](https://www.w3schools.com/cssref/css3_pr_column-rule-style.asp) | |
+| [`column-rule-width`](https://www.w3schools.com/cssref/css3_pr_column-rule-width.asp) | |
+| [`column-span`](https://www.w3schools.com/cssref/css3_pr_column-span.asp) | |
+| [`column-width`](https://www.w3schools.com/cssref/css3_pr_column-width.asp) | |
+| [`columns`](https://www.w3schools.com/cssref/css3_pr_columns.asp) | |
+| [`content`](https://www.w3schools.com/cssref/pr_content.asp) | |
+| [`counter-increment`](https://www.w3schools.com/cssref/pr_counter-increment.asp) | |
+| [`counter-reset`](https://www.w3schools.com/cssref/pr_counter-reset.asp) | |
+| [`cursor`](https://www.w3schools.com/cssref/pr_class_cursor.asp) | |
+| [`direction`](https://www.w3schools.com/cssref/pr_text_direction.asp) | |
+| [`display`](https://www.w3schools.com/cssref/pr_class_display.asp) | |
+| [`filter`](https://www.w3schools.com/cssref/css3_pr_filter.asp) | |
+| [`flex`](https://www.w3schools.com/cssref/css3_pr_flex.asp) | |
+| [`flex-basis`](https://www.w3schools.com/cssref/css3_pr_flex-basis.asp) | |
+| [`flex-direction`](https://www.w3schools.com/cssref/css3_pr_flex-direction.asp) | |
+| [`flex-grow`](https://www.w3schools.com/cssref/css3_pr_flex-grow.asp) | |
+| [`flex-shrink`](https://www.w3schools.com/cssref/css3_pr_flex-shrink.asp) | |
+| [`flex-wrap`](https://www.w3schools.com/cssref/css3_pr_flex-wrap.asp) | |
+| [`float`](https://www.w3schools.com/cssref/pr_class_float.asp) | |
+| [`flow-from`](#) | |
+| [`flow-into`](#) | |
+| [`font`](https://www.w3schools.com/cssref/pr_font_font.asp) | |
+| [`font-family`](https://www.w3schools.com/cssref/pr_font_font-family.asp) | |
+| [`font-size`](https://www.w3schools.com/cssref/pr_font_font-size.asp) | |
+| [`gap`](https://www.w3schools.com/cssref/css3_pr_gap.asp) | |
+| [`grid`](https://www.w3schools.com/cssref/pr_grid.asp) | |
+| [`grid-auto-columns`](https://www.w3schools.com/cssref/pr_grid-auto-columns.asp) | |
+| [`grid-auto-flow`](https://www.w3schools.com/cssref/pr_grid-auto-flow.asp) | |
+| [`grid-auto-rows`](https://www.w3schools.com/cssref/pr_grid-auto-rows.asp) | |
+| [`grid-column`](https://www.w3schools.com/cssref/pr_grid-column.asp) | |
+| [`grid-gap`](https://www.w3schools.com/cssref/pr_grid-gap.asp) | |
+| [`grid-row`](https://www.w3schools.com/cssref/pr_grid-row.asp) | |
+| [`grid-template-columns`](https://www.w3schools.com/cssref/pr_grid-template-columns.asp) | |
+| [`grid-template-rows`](https://www.w3schools.com/cssref/pr_grid-template-rows.asp) | |
+| [`height`](https://www.w3schools.com/cssref/pr_dim_height.asp) | |
+| [`hyphens`](https://www.w3schools.com/cssref/css3_pr_hyphens.asp) | |
+| [`justify-content`](https://www.w3schools.com/cssref/css3_pr_justify-content.asp) | |
+| [`justify-items`](https://www.w3schools.com/cssref/css3_pr_justify-items.asp) | |
+| [`justify-self`](https://www.w3schools.com/cssref/css3_pr_justify-self.asp) | |
+| [`left`](https://www.w3schools.com/cssref/pr_pos_left.asp) | |
+| [`letter-spacing`](https://www.w3schools.com/cssref/pr_text_letter-spacing.asp) | |
+| [`line-height`](https://www.w3schools.com/cssref/pr_dim_line-height.asp) | |
+| [`margin`](https://www.w3schools.com/cssref/pr_margin.asp) | |
+| [`margin-bottom`](https://www.w3schools.com/cssref/pr_margin-bottom.asp) | |
+| [`margin-left`](https://www.w3schools.com/cssref/pr_margin-left.asp) | |
+| [`margin-right`](https://www.w3schools.com/cssref/pr_margin-right.asp) | |
+| [`margin-top`](https://www.w3schools.com/cssref/pr_margin-top.asp) | |
+| [`max-height`](https://www.w3schools.com/cssref/pr_dim_max-height.asp) | |
+| [`max-width`](https://www.w3schools.com/cssref/pr_dim_max-width.asp) | |
+| [`min-height`](https://www.w3schools.com/cssref/pr_dim_min-height.asp) | |
+| [`min-width`](https://www.w3schools.com/cssref/pr_dim_min-width.asp) | |
+| [`mix-blend-mode`](https://www.w3schools.com/cssref/pr_mix-blend-mode.asp) | |
+| [`opacity`](https://www.w3schools.com/cssref/css3_pr_opacity.asp) | |
+| [`orphans`](https://www.w3schools.com/cssref/css3_pr_orphans.asp) | |
+| [`overflow`](https://www.w3schools.com/cssref/pr_pos_overflow.asp) | |
+| [`overflow-x`](https://www.w3schools.com/cssref/css3_pr_overflow-x.asp) | |
+| [`overflow-y`](https://www.w3schools.com/cssref/css3_pr_overflow-y.asp) | |
+| [`padding`](https://www.w3schools.com/cssref/pr_padding.asp) | |
+| [`padding-bottom`](https://www.w3schools.com/cssref/pr_padding-bottom.asp) | |
+| [`padding-left`](https://www.w3schools.com/cssref/pr_padding-left.asp) | |
+| [`padding-right`](https://www.w3schools.com/cssref/pr_padding-right.asp) | |
+| [`padding-top`](https://www.w3schools.com/cssref/pr_padding-top.asp) | |
+| [`perspective-origin`](https://www.w3schools.com/cssref/css3_pr_perspective-origin.asp) | |
+| [`position`](https://www.w3schools.com/cssref/pr_class_position.asp) | |
+| [`right`](https://www.w3schools.com/cssref/pr_pos_right.asp) | |
+| [`row-gap`](https://www.w3schools.com/cssref/css3_pr_row-gap.asp) | |
+| [`scrollbar-color`](https://www.w3schools.com/cssref/css3_pr_scrollbar-color.asp) | |
+| [`scrollbar-width`](https://www.w3schools.com/cssref/css3_pr_scrollbar-width.asp) | |
+| [`shape-image-threshold`](https://www.w3schools.com/cssref/css3_pr_shape-image-threshold.asp) | |
+| [`shape-margin`](https://www.w3schools.com/cssref/css3_pr_shape-margin.asp) | |
+| [`shape-outside`](https://www.w3schools.com/cssref/css3_pr_shape-outside.asp) | |
+| [`string-set`](#) | |
+| [`tab-width`](https://www.w3schools.com/cssref/css3_pr_tab-size.asp) | |
+| [`text-align`](https://www.w3schools.com/cssref/pr_text_text-align.asp) | |
+| [`text-justify`](https://www.w3schools.com/cssref/css3_pr_text-justify.asp) | |
+| [`text-shadow`](https://www.w3schools.com/cssref/css3_pr_text-shadow.asp) | |
+| [`top`](https://www.w3schools.com/cssref/pr_pos_top.asp) | |
+| [`transform`](https://www.w3schools.com/cssref/css3_pr_transform.asp) | |
+| [`transform-origin`](https://www.w3schools.com/cssref/css3_pr_transform-origin.asp) | |
+| [`visibility`](https://www.w3schools.com/cssref/pr_class_visibility.asp) | |
+| [`white-space`](https://www.w3schools.com/cssref/pr_text_white-space.asp) | |
+| [`widows`](https://www.w3schools.com/cssref/css3_pr_widows.asp) | |
+| [`width`](https://www.w3schools.com/cssref/pr_dim_width.asp) | |
+| [`word-spacing`](https://www.w3schools.com/cssref/pr_text_word-spacing.asp) | |
+| [`writing-mode`](https://www.w3schools.com/cssref/css3_pr_writing-mode.asp) | |
+| [`z-index`](https://www.w3schools.com/cssref/pr_pos_z-index.asp) | |
+
+## Styling the DOM in Azul
+
+You can style your application in three primary ways, allowing for a range of approaches 
+from simple inline overrides to comprehensive stylesheet management.
+
+### Inline Styling
+
+For quick styling and prototyping, you can apply styles directly to individual DOM nodes. 
+This is done by passing `Css::empty()` to the `.style()` method of your `Dom` and then 
+chaining `.with_inline_css_props()` to specify your styles.
+
+This approach is best suited for small, component-specific styles or for testing purposes.
+
+**Example:**
+```rust
+use azul::css::*;
+
+Dom::new(NodeType::Div)
+    .with_inline_css_props(vec![
+        CssProperty::BackgroundColor(BackgroundColor::new(ColorU::RED)),
+        CssProperty::Width(LayoutWidth::px(100.0)),
+        CssProperty::Height(LayoutHeight::px(100.0)),
+    ].into())
+```
+
+### CSS Stylesheet
+
+For more complex applications, it is recommended to use an external CSS stylesheet. 
+You can load a stylesheet from a string and apply it to your DOM. This allows you to 
+separate your styling from your application logic, making your code cleaner and more 
+maintainable.
+
+However, the `.style()` call will run the CSS cascade, which is an O(n) operation.
+
+```rust
+use azul::css::*;
+
+const CSS: &str = "
+    #my-div {
+      background-color: blue;
+      width: 200px;
+      height: 200px;
     }
-    .css-row {
-        display: block;
-        padding-left:  5px;
+";
+
+let css = Css::from_string(CSS.into());
+let dom = Dom::new(NodeType::Div).with_id("my-div");
+let styled_dom = dom.style(css);
+```
+
+### Overriding StyledDom with `restyle()`
+
+You can dynamically change the styles of an already styled DOM by using the `restyle()` 
+method on a `StyledDom`. This is useful for applying themes or making other global style 
+changes at runtime.
+
+```rust
+use azul::css::*;
+
+let initial_css = Css::from_string("#my-div { background-color: blue; }".into());
+let mut styled_dom = Dom::new(NodeType::Div).with_id("my-div").style(initial_css);
+
+// ... later ...
+
+let override_css = Css::from_string("#my-div { background-color: green; }".into());
+styled_dom.restyle(override_css);
+```
+
+### System Styles
+
+Azul has the capability to query and parse native system styles, allowing your application 
+to blend in with the user's operating system. However, these styles are not applied automatically. 
+You are responsible for fetching and applying them if you want to use them. This provides you 
+with the flexibility to either adopt the native look and feel or to create a completely custom 
+design.
+
+## Parsing CSS
+
+Azul's styling is powered by the `azul-css` crate (with `feature = parser`), which you can use
+even outside of Azul to just parse a CSS key / value pair or Stylesheet.
+
+#### Parsing Entire Stylesheets
+
+You can parse a complete CSS stylesheet from a string. 
+The parser will produce a `Css` object that you can then apply to your `Dom`.
+
+```rust
+use azul::css::Css;
+
+let my_css_string = r#"
+    #main {
+        width: 100px;
+        height: 100px;
+        background-color: #f0f0f0;
     }
-    .css-row:nth-child(even) {
-        background:  #efefef;
-    }
-    .css-row:nth-child(odd) {
-        background:  #fff;
-    }
-    .css-row-header {
-        background: black !important;
-        color: white;
-        box-shadow: 0px 2px 2px #efefef;
-    }
-    .css-col, .css-col-header {
-        font-family: monospace;
-        display: inline-block;
-        min-width: 200px;
-    }
-</style>
+"#;
 
-<p>
-    This is a list of CSS attributes that are currently implemented. They work in
-    the same way as on a regular web page, except if noted otherwise:
-</p>
+let stylesheet = Css::from_string(my_css_string.into());
+```
 
-<div class="css-table">
-    <div class="css-row css-row-header">
-        <div class="css-col-header">name</div>
-        <div class="css-col-header">example values</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">display</div>
-        <div class="css-col">block, inline-block, flex (default)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">float</div>
-        <div class="css-col">left, right, both</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">box-sizing</div>
-        <div class="css-col">border-box, content-box</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">color</div>
-        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">font-size</div>
-        <div class="css-col">10px, 5pt, 40%, 10em, 5rem</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">font-family</div>
-        <div class="css-col">sans-serif, serif, ..., "Times New Roman"</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">text-align</div>
-        <div class="css-col">left, center, right</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">letter-spacing</div>
-        <div class="css-col">0.0 - infinite</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">line-height</div>
-        <div class="css-col">0.0 - infinite</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">word-spacing</div>
-        <div class="css-col">0.0 - infinite</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">tab-width</div>
-        <div class="css-col">0.0 - infinite</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">cursor</div>
-        <div class="css-col">help, wait, crosshair, grab, default, ...</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">width</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">height</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">min-width</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">min-height</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">max-width</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">max-height</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">position</div>
-        <div class="css-col">static (default), relative, absolute, fixed</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">top</div>
-        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">right</div>
-        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">left</div>
-        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">bottom</div>
-        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">flex-wrap</div>
-        <div class="css-col">wrap, no-wrap</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">flex-direction</div>
-        <div class="css-col">row, column, row-reverse, column-reverse</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">flex-grow</div>
-        <div class="css-col">0.0 - infinite</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">flex-shrink</div>
-        <div class="css-col">0.0 - infinite</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">justify-content</div>
-        <div class="css-col">stretch, center, flex-start, flex-end, space-between, space-around</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">align-items</div>
-        <div class="css-col">stretch, center, flex-start, flex-end</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">align-content</div>
-        <div class="css-col">stretch, center, flex-start, flex-end, space-between, space-around</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">overflow, overflow[-x, -y]</div>
-        <div class="css-col">auto (default), scroll, hidden, visible</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">padding[-top, ...]</div>
-        <div class="css-col">10px, 5%, 10rem, 5em </div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">margin[-top, ...]</div>
-        <div class="css-col">10px, 5%, 10rem, 5em </div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">background</div>
-        <div class="css-col">red, [linear-, radial-, conic-]gradient(), image(id)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">background-position</div>
-        <div class="css-col">10% 10%, 10px 10px, left top</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">background-size</div>
-        <div class="css-col">auto, cover, contain, 10% 40%, 100px 200px</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">background-repeat</div>
-        <div class="css-col">repeat, no-repeat</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-radius</div>
-        <div class="css-col">10px, 5%, 10rem, 5e</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-top-left-radius</div>
-        <div class="css-col">10px, 5%, 10rem, 5em</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-top-right-radius</div>
-        <div class="css-col">10px, 5%, 10rem, 5em </div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-bottom-left-radius</div>
-        <div class="css-col">10px, 5%, 10rem, 5em </div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-bottom-right-radius</div>
-        <div class="css-col">10px, 5%, 10rem, 5em </div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border, border-[top, ...]</div>
-        <div class="css-col">1px solid red, 10px dotted #efefef</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-top-width</div>
-        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-right-width</div>
-        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-left-width</div>
-        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-bottom-width</div>
-        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-top-style</div>
-        <div class="css-col">solid, dashed, dotted, ...</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-right-style</div>
-        <div class="css-col">solid, dashed, dotted, ...</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-left-style</div>
-        <div class="css-col">solid, dashed, dotted, ...</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-bottom-style</div>
-        <div class="css-col">solid, dashed, dotted, ...</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-top-color</div>
-        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-right-color</div>
-        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-left-color</div>
-        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">border-bottom-color</div>
-        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">opacity</div>
-        <div class="css-col">0.0 - 1.0</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">transform</div>
-        <div class="css-col">matrix(), translate(), scale(), rotate(), ...</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">perspective-origin</div>
-        <div class="css-col">100px 100px, 50% 50%</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">transform-origin</div>
-        <div class="css-col">100px 100px, 50% 50%</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">backface-visibility</div>
-        <div class="css-col">visible (default), hidden</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">box-shadow</div>
-        <div class="css-col">0px 0px 10px black inset</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">background-color</div>
-        <div class="css-col">red, green, #efefefaa, rgb(), rgba(), hsl(), hsla()</div>
-    </div>
-    <div class="css-row">
-        <div class="css-col">background-image</div>
-        <div class="css-col">id("my-id")</div>
-    </div>
+### Parsing Individual Properties
 
-</div>
+You can also parse individual CSS properties from strings. This is
+useful for handling dynamic inline styles or for building custom styling tools.
 
-<p>
-    You can limit the inheritance of properties either to direct children only (using <code>></code>) or to all children
-    (using <code> </code>). I.e. <code>div#my_div.class</code> has a different effect than <code>div #my_div .class</code>
-    or <code>div > #my_div > .class</code>.
-</p><br/>
+```rust
+use azul::css::properties::property::{CssProperty, CssPropertyType, get_css_key_map};
+use azul::css::parser2::parse_css_property;
 
-<p>
-    If you want to add images, you need to add them to the application first
-    (via <code>app.add_image(id, ImageRef)</code>), then you can reference the <code>id</code>
-    in your CSS background-content:
-</p>
-<code class="expand">const IMAGE: &[u8] = include_bytes!("my-image.png");
+let key_map = get_css_key_map(); // loads all the keys for determining the css property type
+let property_type = CssPropertyType::from_str("background-color", &key_map).unwrap();
+let color = parse_css_property(property_type, "red").unwrap().get_property().unwrap_or_default();
+```
 
-struct Data { }
+### Pseudo-classes: `:hover`, `:focus`, and `:active`
 
-extern "C" fn myLayoutFn(data: &mut RefAny, _: LayoutInfo) -> StyledDom {
-    let mut css = Css::from_str("div { background-image: id('my-id'); }");
-    Dom::div().style(&mut css)
-}
+Azul handles user interaction pseudo-classes like `:hover`, `:active`, and `:focus` to 
+dynamically change styles based on user actions.
 
-fn main() {
-    let config = AppConfig::new(LayoutSolver::Default);
-    let mut app = App::new(RefAny::new(Data { }), config);
+- **`:hover`**: Applies when the mouse cursor is over an element.
+- **`:active`**: Applies when an element is being activated (e.g., clicked).
+- **`:focus`**: Applies when an element has keyboard focus.
 
-    // load the image before the app starts
-    let decoded = RawImage::decode_image_bytes_any(IMAGE).unwrap();
-    let imageref = ImageRef::raw_image(image).unwrap();
-    app.add_image("my-id", imageref);
+These pseudo-classes are resolved internally by Azul's styling engine. When the state of a 
+DOM node changes (e.g., it gains focus), the engine automatically selects the appropriate 
+styles from your stylesheet and applies them.
 
-    app.run(WindowCreateOptions::new(myLayoutFn));
-}
+The final computed style for an element is determined through a cascading process that takes 
+into account the base styles, the styles from the applied stylesheet, and any inline or overridden 
+styles. The specificity of the CSS selectors is used to resolve conflicts, and the current 
+state of the window (e.g., which element is hovered or focused) determines which pseudo-class 
+styles are active.
 
-// or load it dynamically inside of a callback:
-extern "C" fn loadImageOnClick(data: &mut RefAny, mut callbackinfo: CallbackInfo) -> Update {
-    let decoded = RawImage::decode_image_bytes_any(IMAGE).unwrap();
-    let imageref = ImageRef::raw_image(image).unwrap();
-    callbackinfo.add_image("my-id", imageref);
-    Update::DoNothing
-}</code>
-<br/>
+## `StyledDom` Manipulation
 
-<p>If Azul can't find an image, the background will be rendered as transparent.</p>
+Once you have a `StyledDom`, you can continue to manipulate it.
 
-<br/>
-<br/>
+### Restyling a `StyledDom`
 
-<h2>DOM styling</h2>
+As mentioned earlier, the `restyle()` method allows you to apply a new set of styles to an 
+existing `StyledDom`, completely replacing the old styles. This is an efficient way to handle 
+theme changes or other significant style updates without rebuilding the entire DOM.
 
-<br/>
+### Appending `StyledDom`s
 
-<p>
-    A <code>Dom</code> object + a <code>Css</code> object results in a <code>StyledDom</code>.
-    A <code>StyledDom</code> can be restyled via <code>.restyle(Css)</code> if necessary,
-    however, this only exists so that the application can be restyled via global themes.
-</p>
-<p>
-    CSS properties can be set either on the nodes themselves (as inline properties),
-    or via a CSS stylesheet:
-</p>
+You can also combine multiple `StyledDom` instances. The `append_child()` method lets you 
+attach one `StyledDom` as a child of another. This is useful for composing complex UIs from 
+smaller, independently styled components.
 
-<code class="expand">let mut dom = Dom::div().with_id("my_id").with_class("my_class");
-let styled_dom = dom.style(&mut Css::from_str("
-    #my_id { width: 100px; height: 100px; background: red; }
-"));
-</code>
-<br/>
-<br/>
+```rust
+use azul::prelude::*;
+use azul::css::Css;
 
-<h2>Builtin CSS classes</h2>
+// ...
 
-<p>
-    CSS classes starting with <code>.__azul-native-</code> are reserved for builtin widgets.
-    You can use these classes in the <code>.restyle()</code> method to restyle native buttons
-    while retaining all the behaviour of the code:
-</p>
+let css = Css::from_string("div { background-color: red; } p { color: blue; }".into());
+let mut parent_dom = Dom::new(NodeType::Div).style(css.clone());
+let child_dom = Dom::new(NodeType::P).with_child(Dom::text("Hello")).style(css);
 
-<code class="expand">.__azul-native-button-container { } // style the container of the Button widget
-.__azul-native-button-content { } // style the text of the Button widget
+parent_dom.append_child(child_dom);
+```
 
-.__azul-native-checkbox-container { } // style the container of the CheckBox
-.__azul-native-checkbox-content { } // style the content of the CheckBox
-
-.__azul_native_color_input { } // style the content of the ColorInput
-
-.__azul-native-label { } // style the text of the Label widget
-
-.__azul-native-text-input-container { } // style the container of the TextInput widget
-.__azul-native-text-input-label { } // style the text of the TextInput widget
-
-__azul-native-progressbar-container { } // style the ProgressBar container
-__azul-native-progressbar-bar { } // style the ProgressBar bar
-__azul-native-progressbar-label { } // style the ProgressBar label
-</code><br/>
-<br/>
-
-<h2>Animating CSS properties</h2>
-
-<p>
-    In any callback you can animate CSS properties if they are animatable using
-    <code>callbackinfo.start_animation(nodeid, Animation)</code>. Azul does not
-    support animations via CSS. The <code>start_animation</code> function
-    returns a <code>TimerId</code>, which you can use to call <code>stop_timer</code>
-    when you want to stop the animation again. For UI transitions it generally
-    makes sense to set <code>relayout_on_finish</code>, which will call your
-    main <code>layout()</code> function again when the animation / transition
-    is finished.
-</p>
-
-<code class="expand">def on_click(data, info):
-    # TODO: ugly - need to create helper functions!
-    anim = Animation(
-        from=CssProperty.Opacity(OpacityValue.Exact(StyleOpacity(PercentageValue(FloatValue(0))))),
-        to=CssProperty.Opacity(OpacityValue.Exact(StyleOpacity(PercentageValue(FloatValue(1000))))),
-        duration=Duration.System(SystemTimeDiff(secs=1,nanos=0)),
-        repeat=AnimationRepeat.NoRepeat,
-        easing=AnimationEasing.EaseInOut,
-        relayout_on_finish=True
-    )
-    timer = info.start_animation(info.get_hit_node(), anim)</code><br/>
-
-<p>Additionally, you can also use <code>set_css_property(nodeid, CssProperty)</code> in order
-to change a CSS property once from a callback:</p>
-
-<code class="expand">def on_drag_start(data, info):
-    drag = info.get_mouse_state().current_drag
-    new_prop = CssProperty.Transform(TransformValue.Exact(StyleTransform.Position(new_x, new_y)))
-    info.set_css_property(info.get_hit_node(), new_prop)</code><br/>
-
-<p>Internally, Azul does nothing other than to start a timer with a callback function that only
-interpolates between the <code>Animation.from</code> and <code>Animation.to</code> CSS values.</p>
-<br/>
-
-<br/>
-
-<h2>Layout system</h2>
-
-<p>The layout system roughly follows the CSS flexbox model, although not quite:</p>
-
-<br/>
-<ul>
-    <li><p>First, all items are set to either their min-width, the intrinsic content width (text / image) or 0px.</p></li>
-    <li><p>Then, flex items are recursively expanded according to their flex-grow values, depending on how much space the parent has available</p></li>
-    <li><p><code>position:absolute</code> items are not expanded</p></li>
-    <li><p>After all sizes have been calculated, text is reflown if it doesn't fit in the bounds of the parent</p></li>
-    <li><p>Items are positioned on the screen, depending on the <code>flex-direction</code> value.</p></li>
-</ul>
-
-<p>
-    Azul is completely HiDPI aware, however, there is no em-cascading done yet.
-    Azul calculates <code>1em = 16px</code>.
-</p>
-
-<br/>
-<br/>
-
-<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
