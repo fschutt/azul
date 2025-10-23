@@ -3,12 +3,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use azul_css::props::basic::ColorU;
+use azul_css::props::basic::{ColorU, FontRef};
 use hyphenation::Language;
 
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontLoaderTrait, FontProviderTrait, FontRef, Glyph, GlyphOrientation,
+        BidiLevel, Direction, FontLoaderTrait, FontProviderTrait, Glyph, GlyphOrientation,
         GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, PositionedItem,
         ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation, TextTransform,
         VerticalMetrics, WritingMode,

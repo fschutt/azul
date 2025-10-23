@@ -11,6 +11,80 @@ pub const EM_HEIGHT: f32 = 16.0;
 /// Conversion factor from points to pixels (1pt = 1/72 inch, 1in = 96px, therefore 1pt = 96/72 px)
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
+/// A normalized percentage value (0.0 = 0%, 1.0 = 100%)
+///
+/// This type prevents double-division bugs by making it explicit that the value
+/// is already normalized to the 0.0-1.0 range. When you have a `NormalizedPercentage`,
+/// you should multiply it directly with the containing block size, NOT divide by 100 again.
+///
+/// # Example
+/// ```rust
+/// let percent = NormalizedPercentage::new(1.0); // 100%
+/// let containing_block = 640.0;
+/// let result = percent.resolve(containing_block); // 640.0, not 6.4!
+/// ```
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct NormalizedPercentage(f32);
+
+impl NormalizedPercentage {
+    /// Create a new percentage value from a normalized float (0.0-1.0)
+    ///
+    /// # Arguments
+    /// * `value` - A normalized percentage where 0.0 = 0% and 1.0 = 100%
+    ///
+    /// # Example
+    /// ```rust
+    /// let fifty_percent = NormalizedPercentage::new(0.5); // 50%
+    /// let hundred_percent = NormalizedPercentage::new(1.0); // 100%
+    /// ```
+    #[inline]
+    pub const fn new(value: f32) -> Self {
+        Self(value)
+    }
+
+    /// Create a percentage from an unnormalized value (0-100 scale)
+    ///
+    /// This divides by 100 internally, so you should use this when converting
+    /// from CSS percentage syntax like "50%" which is stored as 50.0.
+    ///
+    /// # Example
+    /// ```rust
+    /// let percent = NormalizedPercentage::from_unnormalized(50.0); // 50% -> 0.5
+    /// ```
+    #[inline]
+    pub fn from_unnormalized(value: f32) -> Self {
+        Self(value / 100.0)
+    }
+
+    /// Get the raw normalized value (0.0-1.0)
+    #[inline]
+    pub const fn get(self) -> f32 {
+        self.0
+    }
+
+    /// Resolve this percentage against a containing block size
+    ///
+    /// This multiplies the normalized percentage by the containing block size.
+    /// For example, 50% (0.5) of 640px = 320px.
+    ///
+    /// # Example
+    /// ```rust
+    /// let percent = NormalizedPercentage::new(0.5); // 50%
+    /// let size = percent.resolve(640.0); // 320.0
+    /// ```
+    #[inline]
+    pub fn resolve(self, containing_block_size: f32) -> f32 {
+        self.0 * containing_block_size
+    }
+}
+
+impl fmt::Display for NormalizedPercentage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}%", self.0 * 100.0)
+    }
+}
+
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PixelValue {
@@ -190,11 +264,23 @@ impl PixelValue {
         }
     }
 
-    /// Returns the value of the SizeMetric in PERCENT (0.0 to 1.0, not 0 to 100!)
+    /// Returns the value of the SizeMetric as a normalized percentage (0.0 = 0%, 1.0 = 100%)
+    ///
+    /// Returns `Some(NormalizedPercentage)` if this is a percentage value, `None` otherwise.
+    /// The returned `NormalizedPercentage` is already normalized to 0.0-1.0 range,
+    /// so you should multiply it directly with the containing block size.
+    ///
+    /// # Example
+    /// ```rust
+    /// let px = PixelValue::parse("100%").unwrap();
+    /// if let Some(percent) = px.to_percent() {
+    ///     let size = percent.resolve(640.0); // 640.0
+    /// }
+    /// ```
     #[inline]
-    pub fn to_percent(&self) -> Option<f32> {
+    pub fn to_percent(&self) -> Option<NormalizedPercentage> {
         match self.metric {
-            SizeMetric::Percent => Some(self.number.get() / 100.0),
+            SizeMetric::Percent => Some(NormalizedPercentage::from_unnormalized(self.number.get())),
             _ => None,
         }
     }
@@ -204,7 +290,9 @@ impl PixelValue {
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
         // to_pixels always assumes 96 DPI
         match self.metric {
-            SizeMetric::Percent => self.number.get() / 100.0 * percent_resolve,
+            SizeMetric::Percent => {
+                NormalizedPercentage::from_unnormalized(self.number.get()).resolve(percent_resolve)
+            }
             _ => self.to_pixels_no_percent().unwrap_or(0.0),
         }
     }

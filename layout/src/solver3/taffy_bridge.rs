@@ -1125,7 +1125,7 @@ fn from_layout_width(val: LayoutWidth) -> Dimension {
             match px.to_pixels_no_percent() {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p / 100.0),
+                    Some(p) => Dimension::percent(p.get()), // p is already normalized (0.0-1.0)
                     None => Dimension::auto(),
                 },
             }
@@ -1141,7 +1141,7 @@ fn from_layout_height(val: LayoutHeight) -> Dimension {
             match px.to_pixels_no_percent() {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p / 100.0),
+                    Some(p) => Dimension::percent(p.get()), // p is already normalized (0.0-1.0)
                     None => Dimension::auto(),
                 },
             }
@@ -1154,8 +1154,9 @@ fn from_pixel_value_lp(val: PixelValue) -> LengthPercentage {
     match val.to_pixels_no_percent() {
         Some(px) => LengthPercentage::length(px),
         None => match val.to_percent() {
-            Some(p) => LengthPercentage::percent(p),
-            None => LengthPercentage::length(0.0), // Fallback to 0 if neither px nor percent
+            Some(p) => LengthPercentage::percent(p.get()), // p is already normalized (0.0-1.0)
+            None => LengthPercentage::length(0.0),         /* Fallback to 0 if neither px nor
+                                                             * percent */
         },
     }
 }
@@ -1164,7 +1165,7 @@ fn from_pixel_value_lpa(val: PixelValue) -> LengthPercentageAuto {
     match val.to_pixels_no_percent() {
         Some(px) => LengthPercentageAuto::length(px),
         None => match val.to_percent() {
-            Some(p) => LengthPercentageAuto::percent(p),
+            Some(p) => LengthPercentageAuto::percent(p.get()), // p is already normalized (0.0-1.0)
             None => LengthPercentageAuto::auto(),
         },
     }

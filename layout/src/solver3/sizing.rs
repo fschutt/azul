@@ -492,6 +492,11 @@ pub fn calculate_used_size_for_node(
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
+    eprintln!(
+        "[calculate_used_size_for_node] dom_id={:?}, containing_block_size={:?}",
+        dom_id, containing_block_size
+    );
+
     let Some(id) = dom_id else {
         return Ok(LogicalSize::new(
             intrinsic.max_content_width,
@@ -504,6 +509,11 @@ pub fn calculate_used_size_for_node(
     let css_height = get_css_height(styled_dom, id, node_state);
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
 
+    eprintln!(
+        "[calculate_used_size_for_node] css_width={:?}, css_height={:?}",
+        css_width, css_height
+    );
+
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width {
@@ -512,7 +522,7 @@ pub fn calculate_used_size_for_node(
             match px.to_pixels_no_percent() {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => (p / 100.0) * containing_block_size.width,
+                    Some(p) => p.resolve(containing_block_size.width),
                     None => intrinsic.max_content_width,
                 },
             }
@@ -529,7 +539,7 @@ pub fn calculate_used_size_for_node(
             match px.to_pixels_no_percent() {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => (p / 100.0) * containing_block_size.height,
+                    Some(p) => p.resolve(containing_block_size.height),
                     None => intrinsic.max_content_height,
                 },
             }
@@ -545,11 +555,14 @@ pub fn calculate_used_size_for_node(
     let main_size = resolved_height;
 
     // Step 4: Construct the final LogicalSize from the logical dimensions.
-    Ok(LogicalSize::from_main_cross(
-        main_size,
-        cross_size,
-        writing_mode,
-    ))
+    let result = LogicalSize::from_main_cross(main_size, cross_size, writing_mode);
+
+    eprintln!(
+        "[calculate_used_size_for_node] RESULT: {:?} (resolved_width={}, resolved_height={})",
+        result, resolved_width, resolved_height
+    );
+
+    Ok(result)
 }
 
 fn collect_text_recursive<T: ParsedFontTrait>(

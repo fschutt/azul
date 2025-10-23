@@ -43,12 +43,13 @@ pub fn run(
         // The window is automatically made visible after the first frame is ready
         let mut window = MacOSWindow::new_with_fc_cache(root_window, fc_cache, mtm)?;
 
-        // CRITICAL: Set up the GLView's back-pointer to the window
-        // This enables drawRect: to call render_and_present_in_draw_rect()
+        // CRITICAL: Set up back-pointers to the window
+        // These enable the view and delegate to call back into MacOSWindow
         // SAFETY: window lives for the entire duration of this function,
-        // and the view is owned by the window
+        // and the view/delegate are owned by the window
         unsafe {
             window.setup_gl_view_back_pointer();
+            window.finalize_delegate_pointer();
         }
 
         // Request the first drawRect: call to display the pre-rendered frame

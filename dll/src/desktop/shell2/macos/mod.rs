@@ -675,8 +675,9 @@ impl GLView {
 
 /// Instance variables for WindowDelegate
 pub struct WindowDelegateIvars {
-    /// Weak reference to the FullWindowState to access close_callback and flags
-    window_state: RefCell<Option<*mut FullWindowState>>,
+    /// Back-pointer to the owning MacOSWindow for handling close callbacks
+    /// This is set after window creation via set_window_ptr()
+    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
 }
 
 define_class!(
@@ -689,21 +690,37 @@ define_class!(
     impl WindowDelegate {
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, _sender: Option<&NSWindow>) -> Bool {
-            let state_ptr = *self.ivars().window_state.borrow();
+            let window_ptr = *self.ivars().window_ptr.borrow();
 
-            if let Some(state_ptr) = state_ptr {
-                let state = unsafe { &mut *state_ptr };
+            if let Some(window_ptr) = window_ptr {
+                eprintln!("[WindowDelegate] Close requested, invoking callback");
 
-                // Set close_requested flag to signal event loop
-                state.flags.close_requested = true;
-                eprintln!("[WindowDelegate] Close requested, preventing immediate close");
+                // SAFETY: window_ptr points to MacOSWindow which owns this delegate
+                // The window outlives the delegate, so this pointer is always valid
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
 
-                // Always return NO to prevent immediate close
-                // The event loop will invoke close_callback and check is_about_to_close
-                Bool::NO
+                    // Call the MacOSWindow method to handle close
+                    // This will invoke callbacks and determine if close should proceed
+                    match macos_window.handle_window_should_close() {
+                        Ok(should_close) => {
+                            if should_close {
+                                eprintln!("[WindowDelegate] Allowing close");
+                                Bool::YES
+                            } else {
+                                eprintln!("[WindowDelegate] Preventing close (callback cancelled)");
+                                Bool::NO
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[WindowDelegate] Error handling close: {}, allowing close", e);
+                            Bool::YES // Allow close on error to avoid stuck window
+                        }
+                    }
+                }
             } else {
-                // No state pointer, allow close by default
-                eprintln!("[WindowDelegate] No state pointer, allowing close");
+                // No window pointer, allow close by default
+                eprintln!("[WindowDelegate] No window pointer, allowing close");
                 Bool::YES
             }
         }
@@ -711,9 +728,10 @@ define_class!(
         /// Called when the window is minimized to the Dock
         #[unsafe(method(windowDidMiniaturize:))]
         fn window_did_miniaturize(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
-                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Minimized;
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Minimized;
                 }
                 eprintln!("[WindowDelegate] Window minimized");
             }
@@ -722,9 +740,10 @@ define_class!(
         /// Called when the window is restored from the Dock
         #[unsafe(method(windowDidDeminiaturize:))]
         fn window_did_deminiaturize(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
-                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Normal;
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Normal;
                 }
                 eprintln!("[WindowDelegate] Window deminiaturized");
             }
@@ -733,9 +752,10 @@ define_class!(
         /// Called when the window enters fullscreen mode
         #[unsafe(method(windowDidEnterFullScreen:))]
         fn window_did_enter_fullscreen(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
-                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Fullscreen;
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Fullscreen;
                 }
                 eprintln!("[WindowDelegate] Window entered fullscreen");
             }
@@ -744,10 +764,11 @@ define_class!(
         /// Called when the window exits fullscreen mode
         #[unsafe(method(windowDidExitFullScreen:))]
         fn window_did_exit_fullscreen(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
-                    (*state_ptr).flags.frame = azul_core::window::WindowFrame::Normal;
+                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Normal;
                 }
                 eprintln!("[WindowDelegate] Window exited fullscreen");
             }
@@ -756,13 +777,16 @@ define_class!(
         /// Called when the window is resized
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
-                let frame = unsafe { (*state_ptr).flags.frame };
-                // Only check for maximized state if not in fullscreen
-                if frame != azul_core::window::WindowFrame::Fullscreen {
-                    // Set flag to check maximized state in event loop
-                    // The event loop will compare window.frame() to screen.visibleFrame()
-                    eprintln!("[WindowDelegate] Window resized");
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    let frame = macos_window.current_window_state.flags.frame;
+                    // Only check for maximized state if not in fullscreen
+                    if frame != azul_core::window::WindowFrame::Fullscreen {
+                        // Set flag to check maximized state in event loop
+                        // The event loop will compare window.frame() to screen.visibleFrame()
+                        eprintln!("[WindowDelegate] Window resized");
+                    }
                 }
             }
         }
@@ -770,9 +794,10 @@ define_class!(
         /// Called when the window becomes the key window (receives focus)
         #[unsafe(method(windowDidBecomeKey:))]
         fn window_did_become_key(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
-                    (*state_ptr).window_focused = true;
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.current_window_state.window_focused = true;
                 }
             }
         }
@@ -780,9 +805,10 @@ define_class!(
         /// Called when the window resigns key window status (loses focus)
         #[unsafe(method(windowDidResignKey:))]
         fn window_did_resign_key(&self, _notification: &NSNotification) {
-            if let Some(state_ptr) = *self.ivars().window_state.borrow() {
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
-                    (*state_ptr).window_focused = false;
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.current_window_state.window_focused = false;
                 }
             }
         }
@@ -797,7 +823,7 @@ define_class!(
         #[unsafe(method_id(init))]
         fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
             let this = this.set_ivars(WindowDelegateIvars {
-                window_state: RefCell::new(None),
+                window_ptr: RefCell::new(None),
             });
             unsafe { msg_send_id![super(this), init] }
         }
@@ -817,9 +843,10 @@ impl WindowDelegate {
         result.expect("Failed to initialize WindowDelegate")
     }
 
-    /// Set the window state pointer for this delegate
-    pub fn set_window_state(&self, state: *mut FullWindowState) {
-        *self.ivars().window_state.borrow_mut() = Some(state);
+    /// Set the window pointer for this delegate
+    /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the delegate
+    pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
+        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
     }
 }
 
@@ -1165,7 +1192,12 @@ impl MacOSWindow {
                 .unwrap_or(1.0)
         };
 
-        eprintln!("[Window Init] HiDPI factor: {}", actual_hidpi_factor);
+        // TEMP DEBUG: Override HiDPI factor to test DPI scaling issue
+        let actual_hidpi_factor = 3.0;
+        eprintln!(
+            "[Window Init] HiDPI factor: {} (OVERRIDDEN FOR TESTING!)",
+            actual_hidpi_factor
+        );
 
         // Make OpenGL context current before initializing WebRender
         if let Some(ref ctx) = gl_context {
@@ -1312,10 +1344,9 @@ impl MacOSWindow {
         let app_data =
             std::sync::Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
 
-        // Set the window state pointer in the delegate
-        // SAFETY: We hold &mut current_window_state and the pointer remains valid
-        // for the lifetime of the MacOSWindow
-        window_delegate.set_window_state(&mut current_window_state as *mut FullWindowState);
+        // NOTE: We will set the window state pointer AFTER creating the MacOSWindow struct
+        // because current_window_state will be moved into the struct, invalidating any pointer
+        // we create now.
 
         eprintln!("[Window Init] Window created successfully");
         eprintln!("[Window Init] Backend: {:?}", backend);
@@ -1354,6 +1385,11 @@ impl MacOSWindow {
             scrollbar_drag_state: None,
             new_frame_ready,
         };
+
+        // NOTE: Do NOT set the delegate pointer here!
+        // The window will be moved out of this function (returned by value),
+        // so any pointer we set here will become invalid.
+        // Instead, call finalize_delegate_pointer() AFTER the window is in its final location.
 
         // Set up WebRender document with root pipeline and viewport
         // This only needs to be done once at initialization
@@ -1841,6 +1877,58 @@ impl MacOSWindow {
         self.sync_window_state();
     }
 
+    /// Handle windowShouldClose delegate callback
+    ///
+    /// This is called synchronously when the user clicks the close button.
+    /// It invokes the close callback and returns whether the window should close.
+    ///
+    /// Returns: Ok(true) if window should close, Ok(false) if close was prevented
+    fn handle_window_should_close(&mut self) -> Result<bool, String> {
+        eprintln!("[handle_window_should_close] START");
+
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Set close_requested flag
+        self.current_window_state.flags.close_requested = true;
+
+        // Invoke close callback if it exists
+        // This uses the V2 event system to detect CloseRequested and dispatch callbacks
+        let result = self.process_window_events_v2();
+
+        // Process the result - regenerate layout if callback modified DOM
+        match result {
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                eprintln!("[handle_window_should_close] Callback requested DOM regeneration");
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!(
+                        "[handle_window_should_close] Layout regeneration failed: {}",
+                        e
+                    );
+                    // Continue anyway - don't block close on layout errors
+                }
+            }
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                eprintln!("[handle_window_should_close] Callback requested re-render");
+                self.frame_needs_regeneration = true;
+            }
+            _ => {}
+        }
+
+        // Check if callback cleared the flag (preventing close)
+        let should_close = self.current_window_state.flags.close_requested;
+
+        if should_close {
+            eprintln!("[handle_window_should_close] Close confirmed");
+            // Mark window as closed so is_open() returns false
+            self.is_open = false;
+        } else {
+            eprintln!("[handle_window_should_close] Close prevented by callback");
+        }
+
+        Ok(should_close)
+    }
+
     /// Handle close request from WindowDelegate
     fn handle_close_request(&mut self) {
         eprintln!("[MacOSWindow] Processing close request");
@@ -2277,6 +2365,21 @@ impl MacOSWindow {
             gl_view.set_window_ptr(window_ptr);
             eprintln!("[setup_gl_view_back_pointer] ✓ GLView can now call back to MacOSWindow");
         }
+    }
+
+    /// Finalize the delegate's back-pointer to this window.
+    ///
+    /// MUST be called AFTER the window is in its final memory location.
+    /// Do NOT call this from the constructor, as the window will be moved after creation.
+    ///
+    /// SAFETY:
+    /// - The window must not be moved in memory after this call
+    /// - The delegate is owned by the window and doesn't outlive it
+    pub unsafe fn finalize_delegate_pointer(&mut self) {
+        let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
+        let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
+        (*delegate_ptr).set_window_ptr(window_ptr);
+        eprintln!("[finalize_delegate_pointer] ✓ WindowDelegate can now call back to MacOSWindow");
     }
 
     /// This is the MAIN rendering entry point, called ONLY from GLView::drawRect:

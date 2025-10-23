@@ -222,6 +222,14 @@ fn render_display_list(
             DisplayListItem::HitTestArea { bounds, tag } => {
                 // Hit test areas don't render anything
             }
+            DisplayListItem::PushStackingContext { z_index, bounds } => {
+                // For CPU rendering, we don't need to do anything special for stacking contexts
+                // They're already handled by the display list generation order
+                // We could push a transform if we wanted to implement transform support
+            }
+            DisplayListItem::PopStackingContext => {
+                // For CPU rendering, no action needed
+            }
             DisplayListItem::IFrame {
                 child_dom_id,
                 bounds,

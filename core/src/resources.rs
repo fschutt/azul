@@ -77,7 +77,7 @@ impl AppConfig {
     pub fn new() -> Self {
         Self {
             log_level: AppLogLevel::Error,
-            enable_visual_panic_hook: true,
+            enable_visual_panic_hook: false,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
         }

@@ -15,11 +15,14 @@ use azul_css::props::{
 use azul_layout::solver3::display_list::DisplayList;
 use webrender::{
     api::{
-        units::{DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
+        units::{
+            DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
+        },
         BorderRadius as WrBorderRadius, ClipChainId as WrClipChainId, ClipMode as WrClipMode,
         ColorF, CommonItemProperties, ComplexClipRegion as WrComplexClipRegion,
         DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ItemTag, PipelineId,
-        SpaceAndClipInfo, SpatialId,
+        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo,
+        SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     Transaction,
 };
@@ -34,6 +37,12 @@ pub fn translate_displaylist_to_wr(
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: f32,
 ) -> Result<Transaction, String> {
+    eprintln!(
+        "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, dpi={}",
+        display_list.items.len(),
+        viewport_size,
+        dpi
+    );
     use azul_core::geom::LogicalRect;
     use azul_layout::solver3::display_list::DisplayListItem;
 
@@ -45,6 +54,7 @@ pub fn translate_displaylist_to_wr(
     // Setting it twice may confuse WebRender
 
     let device_rect = DeviceIntRect::from_size(viewport_size);
+    eprintln!("[compositor2] Setting document view to {:?}", device_rect);
     txn.set_document_view(device_rect);
 
     // Create WebRender display list builder
@@ -52,9 +62,17 @@ pub fn translate_displaylist_to_wr(
 
     // CRITICAL: Begin building the display list before pushing items
     builder.begin();
+    eprintln!(
+        "[compositor2] Builder started, translating {} items",
+        display_list.items.len()
+    );
 
     let spatial_id = SpatialId::root_scroll_node(pipeline_id);
     let root_clip_chain_id = WrClipChainId::INVALID;
+
+    // NOTE: We DON'T push a stacking context here anymore!
+    // The display list generation now includes PushStackingContext items.
+    // Pushing one here would create an extra nested context that isn't needed.
 
     // Clip stack management (for PushClip/PopClip)
     let mut clip_stack: Vec<WrClipChainId> = vec![root_clip_chain_id];
@@ -70,10 +88,15 @@ pub fn translate_displaylist_to_wr(
                 color,
                 border_radius,
             } => {
+                eprintln!(
+                    "[compositor2] Rect item: bounds={:?}, color={:?}",
+                    bounds, color
+                );
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
+                eprintln!("[compositor2] Translated to LayoutRect: {:?}", rect);
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -361,14 +384,40 @@ pub fn translate_displaylist_to_wr(
                 // TODO: Implement image rendering with push_image
             }
 
+            DisplayListItem::PushStackingContext { z_index, bounds } => {
+                eprintln!(
+                    "[compositor2] PushStackingContext: z_index={}, bounds={:?}",
+                    z_index, bounds
+                );
+
+                // Just push a simple stacking context at the bounds origin
+                // Use the current spatial_id from the stack (don't create a new reference frame)
+                let current_spatial_id = *spatial_stack.last().unwrap();
+                builder.push_simple_stacking_context(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    current_spatial_id,
+                    WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                );
+            }
+
+            DisplayListItem::PopStackingContext => {
+                eprintln!("[compositor2] PopStackingContext");
+                builder.pop_stacking_context();
+            }
+
             DisplayListItem::IFrame { .. } => {
                 // TODO: Implement iframe embedding (nested pipelines)
             }
         }
     }
 
+    // NOTE: We DON'T pop a stacking context here anymore!
+    // The display list now includes PopStackingContext items that match the Push items.
+
     // Finalize and set display list
     let (_, dl) = builder.end();
+
+    eprintln!("[compositor2] Builder finished, creating transaction");
 
     // Print detailed display list summary before submitting
     eprintln!("=== Display List Summary ===");
@@ -381,8 +430,10 @@ pub fn translate_displaylist_to_wr(
     eprintln!("============================");
 
     let layout_size = LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32);
+    eprintln!("[compositor2] Calling txn.set_display_list with epoch 0");
     txn.set_display_list(webrender::api::Epoch(0), (pipeline_id, dl));
 
+    eprintln!("[compositor2] Transaction ready to send");
     Ok(txn)
 }
 

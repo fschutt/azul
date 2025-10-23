@@ -203,6 +203,17 @@ pub enum DisplayListItem {
     /// Pops the current scroll frame.
     PopScrollFrame,
 
+    /// Pushes a new stacking context for proper z-index layering.
+    /// All subsequent primitives until PopStackingContext will be in this stacking context.
+    PushStackingContext {
+        /// The z-index for this stacking context (for debugging/validation)
+        z_index: i32,
+        /// The bounds of the stacking context root element
+        bounds: LogicalRect,
+    },
+    /// Pops the current stacking context.
+    PopStackingContext,
+
     /// Defines a region for hit-testing.
     HitTestArea {
         bounds: LogicalRect,
@@ -354,6 +365,15 @@ impl DisplayListBuilder {
                 border_radius,
             });
         }
+    }
+
+    pub fn push_stacking_context(&mut self, z_index: i32, bounds: LogicalRect) {
+        self.items
+            .push(DisplayListItem::PushStackingContext { z_index, bounds });
+    }
+
+    pub fn pop_stacking_context(&mut self) {
+        self.items.push(DisplayListItem::PopStackingContext);
     }
 
     pub fn push_text_run(
@@ -597,6 +617,24 @@ where
             .ok_or(LayoutError::InvalidTree)?;
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
+        // Push a stacking context for WebRender
+        // Get the node's bounds for the stacking context
+        let node_pos = self
+            .positioned_tree
+            .absolute_positions
+            .get(&context.node_index)
+            .copied()
+            .unwrap_or_default();
+        let node_size = node.used_size.unwrap_or(LogicalSize {
+            width: 0.0,
+            height: 0.0,
+        });
+        let node_bounds = LogicalRect {
+            origin: node_pos,
+            size: node_size,
+        };
+        builder.push_stacking_context(context.z_index, node_bounds);
+
         // 1. Paint background and borders for the context's root element.
         self.paint_node_background_and_border(builder, context.node_index)?;
 
@@ -631,6 +669,9 @@ where
         for child in positive_z_children {
             self.generate_for_stacking_context(builder, child)?;
         }
+
+        // Pop the stacking context for WebRender
+        builder.pop_stacking_context();
 
         // After painting the node and all its descendants, pop any contexts it pushed.
         if did_push_clip_or_scroll {
