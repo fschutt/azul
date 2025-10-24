@@ -4,13 +4,13 @@
 //! Unlike the old hierarchical CachedDisplayList, the new DisplayList is a simple
 //! flat vector of rendering commands that can be executed sequentially.
 
-use azul_core::{dom::ScrollbarOrientation, geom::LogicalRect, resources::RendererResources};
+use azul_core::{dom::ScrollbarOrientation, ui_solver::GlyphInstance, geom::LogicalRect, resources::{RendererResources, FontInstanceKey}};
 use azul_css::props::basic::ColorU;
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
-
 use crate::{
     font::parsed::ParsedFont,
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem},
+    text3::cache::FontHash,
 };
 
 pub struct RenderOptions {
@@ -158,9 +158,16 @@ fn render_display_list(
             } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                // TODO: Implement text rendering with tiny-skia
-                // This requires loading the font outlines and rendering glyphs
-                // font_hash can be used to look up the font in a registry
+                render_text(
+                    glyphs,
+                    *font_hash,
+                    *color,
+                    pixmap,
+                    clip_rect,
+                    *transform,
+                    *clip,
+                    renderer_resources,
+                )?;
             }
             DisplayListItem::Image { bounds, key } => {
                 let transform = transform_stack.last().unwrap();
@@ -306,6 +313,123 @@ fn render_rect(
     pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
 
     Ok(())
+}
+
+fn render_text(
+    glyphs: &[GlyphInstance],
+    font_hash: FontHash,
+    color: ColorU,
+    pixmap: &mut Pixmap,
+    clip_rect: &LogicalRect,
+    transform: Transform,
+    _clip: Option<Rect>,
+    renderer_resources: &RendererResources,
+) -> Result<(), String> {
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(color.r, color.g, color.b, color.a);
+
+    // Find the font and font size from the font_hash
+    // TODO: We need to get the font size from somewhere, for now use a default
+    // For CPU rendering, we can just access the font directly without going through the renderer resources
+    // The font should be available in the display list context
+    
+    // For now, text rendering in CPU mode is disabled
+    // TODO: Implement proper font lookup without renderer_resources
+    Ok(())
+    
+    /*
+    // OLD CODE - needs proper font lookup
+    if let Some((font_ref, au, dpi)) = font_instance {
+        // Get the parsed font data
+        let parsed_font = unsafe { &*(font_ref.get_parsed() as *const ParsedFont) };
+        let units_per_em = parsed_font.font_metrics.units_per_em as f32;
+
+        // Calculate font scale factor
+        let font_size_px = au.into_px() * dpi.inner.get();
+        let scale_factor = font_size_px / units_per_em;
+
+        // The glyphs already have their absolute positions (baseline coordinates)
+        // Just use the glyph positions directly
+
+        // Draw each glyph
+        for glyph in glyphs {
+
+            use azul_core::resources::GlyphOutlineOperation;
+
+            let glyph_index = glyph.index as u16;
+            
+            // glyph.point is the absolute baseline position of the glyph
+            let glyph_x = glyph.point.x;
+            let glyph_baseline_y = glyph.point.y;
+
+            // Find the glyph outline in the parsed font
+            if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
+                let mut pb = PathBuilder::new();
+
+                for outline in glyph_data.outline.iter() {
+                    // Create path from outline
+                    let mut is_first = true;
+
+                    for op in outline.operations.as_ref() {
+                        match op {
+                            GlyphOutlineOperation::MoveTo(pt) => {
+                                // Scale and position the point relative to the glyph's baseline
+                                let x = glyph_x + pt.x as f32 * scale_factor;
+                                let y = glyph_baseline_y - pt.y as f32 * scale_factor;
+
+                                if is_first {
+                                    pb.move_to(x, y);
+                                    is_first = false;
+                                } else {
+                                    pb.move_to(x, y);
+                                }
+                            }
+                            GlyphOutlineOperation::LineTo(pt) => {
+                                let x = glyph_x + pt.x as f32 * scale_factor;
+                                let y = glyph_baseline_y - pt.y as f32 * scale_factor;
+                                pb.line_to(x, y);
+                            }
+                            GlyphOutlineOperation::QuadraticCurveTo(qt) => {
+                                let ctrl_x = glyph_x + qt.ctrl_1_x as f32 * scale_factor;
+                                let ctrl_y = glyph_baseline_y - qt.ctrl_1_y as f32 * scale_factor;
+                                let end_x = glyph_x + qt.end_x as f32 * scale_factor;
+                                let end_y = glyph_baseline_y - qt.end_y as f32 * scale_factor;
+                                pb.quad_to(ctrl_x, ctrl_y, end_x, end_y);
+                            }
+                            GlyphOutlineOperation::CubicCurveTo(ct) => {
+                                let ctrl1_x = glyph_x + ct.ctrl_1_x as f32 * scale_factor;
+                                let ctrl1_y = glyph_baseline_y - ct.ctrl_1_y as f32 * scale_factor;
+                                let ctrl2_x = glyph_x + ct.ctrl_2_x as f32 * scale_factor;
+                                let ctrl2_y = glyph_baseline_y - ct.ctrl_2_y as f32 * scale_factor;
+                                let end_x = glyph_x + ct.end_x as f32 * scale_factor;
+                                let end_y = glyph_baseline_y - ct.end_y as f32 * scale_factor;
+                                pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
+                            }
+                            GlyphOutlineOperation::ClosePath => {
+                                pb.close();
+                            }
+                        }
+                    }
+                }
+
+                if let Some(path) = pb.finish() {
+                    let transformed_path = path
+                        .transform(transform)
+                        .ok_or_else(|| "Failed to transform text path".to_string())?;
+                    pixmap.fill_path(
+                        &transformed_path,
+                        &paint,
+                        tiny_skia::FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+    */
 }
 
 fn render_border(

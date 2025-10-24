@@ -2206,6 +2206,21 @@ impl<T: ParsedFontTrait> ShapedGlyph<T> {
             size,
         }
     }
+
+    /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
+    /// This is used for display list generation where glyphs need their final page coordinates.
+    pub fn into_glyph_instance_at(&self, writing_mode: WritingMode, absolute_position: LogicalPosition) -> GlyphInstance {
+        let size = self
+            .font
+            .get_glyph_size(self.glyph_id, self.style.font_size_px)
+            .unwrap_or_default();
+
+        GlyphInstance {
+            index: self.glyph_id as u32,
+            point: absolute_position,
+            size,
+        }
+    }
 }
 
 // --- Stage 4: Positioned Representation (Final Layout) ---
