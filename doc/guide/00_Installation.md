@@ -14,35 +14,81 @@ edit your `Cargo.toml` file:
 
 ```
 [dependencies]
-azul = "1.0.0-alpha"
-# or: azul = { git = "https://azul.rs/1.0.0-alpha.git" }
+azul = "1.0.0-alpha5"
+# or: azul = { git = "https://azul.rs/1.0.0-alpha5.git" }
 ```
 
-Run cargo with: `cargo build --release`. 
+Run cargo with: `cargo build --release`. NOTE: For regular Rust development,
+you're done now, but you might want to use the dynamic linking for much faster
+re-compilation times.
 
-### Rust: dynamic linking
+### Rust: Dynamic Linking
 
-In order to improve iteration time, it is highly recommended to use the .dll
-for dynamic linking. Download the azul.dll / libazul.so and put it in your 
-`myproject/target/debug` (or `target/release`) folder. The library has to be 
-in the same directory as the binary, in order to be found when launching.
+In order to improve iteration time, it is highly recommended to use the `.so` 
+/ `.dylib` for dynamic linking. This allows you to recompile your app in 
+seconds without recompiling Azul itself.
 
-Then, export the path to the DLL file via 
+#### Step 1: Get the Library
 
-```sh
-export AZUL_LINK_PATH=/path/to/target/release/azul.dll
-```
-On Windows, use `set AZUL_LINK_PATH`. Internally, the azul crate has 
-a build script, which will pick up on this environment variable
-and tell the Rust compiler where the DLL is.
+Download the `libazul.so` (Linux) or `libazul.dylib` (macOS) and place it in 
+your project's `target/debug` or `target/release` folder (ideally both). The 
+goal is to have the library in the same directory as the final compiled binary.
 
-Now, enable the feature `link_dynamic` in your Cargo.toml:
+#### Step 2: Configure cargo
+
+First, enable the `link_dynamic` feature in your `Cargo.toml`:
 
 ```toml
 [dependencies.azul]
-version = "1.0.0-alpha1"
+version = "1.0.0-alpha5"
 default-features = false
 features = ["link_dynamic"]
+```
+
+Next, set the `AZUL_LINK_PATH` environment variable to tell Azul's build 
+script where the library is located. This is a **build-time** variable.
+
+```sh
+# The path should be to the *directory* containing the library
+export AZUL_LINK_PATH=$(pwd)/target/release
+```
+
+Internally, the azul crate has a build script, which will 
+pick up on this environment variable and tell the Rust compiler 
+where the DLL is.
+
+#### Step 3: Solve the Run-Time Linking
+
+When you run your binary, the OS needs to know where to find `libazul.so`. 
+The best method is to embed this search path directly into your executable 
+using `RPATH`.
+
+Create a file named `.cargo/config.toml` in your project's root directory 
+(create the `.cargo` folder if it doesn't exist) and add the following:
+
+```toml
+[build]
+rustflags = [
+  # Windows: nothing to add, because Windows will look in the
+  # directory of the .exe for .dll files by default
+  
+  # Linux: tells the binary to look for libraries in the same directory it is in
+  "-C", "link-arg=-Wl,-rpath,$ORIGIN",
+
+  # macOS: the equivalent of $ORIGIN is @loader_path
+  "-C", "link-arg=-Wl,-rpath,@loader_path",
+]
+```
+
+Now, you can compile and run your project with a single command, and it will 
+just work. The resulting binary is portable and self-contained, as long as 
+`libazul.so` is next to it (or installed as a dependency). If you now want to
+give your binary / library to a friend, you just need to bundle up the (or on 
+Linux: specify libazul as a package of your repositorys manager).
+
+```sh
+# Set the build-time variable and run the project
+AZUL_LINK_PATH=$(pwd)/target/release cargo run --release
 ```
 
 If you see an error like this:
@@ -53,28 +99,12 @@ error: environment variable `AZUL_LINK_PATH` not defined
  --> [...]\api\rust\build.rs:4:48
   |
 4 |  println!("cargo:rustc-link-search={}", env!("AZUL_LINK_PATH"));
-  |                                                ^^^^^^^^^^^^^^^^^^^^^^
+  |                                         ^^^^^^^^^^^^^^^^^^^^^^
 ```
 
 ... it means you forgot to set the `AZUL_LINK_PATH` as explained above.
 
-On Linux or Mac the operating system needs the library to be in the `LD_PRELOAD` 
-path, so you can just `AZUL_LINK_PATH` to the same path:
-
-```
-sudo cp ./libazul.so /usr/lib
-export AZUL_LINK_PATH=/usr/lib/libazul.so
-cargo run --release
-```
-
-On Windows things are different: First, you will also need to put the
-`azul.dll.lib` file into the same directory as the `azul.dll` file 
-and second, in order to run the binary, the `azul.dll` file has
-to be in the same directory as the .exe.
-
-Note that the DLL is built in release mode, so you can iterate on your binary
-in debug mode, and when you're done programming your library, you can switch back
-to static linking.
+This is what your project should look like:
 
 ```bash
 /my-project
@@ -84,17 +114,13 @@ to static linking.
         /release
             my-project.exe
             azul.dll
-            azul.dll.lib
+            azul.dll.lib // <- Important on Windows!
     Cargo.toml
 ```
 
-```bash
-SET AZUL_LINK_PATH=/path/to/my-project/target/release
-cargo run --release
-```
+Now your code should run (if it doesn't, [file a bug](https://github.com/fschutt/azul/issues)).
 
-Now your code should run (if it doesn't, file a bug).
-You can now continue with the [next tutorial](..), 
+You can now continue with the [next tutorial](/hello-world), 
 which will teach you how to create a window.
 
 ### Python
