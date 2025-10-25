@@ -1,12 +1,13 @@
-# Towards A Perfect GUI Toolkit
+# Towards A "Perfect" GUI Toolkit
 
-For forty years, building graphical user interfaces has been one of the most persistently difficult 
-problems in software engineering. Despite a constant evolution of languages, libraries, and design 
-patterns, developers still struggle with the same fundamental challenges: managing state, synchronizing 
-data with the view, and enabling communication between distant components. 
+For over 40 years, building graphical user interfaces (GUIs) has been one of the most 
+difficult problems in software engineering. Despite a constant evolution of languages, 
+libraries, and design patterns, developers face the same fundamental problems: managing 
+state, synchronizing data with the view, and enabling communication between distant 
+components. 
 
-The root of this struggle lies in a core conflict that nearly every toolkit fails to properly address: 
-the conflict between the **Visual Tree** and the **State Graph**.
+The root of this struggle lies in a core conflict that nearly every toolkit fails to 
+properly address: the conflict between the **Visual Tree** and the **State Graph**.
 
 *   The **Visual Tree** is the hierarchy of elements as they appear on the screen. It is always a
     tree: a window contains a panel, which contains a button. Its structure is defined by layout and presentation.
@@ -15,9 +16,10 @@ the conflict between the **Visual Tree** and the **State Graph**.
     separate table  (`Visual Tree` -> `MainPanel` -> `Table`). A "Save" button in a toolbar must know if form data,
     located elsewhere, is valid. This network of dependencies is a complex **graph**, not a simple **tree**.
 
-The history of GUI development is the history of failed or incomplete attempts to reconcile these 
-two different structures. The "pain" of UI programming stems from frameworks that either fuse them 
-together or awkwardly force the graph to conform to the shape of the tree.
+The history of GUI development is the history of failed or incomplete attempts to 
+reconcile these two different structures. The "pain" of UI programming stems from 
+frameworks that either fuse them together or awkwardly force the graph to conform 
+to the shape of the tree.
 
 ## First Gen: Fused Hierarchy (OOP)
 
@@ -36,8 +38,8 @@ class MyApp(othertoolkit.App):
         self.text_input.setText("")
 ```
 
-In this model, the Visual Tree and the State Graph are **fused**. The object inheritance hierarchy *is* 
-the visual hierarchy. This immediately creates real problems:
+In this model, the Visual Tree and the State Graph are **fused**. The object inheritance 
+hierarchy *is* the visual hierarchy. This immediately creates real problems:
 
 *   Communication between logically related but visually distant components requires complex pointer
     management, global mediator objects, or a web of signal-and-slot connections that are difficult to
@@ -54,9 +56,9 @@ the visual hierarchy. This immediately creates real problems:
 
 The next major step, led by frameworks like React and the Elm Architecture, introduced a new 
 functional paradigm: `UI = f(data)`. The UI is a declarative, pure function of the application's 
-state. This was revolutionary at the time, as it solved the problem of state synchronization. The 
-developer no longer manually calls `setText()`; he changes the data, and the framework efficiently 
-updates the view to match.
+state. This was revolutionary at the time, as it solved the problem of state synchronization. When
+the data is changed, the framework efficiently updates the view to match instead of manually 
+needing a `setText()` call.
 
 ```python
 # React Paradigm Model
@@ -77,10 +79,9 @@ def MyApp():
 ```
 
 However, while these frameworks finally decouple the view from imperative manipulation, they 
-still, by default, **constrain the flow of data to the shape of the Visual Tree**. The example 
-above works because `TextInput`, `Button`, and `Label` are all siblings, children of `MyApp`.
-But what if the `Button` were in a `Toolbar` and the `TextInput` and `Label` were in a `MainContent` 
-panel? 
+still **constrain the flow of data to the shape of the Visual Tree**. The example above works 
+because `TextInput`, `Button`, and `Label` are all siblings, children of `MyApp`. But what if 
+the `Button` were in a `Toolbar` and the `TextInput` and `Label` were in a `MainContent` panel? 
 
 React's solution is to "lift state up" to their lowest common ancestor, `MyApp`. The `MyApp` 
 component must now hold the state and pass both the data and the callback functions down through the 
@@ -106,12 +107,13 @@ def MyApp():
 ```
 
 The State Graph is still being forced into the tree structure of the view, leading to "prop drilling" 
-and components with bloated, indirect APIs. The existence of complex "escape hatches" like Redux or 
+and components with indirect APIs. The existence of complex "escape hatches" like Redux or 
 the Context API is evidence of this core constraint—they are patterns invented to work *around* this 
 default tree-based data flow.
 
-Elms solution is to "lift the state up" to the root ancestor and route everything in a single "update" 
-function. Elm therefore represents the philosophical extreme of the constrained hierarchy:
+Elms solution goes even further to "lift all state up" to the root ancestor and route everything in a 
+single, top-level "update" function. Elm therefore represents the philosophical extreme of the constrained 
+hierarchy:
 
 1.  **Model:** The entire state of the application is held in a single, immutable data structure.
 2.  **View:** A pure function that takes the `Model` and returns a description of the UI.
@@ -123,7 +125,7 @@ function. Elm therefore represents the philosophical extreme of the constrained 
 
 Immediate Mode toolkits (IMGUI) take a different approach. The paradigm is to have no persistent UI objects 
 at all; the UI is redrawn from scratch from application data every single frame. This solves synchronization 
-by brute force (but ignores all other problems, as React did).
+by brute force (but shoves the problem of application architecture onto the developer).
 
 ```python
 # IMGUI Paradigm Model
@@ -141,43 +143,41 @@ def render_ui(app_state):
     ui.label(&app_state.output_text)```
 ```
 
-However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely **ignores it** and 
+However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely *ignores it* and 
 creates a hidden data binding in a "closure with captured arguments" instead of a "class with state 
-and functions": the form is different, but the operation is the same.
+and functions": the form is different, but the operation is the same. A closure is just a function 
+on a struct containing all captured variables. The effect is the same as a class-with-methods, but 
+on top of that, it provides even less layout flexibility than object-oriented code.
 
-A closure is just a function on a struct containing all captured variables. The effect is the same as a 
-class-with-methods, but on top of that, it provides even less layout flexibility than object-oriented code.
-
-Immediate Mode GUI solves the synchronization problem, but it fails at the other two core problems of data 
-access and inter-widget communication. It doesn't solve the architectural problem, and the performance tradeoffs 
-are — usually — immense.
+Immediate Mode GUI does solve the synchronization problem, but it fails at the other two core problems 
+of GUIs: data access and inter-widget communication.
 
 ## Why Electron Won
 
-My thesis is this: The success of Electron is a direct consequence of this architectural vacuum. 
-In the 2010s, developers were flocking to the declarative web paradigm because it was demonstrably 
-more productive and maintainable than the 1990s-era OOP model. When tasked with building a desktop 
-application, they had a choice: revert to the painful, fused hierarchy paradigm of Qt or GTK, or 
-leverage the modern, constrained hierarchy of React.
+The thesis is this: The success of Electron is a consequence of this architectural superiority of 
+Gen2 over Gen1 frameworks. In the 2010s, developers were moving to the declarative web paradigm not
+because it provided more features, but primarily because it was more maintainable than the 1990s-era 
+OOP model. When tasked with building a desktop application, they had a choice: revert to the painful, 
+fused hierarchy paradigm of Qt or GTK, or use the more modern (yet still constrained) hierarchy of React.
 
-Electron provides the bridge. While many developers were probably unconscious about it, they chose it 
+Electron provides the bridge - while many developers were probably unconscious about it, they chose it 
 not for its stellar performance (or lack of it), but for its better paradigm. The native desktop world had 
-no answer to the superior React-ive paradigm at the time. So, developers chose the superior architecture - 
-accepting the performance cost and tons of build-tool workarounds as a necessary evil.
+no answer to this, so developers accepted the performance cost and tons of build-tool workarounds as a 
+necessary evil.
 
-Azul, however, is not an answer from the second era. It is a "Fourth Generation" model. It acknowledges 
-the declarative revolution of `UI = f(data)` but also recognizes the architectural limitations of the 
-constrained hierarchy.
+Azul, however, is not an answer from the second era. It doesn't try to reinvent "Electron, but in Rust" or
+"React, but in Rust". Instead, it tries to build a "Fourth Generation" paradigm: acknowledging the idea of 
+`UI = f(data)` but not building on the wrong conclusion that the UI State Graph has to also be a tree like 
+the view hierarchy is.
 
-## But what *is* a GUI toolkit?
+## But what exactly *is* a GUI toolkit?
 
-So, what exactly *is* a "GUI toolkit"? How does it differ from just a rendering library?
+So, how does a "GUI toolkit" differ from just a "rendering library"? As shown above, one can mainly 
+categorize the toolkit by its handling of the following three "hard GUI problems":
 
-As shown above, one can mainly categorize the toolkit by its handling of the following three "hard GUI problems":
-
-1.  **Data Access / Model-View separation:** Somehow a callback needs access to both the data model (i.e. the class)
-    and the stateful UI object (to scrape the text out), but at the same time the "data model" should be as separate
-    from the UI as possible, so that logic functions do not depend on view data.
+1.  **Data Access / Model-View separation:** Somehow a callback needs access to both the data model (i.e.
+    the class) and the stateful UI object (to scrape the text out), but at the same time the "data model"
+    should be as separate from the UI as possible, so that logic functions do not depend on view data.
 
 3.  **Synchronization:** It is very easy for the visual UI state and the data model to go out of sync.
     Solutions so far include "Observer patterns" (callbacks that run when something changes), React-like
@@ -253,12 +253,19 @@ let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap(); // error: data
 // object destroyed here
 ```
 
-Note: The downcast of a `RefAny` is also thread-safe and type-checked (even in C or Python). 
 Effectively this is similar to `Observables`, however, since `RefAny`s are connected to a `Callback`, 
 a `Dom`, a `Task` or a `Thread`, the **topology** of how they are connected is more obvious than 
 with a free-floating `Observable`, whose memory lives "somewhere".
 
-Using [insert language]s module system, we can control any errors related to up / downcasting:
+The biggest upside here is that this model makes the framework C-compatible (as Rust closures 
+can never be expressed in the C ABI). The biggest downside of this is that we need an extra 
+"upcast / downcast" system, as well as heap memory allocation (earlier versions of Azul experimented
+with a "StackCheckedPointer" to avoid heap allocations, but this proved to be far to mentally complex 
+for developers and was also unsound).
+
+Using [insert language]s module system, we can however control any errors related to up / downcasting
+by controlling the *visibility* of the thing we're downcasting to - effectively reducing the "blast radius" 
+that a type casting error could have:
 
 ```rust
 // number_input.rs (private internals)
@@ -266,48 +273,49 @@ struct NumberInputInternal { /* ... */ }
 
 // number_input.rs (public API)
 pub struct NumberInput {
-    internal: RefAny, // holds NumberInputInternal
+    internal: NumberInputInternal,
 }
 
 impl NumberInput {
     pub fn dom(self) -> Dom {
-        Dom::new().with_callback(private_callback, self.internal)
+        let on_the_fly = RefAny::new(self.internal); // upcast
+        Dom::new().with_callback(private_callback, on_the_fly)
     }
 }
 
 extern "C"
 fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
+    // downcast - as NumberInputInternal is private to this module,
     // only code in this module can downcast to NumberInputInternal
     // external code can't even name the type, so no downcast error possible
     let d = data.downcast::<NumberInputInternal>().unwrap();
 }
 ```
 
-When all references to a `RefAny` are deleted, the internal object is deleted, too.
+This way, once a decent amount of test coverage is done, the "internals" of any widget
+are hidden from the outside completely. When all references to a `RefAny` are deleted, 
+the internal object is deleted, too (running either a default or custom destructor).
 
 ## Building a State Graph
-
-Azul acknowledges the declarative revolution of `UI = f(data)` but also recognizes the 
-architectural limitations of the constrained hierarchy. It provides a clean, formal 
-architecture for building the State Graph directly, independent of the Visual Tree.
-
-The core mechanism is the **backreference**: a reference (`RefAny`) to a higher-level 
-data model passed down to a lower-level component during construction. This creates a 
-direct, explicit edge in the State Graph.
+The core mechanism for building the State Graph directly, instead of being dependent on 
+the Visual Tree is the **backreference**: a reference (`RefAny` + `Callback`) *inside* of 
+another reference, to pass data / callbacks of a higher-level data model directly down to 
+a lower-level component during DOM construction, without having to "prop drill" any data / callbacks
+through intermediary components / middleware.
 
 ### Simple Example: Validated Number Input
 
-Let's build a number input that wraps a text input and validates the input as a number. 
-This demonstrates the backreference pattern in its simplest form—a linear chain from 
-low-level (`TextInput`) through mid-level (`NumberInput`) to high-level application 
-logic (`MyApplication`).
+To explain this new concept, let's build a number input that wraps a text input and validates 
+the input as a number. This demonstrates the backreference pattern in its simplest form — a 
+linear chain from low-level (`TextInput`) through mid-level (`NumberInput`) to high-level 
+application logic (`AgeInput`).
 
-`TextInput` is a low-level widget that manages text and provides hooks for validation:
+`TextInput` is the lowest-level widget that manages text and provides hooks for validation:
 
 ```python
 class TextInput:
     text: String
-    user_focus_lost_callback: Optional[Tuple[RefAny, Callable]]
+    user_focus_lost_callback: Optional[Tuple[RefAny, Callback]]
 
     def __init__(self, text):
         self.text = text
@@ -315,7 +323,7 @@ class TextInput:
 
     def set_on_focus_lost(self, data, callback):
         # Allow higher-level widgets to hook into focus loss
-        self.user_focus_lost_callback = (data, callback)
+        self.user_focus_lost_callback = tuple(data, callback)
 
     def dom(self):
         dom = Dom.text(self.text)
@@ -324,11 +332,13 @@ class TextInput:
         dom.add_callback(On.FocusLost, refany, _on_focus_lost)
         return dom
 
+# private to TextInput, updates TextInput.text internal state
 def _on_text_input(data, callbackinfo):
     data.text += callbackinfo.get_keyboard_input().current_char
     callbackinfo.set_text_contents(callbackinfo.get_hit_node_id(), data.text)
     return Update.DoNothing
 
+# private to TextInput, calls the user-provided validation callback
 def _on_focus_lost(data, callbackinfo):
     # When focus is lost, invoke the user-provided callback if it exists
     if data.user_focus_lost_callback is None:
@@ -338,8 +348,8 @@ def _on_focus_lost(data, callbackinfo):
     return user_callback(user_data, callbackinfo, data.text)
 ```
 
-`NumberInput` now wraps `TextInput` and adds validation logic. It holds a 
-**backreference** to *its* parent (the application) via `on_number_input`:
+`NumberInput` now wraps `TextInput` and adds validation logic. It again 
+holds a **backreference** to *its* parent (the application) via `on_number_input`:
 
 ```python
 class NumberInput:
@@ -374,10 +384,12 @@ def _validate_text_input_as_number(data, callbackinfo, string):
     return app_callback(app_data, callbackinfo, number)
 ```
 
-The top-level application logic is then completely decoupled from UI concerns:
+The top-level application logic is then completely decoupled from UI concerns,
+and can expect the NumberInput to call it back with a *number*, not a *string*
+(so the validation logic has already passed):
 
 ```python
-class MyApplication:
+class AgeInput:
     user_age: int
 
     def __init__(self, initial_age):
@@ -398,23 +410,24 @@ def _on_age_input(data, callbackinfo, new_age):
         data.user_age = new_age
         return Update.RefreshDom
 
-app = App(MyApplication(18), AppConfig(LayoutSolver.Default))
+app = App(AgeInput(18), AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(layout_func))
 ```
 
-When the user now finishes editing and presses Enter, the event flows through the backreferences:
+When the user now finishes editing and the input loses focus, the event flows 
+through the backreferences:
 
 1. `_on_focus_lost(RefAny<TextInput>, text_string)`
 2. `_validate_text_input_as_number(RefAny<NumberInput>, text_string)`
 3. `_on_age_input(RefAny<MyApplication>, validated_number)`
 
 Each level knows only about its immediate parent via the backreference. `TextInput` has 
-no knowledge of `MyApplication`, and `MyApplication` has no knowledge of the specific 
-UI widget being used. The State Graph is explicit: `App → NumberInput → TextInput`.
+no knowledge of `AgeInput`, and `AgeInput` has no knowledge of the specific UI widget 
+being used. The State Graph is explicit: `AgeInput → NumberInput → TextInput`.
 
 This pattern scales to arbitrary depth. You could create an `EmailInput` that wraps 
-`TextInput` and validates email format, or a `CreditCardInput` that validates Luhn 
-checksums. Each layer adds logic without coupling to the layers above or below.
+`TextInput` and validates email format, or a `CreditCardInput` that validates card IDs. 
+Each layer simply adds logic without coupling to the layers above or below.
 
 ### Complex Example: Non-Linear Hierarchies
 
