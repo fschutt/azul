@@ -16,6 +16,40 @@ properly address: the conflict between the **Visual Tree** and the **State Graph
     separate table  (`Visual Tree` -> `MainPanel` -> `Table`). A „Save“ button in a toolbar must know if form data,
     located elsewhere, is valid. This network of dependencies is a complex **graph**, not a simple **tree**.
 
+```mermaid
+graph TD
+    s_SaveButton[SaveButton] -- "needs validity from" --> s_FormState[FormState]
+    s_FilterControl[FilterControl] -- "updates data for" --> s_TableData[TableData]
+    s_FormState -- "is part of" --> s_AppLogic[AppLogic]
+    s_TableData -- "is part of" --> s_AppLogic
+
+    classDef button fill:#ccf,stroke:#333,stroke-width:2px
+    classDef control fill:#cfc,stroke:#333,stroke-width:2px
+    classDef state fill:#ccf,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    classDef data fill:#cfc,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+
+    class s_SaveButton button
+    class s_FilterControl control
+    class s_FormState state
+    class s_TableData data
+```
+
+```mermaid
+graph LR
+    v_App[App] --> v_Toolbar[Toolbar] & v_MainPanel[MainPanel]
+    v_Toolbar --> v_SaveButton[SaveButton]
+    v_MainPanel --> v_Sidebar[Sidebar] & v_Table[Table]
+    v_Sidebar --> v_FilterControl[FilterControl]
+
+    classDef app fill:#f9f,stroke:#333,stroke-width:2px
+    classDef button fill:#ccf,stroke:#333,stroke-width:2px
+    classDef control fill:#cfc,stroke:#333,stroke-width:2px
+
+    class v_App app
+    class v_SaveButton button
+    class v_FilterControl control
+```
+
 The history of GUI development is the history of failed or incomplete attempts to 
 reconcile these two different structures. The „pain“ of UI programming stems from 
 frameworks that either fuse them together or awkwardly force the graph to conform 
@@ -37,6 +71,17 @@ class MyApp(othertoolkit.App):
         calculated = do_somthing_with_input(input)
         self.output.setText(calculated)
         self.text_input.setText(„“)
+```
+
+```mermaid
+graph TD
+    A[MyApp extends App] -->|inherits| B[Panel extends Widget]
+    B -->|inherits| C[Button extends Widget]
+    A -.->|holds reference| C
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#ccf,stroke:#333,stroke-width:2px
+    style C fill:#cfc,stroke:#333,stroke-width:2px
 ```
 
 In this model, the Visual Tree and the State Graph are **fused**. The object inheritance 
@@ -79,12 +124,24 @@ def MyApp():
     ])
 ```
 
+```mermaid
+graph TD
+    A[MyApp State] -->|props down| B[Toolbar]
+    A -->|props down| C[MainPanel]
+    B -->|callback up| A
+    C -->|callback up| A
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#ccf,stroke:#333,stroke-width:2px
+    style C fill:#cfc,stroke:#333,stroke-width:2px
+```
+
 However, while these frameworks finally decouple the view from imperative manipulation, they 
 still **constrain the flow of data to the shape of the Visual Tree**. The example above works 
 because `TextInput`, `Button`, and `Label` are all siblings, children of `MyApp`. But what if 
 the `Button` were in a `Toolbar` and the `TextInput` and `Label` were in a `MainContent` panel? 
 
-React‚s solution is to „lift state up“ to their lowest common ancestor, `MyApp`. The `MyApp` 
+React's solution is to „lift state up“ to their lowest common ancestor, `MyApp`. The `MyApp` 
 component must now hold the state and pass both the data and the callback functions down through the 
 intermediate components.
 
@@ -107,7 +164,7 @@ def MyApp():
     ])
 ```
 
-The State Graph is still being forced into the tree structure of the view, leading to „prop drilling“ 
+Here, the State Graph is still being forced into the tree structure of the view, leading to „prop drilling“ 
 and components with indirect APIs. The existence of complex „escape hatches“ like Redux or 
 the Context API is evidence of this core constraint—they are patterns invented to work *around* this 
 default tree-based data flow.
@@ -131,8 +188,8 @@ by brute force (but shoves the problem of application architecture onto the deve
 ```python
 # IMGUI Paradigm Model
 class AppState:
-    input_buffer = „“
-    output_text = „“
+    input_buffer = ""
+    output_text = ""
 
 # Inside the main application loop, every frame
 def render_ui(app_state):
@@ -142,6 +199,17 @@ def render_ui(app_state):
         app_state.output_text = calculated
         app_state.input_buffer.clear()
     ui.label(&app_state.output_text)```
+```
+
+```mermaid
+graph TD
+    A[AppState] -->|reads| B[render_ui]
+    B -->|writes| A
+    B -->|draws| C[UI Every Frame]
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#ccf,stroke:#333,stroke-width:2px
+    style C fill:#cfc,stroke:#333,stroke-width:2px
 ```
 
 However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely *ignores it* and 
@@ -416,6 +484,21 @@ app = App(AgeInput(18), AppConfig(LayoutSolver.Default))
 app.run(WindowCreateOptions(layout_func))
 ```
 
+```mermaid
+graph TD
+    A[AgeInput State] -.->|backreference| B[NumberInput State]
+    B -.->|backreference| C[TextInput State]
+    C -->|event follows backref| B
+    B -->|event follows backref| A
+    
+    linkStyle 2 stroke:#0a0,stroke-width:2px
+    linkStyle 3 stroke:#0a0,stroke-width:2px
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#ccf,stroke:#333,stroke-width:2px
+    style C fill:#cfc,stroke:#333,stroke-width:2px
+```
+
 When the user now finishes editing and the input loses focus, the event flows 
 through the backreferences:
 
@@ -513,40 +596,45 @@ The flow of control follows the logical graph, not the visual tree:
 2. `PortWidget.handle_click_event()` -> `NodeWidget.on_port_clicked()` 
 3. `NodeWidget.on_port_clicked()` -> `NodeGraphWidget.on_port_clicked()`
 
-This data flow is *completely independent* of the visual layout. The `PortWidget` is 
-perfectly decoupled; it doesn't know what the `NodeGraphWidget` is, only that it must 
-call a function on the reference it was given.
+This data flow is *completely independent* of the visual layout and the intermediary middleware flow
+is completely hidden at the highest level. The `PortWidget` is perfectly decoupled; it doesn't 
+know what the `NodeGraphWidget` is, only that it must call a function on the reference it was given.
 
-#### Tunneling: The Visual Query
+In the "real-world" NodeGraph, the flow is more complex, but the pattern scales horizontally,
+irrespective of the number of events that the graph needs to handle or the complexity of the 
+graphs features.
 
-The second, more imperative way to access data is „tunneling“. Azul allows you to attach 
-data to any DOM node via a `dataset`. From a callback, you can then „jump“ to that node 
-and retrieve its data if you know its `NodeId`.
+```mermaid
+graph TD
+    E3["I/O Port Clicked"] -->|triggers| UI3["Div.on_click callback<br/>CallbackInfo has RefAny dataset"]
+    UI3 -->|downcast_mut| NIOLD["NodeInputOutputLocalDataset<br/>get: port_id, backref"]
+    NIOLD -->|downcast_mut backref| NLD2["NodeLocalDataset<br/>get: node_id, backref"]
+    NLD2 -->|downcast_mut backref| NGC3["NodeGraphLocalDataset<br/>get: node_graph, last_port_clicked"]
+    NGC3 -->|calls| D3["NodeGraph data:<br/>connect_io(node_graph, last_clicked, current_clicked)"]
+    
+    E4["Field Edited<br/>(Number / Text / Color)"] -->|triggers| UI4A["Div.on_keyup callback<br/>updates TextInputState"]
+    UI4A -->|triggers| UI4B["TextInput.on_focus_lost callback<br/>CallbackInfo has RefAny dataset"]
+    UI4B -->|downcast_mut| NFLD["NodeFieldLocalDataset<br/>get: field_idx, backref"]
+    NFLD -->|downcast_mut backref| NLD3["NodeLocalDataset<br/>get: node_id, backref"]
+    NLD3 -->|downcast_mut backref| NGC4["NodeGraphLocalDataset<br/>get: node_graph, callbacks"]
+    NGC4 -->|call| D4["on_node_field_edited(node_graph, node_id, field_id, new_value)"]
+    
+    E5["Graph Dragged"] -->|triggers| UI5["Div.on_mouse_over callback<br/>CallbackInfo has RefAny dataset"]
+    UI5 -->|downcast_mut| NGC5["NodeGraphLocalDataset<br/>get: offset"]
+    NGC5 -->|call| D5["on_graph_dragged(nodegraph, cur_x, cur_y)"]
 
-While powerful, this pattern is less clean because it re-introduces a coupling between your logic 
-and the Visual Tree. If you refactor your UI, it can't be statically assured that your callbacks 
-won't break. You can however do things such as `callback_info.find_parent_nodeid(„.my_class“)` to
-make the „NodeId“ lookup more resilient:
-
+    classDef event fill:#cfc,stroke:#333,stroke-width:2px
+    classDef ui fill:#ffc,stroke:#333,stroke-width:2px
+    classDef dataset fill:#ccf,stroke:#333,stroke-width:2px
+    classDef data fill:#f9f,stroke:#333,stroke-width:2px
+    
+    class E3,E4,E5 event
+    class UI3,UI4A,UI4B,UI5 ui
+    class NIOLD,NFLD,NLD2,NLD3,NGC3,NGC4,NGC5 dataset
+    class D3,D4,D5 data
+    
+    linkStyle 2,3,8,9 stroke:#0a0,stroke-width:2px
 ```
-extern „C“
-fn my_callback(data: RefAny, cb: CallbackInfo) -> Update {
-     let visual_parent: NodeId = cb.get_parent_id(cb.hit_node, „.my_class“).unwrap();
-     let dataset: RefAny = cb.get_dataset(visual_parent).unwrap();
-     let mut downcasted = dataset.downcast_mut::<Foo>();
-     downcasted.bar += 5.0;
-     Update::DoNothing
-}
-```
-
-Its proper use is for managing purely UI-related state that is not part of the core application 
-model. In the `NodeGraph`, when a node is dragged, the callback needs to update the CSS `transform` 
-property of the specific visual `div` for that node. The core `NodeGraph` data model shouldn't be 
-polluted with toolkit-specific `NodeId`s. Instead, the drag callback can use tunneling to find the 
-`NodeId` of the visual element it needs to manipulate, keeping the UI-specific logic separate from 
-the application state.
-
-Key takeaway: **backreferences build the State Graph, while tunneling queries the Visual Tree.**
 
 ## A comparison with React
 
@@ -599,8 +687,7 @@ So, Azul will never need a „Redux“ framework, because all of the problems ar
 
 ## FAQ from [...] developers
 
-
-### What about performance?
+### But what about performance?
 
 This is where Azul tricks a bit. **Due to its pure-functional nature**, the `Dom` can in fact be pre-computed to 
 a `const` item, i.e. **constructed at compile time**. Using a separate tool, Azul can compile 
@@ -609,7 +696,7 @@ a `const` item, i.e. **constructed at compile time**. Using a separate tool, Azu
 ```html
 <style>
 .__azul_native_list-container {
-    
+    flex-grow: 1;
 }
 </style>
 <div class=„__azul_native_list-container“></div>
@@ -667,7 +754,7 @@ actually on-screen, which will be a few hundred DOM nodes at most. So, for the n
 use at first with a simple programming model, while still allowing to optimize the performance heavily - 
 once that actually is a problem. 
 
-Fourth, Azul usese caches internally for everything, including the incremental HTML layout, so 
+Fourth, Azul uses caches internally for everything, including the incremental HTML layout, so 
 window resizing is incredibly fast.
 
 ### Isn't this just a more complex way of signals-and-slots or observer patterns?
@@ -696,7 +783,7 @@ This isn't manual pointer management; it's defining the logical connections of y
 This explicitness makes complex interactions (like a node graph) far easier to reason about than 
 tracking where context is provided or how actions are dispatched and mapped to state.
 
-### Why isn't it using Elms `update()` model?
+### Why not just use Elms `update()` model?
 
 The central `update` function and message (`Msg`) types quicly grow enormous in large applications. 
 Azul allows you to maintain a central data model (`UI = f(data)`) but provides a more direct and 
@@ -709,10 +796,26 @@ Azul retains predictability, but the data flow is still unidirectional (**Event 
 but the „update“ logic is co-located with the relevant part of the State Graph, making the system more modular 
 and scalable without sacrificing clarity.
 
-### SwiftUI and Compose already have `@State`, `@Binding`, and `@EnvironmentObject` to manage state declaratively.
+### SwiftUI / Compose already have `@State`, `@Binding`, and `@EnvironmentObject`
 
 Those tools are still fundamentally designed around the **Visual Tree**. `@EnvironmentObject` is similar 
 to React's Context, and `@Binding` is a form of two-way data binding down the hierarchy. Azul's approach 
-is to formally separate the **State Graph** from the view hierarchy completely (with the exception of 
-tunneling, but this is already marked as „unclean“), which provides a cleaner solution for non-hierarchical 
-data dependencies that often require complex workarounds in other frameworks.
+is to formally separate the **State Graph** from the view hierarchy completely, which provides a cleaner 
+solution for non-hierarchical data dependencies that often require complex workarounds in other frameworks.
+
+## Final Conclusion 
+
+Azul is more than just a new way to build UIs. It is a path toward more robust, scalable, 
+and maintainable software. When logic is decoupled from presentation, it becomes testable 
+and portable, independent of the framework being used. When data flow is explicit and follows 
+the logical structure of the application, complexity becomes manageable instead of exponential. 
+
+This way, we can finally build ambitious, graph-like applications, such as node editors or 
+complex dashboards, with the confidence that our tools are supporting our design, not fighting 
+it. The goal of a "perfect" toolkit is to eliminate accidental complexity so we can focus on 
+the essential - and the first step is to simply give developers the freedom to build *with* 
+their data model, instead of against it.
+
+We hope this comparison not only helps developers understand the goal of Azul, but also to
+influence the general GUI ecosystem, in order to articulate the existing problems better, so
+that we can solve them, once and for all.
