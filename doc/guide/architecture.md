@@ -23,9 +23,10 @@ to the shape of the tree.
 
 ## First Gen: Fused Hierarchy (OOP)
 
-The first generation of toolkits (Qt, GTK, MFC, Swing) was built on an object-oriented model. The 
-paradigm was simple: the UI is a tree of stateful objects. A `Button` object holds its own text and 
-state, a `MyCustomPanel` object inherits from `Panel` and adds its own data and logic.
+The first generation of toolkits (Qt, GTK, MFC, Swing) was built on an object-oriented 
+model. The paradigm was simple: the UI is a tree of stateful objects. A `Button` object 
+holds its own text and state, a `MyCustomPanel` object inherits from `Panel` and adds 
+its own data and logic.
 
 ```python
 # OOP Paradigm Model
@@ -143,7 +144,7 @@ def render_ui(app_state):
     ui.label(&app_state.output_text)```
 ```
 
-However, IMGUI doesn‚t solve the Visual Tree vs. State Graph problem—it largely *ignores it* and 
+However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely *ignores it* and 
 creates a hidden data binding in a „closure with captured arguments“ instead of a „class with state 
 and functions“: the form is different, but the operation is the same. A closure is just a function 
 on a struct containing all captured variables. The effect is the same as a class-with-methods, but 
@@ -238,7 +239,7 @@ modifying functions such as synchronous `setColor(RED); draw(); swap();` calls).
 Inheritance-based toolkits only allow one format: You have to inherit from a UI object and then construct 
 your application as a series of UI objects. Azul however, stores the application data as an 
 implementation-agnostic `RefAny` struct: similar to `PyObject` or Javascripts `Object` it just stores 
-„some data“, but the toolkit doesn‚t know what the type is. You can upcast your data and wrap it via 
+„some data“, but the toolkit doesn't know what the type is. You can upcast your data and wrap it via 
 `RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` or `.downcast_mut()`, 
 respectively:
 
@@ -287,7 +288,7 @@ extern „C“
 fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
     // downcast - as NumberInputInternal is private to this module,
     // only code in this module can downcast to NumberInputInternal
-    // external code can‚t even name the type, so no downcast error possible
+    // external code can't even name the type, so no downcast error possible
     let d = data.downcast::<NumberInputInternal>().unwrap();
 }
 ```
@@ -297,6 +298,7 @@ are hidden from the outside completely. When all references to a `RefAny` are de
 the internal object is deleted, too (running either a default or custom destructor).
 
 ## Building a State Graph
+
 The core mechanism for building the State Graph directly, instead of being dependent on 
 the Visual Tree is the **backreference**: a reference (`RefAny` + `Callback`) *inside* of 
 another reference, to pass data / callbacks of a higher-level data model directly down to 
@@ -443,7 +445,7 @@ this problem.
 #### Backreferences: The Clean Path
 
 In the NodeGraph, when a user clicks an input port on a node, how does the widget tell the 
-top-level `NodeGraph` state to create a connection? It doesn‚t send a message „up“ 
+top-level `NodeGraph` state to create a connection? It doesn't send a message „up“ 
 the Visual Tree. Similar to the `TextInput`, it follows a pre-defined chain of backreferences:
 
 1.  The `Dom` for the input port has a callback holding a `PortWidget`'s data.
@@ -512,7 +514,7 @@ The flow of control follows the logical graph, not the visual tree:
 3. `NodeWidget.on_port_clicked()` -> `NodeGraphWidget.on_port_clicked()`
 
 This data flow is *completely independent* of the visual layout. The `PortWidget` is 
-perfectly decoupled; it doesn‚t know what the `NodeGraphWidget` is, only that it must 
+perfectly decoupled; it doesn't know what the `NodeGraphWidget` is, only that it must 
 call a function on the reference it was given.
 
 #### Tunneling: The Visual Query
@@ -523,7 +525,7 @@ and retrieve its data if you know its `NodeId`.
 
 While powerful, this pattern is less clean because it re-introduces a coupling between your logic 
 and the Visual Tree. If you refactor your UI, it can't be statically assured that your callbacks 
-won‚t break. You can however do things such as `callback_info.find_parent_nodeid(„.my_class“)` to
+won't break. You can however do things such as `callback_info.find_parent_nodeid(„.my_class“)` to
 make the „NodeId“ lookup more resilient:
 
 ```
@@ -646,7 +648,7 @@ const LIST_VIEW_NEVER_CHANGES: StyledDom = StyledDom::div()
 
 extern „C“
 fn layout(refany: RefAny, info: LayoutCallbackInfo) -> StyledDom {
-    // doesn‚t actually clone anything, because it's all &‚static
+    // doesn't actually clone anything, because it's all &‚static
     return LIST_VIEW_NEVER_CHANGES.clone();
 }
 ```
@@ -656,15 +658,19 @@ The `AzString` and `FooVec` types all allow you to create strings / arrays from 
 data, so the final „re-invocation“ is a no-op for never-changing UI components and doesn't
 require memory allocation.
 
-Second, the Windows main `layout` callback is only re-invoked when the callback returns `Update::RefreshDom`,
-and things like GPU transforms, animations or style modifications can be done without requiring calling `layout()` again.
+Second, the Windows main `layout` callback is only re-invoked when the callback returns 
+`Update::RefreshDom` and things like GPU transforms, animations or style modifications can be 
+done without requiring calling `layout()` again.
 
 Third, Azul has ways to manage infinite / sparse datasets and you only need to return in the DOM what is 
 actually on-screen, which will be a few hundred DOM nodes at most. So, for the newcomer, Azul is easy to 
 use at first with a simple programming model, while still allowing to optimize the performance heavily - 
 once that actually is a problem. 
 
-### Isn‚t this just a more complex way of signals-and-slots or observer patterns?
+Fourth, Azul usese caches internally for everything, including the incremental HTML layout, so 
+window resizing is incredibly fast.
+
+### Isn't this just a more complex way of signals-and-slots or observer patterns?
 
 No. While both are used for communication, signals-and-slots still require manual wiring 
 between UI objects, often leading to a complex web of connections. Azul's backreferences 
@@ -686,11 +692,11 @@ to route everything through a central store or a common ancestor.
 
 > „But manually passing references down sounds like a return to prop drilling.“
 
-This isn‚t manual pointer management; it's defining the logical connections of your app. 
+This isn't manual pointer management; it's defining the logical connections of your app. 
 This explicitness makes complex interactions (like a node graph) far easier to reason about than 
 tracking where context is provided or how actions are dispatched and mapped to state.
 
-### Why isn‚t it using Elms `update()` model?
+### Why isn't it using Elms `update()` model?
 
 The central `update` function and message (`Msg`) types quicly grow enormous in large applications. 
 Azul allows you to maintain a central data model (`UI = f(data)`) but provides a more direct and 
@@ -710,6 +716,3 @@ to React's Context, and `@Binding` is a form of two-way data binding down the hi
 is to formally separate the **State Graph** from the view hierarchy completely (with the exception of 
 tunneling, but this is already marked as „unclean“), which provides a cleaner solution for non-hierarchical 
 data dependencies that often require complex workarounds in other frameworks.
-
-Fourth, Azul usese caches internally for everything, including the incremental HTML layout, so window 
-resizing is incredibly fast.
