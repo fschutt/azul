@@ -1,4 +1,4 @@
-# Towards A „Perfect" GUI Toolkit
+# Towards A „Perfect“ GUI Toolkit
 
 For over 40 years, building graphical user interfaces (GUIs) has been one of the most 
 difficult problems in software engineering. Despite a constant evolution of languages, 
@@ -13,11 +13,11 @@ properly address: the conflict between the **Visual Tree** and the **State Graph
     tree: a window contains a panel, which contains a button. Its structure is defined by layout and presentation.
 *   The **State Graph** is the map of how application data and logic are connected. A filter control
     in a sidebar (`Visual Tree` -> `Sidebar` -> `Filter`) needs to alter the data displayed in a completely
-    separate table  (`Visual Tree` -> `MainPanel` -> `Table`). A „Save" button in a toolbar must know if form data,
+    separate table  (`Visual Tree` -> `MainPanel` -> `Table`). A „Save“ button in a toolbar must know if form data,
     located elsewhere, is valid. This network of dependencies is a complex **graph**, not a simple **tree**.
 
 The history of GUI development is the history of failed or incomplete attempts to 
-reconcile these two different structures. The „pain" of UI programming stems from 
+reconcile these two different structures. The „pain“ of UI programming stems from 
 frameworks that either fuse them together or awkwardly force the graph to conform 
 to the shape of the tree.
 
@@ -35,7 +35,7 @@ class MyApp(othertoolkit.App):
         input = self.text_input.getText()
         calculated = do_somthing_with_input(input)
         self.output.setText(calculated)
-        self.text_input.setText(„")
+        self.text_input.setText(„“)
 ```
 
 In this model, the Visual Tree and the State Graph are **fused**. The object inheritance 
@@ -46,7 +46,7 @@ hierarchy *is* the visual hierarchy. This immediately creates real problems:
     trace and maintain.
 *   **Changing the visual layout in this paradigm forces a refactoring of the class hierarchy**, which
     makes developing applications in such toolkits painful and creates hard dependencies on the toolkit
-    itself (leading to online „toolkit wars", GTK vs Qt). The application logic is not testable in isolation
+    itself (leading to online „toolkit wars“, GTK vs Qt). The application logic is not testable in isolation
     because it is fundamentally inseparable from the UI objects themselves.
 *   It creates a hard dependency on the toolkit itself. Your application logic is not portable
     or reusable because it is fundamentally intertwined with the toolkit‚s base classes, rendering
@@ -63,13 +63,13 @@ needing a `setText()` call.
 ```python
 # React Paradigm Model
 def MyApp():
-    input_value, set_input_value = useState(„")
-    output_value, set_output_value = useState(„")
+    input_value, set_input_value = useState(„“)
+    output_value, set_output_value = useState(„“)
 
     def handle_click():
         calculated = do_something_with_input(input_value)
         set_output_value(calculated)
-        set_input_value(„")
+        set_input_value(„“)
 
     return Page(children=[
         TextInput(value=input_value, on_change=set_input_value),
@@ -83,14 +83,14 @@ still **constrain the flow of data to the shape of the Visual Tree**. The exampl
 because `TextInput`, `Button`, and `Label` are all siblings, children of `MyApp`. But what if 
 the `Button` were in a `Toolbar` and the `TextInput` and `Label` were in a `MainContent` panel? 
 
-React‚s solution is to „lift state up" to their lowest common ancestor, `MyApp`. The `MyApp` 
+React‚s solution is to „lift state up“ to their lowest common ancestor, `MyApp`. The `MyApp` 
 component must now hold the state and pass both the data and the callback functions down through the 
 intermediate components.
 
 ```python
 def MyApp():
     # State is lifted to the common ancestor
-    input_value, set_input_value = useState(„")
+    input_value, set_input_value = useState(„“)
 
     # ... logic also lives in the ancestor ...
 
@@ -106,13 +106,13 @@ def MyApp():
     ])
 ```
 
-The State Graph is still being forced into the tree structure of the view, leading to „prop drilling" 
-and components with indirect APIs. The existence of complex „escape hatches" like Redux or 
+The State Graph is still being forced into the tree structure of the view, leading to „prop drilling“ 
+and components with indirect APIs. The existence of complex „escape hatches“ like Redux or 
 the Context API is evidence of this core constraint—they are patterns invented to work *around* this 
 default tree-based data flow.
 
-Elms solution goes even further to „lift all state up" to the root ancestor and route everything in a 
-single, top-level „update" function. Elm therefore represents the philosophical extreme of the constrained 
+Elms solution goes even further to „lift all state up“ to the root ancestor and route everything in a 
+single, top-level „update“ function. Elm therefore represents the philosophical extreme of the constrained 
 hierarchy:
 
 1.  **Model:** The entire state of the application is held in a single, immutable data structure.
@@ -130,13 +130,13 @@ by brute force (but shoves the problem of application architecture onto the deve
 ```python
 # IMGUI Paradigm Model
 class AppState:
-    input_buffer = „"
-    output_text = „"
+    input_buffer = „“
+    output_text = „“
 
 # Inside the main application loop, every frame
 def render_ui(app_state):
-    ui.text_input(„Input:", &app_state.input_buffer)
-    if ui.button(„Calculate"):
+    ui.text_input(„Input:“, &app_state.input_buffer)
+    if ui.button(„Calculate“):
         calculated = do_something_with_input(&app_state.input_buffer)
         app_state.output_text = calculated
         app_state.input_buffer.clear()
@@ -144,8 +144,8 @@ def render_ui(app_state):
 ```
 
 However, IMGUI doesn‚t solve the Visual Tree vs. State Graph problem—it largely *ignores it* and 
-creates a hidden data binding in a „closure with captured arguments" instead of a „class with state 
-and functions": the form is different, but the operation is the same. A closure is just a function 
+creates a hidden data binding in a „closure with captured arguments“ instead of a „class with state 
+and functions“: the form is different, but the operation is the same. A closure is just a function 
 on a struct containing all captured variables. The effect is the same as a class-with-methods, but 
 on top of that, it provides even less layout flexibility than object-oriented code.
 
@@ -165,62 +165,62 @@ not for its stellar performance (or lack of it), but for its better paradigm. Th
 no answer to this, so developers accepted the performance cost and tons of build-tool workarounds as a 
 necessary evil.
 
-Azul, however, is not an answer from the second era. It doesn't try to reinvent „Electron, but in Rust" or
-„React, but in Rust". Instead, it tries to build a „Fourth Generation" paradigm: acknowledging the idea of 
+Azul, however, is not an answer from the second era. It doesn't try to reinvent „Electron, but in Rust“ or
+„React, but in Rust“. Instead, it tries to build a „Fourth Generation“ paradigm: acknowledging the idea of 
 `UI = f(data)` but not building on the wrong conclusion that the UI State Graph has to also be a tree like 
 the view hierarchy is.
 
 ## But what exactly *is* a GUI toolkit?
 
-So, how does a „GUI toolkit" differ from just a „rendering library"? As shown above, one can mainly 
-categorize the toolkit by its handling of the following three „hard GUI problems":
+So, how does a „GUI toolkit“ differ from just a „rendering library“? As shown above, one can mainly 
+categorize the toolkit by its handling of the following three „hard GUI problems“:
 
 1.  **Data Access / Model-View separation:** Somehow a callback needs access to both the data model (i.e.
-    the class) and the stateful UI object (to scrape the text out), but at the same time the „data model"
+    the class) and the stateful UI object (to scrape the text out), but at the same time the „data model“
     should be as separate from the UI as possible, so that logic functions do not depend on view data.
 
 3.  **Synchronization:** It is very easy for the visual UI state and the data model to go out of sync.
-    Solutions so far include „Observer patterns" (callbacks that run when something changes), React-like
-    reconciliation or „just redraw everything" (IMGUI).
+    Solutions so far include „Observer patterns“ (callbacks that run when something changes), React-like
+    reconciliation or „just redraw everything“ (IMGUI).
 
 4.  **Inter-widget communication:** Existing toolkits assume that the widget hierarchy (visual tree) and
     the inheritance (or function call) hierarchy are the same (least common ancestor problem). If two UI
     objects that have no common parent have to talk to each other, you now have a massive problem.
 
-Pure „rendering libraries" do not solve these problems at all, instead shoving the responsibility onto 
-the application programmer (aka. „not my job"). The result of such „freedom" to design any application 
+Pure „rendering libraries“ do not solve these problems at all, instead shoving the responsibility onto 
+the application programmer (aka. „not my job“). The result of such „freedom“ to design any application 
 style is often sub-par, but enjoys a large popularity because it secures the job of whoever first wrote 
 the application.
 
 ## Starting again
 
-So what would a „proper" toolkit look like?
+So what would a „proper“ toolkit look like?
 
 The first thing we‚d need to decide is whether we'd like to serialize the UI or render it directly, 
 without storing it. Now, as computers got faster and rendering methods evolved, UI toolkits moved 
-away from a direct render-to-screen to a display-list or a „list of commands" for the renderer. 
+away from a direct render-to-screen to a display-list or a „list of commands“ for the renderer. 
 Often times this command list is batched or computed against the last frame to minimize changes - 
 while there is a small overhead, it is almost unnoticeable.
 
-The only real „sane" way here is to serialize the entire UI hierarchy and then perform layout, 
+The only real „sane“ way here is to serialize the entire UI hierarchy and then perform layout, 
 state and cache analysis in the toolkit. A good comparison is to compare XML to function call 
 stacks - compare:
 
 ```xml
-<div class=„parent">
-    <div class=„child"></div>
-    <div class=„child"></div>
-    <div class=„child"></div>
+<div class=„parent“>
+    <div class=„child“></div>
+    <div class=„child“></div>
+    <div class=„child“></div>
 </div>
 ```
 
 with:
 
 ```python
-div(class=„parent", children = [
-    div(class=„child")
-    div(class=„child")
-    div(class=„child")
+div(class=„parent“, children = [
+    div(class=„child“)
+    div(class=„child“)
+    div(class=„child“)
 ])
 ```
 
@@ -238,7 +238,7 @@ modifying functions such as synchronous `setColor(RED); draw(); swap();` calls).
 Inheritance-based toolkits only allow one format: You have to inherit from a UI object and then construct 
 your application as a series of UI objects. Azul however, stores the application data as an 
 implementation-agnostic `RefAny` struct: similar to `PyObject` or Javascripts `Object` it just stores 
-„some data", but the toolkit doesn‚t know what the type is. You can upcast your data and wrap it via 
+„some data“, but the toolkit doesn‚t know what the type is. You can upcast your data and wrap it via 
 `RefAny::new` and then get immutable or mutable access again via `.downcast_ref()` or `.downcast_mut()`, 
 respectively:
 
@@ -247,7 +247,7 @@ let data = RefAny::new(5); // owns the data
 let data_clone = data.clone(); // only bumps the reference count
 
 let data_ref: &usize = data.downcast_ref::<usize>().unwrap(); // ok
-println!(„{}", *data); // prints „5"
+println!(„{}“, *data); // prints „5“
 
 let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap(); // error: data_ref still held
 // object destroyed here
@@ -255,16 +255,16 @@ let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap(); // error: data
 
 Effectively this is similar to `Observables`, however, since `RefAny`s are connected to a `Callback`, 
 a `Dom`, a `Task` or a `Thread`, the **topology** of how they are connected is more obvious than 
-with a free-floating `Observable`, whose memory lives „somewhere".
+with a free-floating `Observable`, whose memory lives „somewhere“.
 
 The biggest upside here is that this model makes the framework C-compatible (as Rust closures 
 can never be expressed in the C ABI). The biggest downside of this is that we need an extra 
-„upcast / downcast" system, as well as heap memory allocation (earlier versions of Azul experimented
-with a „StackCheckedPointer" to avoid heap allocations, but this proved to be far to mentally complex 
+„upcast / downcast“ system, as well as heap memory allocation (earlier versions of Azul experimented
+with a „StackCheckedPointer“ to avoid heap allocations, but this proved to be far to mentally complex 
 for developers and was also unsound).
 
 Using [insert language]s module system, we can however control any errors related to up / downcasting
-by controlling the *visibility* of the thing we're downcasting to - effectively reducing the „blast radius" 
+by controlling the *visibility* of the thing we're downcasting to - effectively reducing the „blast radius“ 
 that a type casting error could have:
 
 ```rust
@@ -283,7 +283,7 @@ impl NumberInput {
     }
 }
 
-extern „C"
+extern „C“
 fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
     // downcast - as NumberInputInternal is private to this module,
     // only code in this module can downcast to NumberInputInternal
@@ -292,7 +292,7 @@ fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
 }
 ```
 
-This way, once a decent amount of test coverage is done, the „internals" of any widget
+This way, once a decent amount of test coverage is done, the „internals“ of any widget
 are hidden from the outside completely. When all references to a `RefAny` are deleted, 
 the internal object is deleted, too (running either a default or custom destructor).
 
@@ -300,7 +300,7 @@ the internal object is deleted, too (running either a default or custom destruct
 The core mechanism for building the State Graph directly, instead of being dependent on 
 the Visual Tree is the **backreference**: a reference (`RefAny` + `Callback`) *inside* of 
 another reference, to pass data / callbacks of a higher-level data model directly down to 
-a lower-level component during DOM construction, without having to „prop drill" any data / callbacks
+a lower-level component during DOM construction, without having to „prop drill“ any data / callbacks
 through intermediary components / middleware.
 
 ### Simple Example: Validated Number Input
@@ -404,7 +404,7 @@ def layout_func(data, layoutinfo):
 def _on_age_input(data, callbackinfo, new_age):
     # This callback only runs if the input was a valid number
     if new_age < 18:
-        MsgBox.ok(„You must be older than 18 to proceed")
+        MsgBox.ok(„You must be older than 18 to proceed“)
         return Update.DoNothing
     else:
         data.user_age = new_age
@@ -443,7 +443,7 @@ this problem.
 #### Backreferences: The Clean Path
 
 In the NodeGraph, when a user clicks an input port on a node, how does the widget tell the 
-top-level `NodeGraph` state to create a connection? It doesn‚t send a message „up" 
+top-level `NodeGraph` state to create a connection? It doesn‚t send a message „up“ 
 the Visual Tree. Similar to the `TextInput`, it follows a pre-defined chain of backreferences:
 
 1.  The `Dom` for the input port has a callback holding a `PortWidget`'s data.
@@ -464,7 +464,7 @@ class NodeGraphWidget:
 
     # Logic that lives at the top level
     def on_port_clicked(self, port_id):
-        print(f„LOGIC(NodeGraph): Port {port_id} clicked. Updating global state.")
+        print(f„LOGIC(NodeGraph): Port {port_id} clicked. Updating global state.“)
         # ... logic to connect nodes in self.graph_state ...
 
 class NodeWidget:
@@ -472,9 +472,9 @@ class NodeWidget:
         self.node_id = node_id
         self.graph_widget_ref = graph_widget_ref  # Backreference to the graph
 
-    # This method is „lent" to the PortWidget
+    # This method is „lent“ to the PortWidget
     def on_port_clicked(self, port_id):
-        print(f„LOGIC(Node): Click received for port {port_id}. Forwarding to graph.")
+        print(f„LOGIC(Node): Click received for port {port_id}. Forwarding to graph.“)
         # Uses its backreference to call the top-level logic
         self.graph_widget_ref.on_port_clicked(port_id)
 
@@ -485,7 +485,7 @@ class PortWidget:
 
     # This would be the callback attached to the UI element
     def handle_click_event(self):
-        print(f„EVENT on Port {self.port_id}")
+        print(f„EVENT on Port {self.port_id}“)
         # Uses its backreference to start the logical chain
         self.node_widget_ref.on_port_clicked(self.port_id)
 ```
@@ -494,12 +494,12 @@ Wiring it all up:
 
 ```python
 # Top-level state and logic controller
-app_state = {„nodes": {}, „connections": []}
+app_state = {„nodes“: {}, „connections“: []}
 graph_controller = NodeGraphWidget(app_state)
 
 # 2. Create controllers for child components, passing down backreferences
-node_a_controller = NodeWidget(„NodeA", graph_controller)
-port_a1_controller = PortWidget(„PortA1", node_a_controller)
+node_a_controller = NodeWidget(„NodeA“, graph_controller)
+port_a1_controller = PortWidget(„PortA1“, node_a_controller)
 
 # 3. Simulate a user clicking the visual port
 port_a1_controller.handle_click_event()
@@ -517,19 +517,19 @@ call a function on the reference it was given.
 
 #### Tunneling: The Visual Query
 
-The second, more imperative way to access data is „tunneling". Azul allows you to attach 
-data to any DOM node via a `dataset`. From a callback, you can then „jump" to that node 
+The second, more imperative way to access data is „tunneling“. Azul allows you to attach 
+data to any DOM node via a `dataset`. From a callback, you can then „jump“ to that node 
 and retrieve its data if you know its `NodeId`.
 
 While powerful, this pattern is less clean because it re-introduces a coupling between your logic 
 and the Visual Tree. If you refactor your UI, it can't be statically assured that your callbacks 
-won‚t break. You can however do things such as `callback_info.find_parent_nodeid(„.my_class")` to
-make the „NodeId" lookup more resilient:
+won‚t break. You can however do things such as `callback_info.find_parent_nodeid(„.my_class“)` to
+make the „NodeId“ lookup more resilient:
 
 ```
-extern „C"
+extern „C“
 fn my_callback(data: RefAny, cb: CallbackInfo) -> Update {
-     let visual_parent: NodeId = cb.get_parent_id(cb.hit_node, „.my_class").unwrap();
+     let visual_parent: NodeId = cb.get_parent_id(cb.hit_node, „.my_class“).unwrap();
      let dataset: RefAny = cb.get_dataset(visual_parent).unwrap();
      let mut downcasted = dataset.downcast_mut::<Foo>();
      downcasted.bar += 5.0;
@@ -587,7 +587,7 @@ Azul's backreferences make non-local state access a first-class citizen:
 - No context providers or consumer hooks
 - The State Graph is explicit in your data structures, not hidden in runtime context
 
-So, Azul will never need a „Redux" framework, because all of the problems are solved from the start:
+So, Azul will never need a „Redux“ framework, because all of the problems are solved from the start:
 
 - **Prop drilling**: Just pass a backreference once during construction, not props through every intermediate component
 - **Boilerplate**: Direct mutable access via `.downcast_mut()` instead of actions/reducers
@@ -610,7 +610,7 @@ a `const` item, i.e. **constructed at compile time**. Using a separate tool, Azu
     
 }
 </style>
-<div class=„__azul_native_list-container"></div>
+<div class=„__azul_native_list-container“></div>
 ```
 
 becomes (after compilation):
@@ -634,7 +634,7 @@ const CSS_MATCH_17553577885456905601: NodeDataInlineCssPropertyVec =
     NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_17553577885456905601_PROPERTIES);
 
 const IDS_AND_CLASSES_9205819539370539587: &[IdOrClass] = &[Class(AzString::from_const_str(
-    „__azul_native_list-container",
+    „__azul_native_list-container“,
 ))];
 
 const LIST_VIEW_CONTAINER_CLASS: IdOrClassVec =
@@ -644,16 +644,16 @@ const LIST_VIEW_NEVER_CHANGES: StyledDom = StyledDom::div()
     .with_inline_css_props(CSS_MATCH_17553577885456905601)
     .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS);
 
-extern „C"
+extern „C“
 fn layout(refany: RefAny, info: LayoutCallbackInfo) -> StyledDom {
     // doesn‚t actually clone anything, because it's all &‚static
     return LIST_VIEW_NEVER_CHANGES.clone();
 }
 ```
 
-This avoids doing the „CSS cascade" at runtime and instead pushes it to compile time.
+This avoids doing the „CSS cascade“ at runtime and instead pushes it to compile time.
 The `AzString` and `FooVec` types all allow you to create strings / arrays from compile-time
-data, so the final „re-invocation" is a no-op for never-changing UI components and doesn't
+data, so the final „re-invocation“ is a no-op for never-changing UI components and doesn't
 require memory allocation.
 
 Second, the Windows main `layout` callback is only re-invoked when the callback returns `Update::RefreshDom`,
@@ -671,7 +671,7 @@ between UI objects, often leading to a complex web of connections. Azul's backre
 let you create a formal *State Graph* that is independent of the UI layout, making data 
 flow clearer and preventing your application logic from being tied to your visual design.
 
-> „But my class hierarchy *is* my application structure. Separating them sounds like boilerplate."
+> „But my class hierarchy *is* my application structure. Separating them sounds like boilerplate.“
 
 Fusing your logic to the visual hierarchy makes refactoring the UI difficult and 
 your code untestable outside the toolkit. Decoupling them allows your core logic to be 
@@ -684,7 +684,7 @@ are a primary, built-in architectural pattern, not an escape hatch. They allow y
 and explicitly define your application's **State Graph** from the ground up, rather than having 
 to route everything through a central store or a common ancestor.
 
-> „But manually passing references down sounds like a return to prop drilling."
+> „But manually passing references down sounds like a return to prop drilling.“
 
 This isn‚t manual pointer management; it's defining the logical connections of your app. 
 This explicitness makes complex interactions (like a node graph) far easier to reason about than 
@@ -697,10 +697,10 @@ Azul allows you to maintain a central data model (`UI = f(data)`) but provides a
 decentralized way for events to trigger logic via backreferences. It avoids routing every single 
 interaction through one monolithic function.
 
-> „A single `update` function is a feature, not a bug. It makes all state changes predictable and easy to debug."
+> „A single `update` function is a feature, not a bug. It makes all state changes predictable and easy to debug.“
 
 Azul retains predictability, but the data flow is still unidirectional (**Event -> State Change -> Re-render**), 
-but the „update" logic is co-located with the relevant part of the State Graph, making the system more modular 
+but the „update“ logic is co-located with the relevant part of the State Graph, making the system more modular 
 and scalable without sacrificing clarity.
 
 ### SwiftUI and Compose already have `@State`, `@Binding`, and `@EnvironmentObject` to manage state declaratively.
@@ -708,7 +708,7 @@ and scalable without sacrificing clarity.
 Those tools are still fundamentally designed around the **Visual Tree**. `@EnvironmentObject` is similar 
 to React's Context, and `@Binding` is a form of two-way data binding down the hierarchy. Azul's approach 
 is to formally separate the **State Graph** from the view hierarchy completely (with the exception of 
-tunneling, but this is already marked as „unclean"), which provides a cleaner solution for non-hierarchical 
+tunneling, but this is already marked as „unclean“), which provides a cleaner solution for non-hierarchical 
 data dependencies that often require complex workarounds in other frameworks.
 
 Fourth, Azul usese caches internally for everything, including the incremental HTML layout, so window 
