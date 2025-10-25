@@ -53,7 +53,7 @@ the visual hierarchy. This immediately creates real problems:
 ## Second Gen: Constrained Hierarchy (Elm, React)
 
 The next major step, led by frameworks like React and the Elm Architecture, introduced a new 
-functional paradigm: **`UI = f(data)`**. The UI is a declarative, pure function of the application's 
+functional paradigm: `UI = f(data)`. The UI is a declarative, pure function of the application's 
 state. This was revolutionary at the time, as it solved the problem of state synchronization. The 
 developer no longer manually calls `setText()`; he changes the data, and the framework efficiently 
 updates the view to match.
@@ -141,9 +141,9 @@ def render_ui(app_state):
     ui.label(&app_state.output_text)```
 ```
 
-However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely **ignores it** and creates a hidden
-data binding in a "closure with captured arguments" instead of a "class with state and functions": the form is different, 
-but the operation is the same.
+However, IMGUI doesn't solve the Visual Tree vs. State Graph problem—it largely **ignores it** and 
+creates a hidden data binding in a "closure with captured arguments" instead of a "class with state 
+and functions": the form is different, but the operation is the same.
 
 A closure is just a function on a struct containing all captured variables. The effect is the same as a 
 class-with-methods, but on top of that, it provides even less layout flexibility than object-oriented code.
@@ -154,23 +154,24 @@ are — usually — immense.
 
 ## Why Electron Won
 
-The success of Electron is a direct consequence of this architectural vacuum. In the 2010s, developers 
-were flocking to the declarative web paradigm because it was demonstrably more productive and maintainable 
-than the 1990s-era OOP model. When tasked with building a desktop application, they had a choice: revert 
-to the painful, fused hierarchy paradigm of Qt or GTK, or leverage the modern, constrained hierarchy of React.
+My thesis is this: The success of Electron is a direct consequence of this architectural vacuum. 
+In the 2010s, developers were flocking to the declarative web paradigm because it was demonstrably 
+more productive and maintainable than the 1990s-era OOP model. When tasked with building a desktop 
+application, they had a choice: revert to the painful, fused hierarchy paradigm of Qt or GTK, or 
+leverage the modern, constrained hierarchy of React.
 
-Electron provided the bridge. While many developers were surely unconscious about it, they chose it 
-not for its performance (or lack of it), but for its better paradigm. The native desktop world had 
-no compelling answer to the superior React-ive paradigm, so developers chose the superior architecture, 
+Electron provides the bridge. While many developers were probably unconscious about it, they chose it 
+not for its stellar performance (or lack of it), but for its better paradigm. The native desktop world had 
+no answer to the superior React-ive paradigm at the time. So, developers chose the superior architecture - 
 accepting the performance cost and tons of build-tool workarounds as a necessary evil.
 
 Azul, however, is not an answer from the second era. It is a "Fourth Generation" model. It acknowledges 
 the declarative revolution of `UI = f(data)` but also recognizes the architectural limitations of the 
 constrained hierarchy.
 
-## Quid est GUI, Claude-ia?
+## But what *is* a GUI toolkit?
 
-So, what *is* a "GUI toolkit"? How does it differ from just a rendering library?
+So, what exactly *is* a "GUI toolkit"? How does it differ from just a rendering library?
 
 As shown above, one can mainly categorize the toolkit by its handling of the following three "hard GUI problems":
 
@@ -288,25 +289,149 @@ When all references to a `RefAny` are deleted, the internal object is deleted, t
 
 Azul acknowledges the declarative revolution of `UI = f(data)` but also recognizes the 
 architectural limitations of the constrained hierarchy. It provides a clean, formal 
-architecture for building the State Graph directly, independent of the Visual Tree. 
-To see these principles in action, let's examine a notoriously difficult UI component: 
-a `NodeGraph`.
+architecture for building the State Graph directly, independent of the Visual Tree.
+
+The core mechanism is the **backreference**: a reference (`RefAny`) to a higher-level 
+data model passed down to a lower-level component during construction. This creates a 
+direct, explicit edge in the State Graph.
+
+### Simple Example: Validated Number Input
+
+Let's build a number input that wraps a text input and validates the input as a number. 
+This demonstrates the backreference pattern in its simplest form—a linear chain from 
+low-level (`TextInput`) through mid-level (`NumberInput`) to high-level application 
+logic (`MyApplication`).
+
+`TextInput` is a low-level widget that manages text and provides hooks for validation:
+
+```python
+class TextInput:
+    text: String
+    user_focus_lost_callback: Optional[Tuple[RefAny, Callable]]
+
+    def __init__(self, text):
+        self.text = text
+        self.user_focus_lost_callback = None
+
+    def set_on_focus_lost(self, data, callback):
+        # Allow higher-level widgets to hook into focus loss
+        self.user_focus_lost_callback = (data, callback)
+
+    def dom(self):
+        dom = Dom.text(self.text)
+        refany = RefAny(self)
+        dom.set_callback(On.TextInput, refany, _on_text_input)
+        dom.add_callback(On.FocusLost, refany, _on_focus_lost)
+        return dom
+
+def _on_text_input(data, callbackinfo):
+    data.text += callbackinfo.get_keyboard_input().current_char
+    callbackinfo.set_text_contents(callbackinfo.get_hit_node_id(), data.text)
+    return Update.DoNothing
+
+def _on_focus_lost(data, callbackinfo):
+    # When focus is lost, invoke the user-provided callback if it exists
+    if data.user_focus_lost_callback is None:
+        return Update.DoNothing
+    
+    user_data, user_callback = data.user_focus_lost_callback
+    return user_callback(user_data, callbackinfo, data.text)
+```
+
+`NumberInput` now wraps `TextInput` and adds validation logic. It holds a 
+**backreference** to *its* parent (the application) via `on_number_input`:
+
+```python
+class NumberInput:
+    number: Integer
+    on_number_input: Optional[Tuple[RefAny, Callable]]
+
+    def __init__(self, number):
+        self.number = number
+        self.on_number_input = None
+
+    def set_on_number_input(self, data, callback):
+        # Store a backreference to the application's callback
+        self.on_number_input = (data, callback)
+
+    def dom(self):
+        ti = TextInput(str(self.number))
+        # Pass a backreference to *this* NumberInput down to TextInput
+        ti.set_on_focus_lost(RefAny(self), _validate_text_input_as_number)
+        return ti.dom()
+
+def _validate_text_input_as_number(data, callbackinfo, string):
+    # This callback receives the NumberInput's data
+    if data.on_number_input is None:
+        return Update.DoNothing
+
+    number = string_to_number(string)
+    if number is None:
+        return Update.DoNothing  # Invalid input; ignore silently
+
+    # Validation passed! Now invoke the *application's* callback
+    app_data, app_callback = data.on_number_input
+    return app_callback(app_data, callbackinfo, number)
+```
+
+The top-level application logic is then completely decoupled from UI concerns:
+
+```python
+class MyApplication:
+    user_age: int
+
+    def __init__(self, initial_age):
+        self.user_age = initial_age
+
+def layout_func(data, layoutinfo):
+    ni = NumberInput(data.user_age)
+    # Pass a backreference to the application down to NumberInput
+    ni.set_on_number_input(data, _on_age_input)
+    return ni.dom().style(Css.empty())
+
+def _on_age_input(data, callbackinfo, new_age):
+    # This callback only runs if the input was a valid number
+    if new_age < 18:
+        MsgBox.ok("You must be older than 18 to proceed")
+        return Update.DoNothing
+    else:
+        data.user_age = new_age
+        return Update.RefreshDom
+
+app = App(MyApplication(18), AppConfig(LayoutSolver.Default))
+app.run(WindowCreateOptions(layout_func))
+```
+
+When the user now finishes editing and presses Enter, the event flows through the backreferences:
+
+1. `_on_focus_lost(RefAny<TextInput>, text_string)`
+2. `_validate_text_input_as_number(RefAny<NumberInput>, text_string)`
+3. `_on_age_input(RefAny<MyApplication>, validated_number)`
+
+Each level knows only about its immediate parent via the backreference. `TextInput` has 
+no knowledge of `MyApplication`, and `MyApplication` has no knowledge of the specific 
+UI widget being used. The State Graph is explicit: `App → NumberInput → TextInput`.
+
+This pattern scales to arbitrary depth. You could create an `EmailInput` that wraps 
+`TextInput` and validates email format, or a `CreditCardInput` that validates Luhn 
+checksums. Each layer adds logic without coupling to the layers above or below.
+
+### Complex Example: Non-Linear Hierarchies
+
+The power of backreferences becomes even clearer with non-hierarchical state dependencies. 
+Consider a node graph editor, where the *logical* connections between nodes (a complex graph) 
+have no relation to their *visual* layout (a flat list of sibling elements on a canvas).
 
 The challenge of a node graph is that the *logical* connections between nodes (a complex graph) 
 have no relation to their *visual* layout (a flat list of sibling elements on a canvas). 
-This breaks the core assumptions of almost every other toolkit. Azul solves this through two 
-primary communication mechanisms: **backreferences** and **tunneling**.
+This breaks the core assumptions of almost every other toolkit - so let's see how Azul solves 
+this problem.
 
-### Backreferences: The Clean Path
+#### Backreferences: The Clean Path
 
-The primary and most powerful pattern in Azul is the **backreference**. This is 
-a reference (`RefAny`) to a higher-level data model that is passed down to a 
-lower-level component when it's created. This creates a direct, explicit edge 
-in the State Graph.
-
-In the NodeGraph, when a user clicks an input port on a node, how does it tell the 
+In the NodeGraph, when a user clicks an input port on a node, how does the widget tell the 
 top-level `NodeGraph` state to create a connection? It doesn't send a message "up" 
-the Visual Tree. Instead, it follows a pre-defined chain of backreferences:
+the Visual Tree. Similar to the `TextInput`, it follows a pre-defined chain of backreferences:
 
 1.  The `Dom` for the input port has a callback holding a `PortWidget`'s data.
 2.  This `PortWidget` contains a backreference to its logical parent's data, the `NodeWidget`.
@@ -317,7 +442,7 @@ The callback for the click event on a visual node's `Input` / `Output` simply fo
 this chain of references, making a direct jump from the event source to the top-level data model.
 
 ```python
-# Python pseudo-code illustrating the backreference chain
+# Pseudo-code illustrating the backreference chain
 # NOTE: These are not UI elements, but the logical controllers for them.
 
 class NodeGraphWidget:
@@ -367,7 +492,7 @@ port_a1_controller = PortWidget("PortA1", node_a_controller)
 port_a1_controller.handle_click_event()
 ```
 
-The flow of control follows the logical graph, not a visual one:
+The flow of control follows the logical graph, not the visual tree:
 
 1. `Event` -> `PortWidget.handle_click_event()` 
 2. `PortWidget.handle_click_event()` -> `NodeWidget.on_port_clicked()` 
@@ -379,8 +504,8 @@ call a function on the reference it was given.
 
 #### Tunneling: The Visual Query
 
-The second, more imperative way to access data is **tunneling**. Azul allows you to attach 
-data to any DOM node via a `dataset`. From a callback, you can then "tunnel" to that node 
+The second, more imperative way to access data is "tunneling". Azul allows you to attach 
+data to any DOM node via a `dataset`. From a callback, you can then "jump" to that node 
 and retrieve its data if you know its `NodeId`.
 
 While powerful, this pattern is less clean because it re-introduces a coupling between your logic 
@@ -408,54 +533,57 @@ the application state.
 
 Key takeaway: **backreferences build the State Graph, while tunneling queries the Visual Tree.**
 
+## A comparison with React
+
+Azul, by its architecture, therefore solves a lot of problems that need workarounds
+in existing libraries, such as React, Elm or other frameworks:
+
+### Why `useState` + `useEffect` is unnecessary
+
+React requires `useState` to create reactive state and `useEffect` to 
+synchronize side effects with that state. This creates a dependency 
+management problem where developers must carefully track which state 
+changes should trigger which effects, leading to bugs from stale closures 
+and infinite re-render loops.
+
+Azul eliminates this entirely through explicit control flow:
+
+- State is just data in a `RefAny` struct—no hooks needed
+- Side effects are explicit `Task`s spawned when *you* decide, not when React's reconciler decides
+- The `layout()` function only re-runs when you return `Update::RefreshDom`
+- No dependency arrays, no stale closures, no automatic re-renders
+
+So, now how does Azul solve React's Problems?
+
+- Callbacks hold live `RefAny` references, not captured values from render time, so no stale closures possible
+- You spawn `Task`s explicitly; they hold direct references to state, in difference to `useEffect` synchronization
+- You control when effects run via explicit conditionals (`if state.needs_update`), which gets rid of dependency tracking
+
+### Why the Redux/Context API is unnecessary
+
+Redux and Context exist to escape React's tree-constrained data flow. They're 
+architectural workarounds—evidence that the framework's default model is 
+insufficient for real applications. Redux forces all state changes through 
+a central reducer with action dispatching, while Context requires wrapping 
+components in providers and dealing with re-render cascades.
+
+Azul's backreferences make non-local state access a first-class citizen:
+
+- A deeply nested component can hold a direct `RefAny` to the top-level state
+- No action creators, no reducers, no dispatch boilerplate
+- No context providers or consumer hooks
+- The State Graph is explicit in your data structures, not hidden in runtime context
+
+So, Azul will never need a "Redux" framework, because all of the problems are solved from the start:
+
+- **Prop drilling**: Just pass a backreference once during construction, not props through every intermediate component
+- **Boilerplate**: Direct mutable access via `.downcast_mut()` instead of actions/reducers
+- **Performance**: No context re-render cascades; only components returning `Update::RefreshDom` re-render
+- **Type safety**: Downcasting is type-checked; Redux actions are often stringly-typed
+- **Testing**: Logic functions take `RefAny` parameters—fully testable without dependencies on Azul
+
 ## FAQ from [...] developers
 
-### Isn't this just a more complex way of signals-and-slots or observer patterns?
-
-No. While both are used for communication, signals-and-slots still require manual wiring 
-between UI objects, often leading to a complex web of connections. Azul's backreferences 
-let you create a formal *State Graph* that is independent of the UI layout, making data 
-flow clearer and preventing your application logic from being tied to your visual design.
-
-> "But my class hierarchy *is* my application structure. Separating them sounds like boilerplate."
-
-Fusing your logic to the visual hierarchy makes refactoring the UI difficult and 
-your code untestable outside the toolkit. Decoupling them allows your core logic to be 
-independent, portable, and easier to test.
-
-### How is this different from Redux / Context API?
-
-Redux and Context are workarounds to the default tree-based data flow. Azul's **backreferences** 
-are a primary, built-in architectural pattern, not an escape hatch. They allow you to directly 
-and explicitly define your application's **State Graph** from the ground up, rather than having 
-to route everything through a central store or a common ancestor.
-
-> "But manually passing references down sounds like a return to prop drilling."
-
-This isn't manual pointer management; it's defining the logical connections of your app. 
-This explicitness makes complex interactions (like a node graph) far easier to reason about than 
-tracking where context is provided or how actions are dispatched and mapped to state.
-
-### Why isn't it using Elms `update()` model?
-
-The central `update` function and message (`Msg`) types quicly grow enormous in large applications. 
-Azul allows you to maintain a central data model (`UI = f(data)`) but provides a more direct and 
-decentralized way for events to trigger logic via backreferences. It avoids routing every single 
-interaction through one monolithic function.
-
-> "A single `update` function is a feature, not a bug. It makes all state changes predictable and easy to debug."
-
-Azul retains predictability, but the data flow is still unidirectional (**Event -> State Change -> Re-render**), 
-but the "update" logic is co-located with the relevant part of the State Graph, making the system more modular 
-and scalable without sacrificing clarity.
-
-### SwiftUI and Compose already have `@State`, `@Binding`, and `@EnvironmentObject` to manage state declaratively.
-
-Those tools are still fundamentally designed around the **Visual Tree**. `@EnvironmentObject` is similar 
-to React's Context, and `@Binding` is a form of two-way data binding down the hierarchy. Azul's approach 
-is to formally separate the **State Graph** from the view hierarchy completely (with the exception of 
-tunneling, but this is already marked as "unclean"), which provides a cleaner solution for non-hierarchical 
-data dependencies that often require complex workarounds in other frameworks.
 
 ### What about performance?
 
@@ -522,6 +650,53 @@ Third, Azul has ways to manage infinite / sparse datasets and you only need to r
 actually on-screen, which will be a few hundred DOM nodes at most. So, for the newcomer, Azul is easy to 
 use at first with a simple programming model, while still allowing to optimize the performance heavily - 
 once that actually is a problem. 
+
+### Isn't this just a more complex way of signals-and-slots or observer patterns?
+
+No. While both are used for communication, signals-and-slots still require manual wiring 
+between UI objects, often leading to a complex web of connections. Azul's backreferences 
+let you create a formal *State Graph* that is independent of the UI layout, making data 
+flow clearer and preventing your application logic from being tied to your visual design.
+
+> "But my class hierarchy *is* my application structure. Separating them sounds like boilerplate."
+
+Fusing your logic to the visual hierarchy makes refactoring the UI difficult and 
+your code untestable outside the toolkit. Decoupling them allows your core logic to be 
+independent, portable, and easier to test.
+
+### How is this different from Redux / Context API?
+
+Redux and Context are workarounds to the default tree-based data flow. Azul's **backreferences** 
+are a primary, built-in architectural pattern, not an escape hatch. They allow you to directly 
+and explicitly define your application's **State Graph** from the ground up, rather than having 
+to route everything through a central store or a common ancestor.
+
+> "But manually passing references down sounds like a return to prop drilling."
+
+This isn't manual pointer management; it's defining the logical connections of your app. 
+This explicitness makes complex interactions (like a node graph) far easier to reason about than 
+tracking where context is provided or how actions are dispatched and mapped to state.
+
+### Why isn't it using Elms `update()` model?
+
+The central `update` function and message (`Msg`) types quicly grow enormous in large applications. 
+Azul allows you to maintain a central data model (`UI = f(data)`) but provides a more direct and 
+decentralized way for events to trigger logic via backreferences. It avoids routing every single 
+interaction through one monolithic function.
+
+> "A single `update` function is a feature, not a bug. It makes all state changes predictable and easy to debug."
+
+Azul retains predictability, but the data flow is still unidirectional (**Event -> State Change -> Re-render**), 
+but the "update" logic is co-located with the relevant part of the State Graph, making the system more modular 
+and scalable without sacrificing clarity.
+
+### SwiftUI and Compose already have `@State`, `@Binding`, and `@EnvironmentObject` to manage state declaratively.
+
+Those tools are still fundamentally designed around the **Visual Tree**. `@EnvironmentObject` is similar 
+to React's Context, and `@Binding` is a form of two-way data binding down the hierarchy. Azul's approach 
+is to formally separate the **State Graph** from the view hierarchy completely (with the exception of 
+tunneling, but this is already marked as "unclean"), which provides a cleaner solution for non-hierarchical 
+data dependencies that often require complex workarounds in other frameworks.
 
 Fourth, Azul usese caches internally for everything, including the incremental HTML layout, so window 
 resizing is incredibly fast.
