@@ -17,6 +17,28 @@ properly address: the conflict between the **Visual Tree** and the **State Graph
     located elsewhere, is valid. This network of dependencies is a complex **graph**, not a simple **tree**.
 
 ```mermaid
+---
+title: Visual Tree
+---
+graph LR
+    v_App[App] --> v_Toolbar[Toolbar] & v_MainPanel[MainPanel]
+    v_Toolbar --> v_SaveButton[SaveButton]
+    v_MainPanel --> v_Sidebar[Sidebar] & v_Table[Table]
+    v_Sidebar --> v_FilterControl[FilterControl]
+
+    classDef app fill:#f9f,stroke:#333,stroke-width:2px
+    classDef button fill:#ccf,stroke:#333,stroke-width:2px
+    classDef control fill:#cfc,stroke:#333,stroke-width:2px
+
+    class v_App app
+    class v_SaveButton button
+    class v_FilterControl control
+```
+
+```mermaid
+---
+title: State Graph
+---
 graph TD
     s_SaveButton[SaveButton] -- "needs validity from" --> s_FormState[FormState]
     s_FilterControl[FilterControl] -- "updates data for" --> s_TableData[TableData]
@@ -32,22 +54,6 @@ graph TD
     class s_FilterControl control
     class s_FormState state
     class s_TableData data
-```
-
-```mermaid
-graph LR
-    v_App[App] --> v_Toolbar[Toolbar] & v_MainPanel[MainPanel]
-    v_Toolbar --> v_SaveButton[SaveButton]
-    v_MainPanel --> v_Sidebar[Sidebar] & v_Table[Table]
-    v_Sidebar --> v_FilterControl[FilterControl]
-
-    classDef app fill:#f9f,stroke:#333,stroke-width:2px
-    classDef button fill:#ccf,stroke:#333,stroke-width:2px
-    classDef control fill:#cfc,stroke:#333,stroke-width:2px
-
-    class v_App app
-    class v_SaveButton button
-    class v_FilterControl control
 ```
 
 The history of GUI development is the history of failed or incomplete attempts to 
