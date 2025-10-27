@@ -156,6 +156,10 @@ pub mod constants {
     // Special constants
     pub const CW_USEDEFAULT: i32 = 0x80000000_u32 as i32;
     pub const HWND_TOP: *mut core::ffi::c_void = 0 as *mut core::ffi::c_void;
+
+    // Window Messages
+    pub const WM_CLOSE: u32 = 0x0010;
+    pub const WM_PAINT: u32 = 0x000F;
 }
 
 #[cfg(target_os = "windows")]

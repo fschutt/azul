@@ -3,15 +3,18 @@
 //! Automatically selects between X11 and Wayland at runtime,
 //! or allows manual selection via environment variable.
 
+pub mod common;
 pub mod wayland;
 pub mod x11;
 
+use std::{cell::RefCell, sync::Arc};
+
+use azul_core::resources::AppConfig;
+use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use rust_fontconfig::FcFontCache;
+
 use super::{PlatformWindow, WindowError, WindowProperties};
 use crate::desktop::shell2::common::RenderContext;
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
-use std::sync::Arc;
-use rust_fontconfig::FcFontCache;
-use azul_core::resources::AppConfig;
 
 /// Linux window - either X11 or Wayland.
 pub enum LinuxWindow {
@@ -20,7 +23,7 @@ pub enum LinuxWindow {
 }
 
 /// The event type for Linux windows.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum LinuxEvent {
     X11(x11::X11Event),
     Wayland(wayland::WaylandEvent),
@@ -33,9 +36,16 @@ impl PlatformWindow for LinuxWindow {
     where
         Self: Sized,
     {
+        let fc_cache = Arc::new(rust_fontconfig::FcFontCache::build());
+        let app_data = Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
+
         match Self::select_backend()? {
-            BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new(options)?)),
-            BackendType::Wayland => Err(WindowError::Unsupported("Wayland backend is not yet implemented".into())),
+            BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new(
+                options, fc_cache, app_data,
+            )?)),
+            BackendType::Wayland => Err(WindowError::Unsupported(
+                "Wayland backend is not yet implemented".into(),
+            )),
         }
     }
 
@@ -96,7 +106,6 @@ impl PlatformWindow for LinuxWindow {
     }
 }
 
-
 impl LinuxWindow {
     /// Detect and select appropriate backend.
     ///
@@ -130,6 +139,13 @@ impl LinuxWindow {
         }
 
         Err(WindowError::NoBackendAvailable)
+    }
+
+    pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
+        match self {
+            LinuxWindow::X11(w) => w.wait_for_events(),
+            LinuxWindow::Wayland(w) => w.wait_for_events(),
+        }
     }
 }
 

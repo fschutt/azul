@@ -164,6 +164,13 @@ impl Default for FullWindowState {
     }
 }
 
+impl FullWindowState {
+    /// Convert FullWindowState to WindowState (for PlatformWindow trait)
+    pub fn to_window_state(&self) -> WindowState {
+        self.clone().into()
+    }
+}
+
 impl From<FullWindowState> for WindowState {
     fn from(full: FullWindowState) -> Self {
         Self {

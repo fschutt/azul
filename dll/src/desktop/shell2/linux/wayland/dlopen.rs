@@ -1,9 +1,16 @@
 //! Dynamic loading for Wayland and related libraries.
 
+use std::{
+    ffi::{c_void, CStr, CString},
+    rc::Rc,
+};
+
+// Re-using the Library loader from X11
+pub use super::super::x11::dlopen::Library;
 use super::defines::*;
-use crate::desktop::shell2::common::{dlopen::load_first_available, DlError, DynamicLibrary};
-use std::rc::Rc;
-use std::ffi::c_void;
+use crate::desktop::shell2::common::{
+    dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
+};
 
 macro_rules! load_symbol {
     ($lib:expr, $t:ty, $s:expr) => {
@@ -14,149 +21,187 @@ macro_rules! load_symbol {
     };
 }
 
-// Function pointer types
-pub type wl_display_connect_t = unsafe extern "C" fn(name: *const i8) -> *mut wl_display;
-pub type wl_display_disconnect_t = unsafe extern "C" fn(display: *mut wl_display);
-pub type wl_display_get_registry_t = unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_registry;
-pub type wl_display_roundtrip_queue_t = unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32;
-pub type wl_display_create_event_queue_t = unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_event_queue;
-pub type wl_event_queue_destroy_t = unsafe extern "C" fn(queue: *mut wl_event_queue);
-pub type wl_display_dispatch_queue_pending_t = unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32;
-pub type wl_display_flush_t = unsafe extern "C" fn(display: *mut wl_display) -> i32;
-
-pub type wl_proxy_marshal_t = unsafe extern "C" fn(p: *mut wl_proxy, opcode: u32, ...);
-pub type wl_proxy_set_queue_t = unsafe extern "C" fn(proxy: *mut wl_proxy, queue: *mut wl_event_queue);
-pub type wl_proxy_destroy_t = unsafe extern "C" fn(proxy: *mut wl_proxy);
-pub type wl_proxy_add_listener_t = unsafe extern "C" fn(proxy: *mut wl_proxy, implementation: *const c_void, data: *mut c_void) -> i32;
-
-pub type wl_registry_add_listener_t = unsafe extern "C" fn(registry: *mut wl_registry, listener: *const wl_registry_listener, data: *mut c_void) -> i32;
-pub type wl_compositor_create_surface_t = unsafe extern "C" fn(compositor: *mut wl_compositor) -> *mut wl_surface;
-pub type wl_surface_destroy_t = unsafe extern "C" fn(surface: *mut wl_surface);
-pub type wl_surface_commit_t = unsafe extern "C" fn(surface: *mut wl_surface);
-pub type wl_surface_damage_t = unsafe extern "C" fn(surface: *mut wl_surface, x: i32, y: i32, width: i32, height: i32);
-
-pub type wl_egl_window_create_t = unsafe extern "C" fn(surface: *mut wl_surface, width: i32, height: i32) -> *mut wl_egl_window;
-pub type wl_egl_window_destroy_t = unsafe extern "C" fn(egl_window: *mut wl_egl_window);
-pub type wl_egl_window_resize_t = unsafe extern "C" fn(egl_window: *mut wl_egl_window, width: i32, height: i32, dx: i32, dy: i32);
-
-pub type xdg_wm_base_get_xdg_surface_t = unsafe extern "C" fn(wm_base: *mut xdg_wm_base, surface: *mut wl_surface) -> *mut xdg_surface;
-pub type xdg_wm_base_destroy_t = unsafe extern "C" fn(wm_base: *mut xdg_wm_base);
-pub type xdg_surface_add_listener_t = unsafe extern "C" fn(xdg_surface: *mut xdg_surface, listener: *const xdg_surface_listener, data: *mut c_void) -> i32;
-pub type xdg_surface_get_toplevel_t = unsafe extern "C" fn(xdg_surface: *mut xdg_surface) -> *mut xdg_toplevel;
-pub type xdg_surface_ack_configure_t = unsafe extern "C" fn(xdg_surface: *mut xdg_surface, serial: u32);
-pub type xdg_surface_destroy_t = unsafe extern "C" fn(xdg_surface: *mut xdg_surface);
-pub type xdg_toplevel_set_title_t = unsafe extern "C" fn(toplevel: *mut xdg_toplevel, title: *const i8);
-pub type xdg_toplevel_destroy_t = unsafe extern "C" fn(toplevel: *mut xdg_toplevel);
-
+// Dynamically loaded Wayland client and EGL functions
 pub struct Wayland {
-    _lib: Box<dyn DynamicLibrary>,
-    _lib_egl: Box<dyn DynamicLibrary>,
-    pub wl_display_connect: wl_display_connect_t,
-    pub wl_display_disconnect: wl_display_disconnect_t,
-    pub wl_display_get_registry: wl_display_get_registry_t,
-    pub wl_display_roundtrip_queue: wl_display_roundtrip_queue_t,
-    pub wl_display_create_event_queue: wl_display_create_event_queue_t,
-    pub wl_event_queue_destroy: wl_event_queue_destroy_t,
-    pub wl_display_dispatch_queue_pending: wl_display_dispatch_queue_pending_t,
-    pub wl_display_flush: wl_display_flush_t,
-    pub wl_proxy_marshal: wl_proxy_marshal_t,
-    pub wl_proxy_set_queue: wl_proxy_set_queue_t,
-    pub wl_proxy_destroy: wl_proxy_destroy_t,
-    pub wl_proxy_add_listener: wl_proxy_add_listener_t,
-    pub wl_registry_add_listener: wl_registry_add_listener_t,
-    pub wl_compositor_create_surface: wl_compositor_create_surface_t,
-    pub wl_surface_destroy: wl_surface_destroy_t,
-    pub wl_surface_commit: wl_surface_commit_t,
-    pub wl_surface_damage: wl_surface_damage_t,
-    pub wl_egl_window_create: wl_egl_window_create_t,
-    pub wl_egl_window_destroy: wl_egl_window_destroy_t,
-    pub wl_egl_window_resize: wl_egl_window_resize_t,
-    pub xdg_wm_base_get_xdg_surface: xdg_wm_base_get_xdg_surface_t,
-    pub xdg_wm_base_destroy: xdg_wm_base_destroy_t,
-    pub xdg_surface_add_listener: xdg_surface_add_listener_t,
-    pub xdg_surface_get_toplevel: xdg_surface_get_toplevel_t,
-    pub xdg_surface_ack_configure: xdg_surface_ack_configure_t,
-    pub xdg_surface_destroy: xdg_surface_destroy_t,
-    pub xdg_toplevel_set_title: xdg_toplevel_set_title_t,
-    pub xdg_toplevel_destroy: xdg_toplevel_destroy_t,
+    _lib_client: Library,
+    _lib_egl: Library,
+
+    // wayland-client functions
+    pub wl_display_connect: unsafe extern "C" fn(name: *const i8) -> *mut wl_display,
+    pub wl_display_disconnect: unsafe extern "C" fn(display: *mut wl_display),
+    pub wl_display_get_registry: unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_registry,
+    pub wl_display_roundtrip: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+    pub wl_display_dispatch_queue:
+        unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32,
+    pub wl_display_dispatch_queue_pending:
+        unsafe extern "C" fn(display: *mut wl_display, queue: *mut wl_event_queue) -> i32,
+    pub wl_display_create_event_queue:
+        unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_event_queue,
+    pub wl_event_queue_destroy: unsafe extern "C" fn(queue: *mut wl_event_queue),
+    pub wl_display_flush: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+
+    pub wl_proxy_marshal_constructor:
+        unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, ...) -> *mut wl_proxy,
+    pub wl_proxy_add_listener:
+        unsafe extern "C" fn(*mut wl_proxy, *const c_void, *mut c_void) -> i32,
+    pub wl_proxy_destroy: unsafe extern "C" fn(proxy: *mut wl_proxy),
+    pub wl_proxy_set_queue: unsafe extern "C" fn(proxy: *mut wl_proxy, queue: *mut wl_event_queue),
+
+    // Protocol interfaces (needed for wl_registry_bind)
+    pub wl_compositor_interface: wl_interface,
+    pub wl_shm_interface: wl_interface,
+    pub wl_seat_interface: wl_interface,
+    pub xdg_wm_base_interface: wl_interface,
+
+    // Convenience wrappers for common operations
+    pub wl_registry_bind:
+        unsafe extern "C" fn(*mut wl_registry, u32, *const wl_interface, u32) -> *mut c_void,
+    pub wl_compositor_create_surface: unsafe extern "C" fn(*mut wl_compositor) -> *mut wl_surface,
+    pub wl_surface_commit: unsafe extern "C" fn(surface: *mut wl_surface),
+    pub wl_surface_attach:
+        unsafe extern "C" fn(surface: *mut wl_surface, buffer: *mut wl_buffer, i32, i32),
+    pub wl_surface_damage: unsafe extern "C" fn(surface: *mut wl_surface, i32, i32, i32, i32),
+
+    pub xdg_wm_base_pong: unsafe extern "C" fn(*mut xdg_wm_base, u32),
+    pub xdg_wm_base_get_xdg_surface:
+        unsafe extern "C" fn(*mut xdg_wm_base, *mut wl_surface) -> *mut xdg_surface,
+    pub xdg_surface_get_toplevel: unsafe extern "C" fn(*mut xdg_surface) -> *mut xdg_toplevel,
+    pub xdg_surface_ack_configure: unsafe extern "C" fn(*mut xdg_surface, u32),
+    pub xdg_toplevel_set_title: unsafe extern "C" fn(*mut xdg_toplevel, *const i8),
+    pub xdg_wm_base_add_listener:
+        unsafe extern "C" fn(*mut xdg_wm_base, *const xdg_wm_base_listener, *mut c_void) -> i32,
+    pub xdg_surface_add_listener:
+        unsafe extern "C" fn(*mut xdg_surface, *const xdg_surface_listener, *mut c_void) -> i32,
+
+    pub wl_seat_get_pointer: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_pointer,
+    pub wl_seat_get_keyboard: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_keyboard,
+    pub wl_seat_add_listener:
+        unsafe extern "C" fn(*mut wl_seat, *const wl_seat_listener, *mut c_void) -> i32,
+    pub wl_pointer_add_listener:
+        unsafe extern "C" fn(*mut wl_pointer, *const wl_pointer_listener, *mut c_void) -> i32,
+    pub wl_keyboard_add_listener:
+        unsafe extern "C" fn(*mut wl_keyboard, *const wl_keyboard_listener, *mut c_void) -> i32,
+
+    pub wl_shm_create_pool: unsafe extern "C" fn(*mut wl_shm, i32, i32) -> *mut wl_shm_pool,
+    pub wl_shm_pool_create_buffer:
+        unsafe extern "C" fn(*mut wl_shm_pool, i32, i32, i32, i32, u32) -> *mut wl_buffer,
+    pub wl_buffer_destroy: unsafe extern "C" fn(*mut wl_buffer),
+    pub wl_shm_pool_destroy: unsafe extern "C" fn(*mut wl_shm_pool),
+
+    // wayland-egl functions
+    pub wl_egl_window_create: unsafe extern "C" fn(
+        surface: *mut wl_surface,
+        width: i32,
+        height: i32,
+    ) -> *mut wl_egl_window,
+    pub wl_egl_window_destroy: unsafe extern "C" fn(egl_window: *mut wl_egl_window),
+    pub wl_egl_window_resize: unsafe extern "C" fn(
+        egl_window: *mut wl_egl_window,
+        width: i32,
+        height: i32,
+        dx: i32,
+        dy: i32,
+    ),
 }
 
 impl Wayland {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available(&["libwayland-client.so.0"])?;
-        let lib_egl = load_first_available(&["libwayland-egl.so.1"])?;
+        let lib_client = load_first_available::<Library>(&["libwayland-client.so.0"])?;
+        let lib_egl = load_first_available::<Library>(&["libwayland-egl.so.1"])?;
+
+        // Wayland uses a proxy-based system where most functions are actually `wl_proxy_marshal`.
+        // The type-safe wrappers are often macros in C, so we load the core marshalling function
+        // and then cast function pointers to the specific signatures we need.
+        let wl_proxy_marshal_constructor =
+            load_symbol!(lib_client, _, "wl_proxy_marshal_constructor");
+
+        // Load wl_proxy_marshal and wl_proxy_add_listener once
+        let wl_proxy_marshal_ptr = unsafe {
+            lib_client
+                .get_symbol::<*const c_void>("wl_proxy_marshal")
+                .expect("wl_proxy_marshal not found")
+        };
+        let wl_proxy_add_listener_ptr = unsafe {
+            lib_client
+                .get_symbol::<*const c_void>("wl_proxy_add_listener")
+                .expect("wl_proxy_add_listener not found")
+        };
+
         Ok(Rc::new(Self {
-            wl_display_connect: load_symbol!(lib, _, "wl_display_connect"),
-            wl_display_disconnect: load_symbol!(lib, _, "wl_display_disconnect"),
-            wl_display_get_registry: load_symbol!(lib, _, "wl_display_get_registry"),
-            wl_display_roundtrip_queue: load_symbol!(lib, _, "wl_display_roundtrip_queue"),
-            wl_display_create_event_queue: load_symbol!(lib, _, "wl_display_create_event_queue"),
-            wl_event_queue_destroy: load_symbol!(lib, _, "wl_event_queue_destroy"),
-            wl_display_dispatch_queue_pending: load_symbol!(lib, _, "wl_display_dispatch_queue_pending"),
-            wl_display_flush: load_symbol!(lib, _, "wl_display_flush"),
-            wl_proxy_marshal: load_symbol!(lib, _, "wl_proxy_marshal"),
-            wl_proxy_set_queue: load_symbol!(lib, _, "wl_proxy_set_queue"),
-            wl_proxy_destroy: load_symbol!(lib, _, "wl_proxy_destroy"),
-            wl_proxy_add_listener: load_symbol!(lib, _, "wl_proxy_add_listener"),
-            wl_registry_add_listener: load_symbol!(lib, _, "wl_registry_add_listener"),
-            wl_compositor_create_surface: load_symbol!(lib, _, "wl_compositor_create_surface"),
-            wl_surface_destroy: load_symbol!(lib, _, "wl_surface_destroy"),
-            wl_surface_commit: load_symbol!(lib, _, "wl_surface_commit"),
-            wl_surface_damage: load_symbol!(lib, _, "wl_surface_damage"),
+            wl_display_connect: load_symbol!(lib_client, _, "wl_display_connect"),
+            wl_display_disconnect: load_symbol!(lib_client, _, "wl_display_disconnect"),
+            wl_display_get_registry: load_symbol!(lib_client, _, "wl_display_get_registry"),
+            wl_display_roundtrip: load_symbol!(lib_client, _, "wl_display_roundtrip"),
+            wl_display_dispatch_queue: load_symbol!(lib_client, _, "wl_display_dispatch_queue"),
+            wl_display_dispatch_queue_pending: load_symbol!(
+                lib_client,
+                _,
+                "wl_display_dispatch_queue_pending"
+            ),
+            wl_display_create_event_queue: load_symbol!(
+                lib_client,
+                _,
+                "wl_display_create_event_queue"
+            ),
+            wl_event_queue_destroy: load_symbol!(lib_client, _, "wl_event_queue_destroy"),
+            wl_display_flush: load_symbol!(lib_client, _, "wl_display_flush"),
+
+            wl_proxy_marshal_constructor,
+            wl_proxy_add_listener: load_symbol!(lib_client, _, "wl_proxy_add_listener"),
+            wl_proxy_destroy: load_symbol!(lib_client, _, "wl_proxy_destroy"),
+            wl_proxy_set_queue: load_symbol!(lib_client, _, "wl_proxy_set_queue"),
+
+            wl_compositor_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_compositor_interface")
+            },
+            wl_shm_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_shm_interface")
+            },
+            wl_seat_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_seat_interface")
+            },
+            xdg_wm_base_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "xdg_wm_base_interface")
+            },
+
+            wl_registry_bind: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_compositor_create_surface: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor)
+            },
+            wl_surface_commit: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_surface_attach: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_surface_damage: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+
+            xdg_wm_base_pong: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_wm_base_get_xdg_surface: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor)
+            },
+            xdg_surface_get_toplevel: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            xdg_surface_ack_configure: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_toplevel_set_title: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_wm_base_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            xdg_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+
+            wl_seat_get_pointer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_seat_get_keyboard: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_seat_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            wl_pointer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            wl_keyboard_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+
+            wl_shm_create_pool: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_shm_pool_create_buffer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_buffer_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_shm_pool_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+
             wl_egl_window_create: load_symbol!(lib_egl, _, "wl_egl_window_create"),
             wl_egl_window_destroy: load_symbol!(lib_egl, _, "wl_egl_window_destroy"),
             wl_egl_window_resize: load_symbol!(lib_egl, _, "wl_egl_window_resize"),
-            xdg_wm_base_get_xdg_surface: load_symbol!(lib, _, "xdg_wm_base_get_xdg_surface"),
-            xdg_wm_base_destroy: load_symbol!(lib, _, "xdg_wm_base_destroy"),
-            xdg_surface_add_listener: load_symbol!(lib, _, "xdg_surface_add_listener"),
-            xdg_surface_get_toplevel: load_symbol!(lib, _, "xdg_surface_get_toplevel"),
-            xdg_surface_ack_configure: load_symbol!(lib, _, "xdg_surface_ack_configure"),
-            xdg_surface_destroy: load_symbol!(lib, _, "xdg_surface_destroy"),
-            xdg_toplevel_set_title: load_symbol!(lib, _, "xdg_toplevel_set_title"),
-            xdg_toplevel_destroy: load_symbol!(lib, _, "xdg_toplevel_destroy"),
-            _lib: Box::from(lib),
-            _lib_egl: Box::from(lib_egl),
+
+            _lib_client: lib_client,
+            _lib_egl: lib_egl,
         }))
     }
 }
 
-pub type xkb_context_new_t = unsafe extern "C" fn(flags: u32) -> *mut xkb_context;
-pub type xkb_context_unref_t = unsafe extern "C" fn(context: *mut xkb_context);
-pub type xkb_keymap_new_from_string_t = unsafe extern "C" fn(context: *mut xkb_context, string: *const i8, format: u32, flags: u32) -> *mut xkb_keymap;
-pub type xkb_keymap_unref_t = unsafe extern "C" fn(keymap: *mut xkb_keymap);
-pub type xkb_state_new_t = unsafe extern "C" fn(keymap: *mut xkb_keymap) -> *mut xkb_state;
-pub type xkb_state_unref_t = unsafe extern "C" fn(state: *mut xkb_state);
-pub type xkb_state_update_mask_t = unsafe extern "C" fn(state: *mut xkb_state, depressed_mods: u32, latched_mods: u32, locked_mods: u32, depressed_layout: u32, latched_layout: u32, locked_layout: u32) -> u32;
-pub type xkb_state_key_get_one_sym_t = unsafe extern "C" fn(state: *mut xkb_state, key: xkb_keycode_t) -> xkb_keysym_t;
-pub type xkb_state_key_get_utf8_t = unsafe extern "C" fn(state: *mut xkb_state, key: xkb_keycode_t, buffer: *mut i8, size: usize) -> i32;
-
-pub struct Xkb {
-    _lib: Box<dyn DynamicLibrary>,
-    pub xkb_context_new: xkb_context_new_t,
-    pub xkb_context_unref: xkb_context_unref_t,
-    pub xkb_keymap_new_from_string: xkb_keymap_new_from_string_t,
-    pub xkb_keymap_unref: xkb_keymap_unref_t,
-    pub xkb_state_new: xkb_state_new_t,
-    pub xkb_state_unref: xkb_state_unref_t,
-    pub xkb_state_update_mask: xkb_state_update_mask_t,
-    pub xkb_state_key_get_one_sym: xkb_state_key_get_one_sym_t,
-    pub xkb_state_key_get_utf8: xkb_state_key_get_utf8_t,
-}
-
-impl Xkb {
-    pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available(&["libxkbcommon.so.0"])?;
-        Ok(Rc::new(Self {
-            xkb_context_new: load_symbol!(lib, _, "xkb_context_new"),
-            xkb_context_unref: load_symbol!(lib, _, "xkb_context_unref"),
-            xkb_keymap_new_from_string: load_symbol!(lib, _, "xkb_keymap_new_from_string"),
-            xkb_keymap_unref: load_symbol!(lib, _, "xkb_keymap_unref"),
-            xkb_state_new: load_symbol!(lib, _, "xkb_state_new"),
-            xkb_state_unref: load_symbol!(lib, _, "xkb_state_unref"),
-            xkb_state_update_mask: load_symbol!(lib, _, "xkb_state_update_mask"),
-            xkb_state_key_get_one_sym: load_symbol!(lib, _, "xkb_state_key_get_one_sym"),
-            xkb_state_key_get_utf8: load_symbol!(lib, _, "xkb_state_key_get_utf8"),
-            _lib: Box::from(lib),
-        }))
-    }
-}
+// Re-export Xkb from X11's dlopen module
+pub use super::super::x11::dlopen::Xkb;

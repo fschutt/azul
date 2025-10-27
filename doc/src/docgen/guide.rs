@@ -20,7 +20,7 @@ pub fn get_guide_list() -> Vec<Guide> {
             file_name: "Installation".to_string(),
             content: include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/guide/00_Installation.md"
+                "/guide/installation.md"
             ))
             .to_string(),
         },
@@ -38,7 +38,7 @@ pub fn get_guide_list() -> Vec<Guide> {
             file_name: "ApplicationArchitecture".to_string(),
             content: include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/guide/02_Application_Architecture.md"
+                "/guide/architecture.md"
             ))
             .to_string(),
         },

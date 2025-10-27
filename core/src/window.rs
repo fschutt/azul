@@ -31,6 +31,7 @@ use crate::{
     gl::OptionGlContextPtr,
     hit_test::{ExternalScrollId, OverflowingScrollNode},
     id::{NodeDataContainer, NodeId},
+    refany::OptionRefAny,
     resources::{
         DpiScaleFactor, Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef,
         RendererResources, ResourceUpdate,
@@ -946,6 +947,22 @@ impl Default for UserAttentionType {
     }
 }
 
+/// State for tracking hover and interaction with Linux window decoration elements (CSD).
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[repr(C)]
+pub struct LinuxDecorationsState {
+    pub is_dragging_titlebar: bool,
+    pub close_button_hover: bool,
+    pub maximize_button_hover: bool,
+    pub minimize_button_hover: bool,
+}
+
+impl_option!(
+    LinuxDecorationsState,
+    OptionLinuxDecorationsState,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
+);
+
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LinuxWindowOptions {
@@ -981,6 +998,8 @@ pub struct LinuxWindowOptions {
     pub wayland_theme: OptionWaylandTheme,
     pub request_user_attention: UserAttentionType,
     pub window_icon: OptionWindowIcon,
+    /// X11-specific: Client-side decoration state (drag position, button hover, etc.)
+    pub x11_decorations_state: OptionLinuxDecorationsState,
 }
 
 type X11Visual = *const c_void;

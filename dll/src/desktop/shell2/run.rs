@@ -162,27 +162,94 @@ pub fn run(
 
     use azul_core::{refany::RefAny, resources::AppTerminationBehavior};
 
-    use super::windows::Win32Window;
+    use super::windows::{dlopen::MSG, registry, Win32Window};
 
     // Create app_data (placeholder for now - should be passed from App)
     let app_data = Arc::new(RefCell::new(RefAny::new(())));
 
     // Create the root window
-    let mut window = Win32Window::new(root_window, fc_cache.clone(), app_data)?;
+    let window = Win32Window::new(root_window, fc_cache.clone(), app_data.clone())?;
 
-    // Main event loop using non-blocking poll_event()
+    // Store the window pointer in the user data field for the window procedure
+    // and register in global registry for multi-window support
+    // SAFETY: We are boxing the window and then leaking it. This is necessary
+    // so that the pointer remains valid for the lifetime of the window.
+    let window_ptr = Box::into_raw(Box::new(window));
+    let hwnd = unsafe { (*window_ptr).hwnd };
+
+    unsafe {
+        use super::windows::dlopen::constants::GWLP_USERDATA;
+        ((*window_ptr).win32.user32.SetWindowLongPtrW)(hwnd, GWLP_USERDATA, window_ptr as isize);
+
+        // Register in global window registry
+        registry::register_window(hwnd, window_ptr);
+    }
+
+    // Main event loop with multi-window support
+    // For single-window apps, GetMessageW blocks until the next event
+    // For multi-window apps, we use PeekMessageW + sleep(1ms) to avoid blocking
     loop {
-        // Poll for events (non-blocking)
-        let had_event = window.poll_event();
+        // Get all active window handles from registry
+        let window_handles = registry::get_all_window_handles();
 
-        // Check if window is still open
-        if !window.is_open {
+        if window_handles.is_empty() {
+            // All windows closed
             break;
         }
 
-        // If no events, sleep briefly to avoid busy-waiting
-        if !had_event {
-            std::thread::sleep(std::time::Duration::from_millis(1));
+        let is_multi_window = window_handles.len() > 1;
+
+        if is_multi_window {
+            // Multi-window: Use PeekMessage for all windows (non-blocking)
+            let mut had_messages = false;
+
+            for hwnd in &window_handles {
+                unsafe {
+                    let mut msg: MSG = std::mem::zeroed();
+
+                    // Check if there's a message for this window
+                    let has_msg = ((*window_ptr).win32.user32.PeekMessageW)(
+                        &mut msg, *hwnd, 0, 0, 1, // PM_REMOVE
+                    ) > 0;
+
+                    if has_msg {
+                        had_messages = true;
+                        ((*window_ptr).win32.user32.TranslateMessage)(&msg);
+                        ((*window_ptr).win32.user32.DispatchMessageW)(&msg);
+                    }
+                }
+            }
+
+            // If no messages for any window, sleep briefly to reduce CPU usage
+            if !had_messages {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        } else {
+            // Single-window: Use GetMessage (blocks until message arrives)
+            let hwnd = window_handles[0];
+            unsafe {
+                let mut msg: MSG = std::mem::zeroed();
+                let result = ((*window_ptr).win32.user32.GetMessageW)(&mut msg, hwnd, 0, 0);
+
+                if result > 0 {
+                    ((*window_ptr).win32.user32.TranslateMessage)(&msg);
+                    ((*window_ptr).win32.user32.DispatchMessageW)(&msg);
+                } else {
+                    // WM_QUIT received or error
+                    break;
+                }
+            }
+        }
+    }
+
+    // Clean up: Unregister and drop all windows
+    let window_handles = registry::get_all_window_handles();
+    for hwnd in window_handles {
+        if let Some(win_ptr) = registry::unregister_window(hwnd) {
+            // SAFETY: We created this pointer with Box::into_raw
+            unsafe {
+                drop(Box::from_raw(win_ptr));
+            }
         }
     }
 
@@ -195,7 +262,7 @@ pub fn run(
             // Return normally to allow cleanup
         }
         AppTerminationBehavior::RunForever => {
-            // Should not exit - but window is closed, so return
+            // Should not exit - but all windows are closed, so return
         }
     }
 

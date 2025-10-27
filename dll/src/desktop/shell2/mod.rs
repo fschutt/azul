@@ -71,15 +71,11 @@ cfg_if::cfg_if! {
         pub use macos::MacOSWindow as Window;
         pub use macos::MacOSEvent as WindowEvent;
     } else if #[cfg(target_os = "windows")] {
-        // TODO: Implement in Phase 4
-        // pub use windows::Win32Window as Window;
-        pub use stub::StubWindow as Window;
-        pub use stub::StubEvent as WindowEvent;
+        pub use windows::Win32Window as Window;
+        pub use windows::Win32Event as WindowEvent;
     } else if #[cfg(target_os = "linux")] {
-        // TODO: Implement in Phase 3 (X11) and Phase 5 (Wayland)
-        // pub use linux::LinuxWindow as Window;
-        pub use stub::StubWindow as Window;
-        pub use stub::StubEvent as WindowEvent;
+        pub use linux::LinuxWindow as Window;
+        pub use linux::LinuxEvent as WindowEvent;
     } else {
         // Unknown platform - use stub
         pub use stub::StubWindow as Window;
@@ -98,10 +94,18 @@ pub fn get_backend_name() -> &'static str {
     #[cfg(target_os = "linux")]
     {
         // Runtime detection on Linux
+        if std::env::var("AZUL_BACKEND").as_deref() == Ok("x11") {
+            return "linux-x11";
+        }
+        if std::env::var("AZUL_BACKEND").as_deref() == Ok("wayland") {
+            return "linux-wayland";
+        }
         if std::env::var("WAYLAND_DISPLAY").is_ok() {
             return "linux-wayland";
-        } else {
+        } else if std::env::var("DISPLAY").is_ok() {
             return "linux-x11";
+        } else {
+            return "linux-headless";
         }
     }
 
@@ -142,13 +146,5 @@ mod tests {
     fn test_capabilities_detection() {
         let caps = SystemCapabilities::detect();
         println!("System capabilities: {:?}", caps);
-    }
-
-    #[test]
-    fn test_stub_window_creation() {
-        use azul_layout::window_state::WindowCreateOptions;
-
-        let window = Window::new(WindowCreateOptions::default());
-        assert!(window.is_ok());
     }
 }

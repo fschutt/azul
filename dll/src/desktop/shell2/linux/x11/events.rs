@@ -1,15 +1,18 @@
 //! X11 Event handling - converts XEvent to Azul events and window state changes.
 //! Includes full IME (XIM) support.
 
-use super::defines::*;
-use super::dlopen::Xlib;
-use super::X11Window;
-use azul_core::window::{
-    CursorPosition, FullWindowState, KeyboardState, MouseButton, MouseState, VirtualKeyCode,
+use std::{
+    ffi::{c_void, CStr, CString},
+    rc::Rc,
 };
-use azul_css::Au;
-use std::ffi::{CStr, CString};
-use std::rc::Rc;
+
+use azul_core::{
+    events::MouseButton,
+    resources::Au,
+    window::{CursorPosition, KeyboardState, MouseState, VirtualKeyCode},
+};
+
+use super::{defines::*, dlopen::Xlib, X11Window};
 
 // -- IME Support (X Input Method) --
 
@@ -26,23 +29,25 @@ impl ImeManager {
             let locale = CString::new("").unwrap();
             (xlib.XSetLocaleModifiers)(locale.as_ptr());
 
-            let xim = (xlib.XOpenIM)(display, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+            let xim = (xlib.XOpenIM)(
+                display,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
             if xim.is_null() {
                 eprintln!("[X11 IME] Could not open input method. IME will not be available.");
                 return None;
             }
 
-            // We want to handle pre-edit drawing ourselves.
-            let style = CString::new("inputStyle").unwrap();
-            let preedit = CString::new("preeditStyle").unwrap();
-            let status = CString::new("statusStyle").unwrap();
-            let client_window = CString::new("clientWindow").unwrap();
+            let client_window_str = CString::new("clientWindow").unwrap();
+            let input_style_str = CString::new("inputStyle").unwrap();
 
             let xic = (xlib.XCreateIC)(
                 xim,
-                style.as_ptr(),
+                input_style_str.as_ptr(),
                 XIMPreeditNothing | XIMStatusNothing,
-                client_window.as_ptr(),
+                client_window_str.as_ptr(),
                 window,
                 std::ptr::null_mut() as *const i8, // Sentinel
             );
@@ -52,6 +57,9 @@ impl ImeManager {
                 (xlib.XCloseIM)(xim);
                 return None;
             }
+
+            (xlib.XSetICFocus)(xic);
+
             Some(Self {
                 xlib: xlib.clone(),
                 xim,
@@ -70,7 +78,7 @@ impl ImeManager {
     pub(super) fn lookup_string(&self, event: &mut XKeyEvent) -> (Option<String>, Option<KeySym>) {
         let mut keysym: KeySym = 0;
         let mut status: i32 = 0;
-        let mut buffer: [i8; 16] = [0; 16];
+        let mut buffer: [i8; 32] = [0; 32];
 
         let count = unsafe {
             (self.xlib.XmbLookupString)(
@@ -84,7 +92,11 @@ impl ImeManager {
         };
 
         let chars = if count > 0 {
-            Some(unsafe { CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned() })
+            Some(unsafe {
+                CStr::from_ptr(buffer.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            })
         } else {
             None
         };
@@ -113,11 +125,17 @@ pub(super) fn handle_mouse_button(window: &mut X11Window, event: &XButtonEvent) 
         2 => MouseButton::Middle,
         3 => MouseButton::Right,
         4 => {
-            if is_down { window.current_window_state.mouse_state.scroll_y = Au::from_px(1.0).into(); }
+            // Scroll up
+            if is_down {
+                window.current_window_state.mouse_state.scroll_y = Some(1.0).into();
+            }
             return;
         }
         5 => {
-            if is_down { window.current_window_state.mouse_state.scroll_y = Au::from_px(-1.0).into(); }
+            // Scroll down
+            if is_down {
+                window.current_window_state.mouse_state.scroll_y = Some(-1.0).into();
+            }
             return;
         }
         _ => MouseButton::Other(event.button as u8),
@@ -142,9 +160,11 @@ pub(super) fn handle_mouse_move(window: &mut X11Window, event: &XMotionEvent) {
 pub(super) fn handle_mouse_crossing(window: &mut X11Window, event: &XCrossingEvent) {
     let position = azul_core::geom::LogicalPosition::new(event.x as f32, event.y as f32);
     if event.type_ == EnterNotify {
-        window.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        window.current_window_state.mouse_state.cursor_position =
+            CursorPosition::InWindow(position);
     } else if event.type_ == LeaveNotify {
-        window.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow(position);
+        window.current_window_state.mouse_state.cursor_position =
+            CursorPosition::OutOfWindow(position);
     }
 }
 
@@ -156,21 +176,49 @@ pub(super) fn handle_keyboard(window: &mut X11Window, event: &mut XKeyEvent) {
     } else {
         // Fallback for when IME is not available
         let mut keysym: KeySym = 0;
-        let mut buffer = [0; 16];
-        unsafe {
-            (window.xlib.XLookupString)(event, buffer.as_mut_ptr(), buffer.len() as i32, &mut keysym, std::ptr::null_mut());
-        }
-        let chars = if keysym != 0 { unsafe { CStr::from_ptr(buffer.as_ptr()).to_string_lossy().into_owned() } } else { String::new() };
+        let mut buffer = [0; 32];
+        let count = unsafe {
+            (window.xlib.XLookupString)(
+                event,
+                buffer.as_mut_ptr(),
+                buffer.len() as i32,
+                &mut keysym,
+                std::ptr::null_mut(),
+            )
+        };
+        let chars = if count > 0 {
+            unsafe {
+                CStr::from_ptr(buffer.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        } else {
+            String::new()
+        };
         (Some(chars), Some(keysym))
     };
-    
+
     if let Some(vk) = keysym.and_then(keysym_to_virtual_keycode) {
         if is_down {
-            window.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
-            window.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
+            window
+                .current_window_state
+                .keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(vk);
+            window
+                .current_window_state
+                .keyboard_state
+                .current_virtual_keycode = Some(vk).into();
         } else {
-            window.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
-            window.current_window_state.keyboard_state.current_virtual_keycode = None.into();
+            window
+                .current_window_state
+                .keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&vk);
+            window
+                .current_window_state
+                .keyboard_state
+                .current_virtual_keycode = None.into();
         }
     }
 
@@ -185,7 +233,7 @@ pub(super) fn handle_keyboard(window: &mut X11Window, event: &mut XKeyEvent) {
     }
 }
 
-fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
+pub(crate) fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
     // This is a partial mapping based on X11/keysymdef.h
     match keysym as u32 {
         XK_BackSpace => Some(VirtualKeyCode::Back),

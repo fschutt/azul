@@ -19,6 +19,7 @@ pub mod event;
 mod gl;
 pub mod menu;
 mod process;
+pub mod registry;
 mod wcreate;
 
 use std::{
@@ -639,8 +640,9 @@ impl Win32Window {
         &self,
         position: azul_core::geom::LogicalPosition,
     ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-        use crate::desktop::wr_translate2::AsyncHitTester;
         use webrender::api::units::WorldPoint;
+
+        use crate::desktop::wr_translate2::AsyncHitTester;
 
         let hit_tester = match &self.hit_tester {
             AsyncHitTester::Resolved(ht) => ht,
@@ -989,7 +991,7 @@ impl Win32Window {
 
     /// Non-blocking event polling for Windows.
     /// Processes one event if available, returns immediately if not.
-    pub fn poll_event(&mut self) -> bool {
+    pub fn poll_event_internal(&mut self) -> bool {
         // Check if a frame is ready without blocking
         let frame_ready = {
             let &(ref lock, _) = &*self.new_frame_ready;
@@ -1018,15 +1020,12 @@ impl Win32Window {
 
         // Poll Windows message queue (non-blocking)
         use self::dlopen::{MSG, PM_REMOVE};
-        
+
         let mut msg: MSG = unsafe { std::mem::zeroed() };
         let has_message = unsafe {
             (self.win32.user32.PeekMessageW)(
-                &mut msg,
-                self.hwnd, // Filter for this window only
-                0,
-                0,
-                PM_REMOVE,
+                &mut msg, self.hwnd, // Filter for this window only
+                0, 0, PM_REMOVE,
             )
         };
 
@@ -1059,7 +1058,12 @@ impl Win32Window {
                 // Try to get the context menu by cloning it
                 let context_menu = if let Some(ref lw) = self.layout_window {
                     if let Some(lr) = lw.layout_results.get(dom_id) {
-                        if let Some(nd) = lr.styled_dom.node_data.as_container().get((*node_id).into()) {
+                        if let Some(nd) = lr
+                            .styled_dom
+                            .node_data
+                            .as_container()
+                            .get((*node_id).into())
+                        {
                             nd.get_context_menu().cloned()
                         } else {
                             None
@@ -1248,8 +1252,9 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_DESTROY => {
-            // Window destroyed
+            // Window destroyed - unregister from global registry
             window.is_open = false;
+            registry::unregister_window(hwnd);
             0
         }
 
@@ -1257,10 +1262,10 @@ unsafe extern "system" fn window_proc(
             // User clicked close button - set close_requested flag
             // and process callbacks to allow cancellation
             window.current_window_state.flags.close_requested = true;
-            
+
             // Process window events to trigger OnWindowClose callback
             let _ = window.process_window_events_v2();
-            
+
             // Check if callback cancelled the close
             if window.current_window_state.flags.close_requested {
                 // Not cancelled - proceed with close
@@ -1270,7 +1275,7 @@ unsafe extern "system" fn window_proc(
                 // Callback cancelled close - clear flag and keep window open
                 eprintln!("[WM_CLOSE] Close cancelled by callback");
             }
-            
+
             0
         }
 
@@ -1288,7 +1293,7 @@ unsafe extern "system" fn window_proc(
                 }
                 window.frame_needs_regeneration = false;
             }
-            
+
             match window.render_and_present() {
                 Ok(_) => {}
                 Err(e) => {
@@ -1416,7 +1421,7 @@ unsafe extern "system" fn window_proc(
             let result = window.process_window_events_v2();
 
             // Request WM_MOUSELEAVE notification
-            use self::dlopen::{TRACKMOUSEEVENT, TME_LEAVE};
+            use self::dlopen::{TME_LEAVE, TRACKMOUSEEVENT};
             unsafe {
                 let mut tme = TRACKMOUSEEVENT {
                     cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
@@ -1448,8 +1453,7 @@ unsafe extern "system" fn window_proc(
             };
 
             // Clear mouse position (mouse is outside window)
-            use azul_core::window::CursorPosition;
-            use azul_core::geom::LogicalPosition;
+            use azul_core::{geom::LogicalPosition, window::CursorPosition};
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::OutOfWindow(last_pos);
 
@@ -1667,25 +1671,26 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-            window.current_window_state.last_hit_test = hit_test;
-        }
-
-        // Try to show context menu first
-        let showed_context_menu = window.try_show_context_menu(x, y);
-
-        // If context menu was shown, skip normal mouse up processing
-        if !showed_context_menu {
-            // V2 system will detect MouseUp event
-            let result = window.process_window_events_v2();
-
-            // Request redraw if needed
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
-                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                window.current_window_state.last_hit_test = hit_test;
             }
-        }
 
-        0
-    }        WM_MBUTTONDOWN => {
+            // Try to show context menu first
+            let showed_context_menu = window.try_show_context_menu(x, y);
+
+            // If context menu was shown, skip normal mouse up processing
+            if !showed_context_menu {
+                // V2 system will detect MouseUp event
+                let result = window.process_window_events_v2();
+
+                // Request redraw if needed
+                if !matches!(result, process::ProcessEventResult::DoNothing) {
+                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                }
+            }
+
+            0
+        }
+        WM_MBUTTONDOWN => {
             // Middle mouse button down
             let x = (lparam & 0xFFFF) as i16 as i32;
             let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
@@ -2077,7 +2082,8 @@ unsafe extern "system" fn window_proc(
                     (shell32.DragQueryPoint)(hdrop, &mut pt);
 
                     // Get number of files
-                    let file_count = (shell32.DragQueryFileW)(hdrop, 0xFFFFFFFF, ptr::null_mut(), 0);
+                    let file_count =
+                        (shell32.DragQueryFileW)(hdrop, 0xFFFFFFFF, ptr::null_mut(), 0);
 
                     let mut dropped_files = Vec::new();
 
@@ -2103,10 +2109,11 @@ unsafe extern "system" fn window_proc(
                     // Update window state with dropped files
                     if !dropped_files.is_empty() {
                         window.previous_window_state = Some(window.current_window_state.clone());
-                        
+
                         // Store first file in dropped_file (API limitation)
                         if let Some(first_file) = dropped_files.first() {
-                            window.current_window_state.dropped_file = Some(first_file.clone().into());
+                            window.current_window_state.dropped_file =
+                                Some(first_file.clone().into());
                         }
 
                         // Process window events to trigger FileDrop callbacks
@@ -2187,6 +2194,112 @@ fn get_default_pfd() -> winapi::um::wingdi::PIXELFORMATDESCRIPTOR {
         dwLayerMask: 0,
         dwVisibleMask: 0,
         dwDamageMask: 0,
+    }
+}
+
+/// Windows event type.
+#[derive(Debug, Clone, Copy)]
+pub enum Win32Event {
+    /// Window close requested
+    Close,
+    /// Window resized
+    Resize { width: u32, height: u32 },
+    /// Mouse moved
+    MouseMove { x: f64, y: f64 },
+    /// Mouse button pressed
+    MouseDown { button: u8, x: f64, y: f64 },
+    /// Mouse button released
+    MouseUp { button: u8, x: f64, y: f64 },
+    /// Key pressed
+    KeyDown { key_code: u16 },
+    /// Key released
+    KeyUp { key_code: u16 },
+    /// DPI changed
+    DpiChanged { new_dpi: u32 },
+    /// Other event
+    Other,
+}
+
+// ============================================================================
+// PlatformWindow trait implementation
+// ============================================================================
+
+use azul_layout::window_state::WindowState;
+
+use crate::desktop::shell2::common::{PlatformWindow, RenderContext};
+
+impl PlatformWindow for Win32Window {
+    type EventType = Win32Event;
+
+    fn new(options: WindowCreateOptions) -> Result<Self, WindowError> {
+        // Use existing new() implementation
+        // For now, we need to pass in fc_cache and app_data
+        // TODO: These should come from options or a global context
+        let fc_cache = Arc::new(rust_fontconfig::FcFontCache::build());
+        let app_data = Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
+        Self::new(options, fc_cache, app_data)
+    }
+
+    fn get_state(&self) -> WindowState {
+        self.current_window_state.to_window_state()
+    }
+
+    fn set_properties(&mut self, _props: WindowProperties) -> Result<(), WindowError> {
+        // TODO: Implement property setting (title, size, etc.)
+        Ok(())
+    }
+
+    fn poll_event(&mut self) -> Option<Self::EventType> {
+        // The existing poll_event_internal returns bool
+        // We need to convert this to return Option<Win32Event>
+        // For now, return None - will be implemented in phase 1.2
+        if self.poll_event_internal() {
+            Some(Win32Event::Other)
+        } else {
+            None
+        }
+    }
+
+    fn get_render_context(&self) -> RenderContext {
+        if let Some(gl_context) = self.gl_context {
+            RenderContext::OpenGL {
+                context: gl_context as *mut std::ffi::c_void,
+            }
+        } else {
+            // Software rendering - return null OpenGL context
+            RenderContext::OpenGL {
+                context: std::ptr::null_mut(),
+            }
+        }
+    }
+
+    fn present(&mut self) -> Result<(), WindowError> {
+        self.render_and_present()
+            .map_err(|e| WindowError::PlatformError(format!("Present failed: {}", e)))
+    }
+
+    fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    fn close(&mut self) {
+        // Close the window by posting WM_CLOSE
+        unsafe {
+            use self::dlopen::constants::WM_CLOSE;
+            (self.win32.user32.PostMessageW)(self.hwnd, WM_CLOSE, 0, 0);
+        }
+        self.is_open = false;
+    }
+
+    fn request_redraw(&mut self) {
+        // Mark that frame needs regeneration
+        self.frame_needs_regeneration = true;
+
+        // Post WM_PAINT message to trigger redraw
+        unsafe {
+            use self::dlopen::constants::WM_PAINT;
+            (self.win32.user32.PostMessageW)(self.hwnd, WM_PAINT, 0, 0);
+        }
     }
 }
 
