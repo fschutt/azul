@@ -2078,7 +2078,8 @@
             ]
           },
           "MarshaledLayoutCallbackType": {
-            "doc": "Marshaled version of LayoutCallback, carrys an extra \"marshal_data\" containing the (usually external) function object",
+            "doc": "In order to interact with external VMs (Java, Python, etc.) the callback is often stored as a \"function object\" In order to callback into external languages, the layout callback has to be able to carry some extra data (the first argument), which usually contains the function object i.e. in the Python VM a PyCallable / PyAny",
+            "external": "azul_core::callbacks::MarshaledLayoutCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -2118,7 +2119,8 @@
             ]
           },
           "LayoutCallbackType": {
-            "doc": "Main callback to layout the UI. azul will only call this callback when necessary (usually when one of the callback or timer returns `RegenerateStyledDomForCurrentWindow`), however azul may also call this callback at any given time, so it should be performant. This is the main entry point for your app UI.",
+            "doc": "Callback function pointer (has to be a function pointer in order to be compatible with C APIs later on). IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutCallbackInfoPtr`, otherwise that memory is leaked. If you use the official auto-generated bindings, this is already done for you. NOTE: The original callback was `fn(&self, LayoutCallbackInfo) -> Dom` which then evolved to `fn(&RefAny, LayoutCallbackInfo) -> Dom`. The indirection is necessary because of the memory management around the C API See azul-core/ui_state.rs:298 for how the memory is managed across the callback boundary.",
+            "external": "azul_core::callbacks::LayoutCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -2139,8 +2141,8 @@
             }
           },
           "Callback": {
-            "doc": "C-ABI stable wrapper over a `CallbackType`",
-            "external": "azul_core::callbacks::Callback",
+            "doc": "Stores a function pointer that is executed when the given UI element is hit Must return an `Update` that denotes if the screen should be redrawn.",
+            "external": "azul_layout::callbacks::Callback",
             "derive": [
               "Copy"
             ],
@@ -2153,7 +2155,8 @@
             ]
           },
           "CallbackType": {
-            "doc": "Generic UI callback function pointer: called when the `EventFilter` is active",
+            "doc": "Main callback type for UI event handling",
+            "external": "azul_layout::callbacks::CallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -2174,99 +2177,100 @@
             }
           },
           "CallbackInfo": {
-            "external": "azul_core::callbacks::CallbackInfo",
+            "doc": "Information about the callback that is passed to the callback whenever a callback is invoked",
+            "external": "azul_layout::callbacks::CallbackInfo",
             "struct_fields": [
               {
                 "layout_window": {
-                  "type": "*mut LayoutWindow",
+                  "type": "*mut c_void",
                   "doc": "Pointer to the LayoutWindow containing all layout results (MUTABLE for timer/thread/GPU access)"
                 },
                 "renderer_resources": {
-                  "type": "*const RendererResources",
+                  "type": "*const c_void",
                   "doc": "Necessary to query FontRefs from callbacks"
                 },
                 "previous_window_state": {
-                  "type": "*const Option < FullWindowState >",
+                  "type": "*const c_void",
                   "doc": "Previous window state"
                 },
                 "current_window_state": {
-                  "type": "*const FullWindowState",
+                  "type": "*const c_void",
                   "doc": "State of the current window that the callback was called on (read only!)"
                 },
                 "modifiable_window_state": {
-                  "type": "*mut WindowState",
+                  "type": "*mut c_void",
                   "doc": "User-modifiable state of the window that the callback was called on"
                 },
                 "gl_context": {
-                  "type": "*const OptionGlContextPtr",
+                  "type": "*const c_void",
                   "doc": "An Rc to the OpenGL context, in order to be able to render to OpenGL textures"
                 },
                 "image_cache": {
-                  "type": "*mut ImageCache",
+                  "type": "*mut c_void",
                   "doc": "Cache to add / remove / query image RefAnys from / to CSS ids"
                 },
                 "system_fonts": {
-                  "type": "*mut FcFontCache",
+                  "type": "*mut c_void",
                   "doc": "System font cache (can be regenerated / refreshed in callbacks)"
                 },
                 "timers": {
-                  "type": "*mut FastHashMap < TimerId , Timer >",
+                  "type": "*mut c_void",
                   "doc": "Currently running timers (polling functions, run on the main thread)"
                 },
                 "threads": {
-                  "type": "*mut FastHashMap < ThreadId , Thread >",
+                  "type": "*mut c_void",
                   "doc": "Currently running threads (asynchronous functions running each on a different thread)"
                 },
                 "timers_removed": {
-                  "type": "*mut FastBTreeSet < TimerId >",
+                  "type": "*mut c_void",
                   "doc": "Timers removed by the callback"
                 },
                 "threads_removed": {
-                  "type": "*mut FastBTreeSet < ThreadId >",
+                  "type": "*mut c_void",
                   "doc": "Threads removed by the callback"
                 },
                 "current_window_handle": {
-                  "type": "*const RawWindowHandle",
+                  "type": "*const c_void",
                   "doc": "Handle of the current window"
                 },
                 "new_windows": {
-                  "type": "*mut Vec < WindowCreateOptions >",
+                  "type": "*mut c_void",
                   "doc": "Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows."
                 },
                 "system_callbacks": {
-                  "type": "*const ExternalSystemCallbacks",
+                  "type": "*const c_void",
                   "doc": "Callbacks for creating threads and getting the system time (since this crate uses no_std)"
                 },
                 "stop_propagation": {
-                  "type": "*mut bool",
+                  "type": "*mut c_void",
                   "doc": "Sets whether the event should be propagated to the parent hit node or not"
                 },
                 "focus_target": {
-                  "type": "*mut Option < FocusTarget >",
+                  "type": "*mut c_void",
                   "doc": "The callback can change the focus_target - note that the focus_target is set before the next frames' layout() function is invoked, but the current frames callbacks are not affected."
                 },
                 "words_changed_in_callbacks": {
-                  "type": "*mut BTreeMap < DomId , BTreeMap < NodeId , AzString > >",
+                  "type": "*mut c_void",
                   "doc": "Mutable reference to a list of words / text items that were changed in the callback"
                 },
                 "images_changed_in_callbacks": {
-                  "type": "*mut BTreeMap < DomId , BTreeMap < NodeId , (ImageRef , UpdateImageType) > >",
+                  "type": "*mut c_void",
                   "doc": "Mutable reference to a list of images that were changed in the callback"
                 },
                 "image_masks_changed_in_callbacks": {
-                  "type": "*mut BTreeMap < DomId , BTreeMap < NodeId , ImageMask > >",
+                  "type": "*mut c_void",
                   "doc": "Mutable reference to a list of image clip masks that were changed in the callback"
                 },
                 "css_properties_changed_in_callbacks": {
-                  "type": "*mut BTreeMap < DomId , BTreeMap < NodeId , Vec < CssProperty > > >",
+                  "type": "*mut c_void",
                   "doc": "Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties"
                 },
                 "current_scroll_states": {
-                  "type": "*const BTreeMap < DomId , BTreeMap < NodeHierarchyItemId , ScrollPosition > >",
+                  "type": "*const c_void",
                   "doc": "Immutable (!) reference to where the nodes are currently scrolled (current position)"
                 },
                 "nodes_scrolled_in_callback": {
-                  "type": "*mut BTreeMap < DomId , BTreeMap < NodeHierarchyItemId , LogicalPosition > >",
+                  "type": "*mut c_void",
                   "doc": "Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)"
                 },
                 "hit_dom_node": {
@@ -3716,7 +3720,8 @@
             ]
           },
           "IFrameCallbackType": {
-            "doc": "For rendering large or infinite datasets such as tables or lists, azul uses `IFrameCallbacks` that allow the library user to only render the visible portion of DOM nodes, not the entire set. IFrames are rendered after the screen has been laid out, but before it gets composited. IFrames can be used recursively (i.e. iframes within iframes are possible). IFrames are re-rendered once the user scrolls to the bounds (see `IFrameCallbackReturn` on how to set the bounds) or the parent DOM was recreated.",
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut IFrameCallbackInfo) -> IFrameCallbackReturn",
+            "external": "azul_core::callbacks::IFrameCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -3799,7 +3804,8 @@
             ]
           },
           "RenderImageCallback": {
-            "external": "azul_core::callbacks::RenderImageCallback",
+            "doc": "Callback that returns a rendered OpenGL texture **IMPORTANT**: In azul-core, this is stored as `CoreRenderImageCallback` with a `cb: usize` field. When creating callbacks in the data model, function pointers are cast to usize. This type is used in azul-layout where we can safely work with the actual function pointer type.",
+            "external": "azul_layout::callbacks::RenderImageCallback",
             "derive": [
               "Copy"
             ],
@@ -3812,6 +3818,8 @@
             ]
           },
           "RenderImageCallbackType": {
+            "doc": "Callback type that renders an OpenGL texture **IMPORTANT**: In azul-core, this is stored as `CoreRenderImageCallbackType = usize` to avoid circular dependencies. The actual function pointer is cast to usize for storage in the data model, then unsafely cast back to this type when invoked.",
+            "external": "azul_layout::callbacks::RenderImageCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -3831,7 +3839,8 @@
             }
           },
           "RenderImageCallbackInfo": {
-            "external": "azul_core::callbacks::RenderImageCallbackInfo",
+            "doc": "Information passed to image rendering callbacks",
+            "external": "azul_layout::callbacks::RenderImageCallbackInfo",
             "struct_fields": [
               {
                 "callback_node_id": {
@@ -3843,23 +3852,23 @@
                   "doc": "Bounds of the laid-out node"
                 },
                 "gl_context": {
-                  "type": "*const OptionGlContextPtr",
+                  "type": "*const c_void",
                   "doc": "Optional OpenGL context pointer"
                 },
                 "image_cache": {
-                  "type": "*const ImageCache",
+                  "type": "*const c_void",
                   "doc": "Image cache for looking up images"
                 },
                 "system_fonts": {
-                  "type": "*const FcFontCache",
+                  "type": "*const c_void",
                   "doc": "System font cache"
                 },
                 "_abi_ref": {
-                  "type": "c_void",
+                  "type": "*const c_void",
                   "doc": "Extension for future ABI stability (referenced data)"
                 },
                 "_abi_mut": {
-                  "type": "c_void",
+                  "type": "*mut c_void",
                   "doc": "Extension for future ABI stability (mutable data)"
                 }
               }
@@ -6193,8 +6202,8 @@
         "doc": null,
         "classes": {
           "Menu": {
-            "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
-            "external": "azul_core::window::Menu",
+            "doc": "Represents a menu (context menu, dropdown menu, or application menu). A menu consists of a list of items that can be displayed as a popup or attached to a window's menu bar. Modeled after the Windows API for cross-platform consistency. # Fields * `items` - The menu items to display * `position` - Where the menu should appear (for popups) * `context_mouse_btn` - Which mouse button triggers the context menu",
+            "external": "azul_core::menu::Menu",
             "struct_fields": [
               {
                 "items": {
@@ -6264,8 +6273,8 @@
             ]
           },
           "MenuPopupPosition": {
-            "doc": "Position of where the context menu should pop up",
-            "external": "azul_core::window::MenuPopupPosition",
+            "doc": "Specifies where a popup menu should appear relative to the cursor or clicked element. This positioning information is ignored for application-level menus (menu bars) and only applies to context menus and dropdowns.",
+            "external": "azul_core::menu::MenuPopupPosition",
             "derive": [
               "Copy"
             ],
@@ -6305,8 +6314,8 @@
             ]
           },
           "MenuItem": {
-            "doc": "Item entry in a menu or menu bar",
-            "external": "azul_core::window::MenuItem",
+            "doc": "Represents a single item in a menu. Menu items can be regular text items with labels and callbacks, visual separators, or line breaks for horizontal menu layouts.",
+            "external": "azul_core::menu::MenuItem",
             "enum_fields": [
               {
                 "String": {
@@ -6323,8 +6332,8 @@
             ]
           },
           "StringMenuItem": {
-            "doc": "Regular labeled menu item",
-            "external": "azul_core::window::StringMenuItem",
+            "doc": "A menu item with a text label and optional features. `StringMenuItem` represents a clickable menu entry that can have: - A text label - An optional keyboard accelerator (e.g., Ctrl+C) - An optional callback function - An optional icon (checkbox or image) - A state (normal, greyed, or disabled) - Child menu items (for sub-menus) # Examples ```rust,no_run use azul_core::menu::StringMenuItem; use azul_css::AzString; let item = StringMenuItem::new(AzString::from_const_str(\"Copy\")); ```",
+            "external": "azul_core::menu::StringMenuItem",
             "struct_fields": [
               {
                 "label": {
@@ -6493,8 +6502,8 @@
             }
           },
           "MenuItemIcon": {
-            "doc": "Icon of a menu entry",
-            "external": "azul_core::window::MenuItemIcon",
+            "doc": "Optional icon displayed next to a menu item. Icons can be either: - A checkbox (checked or unchecked) - A custom image (typically 16x16 pixels)",
+            "external": "azul_core::menu::MenuItemIcon",
             "enum_fields": [
               {
                 "Checkbox": {
@@ -6509,8 +6518,8 @@
             ]
           },
           "MenuItemState": {
-            "doc": "Describes the state of a menu item",
-            "external": "azul_core::window::MenuItemState",
+            "doc": "Describes the interactive state of a menu item. Menu items can be in different states that affect their appearance and behavior: - Normal items are clickable and render normally - Greyed items are visually disabled (greyed out) and non-clickable - Disabled items are non-clickable but retain normal appearance",
+            "external": "azul_core::menu::MenuItemState",
             "enum_fields": [
               {
                 "Normal": {
@@ -6531,7 +6540,8 @@
         "doc": "`Css` parsing module",
         "classes": {
           "CssRuleBlock": {
-            "external": "azul_css::CssRuleBlock",
+            "doc": "One block of rules that applies a bunch of rules to a \"path\" in the style, i.e. `div#myid.myclass -> { (\"justify-content\", \"center\") }`",
+            "external": "azul_css::css::CssRuleBlock",
             "struct_fields": [
               {
                 "path": {
@@ -6546,7 +6556,8 @@
             ]
           },
           "CssPath": {
-            "external": "azul_css::CssPath",
+            "doc": "Represents a full CSS path (i.e. the \"div#id.class\" selector belonging to a CSS \"content group\" (the following key-value block)). ```no_run,ignore \"#div > .my_class:focus\" == [ CssPathSelector::Type(NodeTypeTag::Div), CssPathSelector::PseudoSelector(CssPathPseudoSelector::LimitChildren), CssPathSelector::Class(\"my_class\"), CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus), ]",
+            "external": "azul_css::css::CssPath",
             "struct_fields": [
               {
                 "selectors": {
@@ -6556,7 +6567,7 @@
             ]
           },
           "CssPathSelector": {
-            "external": "azul_css::CssPathSelector",
+            "external": "azul_css::css::CssPathSelector",
             "enum_fields": [
               {
                 "Global": {
@@ -7036,7 +7047,7 @@
             }
           },
           "CssPathPseudoSelector": {
-            "external": "azul_css::CssPathPseudoSelector",
+            "external": "azul_css::css::CssPathPseudoSelector",
             "derive": [
               "Copy"
             ],
@@ -7065,7 +7076,7 @@
             ]
           },
           "CssNthChildSelector": {
-            "external": "azul_css::CssNthChildSelector",
+            "external": "azul_css::css::CssNthChildSelector",
             "derive": [
               "Copy"
             ],
@@ -7083,7 +7094,7 @@
             ]
           },
           "CssNthChildPattern": {
-            "external": "azul_css::CssNthChildPattern",
+            "external": "azul_css::css::CssNthChildPattern",
             "derive": [
               "Copy"
             ],
@@ -7099,7 +7110,7 @@
             ]
           },
           "Stylesheet": {
-            "external": "azul_css::Stylesheet",
+            "external": "azul_css::css::Stylesheet",
             "struct_fields": [
               {
                 "rules": {
@@ -7110,7 +7121,8 @@
             ]
           },
           "Css": {
-            "external": "azul_css::Css",
+            "doc": "Css stylesheet - contains a parsed CSS stylesheet in \"rule blocks\", i.e. blocks of key-value pairs associated with a selector path.",
+            "external": "azul_css::css::Css",
             "struct_fields": [
               {
                 "stylesheets": {
@@ -7137,7 +7149,8 @@
             }
           },
           "CssDeclaration": {
-            "external": "azul_css::CssDeclaration",
+            "doc": "Contains one parsed `key: value` pair, static or dynamic",
+            "external": "azul_css::css::CssDeclaration",
             "enum_fields": [
               {
                 "Static": {
@@ -7152,7 +7165,8 @@
             ]
           },
           "DynamicCssProperty": {
-            "external": "azul_css::DynamicCssProperty",
+            "doc": "A `DynamicCssProperty` is a type of css property that can be changed on possibly every frame by the Rust code - for example to implement an `On::Hover` behaviour. The syntax for such a property looks like this: ```no_run,ignore #my_div { padding: var(--my_dynamic_property_id, 400px); } ``` Azul will register a dynamic property with the key \"my_dynamic_property_id\" and the default value of 400px. If the property gets overridden during one frame, the overridden property takes precedence. At runtime the style is immutable (which is a performance optimization - if we can assume that the property never changes at runtime), we can do some optimizations on it. Dynamic style properties can also be used for animations and conditional styles (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these special cases now use one single API.",
+            "external": "azul_css::css::DynamicCssProperty",
             "struct_fields": [
               {
                 "dynamic_id": {
@@ -7321,7 +7335,8 @@
             ]
           },
           "NodeTypeTag": {
-            "external": "azul_css::NodeTypeTag",
+            "doc": "Signifies the type of a DOM node without carrying any associated data",
+            "external": "azul_css::css::NodeTypeTag",
             "derive": [
               "Copy"
             ],
@@ -10992,6 +11007,8 @@
             ]
           },
           "RibbonOnTabClickedCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , i32) -> Update",
+            "external": "azul_dll::widgets::ribbon::RibbonOnTabClickedCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -11291,6 +11308,8 @@
             ]
           },
           "FileInputOnPathChangeCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &FileInputState) -> Update",
+            "external": "azul_dll::widgets::file_input::FileInputOnPathChangeCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -11428,6 +11447,8 @@
             ]
           },
           "CheckBoxOnToggleCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &CheckBoxState) -> Update",
+            "external": "azul_dll::widgets::check_box::CheckBoxOnToggleCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -11616,6 +11637,8 @@
             ]
           },
           "ColorInputOnValueChangeCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &ColorInputState) -> Update",
+            "external": "azul_dll::widgets::color_input::ColorInputOnValueChangeCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -12008,6 +12031,8 @@
             ]
           },
           "TextInputOnTextInputCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &TextInputState) -> OnTextInputReturn",
+            "external": "azul_dll::widgets::text_input::TextInputOnTextInputCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -12057,6 +12082,8 @@
             ]
           },
           "TextInputOnVirtualKeyDownCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &TextInputState) -> OnTextInputReturn",
+            "external": "azul_dll::widgets::text_input::TextInputOnVirtualKeyDownCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -12106,6 +12133,8 @@
             ]
           },
           "TextInputOnFocusLostCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &TextInputState) -> Update",
+            "external": "azul_dll::widgets::text_input::TextInputOnFocusLostCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -12447,6 +12476,8 @@
             ]
           },
           "NumberInputOnValueChangeCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &NumberInputState) -> Update",
+            "external": "azul_dll::widgets::number_input::NumberInputOnValueChangeCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -12496,6 +12527,8 @@
             ]
           },
           "NumberInputOnFocusLostCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &NumberInputState) -> Update",
+            "external": "azul_dll::widgets::number_input::NumberInputOnFocusLostCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -12841,6 +12874,8 @@
             ]
           },
           "TabOnClickCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &TabHeaderState) -> Update",
+            "external": "azul_dll::widgets::tabs::TabOnClickCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -13924,6 +13959,8 @@
             ]
           },
           "ListViewOnLazyLoadScrollCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &ListViewState) -> Update",
+            "external": "azul_dll::widgets::list_view::ListViewOnLazyLoadScrollCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -13973,6 +14010,8 @@
             ]
           },
           "ListViewOnColumnClickCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &ListViewState , column_clicked : usize) -> Update",
+            "external": "azul_dll::widgets::list_view::ListViewOnColumnClickCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -14027,6 +14066,8 @@
             ]
           },
           "ListViewOnRowClickCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , &ListViewState , row_clicked : usize) -> Update",
+            "external": "azul_dll::widgets::list_view::ListViewOnRowClickCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -14153,6 +14194,8 @@
             }
           },
           "DropDownOnChoiceChangeCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (&mut RefAny , &mut CallbackInfo , usize) -> Update",
+            "external": "azul_dll::widgets::drop_down::DropDownOnChoiceChangeCallbackType",
             "callback_typedef": {
               "fn_args": [
                 {
@@ -28906,7 +28949,7 @@
             }
           },
           "SvgMultiPolygon": {
-            "external": "azul_layout::xml::svg::SvgMultiPolygon",
+            "external": "azul_core::svg::SvgMultiPolygon",
             "struct_fields": [
               {
                 "rings": {
@@ -29040,7 +29083,8 @@
             }
           },
           "SvgNode": {
-            "external": "azul_layout::xml::svg::SvgNode",
+            "doc": "One `SvgNode` corresponds to one SVG `<path></path>` element",
+            "external": "azul_core::svg::SvgNode",
             "enum_fields": [
               {
                 "MultiPolygonCollection": {
@@ -29140,7 +29184,8 @@
             }
           },
           "SvgSimpleNode": {
-            "external": "azul_layout::xml::svg::SvgSimpleNode",
+            "doc": "One `SvgSimpleNode` is either a path, a rect or a circle",
+            "external": "azul_core::svg::SvgSimpleNode",
             "enum_fields": [
               {
                 "Path": {
@@ -29175,7 +29220,7 @@
             }
           },
           "SvgStyledNode": {
-            "external": "azul_layout::xml::svg::SvgStyledNode",
+            "external": "azul_core::svg::SvgStyledNode",
             "struct_fields": [
               {
                 "geometry": {
@@ -29201,7 +29246,7 @@
             }
           },
           "SvgCircle": {
-            "external": "azul_layout::xml::svg::SvgCircle",
+            "external": "azul_core::svg::SvgCircle",
             "derive": [
               "Copy"
             ],
@@ -29250,7 +29295,7 @@
             }
           },
           "SvgPath": {
-            "external": "azul_layout::xml::svg::SvgPath",
+            "external": "azul_core::svg::SvgPath",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -29399,7 +29444,7 @@
             }
           },
           "SvgPathElement": {
-            "external": "azul_layout::xml::svg::SvgPathElement",
+            "external": "azul_core::svg::SvgPathElement",
             "derive": [
               "Copy",
               "Serialize",
@@ -29644,7 +29689,8 @@
             }
           },
           "SvgLine": {
-            "external": "azul_layout::xml::svg::SvgLine",
+            "doc": "A line segment in 2D space.",
+            "external": "azul_core::svg::SvgLine",
             "derive": [
               "Copy",
               "Serialize",
@@ -30237,7 +30283,7 @@
             }
           },
           "SvgColoredVertex": {
-            "external": "azul_layout::xml::svg::SvgColoredVertex",
+            "external": "azul_core::svg::SvgColoredVertex",
             "derive": [
               "Copy",
               "Serialize",
@@ -30339,7 +30385,7 @@
             }
           },
           "SvgVertex": {
-            "external": "azul_layout::xml::svg::SvgVertex",
+            "external": "azul_core::svg::SvgVertex",
             "derive": [
               "Copy",
               "Serialize",
@@ -30426,7 +30472,7 @@
             }
           },
           "SvgParseOptions": {
-            "external": "azul_layout::xml::svg::SvgParseOptions",
+            "external": "azul_core::svg::SvgParseOptions",
             "struct_fields": [
               {
                 "relative_image_path": {
@@ -30529,7 +30575,7 @@
             ]
           },
           "SvgRenderOptions": {
-            "external": "azul_layout::xml::svg::SvgRenderOptions",
+            "external": "azul_core::svg::SvgRenderOptions",
             "struct_fields": [
               {
                 "target_size": {
@@ -30554,7 +30600,7 @@
             }
           },
           "SvgRenderTransform": {
-            "external": "azul_layout::xml::svg::SvgRenderTransform",
+            "external": "azul_core::svg::SvgRenderTransform",
             "derive": [
               "Copy"
             ],
@@ -30582,7 +30628,7 @@
             ]
           },
           "SvgDashPattern": {
-            "external": "azul_layout::xml::svg::SvgDashPattern",
+            "external": "azul_core::svg::SvgDashPattern",
             "derive": [
               "Copy"
             ],
@@ -30628,7 +30674,7 @@
             ]
           },
           "SvgFitTo": {
-            "external": "azul_layout::xml::svg::SvgFitTo",
+            "external": "azul_core::svg::SvgFitTo",
             "derive": [
               "Copy"
             ],
@@ -30648,7 +30694,7 @@
             ]
           },
           "SvgStyle": {
-            "external": "azul_layout::xml::svg::SvgStyle",
+            "external": "azul_core::svg::SvgStyle",
             "derive": [
               "Copy"
             ],
@@ -30664,7 +30710,7 @@
             ]
           },
           "SvgFillRule": {
-            "external": "azul_layout::xml::svg::SvgFillRule",
+            "external": "azul_core::svg::SvgFillRule",
             "derive": [
               "Copy"
             ],
@@ -30676,7 +30722,7 @@
             ]
           },
           "SvgTransform": {
-            "external": "azul_layout::xml::svg::SvgTransform",
+            "external": "azul_core::svg::SvgTransform",
             "derive": [
               "Copy"
             ],
@@ -30704,7 +30750,7 @@
             ]
           },
           "SvgFillStyle": {
-            "external": "azul_layout::xml::svg::SvgFillStyle",
+            "external": "azul_core::svg::SvgFillStyle",
             "derive": [
               "Copy"
             ],
@@ -30748,7 +30794,7 @@
             }
           },
           "SvgStrokeStyle": {
-            "external": "azul_layout::xml::svg::SvgStrokeStyle",
+            "external": "azul_core::svg::SvgStrokeStyle",
             "derive": [
               "Copy"
             ],
@@ -30808,7 +30854,7 @@
             }
           },
           "SvgLineJoin": {
-            "external": "azul_layout::xml::svg::SvgLineJoin",
+            "external": "azul_core::svg::SvgLineJoin",
             "derive": [
               "Copy"
             ],
@@ -30822,7 +30868,7 @@
             ]
           },
           "SvgLineCap": {
-            "external": "azul_layout::xml::svg::SvgLineCap",
+            "external": "azul_core::svg::SvgLineCap",
             "derive": [
               "Copy"
             ],
@@ -30835,7 +30881,7 @@
             ]
           },
           "SvgXmlOptions": {
-            "external": "azul_layout::xml::svg::SvgXmlOptions",
+            "external": "azul_core::svg::SvgXmlOptions",
             "struct_fields": [
               {
                 "use_single_quote": {
@@ -32337,7 +32383,7 @@
           },
           "StyleFilterVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleFilter>`",
-            "external": "azul_css::StyleFilterVec",
+            "external": "azul_css::props::style::filter::StyleFilterVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -32364,7 +32410,7 @@
           },
           "LogicalRectVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<LogicalRect>`",
-            "external": "azul_core::window::LogicalRectVec",
+            "external": "azul_core::geom::LogicalRectVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -32661,7 +32707,7 @@
           },
           "MenuItemVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<MenuItem>`",
-            "external": "azul_core::window::MenuItemVec",
+            "external": "azul_core::menu::MenuItemVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -32770,7 +32816,7 @@
           },
           "StyleFontFamilyVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleFontFamily>`",
-            "external": "azul_css::StyleFontFamilyVec",
+            "external": "azul_css::props::basic::font::StyleFontFamilyVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33094,7 +33140,7 @@
           },
           "StyleBackgroundContentVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`",
-            "external": "azul_css::StyleBackgroundContentVec",
+            "external": "azul_css::props::style::background::StyleBackgroundContentVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33121,7 +33167,7 @@
           },
           "StyleBackgroundPositionVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`",
-            "external": "azul_css::StyleBackgroundPositionVec",
+            "external": "azul_css::props::style::background::StyleBackgroundPositionVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33148,7 +33194,7 @@
           },
           "StyleBackgroundRepeatVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`",
-            "external": "azul_css::StyleBackgroundRepeatVec",
+            "external": "azul_css::props::style::background::StyleBackgroundRepeatVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33175,7 +33221,7 @@
           },
           "StyleBackgroundSizeVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`",
-            "external": "azul_css::StyleBackgroundSizeVec",
+            "external": "azul_css::props::style::background::StyleBackgroundSizeVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33202,7 +33248,7 @@
           },
           "StyleTransformVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
-            "external": "azul_css::StyleTransformVec",
+            "external": "azul_css::props::style::transform::StyleTransformVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33229,7 +33275,7 @@
           },
           "CssPropertyVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<CssProperty>`",
-            "external": "azul_css::CssPropertyVec",
+            "external": "azul_dll::widgets::number_input::CssPropertyVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33256,7 +33302,7 @@
           },
           "SvgMultiPolygonVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`",
-            "external": "azul_layout::xml::svg::SvgMultiPolygonVec",
+            "external": "azul_core::svg::SvgMultiPolygonVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33283,7 +33329,7 @@
           },
           "SvgSimpleNodeVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`",
-            "external": "azul_layout::xml::svg::SvgSimpleNodeVec",
+            "external": "azul_core::svg::SvgSimpleNodeVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33310,7 +33356,7 @@
           },
           "SvgPathVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<SvgPath>`",
-            "external": "azul_layout::xml::svg::SvgPathVec",
+            "external": "azul_core::svg::SvgPathVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33364,7 +33410,7 @@
           },
           "SvgPathElementVec": {
             "doc": "Wrapper over a Rust-allocated `VertexAttribute`",
-            "external": "azul_layout::xml::svg::SvgPathElementVec",
+            "external": "azul_core::svg::SvgPathElementVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33391,7 +33437,7 @@
           },
           "SvgVertexVec": {
             "doc": "Wrapper over a Rust-allocated `SvgVertex`",
-            "external": "azul_layout::xml::svg::SvgVertexVec",
+            "external": "azul_core::svg::SvgVertexVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33418,7 +33464,7 @@
           },
           "SvgColoredVertexVec": {
             "doc": "Wrapper over a Rust-allocated `SvgColoredVertex`",
-            "external": "azul_layout::xml::svg::SvgColoredVertexVec",
+            "external": "azul_core::svg::SvgColoredVertexVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33445,7 +33491,7 @@
           },
           "U32Vec": {
             "doc": "Wrapper over a Rust-allocated `Vec<u32>`",
-            "external": "azul_css::U32Vec",
+            "external": "azul_css::corety::U32Vec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33580,7 +33626,7 @@
           },
           "CssDeclarationVec": {
             "doc": "Wrapper over a Rust-allocated `CssDeclaration`",
-            "external": "azul_css::CssDeclarationVec",
+            "external": "azul_css::css::CssDeclarationVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33607,7 +33653,7 @@
           },
           "CssPathSelectorVec": {
             "doc": "Wrapper over a Rust-allocated `CssPathSelector`",
-            "external": "azul_css::CssPathSelectorVec",
+            "external": "azul_css::css::CssPathSelectorVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33634,7 +33680,7 @@
           },
           "StylesheetVec": {
             "doc": "Wrapper over a Rust-allocated `Stylesheet`",
-            "external": "azul_css::StylesheetVec",
+            "external": "azul_css::css::StylesheetVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33661,7 +33707,7 @@
           },
           "CssRuleBlockVec": {
             "doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
-            "external": "azul_css::CssRuleBlockVec",
+            "external": "azul_css::css::CssRuleBlockVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33688,7 +33734,7 @@
           },
           "U16Vec": {
             "doc": "Wrapper over a Rust-allocated `Vec<u16>`",
-            "external": "azul_css::U16Vec",
+            "external": "azul_css::corety::U16Vec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33715,7 +33761,7 @@
           },
           "F32Vec": {
             "doc": "Wrapper over a Rust-allocated `Vec<f32>`",
-            "external": "azul_css::F32Vec",
+            "external": "azul_css::corety::F32Vec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33742,7 +33788,7 @@
           },
           "U8Vec": {
             "doc": "Wrapper over a Rust-allocated `U8Vec`",
-            "external": "azul_css::U8Vec",
+            "external": "azul_css::corety::U8Vec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33893,7 +33939,7 @@
           },
           "StringVec": {
             "doc": "Wrapper over a Rust-allocated `StringVec`",
-            "external": "azul_css::StringVec",
+            "external": "azul_css::corety::StringVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33947,7 +33993,7 @@
           },
           "NormalizedLinearColorStopVec": {
             "doc": "Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`",
-            "external": "azul_css::NormalizedLinearColorStopVec",
+            "external": "azul_css::props::style::background::NormalizedLinearColorStopVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -33974,7 +34020,7 @@
           },
           "NormalizedRadialColorStopVec": {
             "doc": "Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`",
-            "external": "azul_css::NormalizedRadialColorStopVec",
+            "external": "azul_css::props::style::background::NormalizedRadialColorStopVec",
             "custom_destructor": true,
             "struct_fields": [
               {
@@ -34162,7 +34208,7 @@
             ]
           },
           "StyleFontFamilyVecDestructor": {
-            "external": "azul_css::StyleFontFamilyVecDestructor",
+            "external": "azul_css::props::basic::font::StyleFontFamilyVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -34224,7 +34270,7 @@
             }
           },
           "StyleFilterVecDestructor": {
-            "external": "azul_css::StyleFilterVecDestructor",
+            "external": "azul_css::props::style::filter::StyleFilterVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -34255,7 +34301,7 @@
             }
           },
           "LogicalRectVecDestructor": {
-            "external": "azul_core::window::LogicalRectVecDestructor",
+            "external": "azul_core::geom::LogicalRectVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -34596,7 +34642,7 @@
             }
           },
           "MenuItemVecDestructor": {
-            "external": "azul_core::window::MenuItemVecDestructor",
+            "external": "azul_core::menu::MenuItemVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35030,7 +35076,7 @@
             }
           },
           "StyleBackgroundContentVecDestructor": {
-            "external": "azul_css::StyleBackgroundContentVecDestructor",
+            "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35061,7 +35107,7 @@
             }
           },
           "StyleBackgroundPositionVecDestructor": {
-            "external": "azul_css::StyleBackgroundPositionVecDestructor",
+            "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35092,7 +35138,7 @@
             }
           },
           "StyleBackgroundRepeatVecDestructor": {
-            "external": "azul_css::StyleBackgroundRepeatVecDestructor",
+            "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35123,7 +35169,7 @@
             }
           },
           "StyleBackgroundSizeVecDestructor": {
-            "external": "azul_css::StyleBackgroundSizeVecDestructor",
+            "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35154,7 +35200,7 @@
             }
           },
           "StyleTransformVecDestructor": {
-            "external": "azul_css::StyleTransformVecDestructor",
+            "external": "azul_css::props::style::transform::StyleTransformVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35185,7 +35231,7 @@
             }
           },
           "CssPropertyVecDestructor": {
-            "external": "azul_css::CssPropertyVecDestructor",
+            "external": "azul_core::dom::CssPropertyVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35216,7 +35262,7 @@
             }
           },
           "SvgMultiPolygonVecDestructor": {
-            "external": "azul_layout::xml::svg::SvgMultiPolygonVecDestructor",
+            "external": "azul_core::svg::SvgMultiPolygonVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35247,7 +35293,7 @@
             }
           },
           "SvgSimpleNodeVecDestructor": {
-            "external": "azul_layout::xml::svg::SvgSimpleNodeVecDestructor",
+            "external": "azul_core::svg::SvgSimpleNodeVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35278,7 +35324,7 @@
             }
           },
           "SvgPathVecDestructor": {
-            "external": "azul_layout::xml::svg::SvgPathVecDestructor",
+            "external": "azul_core::svg::SvgPathVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35340,7 +35386,7 @@
             }
           },
           "SvgPathElementVecDestructor": {
-            "external": "azul_layout::xml::svg::SvgPathElementVecDestructor",
+            "external": "azul_core::svg::SvgPathElementVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35371,7 +35417,7 @@
             }
           },
           "SvgVertexVecDestructor": {
-            "external": "azul_layout::xml::svg::SvgVertexVecDestructor",
+            "external": "azul_core::svg::SvgVertexVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35402,7 +35448,7 @@
             }
           },
           "SvgColoredVertexVecDestructor": {
-            "external": "azul_layout::xml::svg::SvgColoredVertexVecDestructor",
+            "external": "azul_core::svg::SvgColoredVertexVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35433,7 +35479,7 @@
             }
           },
           "U32VecDestructor": {
-            "external": "azul_css::U32VecDestructor",
+            "external": "azul_css::corety::U32VecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35588,7 +35634,7 @@
             }
           },
           "CssDeclarationVecDestructor": {
-            "external": "azul_css::CssDeclarationVecDestructor",
+            "external": "azul_css::css::CssDeclarationVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35619,7 +35665,7 @@
             }
           },
           "CssPathSelectorVecDestructor": {
-            "external": "azul_css::CssPathSelectorVecDestructor",
+            "external": "azul_css::css::CssPathSelectorVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35650,7 +35696,7 @@
             }
           },
           "StylesheetVecDestructor": {
-            "external": "azul_css::StylesheetVecDestructor",
+            "external": "azul_css::css::StylesheetVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35681,7 +35727,7 @@
             }
           },
           "CssRuleBlockVecDestructor": {
-            "external": "azul_css::CssRuleBlockVecDestructor",
+            "external": "azul_css::css::CssRuleBlockVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35712,7 +35758,7 @@
             }
           },
           "F32VecDestructor": {
-            "external": "azul_css::F32VecDestructor",
+            "external": "azul_css::corety::F32VecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35743,7 +35789,7 @@
             }
           },
           "U16VecDestructor": {
-            "external": "azul_css::U16VecDestructor",
+            "external": "azul_css::corety::U16VecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35774,7 +35820,7 @@
             }
           },
           "U8VecDestructor": {
-            "external": "azul_css::U8VecDestructor",
+            "external": "azul_css::corety::U8VecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35937,7 +35983,7 @@
             }
           },
           "StringVecDestructor": {
-            "external": "azul_css::StringVecDestructor",
+            "external": "azul_css::corety::StringVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -35999,7 +36045,7 @@
             }
           },
           "NormalizedLinearColorStopVecDestructor": {
-            "external": "azul_css::NormalizedLinearColorStopVecDestructor",
+            "external": "azul_css::props::style::background::NormalizedLinearColorStopVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -36030,7 +36076,7 @@
             }
           },
           "NormalizedRadialColorStopVecDestructor": {
-            "external": "azul_css::NormalizedRadialColorStopVecDestructor",
+            "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructor",
             "derive": [
               "Copy"
             ],
@@ -36259,7 +36305,7 @@
         "doc": "Definition of azuls internal `Option<*>` wrappers",
         "classes": {
           "OptionSvgPoint": {
-            "external": "azul_css::OptionSvgPoint",
+            "external": "azul_css::props::basic::animation::OptionSvgPoint",
             "enum_fields": [
               {
                 "None": {}
@@ -36272,7 +36318,7 @@
             ]
           },
           "OptionStyleTextAlign": {
-            "external": "azul_css::OptionStyleTextAlign",
+            "external": "azul_css::props::style::text::OptionStyleTextAlign",
             "enum_fields": [
               {
                 "None": {}
@@ -36324,7 +36370,7 @@
             ]
           },
           "OptionMenu": {
-            "external": "azul_core::window::OptionMenu",
+            "external": "azul_core::menu::OptionMenu",
             "enum_fields": [
               {
                 "None": {}
@@ -36337,7 +36383,7 @@
             ]
           },
           "OptionPixelValueNoPercent": {
-            "external": "azul_css::OptionPixelValueNoPercent",
+            "external": "azul_css::props::basic::pixel::OptionPixelValueNoPercent",
             "enum_fields": [
               {
                 "None": {}
@@ -36623,7 +36669,7 @@
             ]
           },
           "OptionMenuItemIcon": {
-            "external": "azul_core::window::OptionMenuItemIcon",
+            "external": "azul_core::menu::OptionMenuItemIcon",
             "enum_fields": [
               {
                 "None": {}
@@ -36636,7 +36682,8 @@
             ]
           },
           "OptionMenuCallback": {
-            "external": "azul_core::window::OptionMenuCallback",
+            "doc": "Optional MenuCallback",
+            "external": "azul_layout::callbacks::OptionMenuCallback",
             "enum_fields": [
               {
                 "None": {},
@@ -36660,7 +36707,7 @@
             ]
           },
           "OptionCssProperty": {
-            "external": "azul_css::OptionCssProperty",
+            "external": "azul_css::props::property::OptionCssProperty",
             "enum_fields": [
               {
                 "None": {}
@@ -36712,7 +36759,7 @@
             ]
           },
           "OptionI16": {
-            "external": "azul_css::OptionI16",
+            "external": "azul_css::corety::OptionI16",
             "enum_fields": [
               {
                 "None": {}
@@ -36725,7 +36772,7 @@
             ]
           },
           "OptionU16": {
-            "external": "azul_css::OptionU16",
+            "external": "azul_css::corety::OptionU16",
             "enum_fields": [
               {
                 "None": {}
@@ -36738,7 +36785,7 @@
             ]
           },
           "OptionU32": {
-            "external": "azul_css::OptionU32",
+            "external": "azul_css::corety::OptionU32",
             "enum_fields": [
               {
                 "None": {}
@@ -36751,7 +36798,7 @@
             ]
           },
           "OptionImageRef": {
-            "external": "azul_core::app_resources::OptionImageRef",
+            "external": "azul_core::resources::OptionImageRef",
             "enum_fields": [
               {
                 "None": {}
@@ -36764,7 +36811,7 @@
             ]
           },
           "OptionFontRef": {
-            "external": "azul_css::OptionFontRef",
+            "external": "azul_css::props::basic::font::OptionFontRef",
             "enum_fields": [
               {
                 "None": {}
@@ -36790,7 +36837,7 @@
             ]
           },
           "OptionFileTypeList": {
-            "external": "crate::azul_impl::dialogs::OptionFileTypeList",
+            "external": "azul_dll::desktop::dialogs::OptionFileTypeList",
             "enum_fields": [
               {
                 "None": {}
@@ -36803,7 +36850,7 @@
             ]
           },
           "OptionWindowState": {
-            "external": "azul_core::window::OptionWindowState",
+            "external": "azul_layout::window_state::OptionWindowState",
             "enum_fields": [
               {
                 "None": {}
@@ -36855,7 +36902,7 @@
             ]
           },
           "OptionFile": {
-            "external": "crate::azul_impl::file::OptionFile",
+            "external": "azul_dll::desktop::file::OptionFile",
             "enum_fields": [
               {
                 "None": {}
@@ -36868,7 +36915,7 @@
             ]
           },
           "OptionClipboard": {
-            "external": "crate::azul_impl::app::OptionClipboard",
+            "external": "azul_dll::desktop::app::OptionClipboard",
             "enum_fields": [
               {
                 "None": {}
@@ -36881,7 +36928,7 @@
             ]
           },
           "OptionThreadReceiveMsg": {
-            "external": "azul_core::task::OptionThreadReceiveMsg",
+            "external": "azul_layout::thread::OptionThreadReceiveMsg",
             "enum_fields": [
               {
                 "None": {},
@@ -36892,7 +36939,7 @@
             ]
           },
           "OptionPercentageValue": {
-            "external": "azul_css::OptionPercentageValue",
+            "external": "azul_css::props::basic::length::OptionPercentageValue",
             "derive": [
               "Copy"
             ],
@@ -36908,7 +36955,7 @@
             ]
           },
           "OptionAngleValue": {
-            "external": "azul_css::OptionAngleValue",
+            "external": "azul_css::props::basic::angle::OptionAngleValue",
             "derive": [
               "Copy"
             ],
@@ -36940,7 +36987,8 @@
             ]
           },
           "OptionCallback": {
-            "external": "azul_core::callbacks::OptionCallback",
+            "doc": "Optional Callback",
+            "external": "azul_layout::callbacks::OptionCallback",
             "derive": [
               "Copy"
             ],
@@ -36967,7 +37015,7 @@
             ]
           },
           "OptionLayoutRect": {
-            "external": "azul_css::OptionLayoutRect",
+            "external": "azul_css::props::basic::geometry::OptionLayoutRect",
             "derive": [
               "Copy"
             ],
@@ -36983,7 +37031,7 @@
             ]
           },
           "OptionRefAny": {
-            "external": "azul_core::callbacks::OptionRefAny",
+            "external": "azul_core::refany::OptionRefAny",
             "enum_fields": [
               {
                 "None": {}
@@ -37009,7 +37057,7 @@
             ]
           },
           "OptionLayoutPoint": {
-            "external": "azul_css::OptionLayoutPoint",
+            "external": "azul_css::props::basic::geometry::OptionLayoutPoint",
             "derive": [
               "Copy"
             ],
@@ -37025,7 +37073,7 @@
             ]
           },
           "OptionLayoutSize": {
-            "external": "azul_css::OptionLayoutSize",
+            "external": "azul_css::props::basic::geometry::OptionLayoutSize",
             "derive": [
               "Copy"
             ],
@@ -37073,7 +37121,7 @@
             ]
           },
           "OptionDomNodeId": {
-            "external": "azul_core::callbacks::OptionDomNodeId",
+            "external": "azul_core::dom::OptionDomNodeId",
             "derive": [
               "Copy"
             ],
@@ -37089,7 +37137,7 @@
             ]
           },
           "OptionColorU": {
-            "external": "azul_css::OptionColorU",
+            "external": "azul_css::props::basic::color::OptionColorU",
             "derive": [
               "Copy"
             ],
@@ -37105,7 +37153,7 @@
             ]
           },
           "OptionRawImage": {
-            "external": "azul_core::app_resources::OptionRawImage",
+            "external": "azul_core::resources::OptionRawImage",
             "enum_fields": [
               {
                 "None": {}
@@ -37176,7 +37224,7 @@
             ]
           },
           "OptionLogicalPosition": {
-            "external": "azul_core::window::OptionLogicalPosition",
+            "external": "azul_core::geom::OptionLogicalPosition",
             "derive": [
               "Copy"
             ],
@@ -37192,7 +37240,7 @@
             ]
           },
           "OptionPhysicalPositionI32": {
-            "external": "azul_core::window::OptionPhysicalPositionI32",
+            "external": "azul_core::geom::OptionPhysicalPositionI32",
             "derive": [
               "Copy"
             ],
@@ -37250,7 +37298,7 @@
             ]
           },
           "OptionI32": {
-            "external": "azul_css::OptionI32",
+            "external": "azul_css::corety::OptionI32",
             "derive": [
               "Copy"
             ],
@@ -37266,7 +37314,7 @@
             ]
           },
           "OptionF32": {
-            "external": "azul_css::OptionF32",
+            "external": "azul_css::corety::OptionF32",
             "derive": [
               "Copy"
             ],
@@ -37300,7 +37348,7 @@
             ]
           },
           "OptionLogicalSize": {
-            "external": "azul_core::window::OptionLogicalSize",
+            "external": "azul_core::geom::OptionLogicalSize",
             "derive": [
               "Copy",
               "Serialize",
@@ -37377,7 +37425,7 @@
             ]
           },
           "OptionImageMask": {
-            "external": "azul_core::app_resources::OptionImageMask",
+            "external": "azul_core::resources::OptionImageMask",
             "enum_fields": [
               {
                 "None": {}
@@ -37480,7 +37528,7 @@
             ]
           },
           "OptionAzString": {
-            "external": "azul_css::OptionAzString",
+            "external": "azul_css::corety::OptionAzString",
             "derive": [
               "Clone",
               "Serialize",
@@ -37952,7 +38000,8 @@
         "doc": "Resource management",
         "classes": {
           "ImageCache": {
-            "external": "azul_core::app_resources::ImageCache",
+            "doc": "Stores the resources for the application, souch as fonts, images and cached texts, also clipboard strings Images and fonts can be references across window contexts (not yet tested, but should work).",
+            "external": "azul_core::resources::ImageCache",
             "struct_fields": [
               {
                 "image_id_map": {
