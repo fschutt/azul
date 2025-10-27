@@ -47,50 +47,97 @@ jobs:
           - build: linux-x64
             os: ubuntu-22.04
     steps:
+
       - uses: actions/checkout@v4
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.84
-      # Build API documentation and bindings using Rust-based azul-doc
-      - name: Build API and documentation
-        run: cargo run --release --manifest-path doc/Cargo.toml
+          toolchain: 1.85
+  
+      - name: Install clang (Linux)
+        if: matrix.build == 'linux-x64'
+        run: sudo apt install clang
+
+      # Run checks and tests here!
+
       - name: Check azul-css
-        run: cargo check --verbose -p azul-css
+        run: cargo check -p azul-css
+
       - name: Check azul-core
-        run: cargo check --verbose -p azul-core
+        run: cargo check -p azul-core
+
       - name: Check azul-layout
-        run: cargo check --verbose -p azul-layout
+        run: cargo check -p azul-layout
+
       - name: Check azul-dll
-        run: cargo check --verbose -p azul-dll
+        run: cargo check -p azul-dll
+
+      - name: Run autofix
+        run: cargo run -r -p azul-doc autofix 
+
+      - name: Explain autofix
+        run: cargo run -r -p azul-doc autofix explain
+
+      - name: Apply "safe" autofix patches
+        run: cargo run -r -p azul-doc patch safe target/autofix/patches
+
+      - name: Apply "dangerous" autofix patches
+        run: cargo run -r -p azul-doc patch target/autofix/patches
+
+      - name: Normalize api.json
+        run: cargo run -r -p azul-doc normalize
+
+      - name: Check for uncommitted changes after autofix
+        shell: bash
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "There are uncommitted changes after running autofix:";
+            git status --porcelain;
+            exit 1;
+          else
+            echo "No uncommitted changes after autofix.";
+          fi
+
+      - name: Run memtest
+        run: cargo run -r -p azul-doc memtest run
+
+      - name: Run reftest
+        run: cargo run -r -p azul-doc reftest run
+
       - name: Install Miri (Linux)
         if: matrix.build == 'linux-x64'
         run: |
           rustup toolchain install nightly --component miri
-          rustup override set nightly
-          cargo miri setup
+          cargo +nightly miri setup
+  
       - name: Run Miri tests on RefAny (Linux)
         if: matrix.build == 'linux-x64'
-        run: cargo miri test --lib -p azul-core refany
+        run: cargo +nightly miri test --lib -p azul-core
         continue-on-error: false
-      - name: Restore stable toolchain (Linux)
-        if: matrix.build == 'linux-x64'
-        run: rustup override set 1.84
-      - name: Install dependencies (Linux)
-        if: matrix.build == 'linux-x64'
-        run: sudo apt install clang
+
+      # Main DLL BUILD function here!
+
       - name: Check azul.h (Linux)
         if: matrix.build == 'linux-x64'
         run: clang api/c/azul.h -ferror-limit=0
+
       - name: Build DLL
-        run: cargo build --release --manifest-path azul-dll/Cargo.toml --features="link-dynamic, python-extension"
-      - name: Compile Rust examples
+        run: cargo build --release -p azul-dll --features="link-dynamic"
+
+      - name: Build Python extension
+        run: cargo build --release -p azul-dll --features="link-dynamic, python-extension"
+
+      - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
-      - name: Compile C examples
+  
+      - name: Build C examples (TODO)
         run: exit 0; # TODO
-      - name: Compile C++ examples
+  
+      - name: Build C++ examples (TODO)
         run: exit 0; # TODO
-      - name: Compile Python examples
+  
+      - name: Build Python examples
         if: matrix.build == 'windows-x64'
         shell: bash
         run: |
@@ -98,41 +145,49 @@ jobs:
           export PATH=`pwd`/target/release:$PATH
           python3 examples/python/hello-world.py
           exit 0; # TODO
-      - name: Run layout tests
-        run: exit 0; # TODO
-      - name: Build azulc
+  
+      - name: Build azul-workbench
         run: cargo build --release --bin azulc --manifest-path azulc/Cargo.toml --features="xml, std, font_loading, image_loading, gif, jpeg, png, tiff, bmp, text_layout"
+      
+      # Building & testing done, bundle artifacts
+
       - name: Upload Artifacts (Linux)
         uses: actions/upload-artifact@v4
         if: matrix.build == 'linux-x64'
         with:
           name: 'azul-linux-amd64'
           path: |
-            target/release/azulc
+            target/release/awb
             target/release/libazul.so
             target/release/libazul.a
           retention-days: 2
           if-no-files-found: error
+
       - name: Upload Artifacts (Windows)
         uses: actions/upload-artifact@v4
         if: matrix.build == 'windows-x64'
         with:
           name: 'azul-windows-amd64'
           path: |
-            target/release/azulc
+            target/release/awb
             target/release/azul.dll
             target/release/libazul.a
             target/release/azul.dll.lib
           retention-days: 2
           if-no-files-found: error
+
       - name: Upload Artifacts (Mac)
         uses: actions/upload-artifact@v4
         if: matrix.build == 'macos-x64'
         with:
-          name: 'azul-windows-amd64'
+          name: 'azul-macos-amd64'
           path: |
-            target/release/azulc
+            target/release/awb
             target/release/azul.dylib
             target/release/libazul.a
           retention-days: 2
           if-no-files-found: error
+
+      - name: Done
+        shell: bash
+        run: echo "Build job done."

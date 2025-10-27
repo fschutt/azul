@@ -394,14 +394,14 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
     println!("\n💡 NEXT STEPS:");
     if !path_only_patches.is_empty() {
         println!(
-            "  1. Apply safe patches: azul-docs patch safe {}",
+            "  1. Apply safe patches: azul-doc patch safe {}",
             dir_path.display()
         );
     }
     if !structural_patches.is_empty() {
         println!("  2. Review structural patches in: {}", dir_path.display());
         println!(
-            "  3. Apply all patches: azul-docs patch {}",
+            "  3. Apply all patches: azul-doc patch {}",
             dir_path.display()
         );
     }
@@ -505,7 +505,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
             println!("  • {}", filename);
         }
         println!(
-            "\n💡 Apply these manually with: azul-docs patch {}",
+            "\n💡 Apply these manually with:  patch {}",
             dir_path.display()
         );
     }

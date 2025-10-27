@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
             let patches_dir = project_root.join("target").join("autofix").join("patches");
 
             if !patches_dir.exists() {
-                eprintln!("❌ No patches found. Run 'azul-docs autofix' first.");
+                eprintln!("❌ No patches found. Run 'azul-doc autofix' first.");
                 std::process::exit(1);
             }
 

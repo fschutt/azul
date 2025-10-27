@@ -308,7 +308,7 @@ fn test_app_memory_layout() {
 ```bash
 cd doc
 cargo build --release
-./target/release/azul-docs --help
+./target/release/azul-doc --help
 ```
 
 ## Examples

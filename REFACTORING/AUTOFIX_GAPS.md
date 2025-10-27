@@ -255,7 +255,7 @@ TypeDiscovered {
 
 💡 NEXT STEPS
    1. Review patches: ls target/autofix/patches/
-   2. Apply patches: azul-docs patch target/autofix/patches
+   2. Apply patches:  patch target/autofix/patches
 ```
 
 ### 9. No Statistics Section
@@ -427,8 +427,8 @@ Current report is functional, these are nice-to-have enhancements.
 - ✅ `doc/src/main.rs` - Added "autofix explain" and "patch safe" commands
 
 ### New Commands
-- ✅ `azul-docs autofix explain` - Show categorized patch breakdown
-- ✅ `azul-docs patch safe <dir>` - Apply and delete path-only patches
+- ✅ `azul-doc autofix explain` - Show categorized patch breakdown
+- ✅ `azul-doc patch safe <dir>` - Apply and delete path-only patches
 
 ## Remaining Nice-to-Have Features
 

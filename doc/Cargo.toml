@@ -1,5 +1,5 @@
 [package]
-name = "azul-docs"
+name = "azul-doc"
 version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"

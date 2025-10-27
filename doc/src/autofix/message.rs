@@ -305,7 +305,7 @@ impl AutofixMessages {
             println!("💡 NEXT STEPS");
             println!("   1. Review patches: ls {}", patches_dir.display());
             println!(
-                "   2. Apply patches: azul-docs patch {}",
+                "   2. Apply patches: azul-doc patch {}",
                 patches_dir.display()
             );
             println!("   3. Verify changes: git diff api.json");

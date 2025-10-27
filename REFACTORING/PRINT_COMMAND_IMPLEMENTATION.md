@@ -335,13 +335,13 @@ cargo build --release
 
 # Verwendung (aus Projektroot)
 cd /Users/fschutt/Development/azul
-./target/release/azul-docs print                    # Alle Module
-./target/release/azul-docs print app                # Modul Details
-./target/release/azul-docs print app.App            # Klassen Details
-./target/release/azul-docs print app.App.new        # Funktions Details
+./target/release/azul-doc print                    # Alle Module
+./target/release/azul-doc print app                # Modul Details
+./target/release/azul-doc print app.App            # Klassen Details
+./target/release/azul-doc print app.App.new        # Funktions Details
 
 # Exit-Code prüfen
-./target/release/azul-docs print
+./target/release/azul-doc print
 echo $?  # 1 wenn Fehler, 0 wenn OK
 ```
 

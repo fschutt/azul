@@ -86,7 +86,7 @@ Print a comprehensive report showing:
 
 - **Next Steps:**
   - Review generated patches
-  - Apply with `azul-docs patch target/autofix/patches`
+  - Apply with `azul-doc patch target/autofix/patches`
 
 ## Output Format
 
@@ -157,7 +157,7 @@ Print a comprehensive report showing:
 
 💡 Next Steps:
    1. Review patches: ls target/autofix/patches/
-   2. Apply patches: azul-docs patch target/autofix/patches
+   2. Apply patches:  patch target/autofix/patches
    3. Verify changes: git diff api.json
 
 📁 Patches saved to: target/autofix/patches/

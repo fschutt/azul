@@ -1,5 +1,5 @@
 [package]
-name = "azul-workbench"
+name = "awb"
 version = "0.0.3"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
