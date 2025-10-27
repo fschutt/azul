@@ -318,9 +318,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
                     for (class_name, class_patch) in &module_patch.classes {
                         if let Some(external) = &class_patch.external {
                             println!("  ┌─ {}", filename);
-                            println!("  │  Module: {}", module_name);
-                            println!("  │  Class: {}", class_name);
-                            println!("  │  New path: {}", external);
+                            println!("  │  = note: need to update path to '{}'", external);
                             println!("  │");
                         }
                     }
@@ -346,32 +344,37 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
                 for (module_name, module_patch) in &version_patch.modules {
                     for (class_name, class_patch) in &module_patch.classes {
                         println!("  ┌─ {}", filename);
-                        println!("  │  Module: {}", module_name);
-                        println!("  │  Class: {}", class_name);
+
+                        let mut reasons = Vec::new();
 
                         if let Some(external) = &class_patch.external {
-                            println!("  │  Path: {}", external);
+                            reasons.push(format!("external path: {}", external));
                         }
 
-                        let mut changes = Vec::new();
                         if class_patch.struct_fields.is_some() {
-                            changes.push("struct fields");
+                            reasons.push("add struct fields".to_string());
                         }
                         if class_patch.enum_fields.is_some() {
-                            changes.push("enum variants");
+                            reasons.push("add enum variants".to_string());
                         }
                         if class_patch.functions.is_some() {
-                            changes.push("functions");
+                            reasons.push("add functions".to_string());
                         }
                         if class_patch.constructors.is_some() {
-                            changes.push("constructors");
+                            reasons.push("add constructors".to_string());
                         }
                         if class_patch.callback_typedef.is_some() {
-                            changes.push("callback typedef");
+                            reasons.push("add callback typedef".to_string());
                         }
 
-                        if !changes.is_empty() {
-                            println!("  │  Changes: {}", changes.join(", "));
+                        if !reasons.is_empty() {
+                            for (i, reason) in reasons.iter().enumerate() {
+                                if i == 0 {
+                                    println!("  │  = note: {}", reason);
+                                } else {
+                                    println!("  │          {}", reason);
+                                }
+                            }
                         }
 
                         println!("  │");

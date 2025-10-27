@@ -509,9 +509,11 @@ fn build_crate_name_map(project_root: &Path) -> Result<HashMap<PathBuf, String>>
 fn find_all_rust_files(root: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     visit_dirs_with_filter(root, &mut files, |path| {
+        let path_str = path.to_string_lossy();
         path.extension() == Some(std::ffi::OsStr::new("rs"))
-            && !path.to_string_lossy().contains("/target/")
-            && !path.to_string_lossy().contains("/.git/")
+            && !path_str.contains("/target/")
+            && !path_str.contains("/.git/")
+            && !path_str.contains("/api/rust/src/") // Exclude generated API
     })?;
     Ok(files)
 }

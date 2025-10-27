@@ -297,10 +297,29 @@ pub fn collect_referenced_types_from_type_info(
 
 /// Infer module name from type path (e.g., "azul_core::dom::DomNodeId" -> "dom")
 pub fn infer_module_from_path(type_path: &str) -> String {
+    // Extract type name from path
+    let type_name = type_path.split("::").last().unwrap_or("");
+
+    // Check if it's a synthetic type that should go to a specific module
+    if is_vec_type(type_name)
+        || is_vec_destructor_type(type_name)
+        || is_vec_destructor_callback_type(type_name)
+    {
+        return "vec".to_string();
+    }
+
+    if is_option_type(type_name) {
+        return "option".to_string();
+    }
+
+    if is_result_type(type_name) {
+        return "error".to_string();
+    }
+
+    // For regular types, take the part after the crate name
     let parts: Vec<&str> = type_path.split("::").collect();
 
     if parts.len() >= 2 {
-        // Take the part after the crate name
         parts[1].to_string()
     } else {
         "unknown".to_string()
@@ -342,7 +361,12 @@ pub fn generate_patches(
         let class_name = type_info.type_name.clone();
 
         let class_patch = convert_type_info_to_class_patch(type_info);
-        all_patches.insert((module, class_name), class_patch);
+        all_patches.insert((module.clone(), class_name.clone()), class_patch);
+
+        // If this is a Vec type, generate the synthetic Destructor and DestructorType
+        if is_vec_type(&class_name) {
+            generate_synthetic_vec_types(&class_name, &type_info.full_path, &mut all_patches);
+        }
     }
 
     // 2. Add patches for external path changes
@@ -373,6 +397,15 @@ pub fn generate_patches(
                     }
                 })
                 .or_insert(full_patch);
+
+            // If this is a Vec type, generate the synthetic Destructor and DestructorType
+            if is_vec_type(&change.class_name) {
+                generate_synthetic_vec_types(
+                    &change.class_name,
+                    &change.new_path,
+                    &mut all_patches,
+                );
+            }
         } else {
             // Fallback: just update external path if type not found in workspace
             all_patches.entry(key).or_default().external = Some(change.new_path.clone());
@@ -443,6 +476,197 @@ pub fn generate_patches(
 
     // Patch count will be shown in final statistics
     Ok(patch_count)
+}
+
+/// Check if a type name represents a Vec type
+fn is_vec_type(type_name: &str) -> bool {
+    type_name.ends_with("Vec")
+        && !type_name.ends_with("VecDestructor")
+        && !type_name.ends_with("VecDestructorType")
+}
+
+/// Check if a type name represents a VecDestructor type
+fn is_vec_destructor_type(type_name: &str) -> bool {
+    type_name.ends_with("VecDestructor") && !type_name.ends_with("VecDestructorType")
+}
+
+/// Check if a type name represents a VecDestructorType callback
+fn is_vec_destructor_callback_type(type_name: &str) -> bool {
+    type_name.ends_with("VecDestructorType")
+}
+
+/// Check if a type name represents an Option type
+fn is_option_type(type_name: &str) -> bool {
+    type_name.starts_with("Option")
+}
+
+/// Check if a type name represents a Result type
+fn is_result_type(type_name: &str) -> bool {
+    type_name.ends_with("Result")
+}
+
+/// Generate standard Vec structure: ptr, len, cap, destructor
+fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &str) -> ClassPatch {
+    use indexmap::IndexMap;
+
+    use crate::api::FieldData;
+
+    let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
+
+    let mut field_map = IndexMap::new();
+    field_map.insert(
+        "ptr".to_string(),
+        FieldData {
+            r#type: format!("*const {}", element_type),
+            doc: None,
+            derive: None,
+        },
+    );
+    field_map.insert(
+        "len".to_string(),
+        FieldData {
+            r#type: "usize".to_string(),
+            doc: None,
+            derive: None,
+        },
+    );
+    field_map.insert(
+        "cap".to_string(),
+        FieldData {
+            r#type: "usize".to_string(),
+            doc: None,
+            derive: None,
+        },
+    );
+    field_map.insert(
+        "destructor".to_string(),
+        FieldData {
+            r#type: destructor_type,
+            doc: None,
+            derive: None,
+        },
+    );
+
+    ClassPatch {
+        external: Some(external_path.to_string()),
+        doc: Some(format!(
+            "Wrapper over a Rust-allocated `Vec<{}>",
+            element_type
+        )),
+        custom_destructor: Some(true),
+        struct_fields: Some(vec![field_map]),
+        ..Default::default()
+    }
+}
+
+/// Generate standard VecDestructor enum: DefaultRust, NoDestructor, External(Type)
+fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
+    use indexmap::IndexMap;
+
+    use crate::api::EnumVariantData;
+
+    let destructor_callback_type =
+        type_name.trim_end_matches("Destructor").to_string() + "DestructorType";
+    // Remove "Vec" from the type name to get the base type
+    let base_name = type_name.trim_end_matches("VecDestructor");
+    let destructor_callback_simple = format!("{}VecDestructorType", base_name);
+
+    let mut variant_map = IndexMap::new();
+    variant_map.insert(
+        "DefaultRust".to_string(),
+        EnumVariantData {
+            r#type: None,
+            doc: None,
+        },
+    );
+    variant_map.insert(
+        "NoDestructor".to_string(),
+        EnumVariantData {
+            r#type: None,
+            doc: None,
+        },
+    );
+    variant_map.insert(
+        "External".to_string(),
+        EnumVariantData {
+            r#type: Some(destructor_callback_simple),
+            doc: None,
+        },
+    );
+
+    ClassPatch {
+        external: Some(external_path.to_string()),
+        derive: Some(vec!["Copy".to_string()]),
+        enum_fields: Some(vec![variant_map]),
+        ..Default::default()
+    }
+}
+
+/// Generate standard VecDestructorType callback typedef
+fn generate_vec_destructor_callback(vec_type_name: &str) -> ClassPatch {
+    use crate::api::{CallbackArgData, CallbackDefinition};
+
+    ClassPatch {
+        callback_typedef: Some(CallbackDefinition {
+            fn_args: vec![CallbackArgData {
+                r#type: vec_type_name.to_string(),
+                ref_kind: "refmut".to_string(),
+                doc: None,
+            }],
+            returns: None,
+        }),
+        ..Default::default()
+    }
+}
+
+/// Generate all three synthetic types for a Vec: Vec, VecDestructor, VecDestructorType
+/// Adds them to the all_patches map
+fn generate_synthetic_vec_types(
+    vec_type_name: &str,
+    vec_external_path: &str,
+    all_patches: &mut std::collections::BTreeMap<(String, String), crate::patch::ClassPatch>,
+) {
+    // Extract element type and crate from external path
+    // e.g. "azul_core::callbacks::CoreCallbackDataVec" -> "CoreCallbackData"
+    let base_name = vec_type_name.trim_end_matches("Vec");
+    let element_type = base_name; // Simplified, would need proper element type extraction
+
+    // Generate external paths for the destructor types
+    let destructor_name = format!("{}VecDestructor", base_name);
+    let destructor_type_name = format!("{}VecDestructorType", base_name);
+
+    // Extract crate and module from vec_external_path
+    let path_parts: Vec<&str> = vec_external_path.rsplitn(2, "::").collect();
+    let crate_module = if path_parts.len() == 2 {
+        path_parts[1]
+    } else {
+        vec_external_path
+    };
+
+    let destructor_external = format!("{}::{}", crate_module, destructor_name);
+
+    // 1. Add Vec structure if it doesn't have struct_fields yet
+    let vec_key = ("vec".to_string(), vec_type_name.to_string());
+    all_patches
+        .entry(vec_key)
+        .and_modify(|patch| {
+            if patch.struct_fields.is_none() {
+                *patch = generate_vec_structure(vec_type_name, element_type, vec_external_path);
+            }
+        })
+        .or_insert_with(|| generate_vec_structure(vec_type_name, element_type, vec_external_path));
+
+    // 2. Add VecDestructor enum
+    let destructor_key = ("vec".to_string(), destructor_name.clone());
+    all_patches
+        .entry(destructor_key)
+        .or_insert_with(|| generate_vec_destructor(&destructor_name, &destructor_external));
+
+    // 3. Add VecDestructorType callback
+    let destructor_type_key = ("vec".to_string(), destructor_type_name);
+    all_patches
+        .entry(destructor_type_key)
+        .or_insert_with(|| generate_vec_destructor_callback(vec_type_name));
 }
 
 /// Convert ParsedTypeInfo to ClassPatch
