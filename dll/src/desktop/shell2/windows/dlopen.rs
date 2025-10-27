@@ -18,6 +18,7 @@ pub type HMONITOR = *mut std::ffi::c_void;
 pub type HICON = *mut std::ffi::c_void;
 pub type HCURSOR = *mut std::ffi::c_void;
 pub type HBRUSH = *mut std::ffi::c_void;
+pub type HDROP = *mut std::ffi::c_void;
 pub type WPARAM = usize;
 pub type LPARAM = isize;
 pub type LRESULT = isize;
@@ -49,12 +50,26 @@ impl RECT {
     }
 }
 
+// Win32 Constants
+pub const PM_REMOVE: u32 = 0x0001;
+pub const TME_LEAVE: u32 = 0x00000002;
+
 /// Win32 POINT structure
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct POINT {
     pub x: i32,
     pub y: i32,
+}
+
+/// Win32 TRACKMOUSEEVENT structure
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct TRACKMOUSEEVENT {
+    pub cbSize: u32,
+    pub dwFlags: u32,
+    pub hwndTrack: HWND,
+    pub dwHoverTime: u32,
 }
 
 /// Win32 MSG structure
@@ -296,10 +311,12 @@ pub struct User32Functions {
     pub ReleaseCapture: unsafe extern "system" fn() -> BOOL,
     pub LoadCursorW: unsafe extern "system" fn(HINSTANCE, *const u16) -> HCURSOR,
     pub SetCursor: unsafe extern "system" fn(HCURSOR) -> HCURSOR,
+    pub TrackMouseEvent: unsafe extern "system" fn(*mut TRACKMOUSEEVENT) -> BOOL,
 
     // Messages
     pub PostMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> BOOL,
     pub GetMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32) -> BOOL,
+    pub PeekMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32, u32) -> BOOL,
     pub TranslateMessage: unsafe extern "system" fn(*const MSG) -> BOOL,
     pub DispatchMessageW: unsafe extern "system" fn(*const MSG) -> LRESULT,
 
@@ -318,12 +335,23 @@ pub struct Gdi32Functions {
     pub DeleteObject: unsafe extern "system" fn(*mut core::ffi::c_void) -> BOOL,
 }
 
+/// Win32 shell32.dll function pointers for drag-and-drop
+#[derive(Copy, Clone)]
+pub struct Shell32Functions {
+    pub DragAcceptFiles: unsafe extern "system" fn(HWND, BOOL),
+    pub DragQueryFileW: unsafe extern "system" fn(HDROP, UINT, *mut u16, UINT) -> UINT,
+    pub DragQueryPoint: unsafe extern "system" fn(HDROP, *mut POINT) -> BOOL,
+    pub DragFinish: unsafe extern "system" fn(HDROP),
+}
+
 /// Pre-load commonly used Win32 DLLs
 pub struct Win32Libraries {
     pub user32_dll: Option<DynamicLibrary>,
     pub user32: User32Functions,
     pub gdi32_dll: Option<DynamicLibrary>,
     pub gdi32: Gdi32Functions,
+    pub shell32_dll: Option<DynamicLibrary>,
+    pub shell32: Option<Shell32Functions>,
     pub opengl32: Option<DynamicLibrary>,
     pub dwmapi: Option<DynamicLibrary>,
 }
@@ -428,6 +456,9 @@ impl Win32Libraries {
                 SetCursor: user32_dll
                     .get_symbol("SetCursor")
                     .ok_or_else(|| "SetCursor not found".to_string())?,
+                TrackMouseEvent: user32_dll
+                    .get_symbol("TrackMouseEvent")
+                    .ok_or_else(|| "TrackMouseEvent not found".to_string())?,
 
                 // Messages
                 PostMessageW: user32_dll
@@ -436,6 +467,9 @@ impl Win32Libraries {
                 GetMessageW: user32_dll
                     .get_symbol("GetMessageW")
                     .ok_or_else(|| "GetMessageW not found".to_string())?,
+                PeekMessageW: user32_dll
+                    .get_symbol("PeekMessageW")
+                    .ok_or_else(|| "PeekMessageW not found".to_string())?,
                 TranslateMessage: user32_dll
                     .get_symbol("TranslateMessage")
                     .ok_or_else(|| "TranslateMessage not found".to_string())?,
@@ -470,11 +504,39 @@ impl Win32Libraries {
             }
         };
 
+        // Try to load function pointers from shell32.dll (optional - for drag-and-drop)
+        let shell32_dll = DynamicLibrary::load("shell32.dll").ok();
+        let shell32 = if let Some(ref dll) = shell32_dll {
+            unsafe {
+                let drag_accept = dll.get_symbol("DragAcceptFiles");
+                let drag_query_file = dll.get_symbol("DragQueryFileW");
+                let drag_query_point = dll.get_symbol("DragQueryPoint");
+                let drag_finish = dll.get_symbol("DragFinish");
+
+                if let (Some(accept), Some(query_file), Some(query_point), Some(finish)) =
+                    (drag_accept, drag_query_file, drag_query_point, drag_finish)
+                {
+                    Some(Shell32Functions {
+                        DragAcceptFiles: accept,
+                        DragQueryFileW: query_file,
+                        DragQueryPoint: query_point,
+                        DragFinish: finish,
+                    })
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             user32_dll: Some(user32_dll),
             user32,
             gdi32_dll: Some(gdi32_dll),
             gdi32,
+            shell32_dll,
+            shell32,
             opengl32: DynamicLibrary::load("opengl32.dll").ok(),
             dwmapi: DynamicLibrary::load("dwmapi.dll").ok(),
         })

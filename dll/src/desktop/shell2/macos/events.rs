@@ -978,34 +978,23 @@ impl MacOSWindow {
         // Get layout result for this DOM
         let layout_result = layout_window.layout_results.get(&dom_id)?;
 
-        // Check if this node has a context menu callback
+        // Check if this node has a context menu
         let node_id = azul_core::id::NodeId::from_usize(node.node_id as usize)?;
         let binding = layout_result.styled_dom.node_data.as_container();
         let node_data = binding.get(node_id)?;
 
-        // Check for context menu in node callbacks
-        let has_context_menu = node_data
-            .get_callbacks()
-            .iter()
-            .any(|cb| matches!(cb.event, azul_core::events::EventFilter::Window(_)));
-
-        if !has_context_menu {
-            return None;
-        }
+        // Context menus are stored directly on NodeData, not as callbacks
+        let context_menu = node_data.get_context_menu()?;
 
         eprintln!(
-            "[Context Menu] Context menu available at ({}, {}) for node {:?}",
-            position.x, position.y, node
+            "[Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
+            position.x,
+            position.y,
+            node,
+            context_menu.items.as_slice().len()
         );
 
-        let menu = azul_core::menu::Menu::new(
-            vec![azul_core::menu::MenuItem::String(
-                azul_core::menu::StringMenuItem::new("Test Item".into()),
-            )]
-            .into(),
-        );
-
-        self.show_context_menu_at_position(&menu, position, event);
+        self.show_context_menu_at_position(context_menu, position, event);
 
         Some(())
     }

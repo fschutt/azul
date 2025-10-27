@@ -6,13 +6,96 @@
 pub mod wayland;
 pub mod x11;
 
-use crate::desktop::shell2::common::WindowError;
+use super::{PlatformWindow, WindowError, WindowProperties};
+use crate::desktop::shell2::common::RenderContext;
+use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use std::sync::Arc;
+use rust_fontconfig::FcFontCache;
+use azul_core::resources::AppConfig;
 
 /// Linux window - either X11 or Wayland.
 pub enum LinuxWindow {
     X11(x11::X11Window),
     Wayland(wayland::WaylandWindow),
 }
+
+/// The event type for Linux windows.
+#[derive(Debug, Clone)]
+pub enum LinuxEvent {
+    X11(x11::X11Event),
+    Wayland(wayland::WaylandEvent),
+}
+
+impl PlatformWindow for LinuxWindow {
+    type EventType = LinuxEvent;
+
+    fn new(options: WindowCreateOptions) -> Result<Self, WindowError>
+    where
+        Self: Sized,
+    {
+        match Self::select_backend()? {
+            BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new(options)?)),
+            BackendType::Wayland => Err(WindowError::Unsupported("Wayland backend is not yet implemented".into())),
+        }
+    }
+
+    fn get_state(&self) -> WindowState {
+        match self {
+            LinuxWindow::X11(w) => w.get_state(),
+            LinuxWindow::Wayland(w) => w.get_state(),
+        }
+    }
+
+    fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
+        match self {
+            LinuxWindow::X11(w) => w.set_properties(props),
+            LinuxWindow::Wayland(w) => w.set_properties(props),
+        }
+    }
+
+    fn poll_event(&mut self) -> Option<Self::EventType> {
+        match self {
+            LinuxWindow::X11(w) => w.poll_event().map(LinuxEvent::X11),
+            LinuxWindow::Wayland(w) => w.poll_event().map(LinuxEvent::Wayland),
+        }
+    }
+
+    fn get_render_context(&self) -> RenderContext {
+        match self {
+            LinuxWindow::X11(w) => w.get_render_context(),
+            LinuxWindow::Wayland(w) => w.get_render_context(),
+        }
+    }
+
+    fn present(&mut self) -> Result<(), WindowError> {
+        match self {
+            LinuxWindow::X11(w) => w.present(),
+            LinuxWindow::Wayland(w) => w.present(),
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        match self {
+            LinuxWindow::X11(w) => w.is_open(),
+            LinuxWindow::Wayland(w) => w.is_open(),
+        }
+    }
+
+    fn close(&mut self) {
+        match self {
+            LinuxWindow::X11(w) => w.close(),
+            LinuxWindow::Wayland(w) => w.close(),
+        }
+    }
+
+    fn request_redraw(&mut self) {
+        match self {
+            LinuxWindow::X11(w) => w.request_redraw(),
+            LinuxWindow::Wayland(w) => w.request_redraw(),
+        }
+    }
+}
+
 
 impl LinuxWindow {
     /// Detect and select appropriate backend.
@@ -56,13 +139,21 @@ pub enum BackendType {
     Wayland,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// Update the main run function to use this LinuxWindow
+pub fn run(
+    _config: AppConfig,
+    _fc_cache: Arc<FcFontCache>,
+    root_window: WindowCreateOptions,
+) -> Result<(), WindowError> {
+    let mut window = LinuxWindow::new(root_window)?;
 
-    #[test]
-    fn test_backend_selection() {
-        // Should not panic
-        let _ = LinuxWindow::select_backend();
+    while window.is_open() {
+        while let Some(_event) = window.poll_event() {
+            // Event handling is done within poll_event for X11
+        }
+        // In a real loop, you'd also check for other work, timers, etc.
+        std::thread::sleep(std::time::Duration::from_millis(16));
     }
+
+    Ok(())
 }

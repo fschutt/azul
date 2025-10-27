@@ -160,7 +160,7 @@ pub fn run(
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
 
-    use azul_core::refany::RefAny;
+    use azul_core::{refany::RefAny, resources::AppTerminationBehavior};
 
     use super::windows::Win32Window;
 
@@ -170,35 +170,32 @@ pub fn run(
     // Create the root window
     let mut window = Win32Window::new(root_window, fc_cache.clone(), app_data)?;
 
-    // Windows event loop using GetMessage/DispatchMessage
-    use super::windows::dlopen::{MSG, WPARAM};
+    // Main event loop using non-blocking poll_event()
+    loop {
+        // Poll for events (non-blocking)
+        let had_event = window.poll_event();
 
-    unsafe {
-        let mut msg: MSG = MSG {
-            hwnd: std::ptr::null_mut(),
-            message: 0,
-            wParam: 0,
-            lParam: 0,
-            time: 0,
-            pt: super::windows::dlopen::POINT { x: 0, y: 0 },
-        };
+        // Check if window is still open
+        if !window.is_open {
+            break;
+        }
 
-        // Main message loop
-        while window.is_open {
-            // Get message from queue (blocks until message arrives)
-            let result = (window.win32.user32.GetMessageW)(&mut msg, window.hwnd, 0, 0);
+        // If no events, sleep briefly to avoid busy-waiting
+        if !had_event {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
 
-            if result == 0 {
-                // WM_QUIT received
-                break;
-            } else if result < 0 {
-                // Error occurred
-                return Err(WindowError::PlatformError("GetMessage failed".into()));
-            }
-
-            // Translate and dispatch message
-            (window.win32.user32.TranslateMessage)(&msg);
-            (window.win32.user32.DispatchMessageW)(&msg);
+    // Handle termination behavior
+    match config.termination_behavior {
+        AppTerminationBehavior::EndProcess => {
+            std::process::exit(0);
+        }
+        AppTerminationBehavior::ReturnToMain => {
+            // Return normally to allow cleanup
+        }
+        AppTerminationBehavior::RunForever => {
+            // Should not exit - but window is closed, so return
         }
     }
 
@@ -209,10 +206,24 @@ pub fn run(
 pub fn run(
     _config: AppConfig,
     _fc_cache: Arc<FcFontCache>,
-    _root_window: WindowCreateOptions,
+    root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    // TODO: Implement Linux event loop
-    Err(WindowError::PlatformError(
-        "Linux shell2 not yet implemented".into(),
-    ))
+    use super::linux::LinuxWindow;
+
+    let mut window = LinuxWindow::new(root_window)?;
+
+    while window.is_open() {
+        // First, dispatch all events that are already queued up.
+        // poll_event is non-blocking.
+        while window.poll_event().is_some() {
+            // Event handling logic is inside poll_event for both X11 and Wayland
+        }
+
+        // After dispatching all pending events, we can safely block
+        // until a new event arrives from the display server.
+        // This is much more efficient than sleeping.
+        window.wait_for_events()?;
+    }
+
+    Ok(())
 }

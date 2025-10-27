@@ -87,6 +87,8 @@ pub struct Win32Window {
     pub document_id: DocumentId,
     /// WebRender ID namespace
     pub id_namespace: IdNamespace,
+    /// Signal from WebRender that a new frame is ready
+    pub new_frame_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 
     // Win32 libraries
     /// Dynamically loaded Win32 libraries
@@ -95,6 +97,8 @@ pub struct Win32Window {
     // Window state
     /// Window is open flag
     pub is_open: bool,
+    /// Flag indicating frame needs regeneration in next WM_PAINT
+    pub frame_needs_regeneration: bool,
     /// Previous window state (for diffing)
     pub previous_window_state: Option<FullWindowState>,
     /// Current window state
@@ -121,6 +125,8 @@ pub struct Win32Window {
     // Input state
     /// High surrogate for UTF-16 character composition
     pub high_surrogate: Option<u16>,
+    /// Scrollbar drag state (for drag interactions)
+    pub scrollbar_drag_state: Option<azul_layout::ScrollbarDragState>,
 
     // System functions
     /// DPI functions
@@ -341,30 +347,12 @@ impl Win32Window {
             &win32,
         );
 
-        let mut txn = WrTransaction::new();
-
-        // Build initial display list - no resource_updates needed with new API
-        let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
-        crate::desktop::wr_translate2::rebuild_display_list(
-            &mut txn,
-            &mut layout_window,
-            &mut render_api,
-            &ImageCache::default(),
-            Vec::new(),
-            &mut RendererResources::default(),
-            hidpi_factor,
-        );
-
-        render_api.flush_scene_builder();
-
-        crate::desktop::wr_translate2::generate_frame(
-            &mut txn,
-            &mut layout_window,
-            &mut render_api,
-            true,
-        );
-        render_api.send_transaction(wr_translate_document_id(document_id), txn);
-        render_api.flush_scene_builder();
+        // Enable drag-and-drop if shell32.dll is available
+        if let Some(ref shell32) = win32.shell32 {
+            unsafe {
+                (shell32.DragAcceptFiles)(hwnd, 1); // 1 = TRUE (enable drag-drop)
+            }
+        }
 
         // Get current window state
         let current_window_state = layout_window.current_window_state.clone();
@@ -382,8 +370,10 @@ impl Win32Window {
             hit_tester,
             document_id,
             id_namespace,
+            new_frame_ready,
             win32, // Store Win32 libraries for later use
             is_open: true,
+            frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
             previous_window_state: None,
             current_window_state,
             image_cache: ImageCache::default(),
@@ -393,6 +383,7 @@ impl Win32Window {
             timers: HashMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
+            scrollbar_drag_state: None,
             dpi: dpi_functions,
             fc_cache,
         })
@@ -643,6 +634,295 @@ impl Win32Window {
         Ok(())
     }
 
+    /// Query WebRender hit-tester for scrollbar hits at given position
+    fn perform_scrollbar_hit_test(
+        &self,
+        position: azul_core::geom::LogicalPosition,
+    ) -> Option<azul_core::hit_test::ScrollbarHitId> {
+        use crate::desktop::wr_translate2::AsyncHitTester;
+        use webrender::api::units::WorldPoint;
+
+        let hit_tester = match &self.hit_tester {
+            AsyncHitTester::Resolved(ht) => ht,
+            _ => return None,
+        };
+
+        let world_point = WorldPoint::new(position.x, position.y);
+        let hit_result = hit_tester.hit_test(world_point);
+
+        // Check each hit item for scrollbar tag
+        for item in &hit_result.items {
+            if let Some(scrollbar_id) =
+                crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(item.tag)
+            {
+                return Some(scrollbar_id);
+            }
+        }
+
+        None
+    }
+
+    /// Handle scrollbar click (thumb or track)
+    fn handle_scrollbar_click(
+        &mut self,
+        hit_id: azul_core::hit_test::ScrollbarHitId,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        use azul_core::hit_test::ScrollbarHitId;
+
+        match hit_id {
+            ScrollbarHitId::VerticalThumb(dom_id, node_id)
+            | ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
+                // Start drag
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return,
+                };
+
+                let scroll_offset = layout_window
+                    .scroll_states
+                    .get_current_offset(dom_id, node_id)
+                    .unwrap_or_default();
+
+                self.scrollbar_drag_state = Some(azul_layout::ScrollbarDragState {
+                    hit_id,
+                    initial_mouse_pos: position,
+                    initial_scroll_offset: scroll_offset,
+                });
+
+                // Capture mouse for drag operations
+                unsafe {
+                    (self.win32.user32.SetCapture)(self.hwnd);
+                }
+            }
+
+            ScrollbarHitId::VerticalTrack(dom_id, node_id) => {
+                // Jump scroll to clicked position on track
+                self.handle_track_click(dom_id, node_id, position, true);
+            }
+
+            ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
+                // Jump scroll to clicked position on track
+                self.handle_track_click(dom_id, node_id, position, false);
+            }
+        }
+    }
+
+    /// Handle track click - jump scroll to clicked position
+    fn handle_track_click(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::dom::NodeId,
+        click_position: azul_core::geom::LogicalPosition,
+        is_vertical: bool,
+    ) {
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return,
+        };
+
+        // Get scrollbar state
+        let scrollbar_state = if is_vertical {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Vertical,
+            )
+        } else {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Horizontal,
+            )
+        };
+
+        let scrollbar_state = match scrollbar_state {
+            Some(s) if s.visible => s,
+            _ => return,
+        };
+
+        let scroll_state = match layout_window
+            .scroll_states
+            .get_scroll_state(dom_id, node_id)
+        {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Calculate click ratio (0.0 = top/left, 1.0 = bottom/right)
+        let click_ratio = if is_vertical {
+            let track_top = scrollbar_state.track_rect.origin.y;
+            let track_height = scrollbar_state.track_rect.size.height;
+            ((click_position.y - track_top) / track_height).clamp(0.0, 1.0)
+        } else {
+            let track_left = scrollbar_state.track_rect.origin.x;
+            let track_width = scrollbar_state.track_rect.size.width;
+            ((click_position.x - track_left) / track_width).clamp(0.0, 1.0)
+        };
+
+        // Calculate target scroll position
+        let container_size = if is_vertical {
+            scroll_state.container_rect.size.height
+        } else {
+            scroll_state.container_rect.size.width
+        };
+
+        let content_size = if is_vertical {
+            scroll_state.content_rect.size.height
+        } else {
+            scroll_state.content_rect.size.width
+        };
+
+        let max_scroll = (content_size - container_size).max(0.0);
+        let target_scroll = click_ratio * max_scroll;
+
+        // Calculate delta from current position
+        let current_scroll = if is_vertical {
+            scroll_state.current_offset.y
+        } else {
+            scroll_state.current_offset.x
+        };
+
+        let scroll_delta = target_scroll - current_scroll;
+
+        // Apply scroll using gpu_scroll
+        if let Err(e) = self.gpu_scroll(
+            dom_id.inner as u64,
+            node_id.index() as u64,
+            if is_vertical { 0.0 } else { scroll_delta },
+            if is_vertical { scroll_delta } else { 0.0 },
+        ) {
+            eprintln!("Track click scroll failed: {}", e);
+        }
+
+        // Request redraw
+        unsafe {
+            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
+        }
+    }
+
+    /// Handle scrollbar drag (continuous thumb movement)
+    fn handle_scrollbar_drag(&mut self, current_pos: azul_core::geom::LogicalPosition) {
+        let drag_state = match &self.scrollbar_drag_state {
+            Some(ds) => ds.clone(),
+            None => return,
+        };
+
+        use azul_core::hit_test::ScrollbarHitId;
+        let (dom_id, node_id, is_vertical) = match drag_state.hit_id {
+            ScrollbarHitId::VerticalThumb(d, n) | ScrollbarHitId::VerticalTrack(d, n) => {
+                (d, n, true)
+            }
+            ScrollbarHitId::HorizontalThumb(d, n) | ScrollbarHitId::HorizontalTrack(d, n) => {
+                (d, n, false)
+            }
+        };
+
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return,
+        };
+
+        let scrollbar_state = if is_vertical {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Vertical,
+            )
+        } else {
+            layout_window.scroll_states.get_scrollbar_state(
+                dom_id,
+                node_id,
+                azul_layout::scroll::ScrollbarOrientation::Horizontal,
+            )
+        };
+
+        let scrollbar_state = match scrollbar_state {
+            Some(s) if s.visible => s,
+            _ => return,
+        };
+
+        let scroll_state = match layout_window
+            .scroll_states
+            .get_scroll_state(dom_id, node_id)
+        {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Calculate mouse delta in pixels
+        let pixel_delta = if is_vertical {
+            current_pos.y - drag_state.initial_mouse_pos.y
+        } else {
+            current_pos.x - drag_state.initial_mouse_pos.x
+        };
+
+        // Convert pixel delta to scroll delta
+        let track_size = if is_vertical {
+            scrollbar_state.track_rect.size.height
+        } else {
+            scrollbar_state.track_rect.size.width
+        };
+
+        let container_size = if is_vertical {
+            scroll_state.container_rect.size.height
+        } else {
+            scroll_state.container_rect.size.width
+        };
+
+        let content_size = if is_vertical {
+            scroll_state.content_rect.size.height
+        } else {
+            scroll_state.content_rect.size.width
+        };
+
+        let max_scroll = (content_size - container_size).max(0.0);
+
+        // Account for thumb size
+        let thumb_size = scrollbar_state.thumb_size_ratio * track_size;
+        let usable_track_size = (track_size - thumb_size).max(1.0);
+
+        // Calculate scroll delta
+        let scroll_delta = if usable_track_size > 0.0 {
+            (pixel_delta / usable_track_size) * max_scroll
+        } else {
+            0.0
+        };
+
+        // Calculate target scroll position
+        let target_scroll = if is_vertical {
+            drag_state.initial_scroll_offset.y + scroll_delta
+        } else {
+            drag_state.initial_scroll_offset.x + scroll_delta
+        };
+
+        let target_scroll = target_scroll.clamp(0.0, max_scroll);
+
+        // Calculate delta from current position
+        let current_scroll = if is_vertical {
+            scroll_state.current_offset.y
+        } else {
+            scroll_state.current_offset.x
+        };
+
+        let delta_from_current = target_scroll - current_scroll;
+
+        // Apply scroll
+        if let Err(e) = self.gpu_scroll(
+            dom_id.inner as u64,
+            node_id.index() as u64,
+            if is_vertical { 0.0 } else { delta_from_current },
+            if is_vertical { delta_from_current } else { 0.0 },
+        ) {
+            eprintln!("Scrollbar drag failed: {}", e);
+        }
+
+        // Request redraw
+        unsafe {
+            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
+        }
+    }
+
     /// Get raw window handle for callbacks
     pub fn get_raw_window_handle(&self) -> azul_core::window::RawWindowHandle {
         azul_core::window::RawWindowHandle::Windows(azul_core::window::WindowsHandle {
@@ -706,6 +986,154 @@ impl Win32Window {
 
         Ok(())
     }
+
+    /// Non-blocking event polling for Windows.
+    /// Processes one event if available, returns immediately if not.
+    pub fn poll_event(&mut self) -> bool {
+        // Check if a frame is ready without blocking
+        let frame_ready = {
+            let &(ref lock, _) = &*self.new_frame_ready;
+            let mut ready_guard = lock.lock().unwrap();
+            if *ready_guard {
+                *ready_guard = false; // Consume the signal
+                true
+            } else {
+                false
+            }
+        };
+
+        if frame_ready {
+            // A frame is ready in WebRender's backbuffer - present it
+            if let Err(e) = self.render_and_present() {
+                eprintln!("[poll_event] Failed to present frame: {:?}", e);
+            }
+        }
+
+        // Check for close request
+        if self.current_window_state.flags.close_requested {
+            self.current_window_state.flags.close_requested = false;
+            // Close request will be handled by window_proc setting WM_QUIT
+            return true;
+        }
+
+        // Poll Windows message queue (non-blocking)
+        use self::dlopen::{MSG, PM_REMOVE};
+        
+        let mut msg: MSG = unsafe { std::mem::zeroed() };
+        let has_message = unsafe {
+            (self.win32.user32.PeekMessageW)(
+                &mut msg,
+                self.hwnd, // Filter for this window only
+                0,
+                0,
+                PM_REMOVE,
+            )
+        };
+
+        if has_message != 0 {
+            // Translate and dispatch message
+            // window_proc will be called to handle it
+            unsafe {
+                (self.win32.user32.TranslateMessage)(&msg);
+                (self.win32.user32.DispatchMessageW)(&msg);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Try to show context menu at the given screen position
+    /// Returns true if a context menu was shown
+    fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
+        // Get the topmost hovered node from hit test
+        let hit_test = &self.current_window_state.last_hit_test;
+        if hit_test.is_empty() {
+            return false;
+        }
+
+        // Find first node with a context menu
+        for (dom_id, node_hit_test) in &hit_test.hovered_nodes {
+            // Check regular hit test nodes
+            for (node_id, hit_item) in &node_hit_test.regular_hit_test_nodes {
+                // Try to get the context menu by cloning it
+                let context_menu = if let Some(ref lw) = self.layout_window {
+                    if let Some(lr) = lw.layout_results.get(dom_id) {
+                        if let Some(nd) = lr.styled_dom.node_data.as_container().get((*node_id).into()) {
+                            nd.get_context_menu().cloned()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    return false;
+                };
+
+                if let Some(menu) = context_menu {
+                    self.show_context_menu(&menu, client_x, client_y, *dom_id, *node_id);
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Show a context menu at screen coordinates
+    fn show_context_menu(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        client_x: i32,
+        client_y: i32,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::dom::NodeId,
+    ) {
+        use self::dlopen::POINT;
+
+        // Create popup menu
+        let mut hmenu = unsafe { (self.win32.user32.CreatePopupMenu)() };
+        if hmenu.is_null() {
+            return;
+        }
+
+        // Build menu items and collect callbacks
+        let mut callbacks = BTreeMap::new();
+        menu::WindowsMenuBar::recursive_construct_menu(
+            &mut hmenu,
+            menu.items.as_ref(),
+            &mut callbacks,
+            &self.win32,
+        );
+
+        // Convert client to screen coordinates
+        let mut pt = POINT {
+            x: client_x,
+            y: client_y,
+        };
+        unsafe {
+            (self.win32.user32.ClientToScreen)(self.hwnd, &mut pt);
+        }
+
+        // Store callbacks for WM_COMMAND
+        self.context_menu = Some(callbacks);
+
+        // Show menu (blocks until closed)
+        unsafe {
+            (self.win32.user32.SetForegroundWindow)(self.hwnd);
+            (self.win32.user32.TrackPopupMenu)(
+                hmenu,
+                0x0008 | 0x0000, // TPM_RIGHTBUTTON | TPM_LEFTALIGN
+                pt.x,
+                pt.y,
+                0,
+                self.hwnd,
+                ptr::null(),
+            );
+            (self.win32.user32.DestroyMenu)(hmenu);
+        }
+    }
 }
 
 // Helper function for default window processing when Win32 libraries aren't available
@@ -762,6 +1190,7 @@ unsafe extern "system" fn window_proc(
     const WM_COMMAND: u32 = 0x0111;
     const WM_MOUSELEAVE: u32 = 0x02A3;
     const WM_DPICHANGED: u32 = 0x02E0;
+    const WM_DROPFILES: u32 = 0x0233;
 
     const GWLP_USERDATA: i32 = -21;
     const WHEEL_DELTA: i32 = 120;
@@ -825,9 +1254,23 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_CLOSE => {
-            // User clicked close button
-            window.is_open = false;
-            (window.win32.user32.DestroyWindow)(hwnd);
+            // User clicked close button - set close_requested flag
+            // and process callbacks to allow cancellation
+            window.current_window_state.flags.close_requested = true;
+            
+            // Process window events to trigger OnWindowClose callback
+            let _ = window.process_window_events_v2();
+            
+            // Check if callback cancelled the close
+            if window.current_window_state.flags.close_requested {
+                // Not cancelled - proceed with close
+                window.is_open = false;
+                (window.win32.user32.DestroyWindow)(hwnd);
+            } else {
+                // Callback cancelled close - clear flag and keep window open
+                eprintln!("[WM_CLOSE] Close cancelled by callback");
+            }
+            
             0
         }
 
@@ -837,7 +1280,15 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_PAINT => {
-            // Render frame
+            // Render frame if needed
+            if window.frame_needs_regeneration {
+                // Initial render: build display list and generate frame
+                if let Err(e) = window.regenerate_layout() {
+                    eprintln!("Layout regeneration error: {:?}", e);
+                }
+                window.frame_needs_regeneration = false;
+            }
+            
             match window.render_and_present() {
                 Ok(_) => {}
                 Err(e) => {
@@ -895,10 +1346,10 @@ unsafe extern "system" fn window_proc(
                 window.previous_window_state = Some(window.current_window_state.clone());
                 window.current_window_state = new_window_state;
 
-                // Resize requires full display list rebuild - similar to macOS handle_resize
-                // The regenerate_layout will be called in the render loop if needed
+                // Resize requires full display list rebuild
+                window.frame_needs_regeneration = true;
 
-                // Request redraw
+                // Request redraw (will trigger regenerate_layout in WM_PAINT)
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -917,6 +1368,12 @@ unsafe extern "system" fn window_proc(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
+
+            // Handle active scrollbar drag (special case - not part of normal event system)
+            if window.scrollbar_drag_state.is_some() {
+                window.handle_scrollbar_drag(logical_pos);
+                return 0;
+            }
 
             // Save previous state BEFORE making changes
             window.previous_window_state = Some(window.current_window_state.clone());
@@ -958,7 +1415,48 @@ unsafe extern "system" fn window_proc(
             // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
             let result = window.process_window_events_v2();
 
+            // Request WM_MOUSELEAVE notification
+            use self::dlopen::{TRACKMOUSEEVENT, TME_LEAVE};
+            unsafe {
+                let mut tme = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                };
+                (window.win32.user32.TrackMouseEvent)(&mut tme);
+            }
+
             // Request redraw if needed
+            if !matches!(result, process::ProcessEventResult::DoNothing) {
+                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+            }
+
+            0
+        }
+
+        WM_MOUSELEAVE => {
+            // Mouse left the window area
+            // Save previous state
+            window.previous_window_state = Some(window.current_window_state.clone());
+
+            // Get last known position, or default
+            let last_pos = match window.current_window_state.mouse_state.cursor_position {
+                CursorPosition::InWindow(pos) => pos,
+                CursorPosition::OutOfWindow(pos) => pos,
+                CursorPosition::Uninitialized => LogicalPosition::new(0.0, 0.0),
+            };
+
+            // Clear mouse position (mouse is outside window)
+            use azul_core::window::CursorPosition;
+            use azul_core::geom::LogicalPosition;
+            window.current_window_state.mouse_state.cursor_position =
+                CursorPosition::OutOfWindow(last_pos);
+
+            // Process events - this will trigger MouseLeave callbacks
+            let result = window.process_window_events_v2();
+
+            // Request redraw if needed to clear hover states
             if !matches!(result, process::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
@@ -978,6 +1476,12 @@ unsafe extern "system" fn window_proc(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
+
+            // Check for scrollbar hit FIRST (before state changes)
+            if let Some(scrollbar_hit_id) = window.perform_scrollbar_hit_test(logical_pos) {
+                window.handle_scrollbar_click(scrollbar_hit_id, logical_pos);
+                return 0;
+            }
 
             // Save previous state BEFORE making changes
             window.previous_window_state = Some(window.current_window_state.clone());
@@ -1030,6 +1534,15 @@ unsafe extern "system" fn window_proc(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
+
+            // End scrollbar drag if active (before state changes)
+            if window.scrollbar_drag_state.is_some() {
+                window.scrollbar_drag_state = None;
+                unsafe {
+                    (window.win32.user32.ReleaseCapture)();
+                }
+                return 0;
+            }
 
             // Save previous state BEFORE making changes
             window.previous_window_state = Some(window.current_window_state.clone());
@@ -1154,20 +1667,14 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                window.current_window_state.last_hit_test = hit_test;
-            }
+            window.current_window_state.last_hit_test = hit_test;
+        }
 
-            // Show context menu if available
-            // TODO: Context menu needs to be extracted from window state/callbacks
-            /*
-            if let Some(context_menu) = &window.context_menu {
-                // Convert to screen coordinates
-                let mut pt = event::POINT { x, y };
-                unsafe { (window.win32.user32.ClientToScreen)(hwnd, &mut pt as *mut _) };
-                menu::create_and_show_context_menu(hwnd, context_menu, pt.x, pt.y, &window.win32);
-            }
-            */
+        // Try to show context menu first
+        let showed_context_menu = window.try_show_context_menu(x, y);
 
+        // If context menu was shown, skip normal mouse up processing
+        if !showed_context_menu {
             // V2 system will detect MouseUp event
             let result = window.process_window_events_v2();
 
@@ -1175,11 +1682,10 @@ unsafe extern "system" fn window_proc(
             if !matches!(result, process::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
-
-            0
         }
 
-        WM_MBUTTONDOWN => {
+        0
+    }        WM_MBUTTONDOWN => {
             // Middle mouse button down
             let x = (lparam & 0xFFFF) as i16 as i32;
             let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
@@ -1511,39 +2017,105 @@ unsafe extern "system" fn window_proc(
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
 
-        WM_MOUSELEAVE => {
-            // Mouse left window
-            if let Some(ref mut layout_window) = window.layout_window {
-                // TODO: Call layout_window.handle_mouse_leave() when API available
-            }
-            0
-        }
-
         WM_DPICHANGED => {
             // DPI changed
-            let new_dpi = (wparam >> 16) & 0xFFFF;
+            let new_dpi = ((wparam >> 16) & 0xFFFF) as u32;
+
+            // Save previous state
+            window.previous_window_state = Some(window.current_window_state.clone());
+
+            // Update DPI in window state
+            window.current_window_state.size.dpi = new_dpi;
 
             // Get suggested size from lParam (RECT*)
             if lparam != 0 {
-                let rect = lparam as *const dlopen::RECT;
-                let width = (*rect).right - (*rect).left;
-                let height = (*rect).bottom - (*rect).top;
+                let rect = unsafe { &*(lparam as *const dlopen::RECT) };
+                let width = rect.right - rect.left;
+                let height = rect.bottom - rect.top;
 
                 // Update window size to suggested dimensions
-                (window.win32.user32.SetWindowPos)(
-                    hwnd,
-                    ptr::null_mut(),
-                    (*rect).left,
-                    (*rect).top,
-                    width,
-                    height,
-                    0x0004 | 0x0002, // SWP_NOZORDER | SWP_NOACTIVATE
-                );
+                unsafe {
+                    (window.win32.user32.SetWindowPos)(
+                        hwnd,
+                        ptr::null_mut(),
+                        rect.left,
+                        rect.top,
+                        width,
+                        height,
+                        0x0004 | 0x0002, // SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+                }
+
+                // Update logical size with new DPI
+                use azul_core::geom::PhysicalSizeU32;
+                let physical_size = PhysicalSizeU32::new(width as u32, height as u32);
+                let hidpi_factor = new_dpi as f32 / 96.0;
+                let logical_size = physical_size.to_logical(hidpi_factor);
+                window.current_window_state.size.dimensions = logical_size;
             }
 
-            // Update DPI in LayoutWindow
-            if let Some(ref mut layout_window) = window.layout_window {
-                // TODO: Call layout_window.set_dpi(new_dpi) when API available
+            // DPI change requires full relayout
+            window.frame_needs_regeneration = true;
+
+            // Request redraw
+            unsafe {
+                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+            }
+
+            0
+        }
+
+        WM_DROPFILES => {
+            // File drag-and-drop
+            let hdrop = wparam as dlopen::HDROP;
+
+            // Only process if shell32.dll is available
+            if let Some(ref shell32) = window.win32.shell32 {
+                unsafe {
+                    // Get drop point
+                    let mut pt = dlopen::POINT { x: 0, y: 0 };
+                    (shell32.DragQueryPoint)(hdrop, &mut pt);
+
+                    // Get number of files
+                    let file_count = (shell32.DragQueryFileW)(hdrop, 0xFFFFFFFF, ptr::null_mut(), 0);
+
+                    let mut dropped_files = Vec::new();
+
+                    for i in 0..file_count {
+                        // Get required buffer size
+                        let len = (shell32.DragQueryFileW)(hdrop, i, ptr::null_mut(), 0);
+
+                        if len > 0 {
+                            // Allocate buffer (+1 for null terminator)
+                            let mut buffer = vec![0u16; (len + 1) as usize];
+
+                            // Get file path
+                            (shell32.DragQueryFileW)(hdrop, i, buffer.as_mut_ptr(), len + 1);
+
+                            // Convert to Rust String
+                            let path_str = String::from_utf16_lossy(&buffer[..len as usize]);
+                            dropped_files.push(path_str);
+                        }
+                    }
+
+                    (shell32.DragFinish)(hdrop);
+
+                    // Update window state with dropped files
+                    if !dropped_files.is_empty() {
+                        window.previous_window_state = Some(window.current_window_state.clone());
+                        
+                        // Store first file in dropped_file (API limitation)
+                        if let Some(first_file) = dropped_files.first() {
+                            window.current_window_state.dropped_file = Some(first_file.clone().into());
+                        }
+
+                        // Process window events to trigger FileDrop callbacks
+                        window.process_window_events_v2();
+
+                        // Clear dropped file after processing
+                        window.current_window_state.dropped_file = None;
+                    }
+                }
             }
 
             0
