@@ -17,13 +17,24 @@ use crate::desktop::shell2::{
     linux::x11::dlopen::Egl,
 };
 
-#[derive(Default)]
 pub struct GlContext {
     pub egl: Option<Rc<Egl>>,
     pub egl_display: Option<EGLDisplay>,
     pub egl_context: Option<EGLContext>,
     pub egl_surface: Option<EGLSurface>,
-    wl_egl_window: *mut wl_egl_window,
+    wl_egl_window: Option<*mut wl_egl_window>,
+}
+
+impl Default for GlContext {
+    fn default() -> Self {
+        Self {
+            egl: None,
+            egl_display: None,
+            egl_context: None,
+            egl_surface: None,
+            wl_egl_window: None,
+        }
+    }
 }
 
 impl GlContext {
@@ -131,7 +142,7 @@ impl GlContext {
             egl_display: Some(egl_display),
             egl_context: Some(egl_context),
             egl_surface: Some(egl_surface),
-            wl_egl_window: egl_window,
+            wl_egl_window: Some(egl_window),
         })
     }
 
@@ -158,7 +169,9 @@ impl GlContext {
     }
 
     pub fn resize(&self, wayland: &Rc<Wayland>, width: i32, height: i32) {
-        unsafe { (wayland.wl_egl_window_resize)(self.wl_egl_window, width, height, 0, 0) };
+        if let Some(wl_egl_window) = self.wl_egl_window {
+            unsafe { (wayland.wl_egl_window_resize)(wl_egl_window, width, height, 0, 0) };
+        }
     }
 }
 

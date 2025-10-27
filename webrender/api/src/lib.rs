@@ -16,6 +16,7 @@
     clippy::float_cmp,
     clippy::too_many_arguments,
     unused,
+    unknown_lints,
     mismatched_lifetime_syntaxes
 )]
 #![allow(clippy::unreadable_literal, clippy::new_without_default)]
