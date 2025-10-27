@@ -35,14 +35,23 @@ extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -
             vec![
                 // Text node - wrapped in a div with explicit size
                 Dom::div()
-                    .with_inline_style("font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; height: 30px;")
+                    .with_inline_style(
+                        "font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; \
+                         height: 30px;",
+                    )
                     .with_children(vec![Dom::text("Azul Display List Test")].into()),
                 // Red rectangle
-                Dom::div().with_inline_style("width: 200px; height: 100px; background: #FF0000; margin: 10px;"),
+                Dom::div().with_inline_style(
+                    "width: 200px; height: 100px; background: #FF0000; margin: 10px;",
+                ),
                 // Text with inline style
                 Dom::div()
-                    .with_inline_style("font-size: 16px; color: #000000; width: 600px; height: 25px;")
-                    .with_children(vec![Dom::text("This is some sample text to test font rendering")].into()),
+                    .with_inline_style(
+                        "font-size: 16px; color: #000000; width: 600px; height: 25px;",
+                    )
+                    .with_children(
+                        vec![Dom::text("This is some sample text to test font rendering")].into(),
+                    ),
             ]
             .into(),
         );
@@ -110,7 +119,7 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
         eprintln!("[Close Callback] Close confirmation not implemented for this platform");
         // Allow closing on other platforms
         let mut flags = WindowFlags::default();
-        flags.is_about_to_close = true;
+        flags.close_requested = true;
         info.set_window_flags(flags);
     }
 

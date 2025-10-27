@@ -1169,11 +1169,14 @@ impl WindowSize {
     }
 
     pub fn get_physical_size(&self) -> PhysicalSize<u32> {
-        self.dimensions.to_physical(self.get_hidpi_factor())
+        self.dimensions
+            .to_physical(self.get_hidpi_factor().inner.get())
     }
 
-    pub fn get_hidpi_factor(&self) -> f32 {
-        self.dpi as f32 / 96.0
+    pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
+        DpiScaleFactor {
+            inner: FloatValue::new(self.dpi as f32 / 96.0),
+        }
     }
 }
 

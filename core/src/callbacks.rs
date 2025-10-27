@@ -31,7 +31,10 @@ use crate::{
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     prop_cache::CssPropertyCache,
     refany::RefAny,
-    resources::{FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef, RendererResources},
+    resources::{
+        DpiScaleFactor, FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef,
+        RendererResources,
+    },
     styled_dom::{
         NodeHierarchyItemId, NodeHierarchyItemVec, OptionStyledDom, StyledDom, StyledNode,
         StyledNodeVec,
@@ -734,12 +737,12 @@ impl LayoutCallbackInfo {
 #[repr(C)]
 pub struct HidpiAdjustedBounds {
     pub logical_size: LogicalSize,
-    pub hidpi_factor: f32,
+    pub hidpi_factor: DpiScaleFactor,
 }
 
 impl HidpiAdjustedBounds {
     #[inline(always)]
-    pub fn from_bounds(bounds: LayoutSize, hidpi_factor: f32) -> Self {
+    pub fn from_bounds(bounds: LayoutSize, hidpi_factor: DpiScaleFactor) -> Self {
         let logical_size = LogicalSize::new(bounds.width as f32, bounds.height as f32);
         Self {
             logical_size,
@@ -748,16 +751,16 @@ impl HidpiAdjustedBounds {
     }
 
     pub fn get_physical_size(&self) -> PhysicalSize<u32> {
-        // NOTE: hidpi factor, not system_hidpi_factor!
-        self.get_logical_size().to_physical(self.hidpi_factor)
+        self.get_logical_size()
+            .to_physical(self.get_hidpi_factor().inner.get())
     }
 
     pub fn get_logical_size(&self) -> LogicalSize {
         self.logical_size
     }
 
-    pub fn get_hidpi_factor(&self) -> f32 {
-        self.hidpi_factor
+    pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
+        self.hidpi_factor.clone()
     }
 }
 

@@ -154,14 +154,55 @@ pub fn run(
 
 #[cfg(target_os = "windows")]
 pub fn run(
-    _config: AppConfig,
-    _fc_cache: Arc<FcFontCache>,
-    _root_window: WindowCreateOptions,
+    config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    // TODO: Implement Windows event loop
-    Err(WindowError::PlatformError(
-        "Windows shell2 not yet implemented".into(),
-    ))
+    use std::cell::RefCell;
+
+    use azul_core::refany::RefAny;
+
+    use super::windows::Win32Window;
+
+    // Create app_data (placeholder for now - should be passed from App)
+    let app_data = Arc::new(RefCell::new(RefAny::new(())));
+
+    // Create the root window
+    let mut window = Win32Window::new(root_window, fc_cache.clone(), app_data)?;
+
+    // Windows event loop using GetMessage/DispatchMessage
+    use super::windows::dlopen::{MSG, WPARAM};
+
+    unsafe {
+        let mut msg: MSG = MSG {
+            hwnd: std::ptr::null_mut(),
+            message: 0,
+            wParam: 0,
+            lParam: 0,
+            time: 0,
+            pt: super::windows::dlopen::POINT { x: 0, y: 0 },
+        };
+
+        // Main message loop
+        while window.is_open {
+            // Get message from queue (blocks until message arrives)
+            let result = (window.win32.user32.GetMessageW)(&mut msg, window.hwnd, 0, 0);
+
+            if result == 0 {
+                // WM_QUIT received
+                break;
+            } else if result < 0 {
+                // Error occurred
+                return Err(WindowError::PlatformError("GetMessage failed".into()));
+            }
+
+            // Translate and dispatch message
+            (window.win32.user32.TranslateMessage)(&msg);
+            (window.win32.user32.DispatchMessageW)(&msg);
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]

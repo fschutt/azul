@@ -153,7 +153,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
             }
         }
     }
-    
+
     /// Get a font by its hash (used for WebRender registration)
     /// Returns the parsed font if it exists in the cache
     pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
@@ -2225,7 +2225,11 @@ impl<T: ParsedFontTrait> ShapedGlyph<T> {
 
     /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
     /// This is used for display list generation where glyphs need their final page coordinates.
-    pub fn into_glyph_instance_at(&self, writing_mode: WritingMode, absolute_position: LogicalPosition) -> GlyphInstance {
+    pub fn into_glyph_instance_at(
+        &self,
+        writing_mode: WritingMode,
+        absolute_position: LogicalPosition,
+    ) -> GlyphInstance {
         let size = self
             .font
             .get_glyph_size(self.glyph_id, self.style.font_size_px)

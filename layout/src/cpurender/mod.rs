@@ -4,9 +4,15 @@
 //! Unlike the old hierarchical CachedDisplayList, the new DisplayList is a simple
 //! flat vector of rendering commands that can be executed sequentially.
 
-use azul_core::{dom::ScrollbarOrientation, ui_solver::GlyphInstance, geom::LogicalRect, resources::{RendererResources, FontInstanceKey}};
+use azul_core::{
+    dom::ScrollbarOrientation,
+    geom::LogicalRect,
+    resources::{FontInstanceKey, RendererResources},
+    ui_solver::GlyphInstance,
+};
 use azul_css::props::basic::ColorU;
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
+
 use crate::{
     font::parsed::ParsedFont,
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem},
@@ -330,13 +336,13 @@ fn render_text(
 
     // Find the font and font size from the font_hash
     // TODO: We need to get the font size from somewhere, for now use a default
-    // For CPU rendering, we can just access the font directly without going through the renderer resources
-    // The font should be available in the display list context
-    
+    // For CPU rendering, we can just access the font directly without going through the renderer
+    // resources The font should be available in the display list context
+
     // For now, text rendering in CPU mode is disabled
     // TODO: Implement proper font lookup without renderer_resources
     Ok(())
-    
+
     /*
     // OLD CODE - needs proper font lookup
     if let Some((font_ref, au, dpi)) = font_instance {
@@ -357,7 +363,7 @@ fn render_text(
             use azul_core::resources::GlyphOutlineOperation;
 
             let glyph_index = glyph.index as u16;
-            
+
             // glyph.point is the absolute baseline position of the glyph
             let glyph_x = glyph.point.x;
             let glyph_baseline_y = glyph.point.y;

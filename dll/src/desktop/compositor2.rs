@@ -5,29 +5,34 @@
 
 use azul_core::{
     geom::LogicalSize,
-    resources::{FontInstanceKey, GlyphOptions, PrimitiveFlags},
+    resources::{DpiScaleFactor, FontInstanceKey, GlyphOptions, PrimitiveFlags},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::{
     basic::{color::ColorU, pixel::PixelValue},
     style::border_radius::StyleBorderRadius,
 };
-use DisplayList;
+use azul_layout::solver3::display_list::{BorderRadius, DisplayList};
 use webrender::{
     api::{
         units::{
             DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
         },
-        BorderRadius as WrBorderRadius, ClipChainId as WrClipChainId, ClipMode as WrClipMode,
-        ColorF, CommonItemProperties, ComplexClipRegion as WrComplexClipRegion,
-        DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ItemTag, PipelineId,
-        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo,
-        SpatialId, SpatialTreeItemKey, TransformStyle,
+        BorderRadius as WrBorderRadius, BuiltDisplayList as WrBuiltDisplayList,
+        ClipChainId as WrClipChainId, ClipMode as WrClipMode, ColorF, CommonItemProperties,
+        ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
+        DocumentId, Epoch, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
+        PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo, SpatialId, SpatialTreeItemKey,
+        TransformStyle,
     },
+    render_api::ResourceUpdate as WrResourceUpdate,
     Transaction,
 };
 
-use crate::desktop::wr_translate2::{wr_translate_border_radius, wr_translate_color_f};
+use crate::desktop::wr_translate2::{
+    wr_translate_border_radius, wr_translate_color_f, wr_translate_layouted_glyphs,
+    wr_translate_logical_size,
+};
 
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
 /// Returns (resources, display_list) tuple that can be added to a transaction by caller
@@ -36,21 +41,22 @@ pub fn translate_displaylist_to_wr(
     pipeline_id: PipelineId,
     viewport_size: DeviceIntSize,
     renderer_resources: &azul_core::resources::RendererResources,
-    dpi: f32,
+    dpi: DpiScaleFactor,
     wr_resources: Vec<WrResourceUpdate>,
 ) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
     eprintln!(
-        "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, dpi={}, {} resources",
+        "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, \
+         dpi_factor={}, {} resources",
         display_list.items.len(),
         viewport_size,
-        dpi,
+        dpi.inner.get(),
         wr_resources.len()
     );
     use azul_core::geom::LogicalRect;
-    use DisplayListItem;
+    use azul_layout::solver3::display_list::DisplayListItem;
 
     use crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id;
-    
+
     // NOTE: Caller (generate_frame) will add resources to transaction
     // NOTE: Caller (generate_frame) will set document_view
     // We just build the display list here
@@ -138,7 +144,10 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
-                    eprintln!("[compositor2] >>>>> push_rect (with clip): {:?} <<<<<", rect);
+                    eprintln!(
+                        "[compositor2] >>>>> push_rect (with clip): {:?} <<<<<",
+                        rect
+                    );
                     builder.push_rect(&info_clipped, rect, color_f);
                     continue;
                 }
@@ -357,17 +366,23 @@ pub fn translate_displaylist_to_wr(
             } => {
                 eprintln!(
                     "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}",
-                    glyphs.len(), font_size_px, color, clip_rect
+                    glyphs.len(),
+                    font_size_px,
+                    color,
+                    clip_rect
                 );
-                
+
                 // Log first few glyph positions for debugging
                 if !glyphs.is_empty() {
                     eprintln!("[compositor2] First 3 glyphs:");
                     for (i, g) in glyphs.iter().take(3).enumerate() {
-                        eprintln!("  [{}] index={}, pos=({}, {})", i, g.index, g.point.x, g.point.y);
+                        eprintln!(
+                            "  [{}] index={}, pos=({}, {})",
+                            i, g.index, g.point.x, g.point.y
+                        );
                     }
                 }
-                
+
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
                     LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
@@ -381,7 +396,6 @@ pub fn translate_displaylist_to_wr(
                 };
 
                 // Use push_text helper with font_hash lookup
-                let dpi_factor = azul_core::resources::DpiScaleFactor::new(dpi);
                 let font_size_au = azul_core::resources::Au::from_px(*font_size_px);
                 push_text(
                     &mut builder,
@@ -390,7 +404,7 @@ pub fn translate_displaylist_to_wr(
                     font_hash.font_hash,
                     *color,
                     renderer_resources,
-                    dpi_factor,
+                    dpi,
                     font_size_au,
                 );
             }
@@ -408,7 +422,10 @@ pub fn translate_displaylist_to_wr(
                 // Just push a simple stacking context at the bounds origin
                 // Use the current spatial_id from the stack (don't create a new reference frame)
                 let current_spatial_id = *spatial_stack.last().unwrap();
-                eprintln!("[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<", bounds.origin.x, bounds.origin.y);
+                eprintln!(
+                    "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
+                    bounds.origin.x, bounds.origin.y
+                );
                 builder.push_simple_stacking_context(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     current_spatial_id,
@@ -438,7 +455,10 @@ pub fn translate_displaylist_to_wr(
     let (_, dl) = builder.end();
     eprintln!("[compositor2] >>>>> builder.end() RETURNED <<<<<");
 
-    eprintln!("[compositor2] Builder finished, returning ({} resources, display_list)", wr_resources.len());
+    eprintln!(
+        "[compositor2] Builder finished, returning ({} resources, display_list)",
+        wr_resources.len()
+    );
 
     // Print detailed display list summary before returning
     eprintln!("=== Display List Summary ===");
@@ -494,9 +514,7 @@ pub mod hw_compositor {
 
 /// Convert DisplayList BorderRadius to StyleBorderRadius
 #[inline]
-fn convert_border_radius_to_style(
-    br: &BorderRadius,
-) -> StyleBorderRadius {
+fn convert_border_radius_to_style(br: &BorderRadius) -> StyleBorderRadius {
     StyleBorderRadius {
         top_left: PixelValue::px(br.top_left),
         top_right: PixelValue::px(br.top_right),
@@ -516,7 +534,6 @@ fn define_border_radius_clip(
     rect_spatial_id: SpatialId,
     parent_clip_chain_id: WrClipChainId,
 ) -> WrClipChainId {
-
     // NOTE: only translate the size, position is always (0.0, 0.0)
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
     let wr_layout_rect = LayoutRect::from_size(wr_layout_size);
@@ -551,7 +568,6 @@ fn push_text(
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
 ) {
-
     // Look up FontKey from the font_hash (which comes from the GlyphRun)
     // The font_hash is the hash of FontRef computed during layout
     let font_key = match renderer_resources.font_hash_map.get(&font_hash) {
@@ -588,7 +604,9 @@ fn push_text(
 
     eprintln!(
         "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}",
-        wr_glyphs.len(), wr_font_instance_key, wr_color
+        wr_glyphs.len(),
+        wr_font_instance_key,
+        wr_color
     );
 
     // Push text to display list

@@ -216,19 +216,22 @@ impl ParsedFont {
                         glyph_index_u16,
                     )
                     .unwrap_or_default();
-                    
-                    Some((glyph_index_u16, OwnedGlyph {
-                        horz_advance,
-                        bounding_box: OwnedGlyphBoundingBox {
-                            min_x: 0,
-                            min_y: 0,
-                            max_x: horz_advance as i16,
-                            max_y: 0,
+
+                    Some((
+                        glyph_index_u16,
+                        OwnedGlyph {
+                            horz_advance,
+                            bounding_box: OwnedGlyphBoundingBox {
+                                min_x: 0,
+                                min_y: 0,
+                                max_x: horz_advance as i16,
+                                max_y: 0,
+                            },
+                            outline: Vec::new(), // No outline data
+                            unresolved_composite: Vec::new(),
+                            phantom_points: None,
                         },
-                        outline: Vec::new(), // No outline data
-                        unresolved_composite: Vec::new(),
-                        phantom_points: None,
-                    }))
+                    ))
                 })
                 .collect::<BTreeMap<_, _>>()
         };

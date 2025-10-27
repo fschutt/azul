@@ -297,7 +297,7 @@ fn set_menu_item_accelerator(
             VirtualKeyCode::Back => key_equivalent = Some('\u{0008}'), // Backspace
             VirtualKeyCode::Escape => key_equivalent = Some('\u{001B}'),
             VirtualKeyCode::Delete => key_equivalent = Some('\u{007F}'),
-            
+
             // Function keys - use special NSF... constants (not directly char mappable)
             // For now, skip function keys as they require special handling
             _ => {}

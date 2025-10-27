@@ -565,7 +565,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .unwrap_or_default();
 
     let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
-    
+
     if should_use_content_height(&css_height) {
         final_used_size = apply_content_based_height(
             final_used_size,
@@ -661,7 +661,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         if !is_flex_or_grid {
             // CRITICAL: Pass child_absolute_pos as containing_block_pos for the recursive call.
             // The recursive function interprets containing_block_pos as the absolute position
-            // of the current node (which will add padding to get content-box position for its children).
+            // of the current node (which will add padding to get content-box position for its
+            // children).
             calculate_layout_for_subtree(
                 ctx,
                 tree,
@@ -683,11 +684,11 @@ fn should_use_content_height(css_height: &azul_css::props::layout::LayoutHeight)
     match css_height {
         azul_css::props::layout::LayoutHeight::Px(px) => {
             // Check if it's zero or if it has no explicit pixel value (means auto)
-            px == &azul_css::props::basic::pixel::PixelValue::zero() 
+            px == &azul_css::props::basic::pixel::PixelValue::zero()
                 || (px.to_pixels_no_percent().is_none() && px.to_percent().is_none())
-        },
-        azul_css::props::layout::LayoutHeight::MinContent | 
-        azul_css::props::layout::LayoutHeight::MaxContent => {
+        }
+        azul_css::props::layout::LayoutHeight::MinContent
+        | azul_css::props::layout::LayoutHeight::MaxContent => {
             // These are content-based, so they should use the content size
             true
         }
@@ -708,12 +709,13 @@ fn apply_content_based_height<T: ParsedFontTrait>(
 
     let new_main_size = content_size.main(writing_mode) + main_axis_padding_border;
     used_size = used_size.with_main(writing_mode, new_main_size);
-    
+
     eprintln!(
-        "[apply_content_based_height] Auto height: content_size={:?}, padding_border={}, new_main_size={}",
+        "[apply_content_based_height] Auto height: content_size={:?}, padding_border={}, \
+         new_main_size={}",
         content_size, main_axis_padding_border, new_main_size
     );
-    
+
     used_size
 }
 

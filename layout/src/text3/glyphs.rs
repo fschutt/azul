@@ -60,13 +60,13 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                     let glyph_color = glyph.style.color;
                     let font_hash = glyph.font.get_hash();
                     let font_size_px = glyph.style.font_size_px;
-                    
+
                     // Calculate absolute position: baseline position + GPOS offset
                     let absolute_position = LogicalPosition {
                         x: pen_x + glyph.offset.x,
                         y: baseline_y - glyph.offset.y, // Y-down: subtract positive offset
                     };
-                    
+
                     let instance = glyph.into_glyph_instance_at(writing_mode, absolute_position);
 
                     // Check if we can add to the current run

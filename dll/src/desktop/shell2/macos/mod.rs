@@ -11,10 +11,28 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::{Arc, Condvar, Mutex},
 };
 
-use azul_core::{dom::DomId, menu::Menu};
-use azul_layout::window_state::{FullWindowState, WindowCreateOptions, WindowState};
+use azul_core::{
+    callbacks::LayoutCallbackInfo,
+    dom::DomId,
+    gl::{GlContextPtr, OptionGlContextPtr},
+    hit_test::DocumentId,
+    menu::Menu,
+    refany::RefAny,
+    resources::{DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
+    window::{
+        HwAcceleration, MacOSHandle, MouseCursorType, RawWindowHandle, RendererType,
+        WindowBackgroundMaterial, WindowDecorations, WindowFrame, WindowPosition, WindowSize,
+    },
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks,
+    hit_test::FullHitTest,
+    window::{LayoutWindow, ScrollbarDragState},
+    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+};
 use objc2::{
     define_class,
     msg_send,
@@ -37,7 +55,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     ns_string, NSAttributedString, NSData, NSNotification, NSObject, NSPoint, NSRange, NSRect,
-    NSSize, NSString,
+    NSSize, NSString, NSTimer,
 };
 
 use crate::desktop::{
@@ -48,7 +66,7 @@ use crate::desktop::{
     wr_translate2::{
         default_renderer_options, translate_document_id_wr, translate_id_namespace_wr,
         wr_translate_document_id, wr_translate_pipeline_id, AsyncHitTester,
-        Compositor as WrCompositor, Notifier, WR_SHADER_CACHE,
+        Compositor as WrCompositor, Notifier, WrRenderApi, WrTransaction, WR_SHADER_CACHE,
     },
 };
 
@@ -56,6 +74,7 @@ mod events;
 mod gl;
 mod menu;
 
+use events::HitTestNode;
 use gl::GlFunctions;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -845,7 +864,7 @@ impl WindowDelegate {
     }
 
     /// Set the window pointer for this delegate
-    /// 
+    ///
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the delegate
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
@@ -915,14 +934,12 @@ pub struct MacOSWindow {
     menu_state: menu::MenuState,
 
     // Resource caches for LayoutWindow
-    
     /// Image cache for texture management
     image_cache: ImageCache,
     /// Renderer resources (GPU textures, etc.)
     renderer_resources: RendererResources,
 
     // WebRender infrastructure for proper hit-testing and rendering
-
     /// Main render API for registering fonts, images, display lists
     pub(crate) render_api: webrender::RenderApi,
     /// WebRender renderer (software or hardware depending on backend)
@@ -937,7 +954,6 @@ pub struct MacOSWindow {
     pub(crate) gl_context_ptr: OptionGlContextPtr,
 
     // Application-level shared state
-
     /// Shared application data (used by callbacks, shared across windows)
     app_data: Arc<RefCell<RefAny>>,
     /// Shared font cache (shared across windows to cache font loading)
@@ -948,6 +964,12 @@ pub struct MacOSWindow {
     scrollbar_drag_state: Option<ScrollbarDragState>,
     /// Synchronization for frame readiness (signals when WebRender has a new frame ready)
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
+
+    // Timers and threads
+    /// Active timers (TimerId -> NSTimer object)
+    timers: std::collections::HashMap<usize, Retained<objc2_foundation::NSTimer>>,
+    /// Thread timer (for polling thread messages every 16ms)
+    thread_timer_running: Option<Retained<objc2_foundation::NSTimer>>,
 }
 
 impl MacOSWindow {
@@ -1050,7 +1072,6 @@ impl MacOSWindow {
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-
         // Initialize NSApplication if needed
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
@@ -1058,7 +1079,7 @@ impl MacOSWindow {
         // Get screen dimensions for window positioning
         let screen = NSScreen::mainScreen(mtm)
             .ok_or_else(|| WindowError::PlatformError("No main screen".into()))?;
-        
+
         let screen_frame = screen.frame();
 
         // Determine window size from options
@@ -1214,8 +1235,7 @@ impl MacOSWindow {
         eprintln!("[Window Init] Creating WebRender instance");
 
         // Create synchronization primitives for frame readiness
-        let new_frame_ready =
-            Arc::new((Mutex::new(false), Condvar::new()));
+        let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
 
         let notifier = Notifier {
             new_frame_ready: new_frame_ready.clone(),
@@ -1298,12 +1318,11 @@ impl MacOSWindow {
         let renderer_resources = RendererResources::default();
 
         // Initialize LayoutWindow with shared fc_cache or build a new one
-        let fc_cache = fc_cache_opt
-            .unwrap_or_else(|| Arc::new(rust_fontconfig::FcFontCache::build()));
-        let mut layout_window = LayoutWindow::new((*fc_cache).clone())
-            .map_err(|e| {
-                WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
-            })?;
+        let fc_cache =
+            fc_cache_opt.unwrap_or_else(|| Arc::new(rust_fontconfig::FcFontCache::build()));
+        let mut layout_window = LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+            WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
+        })?;
 
         // Set document_id and id_namespace for this window
         layout_window.document_id = document_id;
@@ -1320,8 +1339,7 @@ impl MacOSWindow {
         // Do NOT call clearCurrentContext() here
 
         // Initialize shared application data (will be replaced by App later)
-        let app_data =
-            Arc::new(RefCell::new(RefAny::new(())));
+        let app_data = Arc::new(RefCell::new(RefAny::new(())));
 
         // NOTE: We will set the window state pointer AFTER creating the MacOSWindow struct
         // because current_window_state will be moved into the struct, invalidating any pointer
@@ -1363,6 +1381,8 @@ impl MacOSWindow {
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
+            timers: std::collections::HashMap::new(),
+            thread_timer_running: None,
         };
 
         // NOTE: Do NOT set the delegate pointer here!
@@ -1387,7 +1407,9 @@ impl MacOSWindow {
         window.frame_needs_regeneration = true;
 
         // Show window immediately - drawRect will handle the first frame rendering
-        eprintln!("[Window Init] Making window visible (first frame will be rendered in drawRect)...");
+        eprintln!(
+            "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
+        );
         unsafe {
             window.window.makeKeyAndOrderFront(None);
         }
@@ -1404,8 +1426,9 @@ impl MacOSWindow {
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        use azul_core::callbacks::LayoutCallback;
         use std::io::Write;
+
+        use azul_core::callbacks::LayoutCallback;
 
         eprintln!("[regenerate_layout] START");
 
@@ -1471,7 +1494,7 @@ impl MacOSWindow {
         layout_window.scroll_states.calculate_scrollbar_states();
 
         // 4. Rebuild display list and send to WebRender
-        let dpi = self.current_window_state.size.get_hidpi_factor();
+        let dpi_factor = self.current_window_state.size.get_hidpi_factor();
         let mut txn = WrTransaction::new();
         crate::desktop::wr_translate2::rebuild_display_list(
             &mut txn,
@@ -1480,7 +1503,7 @@ impl MacOSWindow {
             &self.image_cache,
             Vec::new(),
             &mut self.renderer_resources,
-            dpi,
+            dpi_factor,
         );
 
         // 5. Synchronize scrollbar opacity with GPU cache AFTER display list submission
@@ -1515,10 +1538,16 @@ impl MacOSWindow {
         }
 
         if let Some(ref mut layout_window) = self.layout_window {
+            let mut txn = WrTransaction::new();
             crate::desktop::wr_translate2::generate_frame(
+                &mut txn,
                 layout_window,
                 &mut self.render_api,
                 true, // Display list was rebuilt
+            );
+            self.render_api.send_transaction(
+                crate::desktop::wr_translate2::wr_translate_document_id(self.document_id),
+                txn,
             );
         }
 
@@ -1529,19 +1558,20 @@ impl MacOSWindow {
     ///
     /// This queries the actual backing scale factor from the screen,
     /// which can change when the window moves between displays.
-    pub fn get_hidpi_factor(&self) -> f32 {
-        unsafe {
-            self.window
-                .screen()
-                .map(|screen| screen.backingScaleFactor() as f32)
-                .unwrap_or(1.0)
+    pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
+        use azul_css::props::basic::FloatValue;
+        DpiScaleFactor {
+            inner: FloatValue::new(unsafe {
+                self.window
+                    .screen()
+                    .map(|screen| screen.backingScaleFactor() as f32)
+                    .unwrap_or(1.0)
+            }),
         }
     }
 
     /// Get the raw window handle for this window
     pub fn get_raw_window_handle(&self) -> RawWindowHandle {
-        use {MacOSHandle, RawWindowHandle};
-
         let ns_window_ptr = &*self.window as *const NSWindow as *mut std::ffi::c_void;
         let ns_view_ptr = if let Some(ref gl_view) = self.gl_view {
             &**gl_view as *const GLView as *mut std::ffi::c_void
@@ -1566,14 +1596,18 @@ impl MacOSWindow {
         let old_hidpi = self.current_window_state.size.get_hidpi_factor();
 
         // Only process if DPI actually changed
-        if (new_hidpi - old_hidpi).abs() < 0.001 {
+        if (new_hidpi.inner.get() - old_hidpi.inner.get()).abs() < 0.001 {
             return Ok(());
         }
 
-        eprintln!("[DPI Change] {} -> {}", old_hidpi, new_hidpi);
+        eprintln!(
+            "[DPI Change] {} -> {}",
+            old_hidpi.inner.get(),
+            new_hidpi.inner.get()
+        );
 
         // Update window state with new DPI
-        self.current_window_state.size.dpi = (new_hidpi * 96.0) as u32;
+        self.current_window_state.size.dpi = (new_hidpi.inner.get() * 96.0) as u32;
 
         // Regenerate layout with new DPI
         self.regenerate_layout()?;
@@ -1646,16 +1680,18 @@ impl MacOSWindow {
         // Note: We need mutable access for gpu_state_manager updates
         crate::desktop::wr_translate2::synchronize_gpu_values(layout_window, &mut txn);
 
-        // Send transaction and generate frame (without rebuilding display list)
-        self.render_api.send_transaction(
-            crate::desktop::wr_translate2::wr_translate_document_id(self.document_id),
-            txn,
-        );
-
+        // Generate frame (without rebuilding display list)
         crate::desktop::wr_translate2::generate_frame(
+            &mut txn,
             layout_window,
             &mut self.render_api,
             false, // Display list not rebuilt, just transforms updated
+        );
+
+        // Send transaction
+        self.render_api.send_transaction(
+            crate::desktop::wr_translate2::wr_translate_document_id(self.document_id),
+            txn,
         );
 
         Ok(())
@@ -1687,7 +1723,6 @@ impl MacOSWindow {
 
         // Position changed?
         if previous.position != current.position {
-            use WindowPosition;
             match current.position {
                 WindowPosition::Initialized(pos) => {
                     let origin = NSPoint::new(pos.x as f64, pos.y as f64);
@@ -1735,11 +1770,7 @@ impl MacOSWindow {
     }
 
     /// Map MouseCursorType to macOS cursor name
-    fn map_cursor_type_to_macos(
-        &self,
-        cursor_type: MouseCursorType,
-    ) -> &'static str {
-        use MouseCursorType;
+    fn map_cursor_type_to_macos(&self, cursor_type: MouseCursorType) -> &'static str {
         match cursor_type {
             MouseCursorType::Default | MouseCursorType::Arrow => "arrow",
             MouseCursorType::Crosshair => "crosshair",
@@ -1898,6 +1929,38 @@ impl MacOSWindow {
     }
 
     /// Actually close the window
+    /// Start the thread polling timer (16ms interval for ~60 FPS)
+    pub fn start_thread_tick_timer(&mut self) {
+        use block2::RcBlock;
+        if self.thread_timer_running.is_none() {
+            // Create a timer that fires every 16ms (60 FPS)
+            // Using scheduledTimerWithTimeInterval for simplicity
+            let timer: Retained<NSTimer> = unsafe {
+                let interval: f64 = 0.016; // 16ms
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    repeats: true,
+                    block: &*RcBlock::new(|| {
+                        // Thread tick callback - poll thread messages
+                        // This will be called every 16ms
+                    })
+                ]
+            };
+
+            self.thread_timer_running = Some(timer);
+        }
+    }
+
+    /// Stop the thread polling timer
+    pub fn stop_thread_tick_timer(&mut self) {
+        if let Some(timer) = self.thread_timer_running.take() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+    }
+
     fn close_window(&mut self) {
         unsafe {
             self.window.close();
@@ -1912,8 +1975,6 @@ impl MacOSWindow {
 
     /// Apply window decorations changes
     fn apply_decorations(&mut self, decorations: WindowDecorations) {
-        use WindowDecorations;
-
         let mut style_mask = self.window.styleMask();
 
         match decorations {
@@ -1991,7 +2052,6 @@ impl MacOSWindow {
 
     /// Apply window background material
     fn apply_background_material(&mut self, material: WindowBackgroundMaterial) {
-        use WindowBackgroundMaterial;
         use objc2_app_kit::{
             NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
             NSVisualEffectView,
@@ -2315,27 +2375,33 @@ impl MacOSWindow {
     /// Build and send a complete atomic WebRender transaction
     /// This is the CRITICAL function that matches upstream WebRender's pattern:
     /// ONE transaction containing resources + display lists + root_pipeline + document_view
-    fn build_and_send_webrender_transaction(&mut self, txn: &mut WrTransaction) -> Result<(), WindowError> {
-        
+    fn build_and_send_webrender_transaction(
+        &mut self,
+        txn: &mut WrTransaction,
+    ) -> Result<(), WindowError> {
         eprintln!("[build_atomic_txn] ========== START ==========");
-        
+
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
         if self.frame_needs_regeneration {
             eprintln!("[build_atomic_txn] Frame needs regeneration, calling regenerate_layout");
             if let Err(e) = self.regenerate_layout() {
                 eprintln!("[build_atomic_txn] Layout failed: {}", e);
-                return Err(WindowError::PlatformError(format!("Layout failed: {}", e).into()));
+                return Err(WindowError::PlatformError(
+                    format!("Layout failed: {}", e).into(),
+                ));
             }
             self.frame_needs_regeneration = false;
         }
-        
+
         // Get layout_window
-        let layout_window = self.layout_window.as_mut()
+        let layout_window = self
+            .layout_window
+            .as_mut()
             .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
-        
+
         eprintln!("[build_atomic_txn] Building into provided transaction");
-        
+
         eprintln!("[build_atomic_txn] Calling build_webrender_transaction()");
         // Build everything into this transaction using helper functions
         crate::desktop::wr_translate2::build_webrender_transaction(
@@ -2343,8 +2409,11 @@ impl MacOSWindow {
             layout_window,
             &mut self.render_api,
             &self.image_cache,
-        ).map_err(|e| WindowError::PlatformError(format!("Failed to build transaction: {}", e).into()))?;
-        
+        )
+        .map_err(|e| {
+            WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
+        })?;
+
         eprintln!("[build_atomic_txn] ========== BUILD COMPLETE ==========");
 
         Ok(())
@@ -2377,7 +2446,9 @@ impl MacOSWindow {
                 .ok_or_else(|| WindowError::PlatformError("OpenGL functions are missing".into()))?;
 
             unsafe {
-                eprintln!("[MACOS NATIVE] >>>>> Calling NSOpenGLContext.makeCurrentContext() <<<<<");
+                eprintln!(
+                    "[MACOS NATIVE] >>>>> Calling NSOpenGLContext.makeCurrentContext() <<<<<"
+                );
                 // Make context current before any GL operations
                 gl_context.makeCurrentContext();
                 eprintln!("[MACOS NATIVE] >>>>> makeCurrentContext() RETURNED <<<<<");
@@ -2394,7 +2465,10 @@ impl MacOSWindow {
                     "[render_and_present_in_draw_rect] Setting glViewport to: {}x{}",
                     physical_size.width, physical_size.height
                 );
-                eprintln!("[MACOS NATIVE] >>>>> Calling glViewport({}, {}, {}, {}) <<<<<", 0, 0, physical_size.width, physical_size.height);
+                eprintln!(
+                    "[MACOS NATIVE] >>>>> Calling glViewport({}, {}, {}, {}) <<<<<",
+                    0, 0, physical_size.width, physical_size.height
+                );
                 gl_fns.functions.viewport(
                     0,
                     0,
@@ -2408,20 +2482,32 @@ impl MacOSWindow {
         // Step 1.5: CRITICAL - Create, build, and send WebRender transaction ATOMICALLY
         // This is the ONLY place where Transaction::new() should be called!
         // This matches the working WebRender example pattern: ONE transaction per frame
-        eprintln!("[render_and_present_in_draw_rect] >>>>> Creating ONE atomic WebRender transaction <<<<<");
+        eprintln!(
+            "[render_and_present_in_draw_rect] >>>>> Creating ONE atomic WebRender transaction \
+             <<<<<"
+        );
         let mut txn = WrTransaction::new();
-        
+
         // Build everything into this transaction (resources, display lists, etc.)
         self.build_and_send_webrender_transaction(&mut txn)?;
-        
+
         // Send the complete atomic transaction
         if let Some(layout_window) = self.layout_window.as_ref() {
             let doc_id = wr_translate_document_id(layout_window.document_id);
-            eprintln!("[render_and_present_in_draw_rect] >>>>> Calling render_api.send_transaction({:?}, txn) <<<<<", doc_id);
+            eprintln!(
+                "[render_and_present_in_draw_rect] >>>>> Calling \
+                 render_api.send_transaction({:?}, txn) <<<<<",
+                doc_id
+            );
             self.render_api.send_transaction(doc_id, txn);
-            eprintln!("[render_and_present_in_draw_rect] >>>>> Calling render_api.flush_scene_builder() <<<<<");
+            eprintln!(
+                "[render_and_present_in_draw_rect] >>>>> Calling render_api.flush_scene_builder() \
+                 <<<<<"
+            );
             self.render_api.flush_scene_builder();
-            eprintln!("[render_and_present_in_draw_rect] >>>>> flush_scene_builder() RETURNED <<<<<");
+            eprintln!(
+                "[render_and_present_in_draw_rect] >>>>> flush_scene_builder() RETURNED <<<<<"
+            );
         }
         eprintln!("[render_and_present_in_draw_rect] >>>>> Transaction sent and flushed <<<<<");
 
@@ -2444,22 +2530,15 @@ impl MacOSWindow {
 
             match renderer.render(device_size, 0) {
                 Ok(results) => {
-                    eprintln!(
-                        "[WEBRENDER] >>>>> renderer.render() RETURNED <<<<<"
-                    );
+                    eprintln!("[WEBRENDER] >>>>> renderer.render() RETURNED <<<<<");
                     eprintln!(
                         "[WEBRENDER] ✓ Render successful! Stats: {:?}",
                         results.stats
                     );
                 }
                 Err(errors) => {
-                    eprintln!(
-                        "[WEBRENDER] >>>>> renderer.render() RETURNED WITH ERROR <<<<<"
-                    );
-                    eprintln!(
-                        "[WEBRENDER] ✗ Render errors: {:?}",
-                        errors
-                    );
+                    eprintln!("[WEBRENDER] >>>>> renderer.render() RETURNED WITH ERROR <<<<<");
+                    eprintln!("[WEBRENDER] ✗ Render errors: {:?}", errors);
                     return Err(WindowError::PlatformError(
                         format!("WebRender render failed: {:?}", errors).into(),
                     ));
@@ -2474,11 +2553,16 @@ impl MacOSWindow {
         match self.backend {
             RenderBackend::OpenGL => {
                 if let Some(ref gl_context) = self.gl_context {
-                    eprintln!("[MACOS NATIVE] >>>>> Calling NSOpenGLContext.flushBuffer() (SWAP BUFFERS) <<<<<");
+                    eprintln!(
+                        "[MACOS NATIVE] >>>>> Calling NSOpenGLContext.flushBuffer() (SWAP \
+                         BUFFERS) <<<<<"
+                    );
                     unsafe {
                         gl_context.flushBuffer();
                     }
-                    eprintln!("[MACOS NATIVE] >>>>> flushBuffer() RETURNED - SCREEN NOW UPDATED <<<<<");
+                    eprintln!(
+                        "[MACOS NATIVE] >>>>> flushBuffer() RETURNED - SCREEN NOW UPDATED <<<<<"
+                    );
                 }
             }
             RenderBackend::CPU => {
@@ -2520,7 +2604,6 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
-
         // Update current_window_state based on properties
         if let Some(title) = props.title {
             self.current_window_state.title = title.into();
@@ -2641,6 +2724,27 @@ impl PlatformWindow for MacOSWindow {
             }
             RenderBackend::CPU => RenderContext::CPU,
         }
+    }
+
+    fn present(&mut self) -> Result<(), WindowError> {
+        // For macOS, presentation is handled by the compositor/NSOpenGLContext
+        // The present() method is called by the rendering backend (WebRender)
+        // or directly after CPU rendering
+        match &self.backend {
+            RenderBackend::OpenGL => {
+                // For GPU rendering, flush the OpenGL context
+                if let Some(ref gl_context) = self.gl_context {
+                    unsafe {
+                        let _: () = msg_send![gl_context, flushBuffer];
+                    }
+                }
+            }
+            RenderBackend::CPU => {
+                // For CPU rendering, present is handled by drawRect:
+                // Nothing to do here as the bitmap was already drawn
+            }
+        }
+        Ok(())
     }
 
     fn is_open(&self) -> bool {

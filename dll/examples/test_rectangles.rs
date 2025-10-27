@@ -33,11 +33,19 @@ extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -
         .with_children(
             vec![
                 // Red rectangle with border
-                Dom::div().with_inline_style("width: 200px; height: 100px; background: #FF0000; border: 2px solid #990000; margin-bottom: 20px;"),
+                Dom::div().with_inline_style(
+                    "width: 200px; height: 100px; background: #FF0000; border: 2px solid #990000; \
+                     margin-bottom: 20px;",
+                ),
                 // Green rectangle with border
-                Dom::div().with_inline_style("width: 300px; height: 80px; background: #00FF00; border: 2px solid #009900; margin-bottom: 20px;"),
+                Dom::div().with_inline_style(
+                    "width: 300px; height: 80px; background: #00FF00; border: 2px solid #009900; \
+                     margin-bottom: 20px;",
+                ),
                 // Blue rectangle with border
-                Dom::div().with_inline_style("width: 250px; height: 120px; background: #0000FF; border: 2px solid #000099;"),
+                Dom::div().with_inline_style(
+                    "width: 250px; height: 120px; background: #0000FF; border: 2px solid #000099;",
+                ),
             ]
             .into(),
         );
@@ -105,7 +113,7 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
         eprintln!("[Close Callback] Close confirmation not implemented for this platform");
         // Allow closing on other platforms
         let mut flags = WindowFlags::default();
-        flags.is_about_to_close = true;
+        flags.close_requested = true;
         info.set_window_flags(flags);
     }
 
@@ -115,10 +123,10 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
 #[cfg(feature = "desktop")]
 fn main() {
     eprintln!("=== Rectangle Rendering Test (NO TEXT) ===");
-    
+
     // Load XHTML content using include_bytes!
     let data = XhtmlData {
-        xhtml_content: "",  // Not used
+        xhtml_content: "", // Not used
     };
     let config = AppConfig::new();
     let app = App::new(RefAny::new(data), config);

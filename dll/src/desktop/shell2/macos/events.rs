@@ -694,9 +694,13 @@ impl MacOSWindow {
         let current_hidpi = self.get_hidpi_factor();
         let old_hidpi = self.current_window_state.size.get_hidpi_factor();
 
-        if (current_hidpi - old_hidpi).abs() > 0.001 {
-            eprintln!("[Resize] DPI changed: {} -> {}", old_hidpi, current_hidpi);
-            self.current_window_state.size.dpi = (current_hidpi * 96.0) as u32;
+        if (current_hidpi.inner.get() - old_hidpi.inner.get()).abs() > 0.001 {
+            eprintln!(
+                "[Resize] DPI changed: {} -> {}",
+                old_hidpi.inner.get(),
+                current_hidpi.inner.get()
+            );
+            self.current_window_state.size.dpi = (current_hidpi.inner.get() * 96.0) as u32;
         }
 
         // Notify compositor of resize (this is private in mod.rs, so we inline it here)
@@ -1390,6 +1394,58 @@ impl MacOSWindow {
             || result.threads.is_some()
             || result.threads_removed.is_some()
         {
+            // Track if we need to start/stop the thread timer
+            let mut should_start_thread_timer = false;
+            let mut should_stop_thread_timer = false;
+
+            // Process timers and threads through the layout_window
+            if let Some(layout_window) = self.layout_window.as_mut() {
+                // Add new timers
+                if let Some(timers) = &result.timers {
+                    for (timer_id, timer) in timers {
+                        layout_window.timers.insert(*timer_id, timer.clone());
+                    }
+                }
+
+                // Remove old timers
+                if let Some(timers_removed) = &result.timers_removed {
+                    for timer_id in timers_removed {
+                        layout_window.timers.remove(timer_id);
+                    }
+                }
+
+                // Add new threads
+                if let Some(threads) = &result.threads {
+                    for (thread_id, thread) in threads {
+                        layout_window.threads.insert(*thread_id, thread.clone());
+                    }
+                    // Check if we should start thread tick timer
+                    if !layout_window.threads.is_empty() {
+                        should_start_thread_timer = true;
+                    }
+                }
+
+                // Remove old threads
+                if let Some(threads_removed) = &result.threads_removed {
+                    for thread_id in threads_removed {
+                        layout_window.threads.remove(thread_id);
+                    }
+
+                    // Check if we should stop the thread tick timer
+                    if layout_window.threads.is_empty() {
+                        should_stop_thread_timer = true;
+                    }
+                }
+            }
+
+            // Now handle timer start/stop outside the borrow
+            if should_start_thread_timer {
+                self.start_thread_tick_timer();
+            }
+            if should_stop_thread_timer {
+                self.stop_thread_tick_timer();
+            }
+
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 

@@ -322,13 +322,13 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 /// This is the corrected, architecturally-sound implementation. It solves the
 /// "chicken-and-egg" problem by performing its own two-pass layout:
 ///
-/// 1.  **Sizing Pass:** It first iterates through its children and triggers their
-///     layout recursively by calling `calculate_layout_for_subtree`. This ensures
-///     that the `used_size` property of each child is correctly populated.
+/// 1. **Sizing Pass:** It first iterates through its children and triggers their layout recursively
+///    by calling `calculate_layout_for_subtree`. This ensures that the `used_size` property of each
+///    child is correctly populated.
 ///
-/// 2.  **Positioning Pass:** It then iterates through the children again. Now that
-///     each child has a valid size, it can apply the standard block-flow logic:
-///     stacking them vertically and advancing a "pen" by each child's outer height.
+/// 2. **Positioning Pass:** It then iterates through the children again. Now that each child has a
+///    valid size, it can apply the standard block-flow logic: stacking them vertically and
+///    advancing a "pen" by each child's outer height.
 ///
 /// This approach is compliant with the CSS visual formatting model and works within
 /// the constraints of the existing layout engine architecture.
@@ -339,7 +339,10 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?.clone();
+    let node = tree
+        .get(node_index)
+        .ok_or(LayoutError::InvalidTree)?
+        .clone();
     let writing_mode = constraints.writing_mode;
     let mut output = LayoutOutput::default();
 
@@ -360,7 +363,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // We use a temporary, discarded position map to prevent this sizing pass
         // from polluting the final `absolute_positions` map with incorrect values.
         let mut temp_positions = BTreeMap::new();
-        
+
         // The child's containing block is its parent's content box.
         // The position is a placeholder because we only care about the size calculation here.
         crate::solver3::cache::calculate_layout_for_subtree(
@@ -369,7 +372,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             text_cache,
             child_index,
             LogicalPosition::zero(), // Placeholder position for sizing pass
-            constraints.available_size, // The parent's content-box size is the child's containing block size
+            constraints.available_size, /* The parent's content-box size is the child's containing
+                                      * block size */
             &mut temp_positions,
             &mut bool::default(), // Placeholder for scrollbar reflow detection
         )?;
@@ -399,7 +403,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // 2. Determine the child's position relative to the parent's content-box.
         let child_cross_pos = child_margin.cross_start(writing_mode);
         let child_main_pos = main_pen;
-        
+
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
         output.positions.insert(child_index, final_pos);
@@ -409,19 +413,17 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         main_pen += child_margin.main_end(writing_mode);
 
         // 4. Track the maximum cross-axis size to determine the BFC's overflow size.
-        let child_cross_extent = child_cross_pos
-            + child_size.cross(writing_mode)
-            + child_margin.cross_end(writing_mode);
+        let child_cross_extent =
+            child_cross_pos + child_size.cross(writing_mode) + child_margin.cross_end(writing_mode);
         max_cross_size = max_cross_size.max(child_cross_extent);
     }
 
     // The final overflow size is determined by the final pen position and the max cross size.
-    output.overflow_size =
-        LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
+    output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
 
     // Baseline calculation would happen here in a full implementation.
     output.baseline = None;
-    
+
     if let Some(node_mut) = tree.get_mut(node_index) {
         node_mut.baseline = output.baseline;
     }

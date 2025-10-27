@@ -720,6 +720,30 @@ pub struct CallCallbacksResult {
     pub prevent_default: bool,
 }
 
+impl Default for CallCallbacksResult {
+    fn default() -> Self {
+        Self {
+            should_scroll_render: false,
+            callbacks_update_screen: Update::DoNothing,
+            modified_window_state: None,
+            words_changed: None,
+            images_changed: None,
+            image_masks_changed: None,
+            css_properties_changed: None,
+            nodes_scrolled_in_callbacks: None,
+            update_focused_node: None,
+            timers: None,
+            threads: None,
+            timers_removed: None,
+            threads_removed: None,
+            windows_created: Vec::new(),
+            cursor_changed: false,
+            stop_propagation: false,
+            prevent_default: false,
+        }
+    }
+}
+
 impl CallCallbacksResult {
     pub fn cursor_changed(&self) -> bool {
         self.cursor_changed

@@ -59,11 +59,17 @@ extern "C" fn layout_callback(_data: &mut RefAny, _info: &mut LayoutCallbackInfo
             .into(),
         );
 
-    eprintln!("[layout_callback] Dom created with {} nodes", dom.node_count());
+    eprintln!(
+        "[layout_callback] Dom created with {} nodes",
+        dom.node_count()
+    );
     let _ = std::io::stderr().flush();
 
     let styled = dom.style(CssApiWrapper { css: Css::empty() });
-    eprintln!("[layout_callback] StyledDom created with {} nodes", styled.styled_nodes.len());
+    eprintln!(
+        "[layout_callback] StyledDom created with {} nodes",
+        styled.styled_nodes.len()
+    );
     let _ = std::io::stderr().flush();
 
     styled
@@ -71,10 +77,12 @@ extern "C" fn layout_callback(_data: &mut RefAny, _info: &mut LayoutCallbackInfo
 
 fn main() {
     use std::sync::Arc;
-    use azul_core::resources::RendererResources;
-    use azul_core::window::WindowSize;
-    use azul_layout::window::LayoutWindow;
-    use azul_layout::cpurender::{render, RenderOptions};
+
+    use azul_core::{resources::RendererResources, window::WindowSize};
+    use azul_layout::{
+        cpurender::{render, RenderOptions},
+        window::LayoutWindow,
+    };
     use rust_fontconfig::FcFontCache;
 
     eprintln!("\n=== CPU Render Test ===\n");
@@ -86,8 +94,8 @@ fn main() {
 
     // Create LayoutWindow
     eprintln!("[main] Creating LayoutWindow...");
-    let mut layout_window = LayoutWindow::new((*fc_cache).clone())
-        .expect("Failed to create LayoutWindow");
+    let mut layout_window =
+        LayoutWindow::new((*fc_cache).clone()).expect("Failed to create LayoutWindow");
 
     // Set up window size (640x480 like in test_display_list)
     let size = WindowSize {
@@ -112,7 +120,10 @@ fn main() {
 
     let styled_dom = layout_callback(&mut app_data, &mut callback_info);
 
-    eprintln!("[main] StyledDom has {} nodes", styled_dom.styled_nodes.len());
+    eprintln!(
+        "[main] StyledDom has {} nodes",
+        styled_dom.styled_nodes.len()
+    );
 
     // Perform layout
     eprintln!("[main] Performing layout...");
@@ -130,7 +141,10 @@ fn main() {
     eprintln!("[main] Layout completed successfully");
 
     // Get the display list for DOM 0
-    if let Some(layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+    if let Some(layout_result) = layout_window
+        .layout_results
+        .get(&azul_core::dom::DomId::ROOT_ID)
+    {
         let display_list = &layout_result.display_list;
         eprintln!("[main] Display list has {} items", display_list.items.len());
 
@@ -151,7 +165,8 @@ fn main() {
                 height: 480.0,
                 dpi_factor: 1.0,
             },
-        ).expect("Failed to render");
+        )
+        .expect("Failed to render");
 
         // Save to PNG
         let output_path = "test_cpurender_output.png";
