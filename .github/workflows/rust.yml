@@ -43,7 +43,7 @@ jobs:
           - build: macos-x64
             os: macos-11
           - build: windows-x64
-            os: windows-2019
+            os: windows-2022
           - build: linux-x64
             os: ubuntu-22.04
     steps:
