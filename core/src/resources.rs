@@ -2304,11 +2304,18 @@ pub fn add_resources(
     for (_, add_font_msg) in add_font_resources {
         use self::AddFontMsg::*;
         match add_font_msg {
-            Font(fk, _hash, font_ref) => {
+            Font(fk, font_family_hash, font_ref) => {
                 renderer_resources
                     .currently_registered_fonts
                     .entry(fk)
-                    .or_insert_with(|| (font_ref, FastHashMap::default()));
+                    .or_insert_with(|| (font_ref.clone(), FastHashMap::default()));
+                
+                // CRITICAL: Map font_hash to FontKey so we can look it up during rendering
+                renderer_resources.font_hash_map.insert(font_ref.get_hash(), fk);
+                eprintln!(
+                    "[add_resources] Registered font_hash {} -> FontKey {:?}",
+                    font_ref.get_hash(), fk
+                );
             }
             Instance(fi, size) => {
                 if let Some((_, instances)) = renderer_resources

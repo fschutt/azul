@@ -12,7 +12,7 @@ use azul_css::props::{
     basic::{color::ColorU, pixel::PixelValue},
     style::border_radius::StyleBorderRadius,
 };
-use azul_layout::solver3::display_list::DisplayList;
+use DisplayList;
 use webrender::{
     api::{
         units::{
@@ -29,39 +29,39 @@ use webrender::{
 
 use crate::desktop::wr_translate2::{wr_translate_border_radius, wr_translate_color_f};
 
-/// Translate an Azul DisplayList to WebRender Transaction
+/// Translate an Azul DisplayList to WebRender DisplayList and resources
+/// Returns (resources, display_list) tuple that can be added to a transaction by caller
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
     viewport_size: DeviceIntSize,
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: f32,
-) -> Result<Transaction, String> {
+    wr_resources: Vec<WrResourceUpdate>,
+) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
     eprintln!(
-        "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, dpi={}",
+        "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, dpi={}, {} resources",
         display_list.items.len(),
         viewport_size,
-        dpi
+        dpi,
+        wr_resources.len()
     );
     use azul_core::geom::LogicalRect;
-    use azul_layout::solver3::display_list::DisplayListItem;
+    use DisplayListItem;
 
     use crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id;
-
-    let mut txn = Transaction::new();
-
-    // NOTE: Do NOT set_root_pipeline here - it's set in generate_frame()
-    // Setting it twice may confuse WebRender
-
-    let device_rect = DeviceIntRect::from_size(viewport_size);
-    eprintln!("[compositor2] Setting document view to {:?}", device_rect);
-    txn.set_document_view(device_rect);
+    
+    // NOTE: Caller (generate_frame) will add resources to transaction
+    // NOTE: Caller (generate_frame) will set document_view
+    // We just build the display list here
 
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
 
     // CRITICAL: Begin building the display list before pushing items
+    eprintln!("[compositor2] >>>>> CALLING builder.begin() <<<<<");
     builder.begin();
+    eprintln!("[compositor2] >>>>> builder.begin() RETURNED <<<<<");
     eprintln!(
         "[compositor2] Builder started, translating {} items",
         display_list.items.len()
@@ -138,10 +138,12 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
+                    eprintln!("[compositor2] >>>>> push_rect (with clip): {:?} <<<<<", rect);
                     builder.push_rect(&info_clipped, rect, color_f);
                     continue;
                 }
 
+                eprintln!("[compositor2] >>>>> push_rect: {:?} <<<<<", rect);
                 builder.push_rect(&info, rect, color_f);
             }
 
@@ -353,6 +355,19 @@ pub fn translate_displaylist_to_wr(
                 color,
                 clip_rect,
             } => {
+                eprintln!(
+                    "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}",
+                    glyphs.len(), font_size_px, color, clip_rect
+                );
+                
+                // Log first few glyph positions for debugging
+                if !glyphs.is_empty() {
+                    eprintln!("[compositor2] First 3 glyphs:");
+                    for (i, g) in glyphs.iter().take(3).enumerate() {
+                        eprintln!("  [{}] index={}, pos=({}, {})", i, g.index, g.point.x, g.point.y);
+                    }
+                }
+                
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
                     LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
@@ -393,16 +408,20 @@ pub fn translate_displaylist_to_wr(
                 // Just push a simple stacking context at the bounds origin
                 // Use the current spatial_id from the stack (don't create a new reference frame)
                 let current_spatial_id = *spatial_stack.last().unwrap();
+                eprintln!("[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<", bounds.origin.x, bounds.origin.y);
                 builder.push_simple_stacking_context(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
+                eprintln!("[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<");
             }
 
             DisplayListItem::PopStackingContext => {
                 eprintln!("[compositor2] PopStackingContext");
+                eprintln!("[compositor2] >>>>> pop_stacking_context <<<<<");
                 builder.pop_stacking_context();
+                eprintln!("[compositor2] >>>>> pop_stacking_context RETURNED <<<<<");
             }
 
             DisplayListItem::IFrame { .. } => {
@@ -414,12 +433,14 @@ pub fn translate_displaylist_to_wr(
     // NOTE: We DON'T pop a stacking context here anymore!
     // The display list now includes PopStackingContext items that match the Push items.
 
-    // Finalize and set display list
+    // Finalize and return display list
+    eprintln!("[compositor2] >>>>> CALLING builder.end() <<<<<");
     let (_, dl) = builder.end();
+    eprintln!("[compositor2] >>>>> builder.end() RETURNED <<<<<");
 
-    eprintln!("[compositor2] Builder finished, creating transaction");
+    eprintln!("[compositor2] Builder finished, returning ({} resources, display_list)", wr_resources.len());
 
-    // Print detailed display list summary before submitting
+    // Print detailed display list summary before returning
     eprintln!("=== Display List Summary ===");
     eprintln!("Pipeline: {:?}", pipeline_id);
     eprintln!("Viewport: {:?}", viewport_size);
@@ -429,12 +450,7 @@ pub fn translate_displaylist_to_wr(
     }
     eprintln!("============================");
 
-    let layout_size = LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32);
-    eprintln!("[compositor2] Calling txn.set_display_list with epoch 0");
-    txn.set_display_list(webrender::api::Epoch(0), (pipeline_id, dl));
-
-    eprintln!("[compositor2] Transaction ready to send");
-    Ok(txn)
+    Ok((wr_resources, dl))
 }
 
 /// Software compositor stubs
@@ -479,9 +495,8 @@ pub mod hw_compositor {
 /// Convert DisplayList BorderRadius to StyleBorderRadius
 #[inline]
 fn convert_border_radius_to_style(
-    br: &azul_layout::solver3::display_list::BorderRadius,
+    br: &BorderRadius,
 ) -> StyleBorderRadius {
-    use azul_css::props::basic::pixel::PixelValue;
     StyleBorderRadius {
         top_left: PixelValue::px(br.top_left),
         top_right: PixelValue::px(br.top_right),
@@ -501,7 +516,6 @@ fn define_border_radius_clip(
     rect_spatial_id: SpatialId,
     parent_clip_chain_id: WrClipChainId,
 ) -> WrClipChainId {
-    use crate::desktop::wr_translate2::wr_translate_logical_size;
 
     // NOTE: only translate the size, position is always (0.0, 0.0)
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
@@ -537,7 +551,6 @@ fn push_text(
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
 ) {
-    use crate::desktop::wr_translate2::wr_translate_layouted_glyphs;
 
     // Look up FontKey from the font_hash (which comes from the GlyphRun)
     // The font_hash is the hash of FontRef computed during layout
@@ -572,6 +585,11 @@ fn push_text(
     let wr_font_instance_key =
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
+
+    eprintln!(
+        "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}",
+        wr_glyphs.len(), wr_font_instance_key, wr_color
+    );
 
     // Push text to display list
     builder.push_text(

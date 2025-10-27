@@ -17,7 +17,11 @@ use azul_core::{
     hit_test::{DocumentId, PipelineId},
     window::CursorPosition,
 };
-use azul_layout::{hit_test::FullHitTest, window::DomLayoutResult};
+use azul_layout::{
+    hit_test::FullHitTest, 
+    window::DomLayoutResult,
+    text3::cache::ParsedFontTrait, // For get_hash() method
+};
 use webrender::{
     api::{
         units::WorldPoint as WrWorldPoint, ApiHitTester as WrApiHitTester,
@@ -96,8 +100,6 @@ impl WrRenderNotifier for Notifier {
 }
 
 /// Shader cache (TODO: implement proper caching)
-
-/// Shader cache (TODO: implement proper caching)
 pub const WR_SHADER_CACHE: Option<&Rc<RefCell<webrender::Shaders>>> = None;
 
 /// Default WebRender renderer options
@@ -118,8 +120,7 @@ pub fn default_renderer_options(
             a: options.state.background_color.a as f32 / 255.0,
         },
         enable_multithreading: false,
-        debug_flags: webrender::api::DebugFlags::empty(), /* TODO: translate from
-                                                           * options.state.debug_state */
+        debug_flags: wr_translate_debug_flags(&options.state.debug_state),
         ..WrRendererOptions::default()
     }
 }
@@ -153,6 +154,73 @@ impl webrender::api::ExternalImageHandler for Compositor {
     fn unlock(&mut self, _key: webrender::api::ExternalImageId, _channel_index: u8) {
         // Single-threaded renderer, nothing to unlock
     }
+}
+
+pub fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
+    let mut debug_flags = WrDebugFlags::empty();
+
+    debug_flags.set(WrDebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    debug_flags.set(WrDebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    debug_flags.set(WrDebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    debug_flags.set(WrDebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    debug_flags.set(
+        WrDebugFlags::GPU_SAMPLE_QUERIES,
+        new_flags.gpu_sample_queries,
+    );
+    debug_flags.set(WrDebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    debug_flags.set(WrDebugFlags::EPOCHS, new_flags.epochs);
+    debug_flags.set(
+        WrDebugFlags::ECHO_DRIVER_MESSAGES,
+        new_flags.echo_driver_messages,
+    );
+    debug_flags.set(WrDebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    debug_flags.set(WrDebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
+    debug_flags.set(
+        WrDebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED,
+        new_flags.texture_cache_dbg_clear_evicted,
+    );
+    debug_flags.set(
+        WrDebugFlags::PICTURE_CACHING_DBG,
+        new_flags.picture_caching_dbg,
+    );
+    debug_flags.set(WrDebugFlags::PRIMITIVE_DBG, new_flags.primitive_dbg);
+    debug_flags.set(WrDebugFlags::ZOOM_DBG, new_flags.zoom_dbg);
+    debug_flags.set(WrDebugFlags::SMALL_SCREEN, new_flags.small_screen);
+    debug_flags.set(
+        WrDebugFlags::DISABLE_OPAQUE_PASS,
+        new_flags.disable_opaque_pass,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_ALPHA_PASS,
+        new_flags.disable_alpha_pass,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_CLIP_MASKS,
+        new_flags.disable_clip_masks,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_TEXT_PRIMS,
+        new_flags.disable_text_prims,
+    );
+    debug_flags.set(
+        WrDebugFlags::DISABLE_GRADIENT_PRIMS,
+        new_flags.disable_gradient_prims,
+    );
+    debug_flags.set(WrDebugFlags::OBSCURE_IMAGES, new_flags.obscure_images);
+    debug_flags.set(WrDebugFlags::GLYPH_FLASHING, new_flags.glyph_flashing);
+    debug_flags.set(WrDebugFlags::SMART_PROFILER, new_flags.smart_profiler);
+    debug_flags.set(WrDebugFlags::INVALIDATION_DBG, new_flags.invalidation_dbg);
+    debug_flags.set(
+        WrDebugFlags::TILE_CACHE_LOGGING_DBG,
+        new_flags.tile_cache_logging_dbg,
+    );
+    debug_flags.set(WrDebugFlags::PROFILER_CAPTURE, new_flags.profiler_capture);
+    debug_flags.set(
+        WrDebugFlags::FORCE_PICTURE_INVALIDATION,
+        new_flags.force_picture_invalidation,
+    );
+
+    debug_flags
 }
 
 /// Translate DocumentId from azul-core to WebRender
@@ -472,71 +540,227 @@ pub fn fullhittest_new_webrender(
 // They provide the basic structure for translating azul layout results
 // to WebRender display lists and managing frames.
 
-use azul_core::resources::{ImageCache, ResourceUpdate};
+use azul_core::resources::{ImageCache, ResourceUpdate, FontKey, AddFont, AddFontInstance, Au, DpiScaleFactor};
 use azul_layout::window::LayoutWindow;
+use std::collections::{HashMap, HashSet};
+
+/// Generate FontKey deterministically from font hash
+/// This ensures the same font always gets the same key across frames
+fn font_key_from_hash(font_hash: u64) -> FontKey {
+    // Split the 64-bit hash into namespace (upper 32 bits) and key (lower 32 bits)
+    let namespace = ((font_hash >> 32) & 0xFFFFFFFF) as u32;
+    let key = (font_hash & 0xFFFFFFFF) as u32;
+    
+    // Ensure namespace is non-zero (WebRender requirement)
+    let namespace = if namespace == 0 { 1 } else { namespace };
+    
+    FontKey {
+        namespace: azul_core::resources::IdNamespace(namespace),
+        key,
+    }
+}
+
+/// Collect all fonts used in layout results and generate ResourceUpdates
+///
+/// This scans all display lists for Text items, extracts their font_hashes,
+/// loads the fonts from the FontManager, and creates AddFont + AddFontInstance ResourceUpdates.
+///
+/// CRITICAL: FontKey is generated deterministically from font hash to ensure
+/// consistency between layout (which uses hash) and rendering (which uses key).
+pub fn collect_font_resource_updates(
+    layout_window: &LayoutWindow,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: f32,
+) -> Vec<ResourceUpdate> {
+    use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
+    use azul_core::resources::{
+        AddFontInstance, FontInstanceKey, FontInstanceOptions, 
+        FontInstancePlatformOptions, FontRenderMode, IdNamespace,
+        FONT_INSTANCE_FLAG_NO_AUTOHINT,
+    };
+    use std::collections::BTreeMap;
+    
+    eprintln!("[collect_font_resource_updates] Scanning {} DOMs for fonts", layout_window.layout_results.len());
+    
+    // Map from font_hash to set of font sizes
+    let mut font_hash_sizes: BTreeMap<u64, HashSet<Au>> = BTreeMap::new();
+    let mut resource_updates = Vec::new();
+    
+    // Collect all unique font hash + size combinations from display lists
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        for item in &layout_result.display_list.items {
+            if let DisplayListItem::Text { font_hash, font_size_px, .. } = item {
+                let font_sizes = font_hash_sizes.entry(font_hash.font_hash).or_insert_with(HashSet::new);
+                let font_size_au = Au::from_px(*font_size_px);
+                font_sizes.insert(font_size_au);
+            }
+        }
+    }
+    
+    eprintln!("[collect_font_resource_updates] Found {} unique fonts with various sizes", font_hash_sizes.len());
+    
+    let dpi_factor = DpiScaleFactor::new(dpi);
+    
+    // For each font hash, check if it's already registered
+    for (&font_hash, font_sizes) in &font_hash_sizes {
+        let font_key = font_key_from_hash(font_hash);
+        
+        // Check if font itself is already registered
+        let font_needs_registration = !renderer_resources.font_hash_map.contains_key(&font_hash);
+        
+        if font_needs_registration {
+            // Get the FontRef from the layout's font manager
+            if let Some(font_ref) = layout_window.font_manager.get_font_by_hash(font_hash) {
+                eprintln!(
+                    "[collect_font_resource_updates] Font found, parsed ptr: {:?}",
+                    font_ref.get_parsed()
+                );
+                
+                resource_updates.push(ResourceUpdate::AddFont(AddFont {
+                    key: font_key,
+                    font: font_ref.clone(),
+                }));
+                
+                eprintln!("[collect_font_resource_updates] ✓ Created AddFont for hash {} -> key {:?}", font_hash, font_key);
+            } else {
+                eprintln!("[collect_font_resource_updates] ✗ WARNING: Font {} not found in FontManager!", font_hash);
+                continue;
+            }
+        }
+        
+        // Register font instances for each size
+        for &font_size in font_sizes {
+            // Check if this font instance already exists
+            let instance_exists = renderer_resources
+                .currently_registered_fonts
+                .get(&font_key)
+                .and_then(|(_, instances)| instances.get(&(font_size, dpi_factor)))
+                .is_some();
+            
+            if !instance_exists {
+                let font_instance_key = FontInstanceKey::unique(IdNamespace((font_hash >> 32) as u32));
+                
+                #[cfg(target_os = "macos")]
+                let platform_options = FontInstancePlatformOptions::default();
+                
+                #[cfg(target_os = "windows")]
+                let platform_options = FontInstancePlatformOptions {
+                    gamma: 300,
+                    contrast: 100,
+                    cleartype_level: 100,
+                };
+                
+                #[cfg(target_os = "linux")]
+                let platform_options = FontInstancePlatformOptions {
+                    lcd_filter: azul_core::resources::FontLCDFilter::Default,
+                    hinting: azul_core::resources::FontHinting::Normal,
+                };
+                
+                let options = FontInstanceOptions {
+                    render_mode: FontRenderMode::Subpixel,
+                    flags: FONT_INSTANCE_FLAG_NO_AUTOHINT,
+                    ..Default::default()
+                };
+                
+                resource_updates.push(ResourceUpdate::AddFontInstance(AddFontInstance {
+                    key: font_instance_key,
+                    font_key,
+                    glyph_size: (font_size, dpi_factor),
+                    options: Some(options),
+                    platform_options: Some(platform_options),
+                    variations: Vec::new(),
+                }));
+                
+                eprintln!(
+                    "[collect_font_resource_updates] ✓ Created AddFontInstance for size {:?} @ dpi {:?}",
+                    font_size, dpi_factor
+                );
+            }
+        }
+    }
+    
+    eprintln!("[collect_font_resource_updates] Generated {} resource updates", resource_updates.len());
+    resource_updates
+}
 
 /// Rebuild display list from layout results and send to WebRender
 ///
 /// This is a stub - full implementation will translate DomLayoutResult
 /// display lists to WebRender format using compositor2.
 pub fn rebuild_display_list(
+    txn: &mut WrTransaction,
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
-    resources: Vec<ResourceUpdate>,
-    renderer_resources: &azul_core::resources::RendererResources,
+    mut resources: Vec<ResourceUpdate>,
+    renderer_resources: &mut azul_core::resources::RendererResources,
     dpi: f32,
 ) {
     use webrender::api::units::DeviceIntSize;
 
-    let mut txn = WrTransaction::new();
+    // CRITICAL: Collect fonts used in display lists FIRST
+    // This must happen before any resources are sent, so fonts are available for rendering
+    let font_updates = collect_font_resource_updates(layout_window, renderer_resources, dpi);
+    
+    if !font_updates.is_empty() {
+        eprintln!("[rebuild_display_list] Adding {} font updates to resource list", font_updates.len());
+        resources.extend(font_updates);
+    }
 
     // Get viewport size for display list translation
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let viewport_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
-    // Translate display lists for all DOMs (root + iframes)
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        // DomId maps to PipelineId namespace
-        let pipeline_id = wr_translate_pipeline_id(PipelineId(
-            dom_id.inner as u32,
-            layout_window.document_id.id,
-        ));
-
-        // Translate Azul DisplayList to WebRender Transaction
-        match crate::desktop::compositor2::translate_displaylist_to_wr(
-            &layout_result.display_list,
-            pipeline_id,
-            viewport_size,
-            renderer_resources,
-            dpi,
-        ) {
-            Ok(dl_txn) => {
-                eprintln!(
-                    "[rebuild_display_list] Sending display list transaction for DOM {} to \
-                     document {:?}",
-                    dom_id.inner, layout_window.document_id
-                );
-                // Merge display list transaction into main transaction
-                // Note: WebRender Transaction doesn't support merging,
-                // so we need to rebuild the transaction with display list
-                // For now, just send it separately
-                render_api
-                    .send_transaction(wr_translate_document_id(layout_window.document_id), dl_txn);
-                eprintln!("[rebuild_display_list] Display list transaction sent");
-            }
-            Err(e) => {
-                eprintln!(
-                    "[rebuild_display_list] Error translating display list for DOM {}: {}",
-                    dom_id.inner, e
-                );
+    // Process and prepare resources (Update internal state but don't send yet)
+    let wr_resources = if !resources.is_empty() {
+    
+        // CRITICAL: Update font_hash_map and currently_registered_fonts as we process resources
+        // This is needed for push_text to look up FontKey from font_hash
+        for resource in &resources {
+            match resource {
+                ResourceUpdate::AddFont(ref add_font) => {
+                    // Update font_hash_map
+                    renderer_resources.font_hash_map.insert(
+                        add_font.font.get_hash(),
+                        add_font.key
+                    );
+                    
+                    // Update currently_registered_fonts with empty instance map
+                    renderer_resources
+                        .currently_registered_fonts
+                        .entry(add_font.key)
+                        .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
+                    
+                    eprintln!(
+                        "[rebuild_display_list] Registered font_hash {} -> FontKey {:?}",
+                        add_font.font.get_hash(), add_font.key
+                    );
+                },
+                ResourceUpdate::AddFontInstance(ref add_font_instance) => {
+                    // Update currently_registered_fonts with font instance
+                    if let Some((_, instances)) = renderer_resources
+                        .currently_registered_fonts
+                        .get_mut(&add_font_instance.font_key)
+                    {
+                        let size = add_font_instance.glyph_size; // Already (Au, DpiScaleFactor) tuple
+                        instances.insert(size, add_font_instance.key);
+                        eprintln!(
+                            "[rebuild_display_list] Registered FontInstanceKey {:?} for FontKey {:?} at size {:?}",
+                            add_font_instance.key, add_font_instance.font_key, size
+                        );
+                    } else {
+                        eprintln!(
+                            "[rebuild_display_list] WARNING: AddFontInstance for unknown FontKey {:?}",
+                            add_font_instance.font_key
+                        );
+                    }
+                },
+                _ => {}
             }
         }
-    }
-
-    // Update resources (images, fonts)
-    if !resources.is_empty() {
+        
         // Convert azul_core ResourceUpdates to webrender ResourceUpdates
+        let original_count = resources.len();
         let wr_resources: Vec<webrender::ResourceUpdate> = resources
             .into_iter()
             .filter_map(|r| translate_resource_update(r))
@@ -544,7 +768,60 @@ pub fn rebuild_display_list(
 
         if !wr_resources.is_empty() {
             txn.update_resources(wr_resources);
-            render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
+        }
+    }
+
+    // Translate display lists for all DOMs (root + iframes)
+    // IMPORTANT: We CACHE the translated display lists here, but DON'T SEND them yet
+    // generate_frame() will collect them and send everything in ONE transaction:
+    // 
+    // - resources
+    // - display lists for all DOMs
+    // - root_pipeline
+    // - document_view
+    // - scroll offsets
+    // 
+    // This ensures WebRender has all data in one consistent state
+    
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        // DomId maps to PipelineId namespace
+        let pipeline_id = wr_translate_pipeline_id(PipelineId(
+            dom_id.inner as u32,
+            layout_window.document_id.id,
+        ));
+
+        // Pass resources only for the first DOM (root)
+        // Other DOMs (iframes) don't need resources re-sent
+        let resources_for_dom = if dom_id.inner == 0 {
+            wr_resources.clone()
+        } else {
+            Vec::new()
+        };
+
+        // Translate Azul DisplayList to WebRender DisplayList + resources
+        match crate::desktop::compositor2::translate_displaylist_to_wr(
+            txn,
+            &layout_result.display_list,
+            pipeline_id,
+            viewport_size,
+            renderer_resources,
+            dpi,
+            resources_for_dom,
+        ) {
+            Ok((resources_for_dom, built_display_list)) => {
+                eprintln!(
+                    "[rebuild_display_list] Translated display list for DOM {} ({} resources, {} DL items)",
+                    dom_id.inner, resources_for_dom.len(), layout_result.display_list.items.len()
+                );
+                // TODO: CACHE (resources_for_dom, built_display_list, pipeline_id) 
+                // For now we just log success - generate_frame() will rebuild if needed
+            }
+            Err(e) => {
+                eprintln!(
+                    "[rebuild_display_list] Error translating display list for DOM {}: {}",
+                    dom_id.inner, e
+                );
+            }
         }
     }
 }
@@ -596,6 +873,7 @@ fn translate_image_format(
         RawImageFormat::RGBA8 => ImageFormat::RGBA8,
         RawImageFormat::BGRA8 => ImageFormat::BGRA8,
         RawImageFormat::RGBAF32 => ImageFormat::RGBAF32,
+
         // Formats not supported by WebRender - convert to closest equivalent
         RawImageFormat::RGB8 => ImageFormat::RGBA8, // Add alpha channel
         RawImageFormat::RGB16 => ImageFormat::RGBA8, // Convert to 8-bit with alpha
@@ -606,11 +884,7 @@ fn translate_image_format(
 }
 
 /// Translate AddImage from azul-core to WebRender
-fn translate_add_image(add_image: azul_core::resources::AddImage) -> Option<webrender::AddImage> {
-    use webrender::api::{
-        units::DeviceIntSize, ImageDescriptor as WrImageDescriptor,
-        ImageDescriptorFlags as WrImageDescriptorFlags,
-    };
+fn translate_add_image(add_image: AddImage) -> Option<WrAddImage> {
 
     let mut flags = WrImageDescriptorFlags::empty();
     if add_image.descriptor.flags.is_opaque {
@@ -639,14 +913,8 @@ fn translate_add_image(add_image: azul_core::resources::AddImage) -> Option<webr
 
 /// Translate UpdateImage from azul-core to WebRender
 fn translate_update_image(
-    update_image: azul_core::resources::UpdateImage,
-) -> Option<webrender::UpdateImage> {
-    use azul_core::resources::ImageDirtyRect;
-    use webrender::api::{
-        units::{DeviceIntPoint, DeviceIntSize},
-        DirtyRect, ImageDescriptor as WrImageDescriptor,
-        ImageDescriptorFlags as WrImageDescriptorFlags,
-    };
+    update_image: UpdateImage,
+) -> Option<WrUpdateImage> {
 
     let mut flags = WrImageDescriptorFlags::empty();
     if update_image.descriptor.flags.is_opaque {
@@ -675,7 +943,7 @@ fn translate_update_image(
         }
     };
 
-    Some(webrender::UpdateImage {
+    Some(WrUpdateImage {
         key: translate_image_key(update_image.key),
         descriptor: WrImageDescriptor {
             format: translate_image_format(update_image.descriptor.format),
@@ -696,6 +964,12 @@ fn translate_update_image(
 fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrender::AddFont> {
     // WebRender's AddFont is an enum with Parsed variant
     // azul-core's AddFont already has both key and FontRef
+    eprintln!(
+        "[translate_add_font] Translating FontKey {:?}, parsed ptr: {:?}",
+        add_font.key,
+        add_font.font.get_parsed()
+    );
+    
     Some(webrender::AddFont::Parsed(
         translate_font_key(add_font.key),
         add_font.font, // FontRef is Clone
@@ -704,14 +978,20 @@ fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrend
 
 /// Translate AddFontInstance from azul-core to WebRender  
 fn translate_add_font_instance(
-    add_instance: azul_core::resources::AddFontInstance,
-) -> Option<webrender::AddFontInstance> {
-    use webrender::api::FontInstanceOptions as WrFontInstanceOptions;
+    add_instance: AddFontInstance,
+) -> Option<WrAddFontInstance> {
 
     // Convert Au to f32 pixels: Au units are 1/60th of a pixel
-    let glyph_size_px = (add_instance.glyph_size.0 .0 as f32) / 60.0;
+    // glyph_size is (Au, DpiScaleFactor)
+    let font_size_au = add_instance.glyph_size.0;
+    let glyph_size_px = (font_size_au.0 as f32) / 60.0;
+    
+    eprintln!(
+        "[translate_add_font_instance] Converting Au({}) to {}px",
+        font_size_au.0, glyph_size_px
+    );
 
-    Some(webrender::AddFontInstance {
+    Some(WrAddFontInstance {
         key: wr_translate_font_instance_key(add_instance.key),
         font_key: translate_font_key(add_instance.font_key),
         glyph_size: glyph_size_px,
@@ -723,12 +1003,12 @@ fn translate_add_font_instance(
         }),
         platform_options: add_instance.platform_options.map(|_opts| {
             // Platform options are platform-specific, for now use defaults
-            webrender::api::FontInstancePlatformOptions::default()
+            WrFontInstancePlatformOptions::default()
         }),
         variations: add_instance
             .variations
             .iter()
-            .map(|v| webrender::api::FontVariation {
+            .map(|v|WrFontVariation {
                 tag: v.tag,
                 value: v.value,
             })
@@ -737,20 +1017,17 @@ fn translate_add_font_instance(
 }
 
 /// Translate ImageKey from azul-core to WebRender
-fn translate_image_key(key: azul_core::resources::ImageKey) -> webrender::api::ImageKey {
-    webrender::api::ImageKey(wr_translate_id_namespace(key.namespace), key.key)
+fn translate_image_key(key: ImageKey) -> WrImageKey {
+    WrImageKey(wr_translate_id_namespace(key.namespace), key.key)
 }
 
 /// Translate FontKey from azul-core to WebRender
-fn translate_font_key(key: azul_core::resources::FontKey) -> webrender::api::FontKey {
-    webrender::api::FontKey(wr_translate_id_namespace(key.namespace), key.key)
+fn translate_font_key(key: FontKey) -> WrFontKey {
+    WrFontKey(wr_translate_id_namespace(key.namespace), key.key)
 }
 
 /// Translate ImageData from azul-core to WebRender
-fn translate_image_data(data: azul_core::resources::ImageData) -> webrender::api::ImageData {
-    use azul_core::resources::ImageData as AzImageData;
-    use webrender::api::ImageData as WrImageData;
-
+fn translate_image_data(data: azul_core::resources::ImageData) -> WrImageData {
     match data {
         // TODO: remove this cloning the image data once imagedata is migrated to ImageRef
         AzImageData::Raw(arc_vec) => WrImageData::Raw(Arc::new(arc_vec.as_slice().to_vec())),
@@ -764,10 +1041,8 @@ fn translate_image_data(data: azul_core::resources::ImageData) -> webrender::api
 }
 
 /// Translate SyntheticItalics from azul-core to WebRender
-fn wr_translate_synthetic_italics(
-    italics: azul_core::resources::SyntheticItalics,
-) -> webrender::api::SyntheticItalics {
-    webrender::api::SyntheticItalics {
+fn wr_translate_synthetic_italics(italics: SyntheticItalics) -> WrSyntheticItalics {
+    WrSyntheticItalics {
         angle: italics.angle,
     }
 }
@@ -777,14 +1052,11 @@ fn wr_translate_synthetic_italics(
 /// This function sets up the scene and tells WebRender to render.
 /// Uses DomId-based pipeline management for iframe support.
 pub fn generate_frame(
+    txn: &mut WrTransaction,
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     display_list_was_rebuilt: bool,
 ) {
-    use webrender::api::units::{
-        DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
-        DeviceIntSize as WrDeviceIntSize,
-    };
 
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
@@ -795,13 +1067,123 @@ pub fn generate_frame(
         return;
     }
 
-    let mut txn = WrTransaction::new();
+    // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender order)
+    let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
+
+    // If display list was rebuilt, add resources and display lists to this transaction FIRST
+    if display_list_was_rebuilt {
+        eprintln!("[generate_frame] Display list was rebuilt - adding resources and display lists to transaction");
+        
+        // Re-collect font resources (already cached in renderer_resources)
+        let font_updates = collect_font_resource_updates(
+            layout_window, 
+            &layout_window.renderer_resources, 
+            layout_window.current_window_state.size.get_hidpi_factor()
+        );
+        
+        // Update font_hash_map and currently_registered_fonts as we process resources
+        // This is CRITICAL for push_text() to look up FontKey from font_hash
+        for resource in &font_updates {
+            match resource {
+                ResourceUpdate::AddFont(ref add_font) => {
+                    // Update font_hash_map
+                    layout_window.renderer_resources.font_hash_map.insert(
+                        add_font.font.get_hash(),
+                        add_font.key
+                    );
+                    
+                    // Update currently_registered_fonts with empty instance map
+                    layout_window.renderer_resources
+                        .currently_registered_fonts
+                        .entry(add_font.key)
+                        .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
+                    
+                    eprintln!(
+                        "[generate_frame] Registered font_hash {} -> FontKey {:?}",
+                        add_font.font.get_hash(), add_font.key
+                    );
+                },
+                ResourceUpdate::AddFontInstance(ref add_font_instance) => {
+                    // Update currently_registered_fonts with font instance
+                    if let Some((_, instances)) = layout_window.renderer_resources
+                        .currently_registered_fonts
+                        .get_mut(&add_font_instance.font_key)
+                    {
+                        let size = add_font_instance.glyph_size;
+                        instances.insert(size, add_font_instance.key);
+                        eprintln!(
+                            "[generate_frame] Registered FontInstanceKey {:?} for FontKey {:?} at size {:?}",
+                            add_font_instance.key, add_font_instance.font_key, size
+                        );
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        // Translate to WebRender resources
+        if !font_updates.is_empty() {
+            let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
+                .into_iter()
+                .filter_map(|r| translate_resource_update(r))
+                .collect();
+                
+            eprintln!("[generate_frame] Adding {} resources to transaction", wr_resources.len());
+            txn.update_resources(wr_resources);
+        }
+        
+        // Build display lists for all DOMs and add to transaction
+        let viewport_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+        
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            let pipeline_id = wr_translate_pipeline_id(PipelineId(
+                dom_id.inner as u32,
+                layout_window.document_id.id,
+            ));
+            
+            match crate::desktop::compositor2::translate_displaylist_to_wr(
+                &layout_result.display_list,
+                pipeline_id,
+                viewport_size,
+                &layout_window.renderer_resources,
+                dpi,
+                Vec::new(), // Resources already added above
+            ) {
+                Ok((_, built_display_list)) => {
+                    eprintln!("[generate_frame] Adding display list for DOM {} to transaction", dom_id.inner);
+                    txn.set_display_list(
+                        webrender::api::Epoch(layout_window.epoch.into_u32()),
+                        (pipeline_id, built_display_list)
+                    );
+                }
+                Err(e) => {
+                    eprintln!("[generate_frame] Error building display list for DOM {}: {}", dom_id.inner, e);
+                }
+            }
+        }
+        
+        // Increment epoch after using it
+        layout_window.epoch.increment();
+    } else {
+        eprintln!("[generate_frame] Display list unchanged - skipping scene builder");
+        txn.skip_scene_builder();
+    }
+
+    // CRITICAL: Set root pipeline AFTER display list (matching upstream WebRender order)
+    eprintln!(
+        "[generate_frame] Setting root pipeline to {:?}",
+        root_pipeline_id
+    );
+    txn.set_root_pipeline(root_pipeline_id);
 
     // Update document view size (in case window was resized)
-    txn.set_document_view(WrDeviceIntRect::from_origin_and_size(
+    let view_rect = WrDeviceIntRect::from_origin_and_size(
         WrDeviceIntPoint::new(0, 0),
         framebuffer_size,
-    ));
+    );
+    eprintln!("[generate_frame] Setting document view: {:?}", view_rect);
+    txn.set_document_view(view_rect);
 
     // Scroll all nodes to their current positions
     scroll_all_nodes(layout_window, &mut txn);
@@ -809,17 +1191,13 @@ pub fn generate_frame(
     // Synchronize GPU values (transforms, opacities, etc.)
     synchronize_gpu_values(layout_window, &mut txn);
 
-    if !display_list_was_rebuilt {
-        txn.skip_scene_builder(); // Optimization: skip scene rebuild if DL unchanged
-    }
-
-    txn.generate_frame(0, webrender::api::RenderReasons::SCENE);
+    eprintln!("[generate_frame] Calling generate_frame on transaction");
+    txn.generate_frame(0, WrRenderReasons::empty());
 
     eprintln!(
-        "[generate_frame] Sending frame transaction to document {:?}",
+        "[generate_frame] Sending unified transaction (root_pipeline + document_view + resources + display_lists) to document {:?}",
         layout_window.document_id
     );
-    render_api.send_transaction(wr_translate_document_id(layout_window.document_id), txn);
 }
 
 /// Synchronize scroll positions from ScrollManager to WebRender
@@ -1266,4 +1644,148 @@ pub fn get_webrender_border(
     });
 
     Some((border_widths, border_details))
+}
+
+/// Build a complete atomic WebRender transaction (matching upstream WebRender pattern)
+/// This creates ONE transaction with: resources + display lists + root_pipeline + document_view
+/// This is the CRITICAL fix - upstream WebRender requires all scene data in ONE atomic transaction
+pub fn build_webrender_transaction(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    render_api: &mut WrRenderApi,
+    image_cache: &ImageCache,
+) -> Result<(), &'static str> {
+    use webrender::api::units::DeviceIntSize as WrDeviceIntSize;
+    use webrender::api::units::DeviceIntPoint as WrDeviceIntPoint;
+    use webrender::api::units::DeviceIntRect as WrDeviceIntRect;
+    
+    eprintln!("[build_atomic_txn] Building atomic transaction");
+    
+    // Get sizes
+    let physical_size = layout_window.current_window_state.size.get_physical_size();
+    let framebuffer_size = WrDeviceIntSize::new(
+        physical_size.width as i32,
+        physical_size.height as i32,
+    );
+    let viewport_size = framebuffer_size;
+    let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+    
+    // Get root pipeline ID
+    let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
+    
+    // Step 1: Collect and add font resources to transaction
+    eprintln!("[build_atomic_txn] Step 1: Collecting font resources");
+    let font_updates = collect_font_resource_updates(
+        layout_window,
+        &layout_window.renderer_resources,
+        dpi
+    );
+    
+    if !font_updates.is_empty() {
+        eprintln!("[build_atomic_txn] Adding {} font resources", font_updates.len());
+        
+        // Update font_hash_map and currently_registered_fonts
+        for resource in &font_updates {
+            match resource {
+                azul_core::resources::ResourceUpdate::AddFont(ref add_font) => {
+                    layout_window.renderer_resources.font_hash_map.insert(
+                        add_font.font.get_hash(),
+                        add_font.key
+                    );
+                    layout_window.renderer_resources
+                        .currently_registered_fonts
+                        .entry(add_font.key)
+                        .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
+                    eprintln!("[build_atomic_txn] Font registered: hash {} -> key {:?}",
+                        add_font.font.get_hash(), add_font.key);
+                },
+                azul_core::resources::ResourceUpdate::AddFontInstance(ref add_font_instance) => {
+                    if let Some((_, instances)) = layout_window.renderer_resources
+                        .currently_registered_fonts
+                        .get_mut(&add_font_instance.font_key)
+                    {
+                        instances.insert(add_font_instance.glyph_size, add_font_instance.key);
+                        eprintln!("[build_atomic_txn] Font instance registered: key {:?} at size {:?}",
+                            add_font_instance.key, add_font_instance.glyph_size);
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        // Translate to WebRender resources and add to transaction
+        let wr_resources: Vec<webrender::ResourceUpdate> = font_updates
+            .into_iter()
+            .filter_map(|r| translate_resource_update(r))
+            .collect();
+        
+        if !wr_resources.is_empty() {
+            eprintln!("[build_atomic_txn] Adding {} WebRender resources to transaction", wr_resources.len());
+            txn.update_resources(wr_resources);
+        }
+    }
+    
+    // Step 2: Build and add display lists for all DOMs to transaction
+    eprintln!("[build_atomic_txn] Step 2: Building display lists for {} DOMs", layout_window.layout_results.len());
+    
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        let pipeline_id = wr_translate_pipeline_id(PipelineId(
+            dom_id.inner as u32,
+            layout_window.document_id.id,
+        ));
+        
+        eprintln!("[build_atomic_txn] Building display list for DOM {}", dom_id.inner);
+        
+        match crate::desktop::compositor2::translate_displaylist_to_wr(
+            &layout_result.display_list,
+            pipeline_id,
+            viewport_size,
+            &layout_window.renderer_resources,
+            dpi,
+            Vec::new(), // Resources already added above
+        ) {
+            Ok((_, built_display_list)) => {
+                let epoch = webrender::api::Epoch(layout_window.epoch.into_u32());
+                eprintln!("[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch {:?})", dom_id.inner, pipeline_id, epoch);
+                txn.set_display_list(
+                    epoch,
+                    (pipeline_id, built_display_list)
+                );
+            }
+            Err(e) => {
+                eprintln!("[build_atomic_txn] Error building display list for DOM {}: {}", dom_id.inner, e);
+                return Err("Failed to build display list");
+            }
+        }
+    }
+    
+    // Step 3: Set root pipeline
+    eprintln!("[build_atomic_txn] Step 3: Setting root pipeline {:?}", root_pipeline_id);
+    txn.set_root_pipeline(root_pipeline_id);
+    
+    // Step 4: Set document view
+    let view_rect = WrDeviceIntRect::from_origin_and_size(
+        WrDeviceIntPoint::new(0, 0),
+        framebuffer_size,
+    );
+    eprintln!("[build_atomic_txn] Step 4: Setting document view {:?}", view_rect);
+    txn.set_document_view(view_rect);
+    
+    // Step 5: Add scroll offsets
+    eprintln!("[build_atomic_txn] Step 5: Adding scroll offsets");
+    scroll_all_nodes(layout_window, txn);
+    
+    // Step 6: Synchronize GPU values
+    eprintln!("[build_atomic_txn] Step 6: Synchronizing GPU values");
+    synchronize_gpu_values(layout_window, txn);
+    
+    // Step 7: Generate frame
+    eprintln!("[build_atomic_txn] Step 7: Calling generate_frame");
+    txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    
+    // Increment epoch for next frame
+    layout_window.epoch.increment();
+    
+    eprintln!("[build_atomic_txn] Transaction ready to send");
+    Ok(())
 }

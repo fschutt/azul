@@ -153,6 +153,22 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
             }
         }
     }
+    
+    /// Get a font by its hash (used for WebRender registration)
+    /// Returns the parsed font if it exists in the cache
+    pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
+        let parsed = self.parsed_fonts.lock().unwrap();
+        // Linear search through all cached fonts to find one with matching hash
+        // This is acceptable because:
+        // 1. Font caches are typically small (< 100 fonts)
+        // 2. This is only called during font registration, not per-frame
+        for (_, font) in parsed.iter() {
+            if font.get_hash() == font_hash {
+                return Some(font.clone());
+            }
+        }
+        None
+    }
 }
 
 // FontManager with proper rust-fontconfig fallback

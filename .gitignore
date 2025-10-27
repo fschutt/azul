@@ -16,6 +16,7 @@ output.log
 *.so
 *.out
 *.o
+test_cpurender_output.png
 *.exe
 api/c/main/
 .DS_Store

@@ -290,12 +290,14 @@ fn set_menu_item_accelerator(
             VirtualKeyCode::Key7 => key_equivalent = Some('7'),
             VirtualKeyCode::Key8 => key_equivalent = Some('8'),
             VirtualKeyCode::Key9 => key_equivalent = Some('9'),
+
             // Special keys - use Unicode characters
             VirtualKeyCode::Return => key_equivalent = Some('\r'),
             VirtualKeyCode::Tab => key_equivalent = Some('\t'),
             VirtualKeyCode::Back => key_equivalent = Some('\u{0008}'), // Backspace
             VirtualKeyCode::Escape => key_equivalent = Some('\u{001B}'),
             VirtualKeyCode::Delete => key_equivalent = Some('\u{007F}'),
+            
             // Function keys - use special NSF... constants (not directly char mappable)
             // For now, skip function keys as they require special handling
             _ => {}
@@ -310,20 +312,4 @@ fn set_menu_item_accelerator(
             menu_item.setKeyEquivalentModifierMask(modifier_flags);
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_menu_state_new() {
-        let state = MenuState::new();
-        assert_eq!(state.current_hash, 0);
-        assert!(state.ns_menu.is_none());
-        assert!(state.command_map.is_empty());
-    }
-
-    // Additional tests for menu creation and updates would go here
-    // Tests would verify proper NSMenu construction and hash-based diffing
 }

@@ -111,6 +111,7 @@ define_class!(
                 // 2. Call renderer.update()
                 // 3. Call renderer.render() to composite WebRender's scene
                 // 4. Call flushBuffer() to swap
+                println!("render_and_present_in_draw_rect: THIS IS WHERE macos_window.render_and_present_in_draw_rect() will be called");
                 if let Err(e) = macos_window.render_and_present_in_draw_rect() {
                     eprintln!("[GLView] drawRect: Error during rendering: {:?}", e);
                 }
@@ -731,7 +732,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Minimized;
+                    macos_window.current_window_state.flags.frame = WindowFrame::Minimized;
                 }
                 eprintln!("[WindowDelegate] Window minimized");
             }
@@ -743,7 +744,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Normal;
+                    macos_window.current_window_state.flags.frame = WindowFrame::Normal;
                 }
                 eprintln!("[WindowDelegate] Window deminiaturized");
             }
@@ -755,7 +756,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Fullscreen;
+                    macos_window.current_window_state.flags.frame = WindowFrame::Fullscreen;
                 }
                 eprintln!("[WindowDelegate] Window entered fullscreen");
             }
@@ -768,7 +769,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
-                    macos_window.current_window_state.flags.frame = azul_core::window::WindowFrame::Normal;
+                    macos_window.current_window_state.flags.frame = WindowFrame::Normal;
                 }
                 eprintln!("[WindowDelegate] Window exited fullscreen");
             }
@@ -782,7 +783,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let frame = macos_window.current_window_state.flags.frame;
                     // Only check for maximized state if not in fullscreen
-                    if frame != azul_core::window::WindowFrame::Fullscreen {
+                    if frame != WindowFrame::Fullscreen {
                         // Set flag to check maximized state in event loop
                         // The event loop will compare window.frame() to screen.visibleFrame()
                         eprintln!("[WindowDelegate] Window resized");
@@ -844,6 +845,7 @@ impl WindowDelegate {
     }
 
     /// Set the window pointer for this delegate
+    /// 
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the delegate
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
@@ -885,83 +887,67 @@ fn create_opengl_pixel_format(
 pub struct MacOSWindow {
     /// The NSWindow instance
     window: Retained<NSWindow>,
-
     /// Window delegate for handling window events
     window_delegate: Retained<WindowDelegate>,
-
     /// Selected rendering backend
     backend: RenderBackend,
-
     /// OpenGL rendering components (if backend == OpenGL)
     gl_view: Option<Retained<GLView>>,
+    /// OpenGL context
     gl_context: Option<Retained<NSOpenGLContext>>,
+    /// OpenGL function loader
     gl_functions: Option<Rc<GlFunctions>>,
-
     /// CPU rendering components (if backend == CPU)
     cpu_view: Option<Retained<CPUView>>,
-
     /// Window is open flag
     is_open: bool,
-
     /// Main thread marker (required for AppKit)
     mtm: MainThreadMarker,
-
     /// Window state from previous frame (for diff detection)
     previous_window_state: Option<FullWindowState>,
-
     /// Current window state
     current_window_state: FullWindowState,
-
     /// Last hovered node (for hover state tracking)
-    last_hovered_node: Option<events::HitTestNode>,
-
+    last_hovered_node: Option<HitTestNode>,
     /// LayoutWindow integration (for UI callbacks and display list)
-    layout_window: Option<azul_layout::window::LayoutWindow>,
-
+    layout_window: Option<LayoutWindow>,
     /// Menu state (for hash-based diff updates)
     menu_state: menu::MenuState,
 
     // Resource caches for LayoutWindow
+    
     /// Image cache for texture management
-    image_cache: azul_core::resources::ImageCache,
-
+    image_cache: ImageCache,
     /// Renderer resources (GPU textures, etc.)
-    renderer_resources: azul_core::resources::RendererResources,
+    renderer_resources: RendererResources,
 
     // WebRender infrastructure for proper hit-testing and rendering
+
     /// Main render API for registering fonts, images, display lists
     pub(crate) render_api: webrender::RenderApi,
-
     /// WebRender renderer (software or hardware depending on backend)
     pub(crate) renderer: Option<webrender::Renderer>,
-
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes)
     pub(crate) hit_tester: crate::desktop::wr_translate2::AsyncHitTester,
-
     /// WebRender document ID
-    pub(crate) document_id: azul_core::hit_test::DocumentId,
-
+    pub(crate) document_id: DocumentId,
     /// WebRender ID namespace
-    pub(crate) id_namespace: azul_core::resources::IdNamespace,
-
+    pub(crate) id_namespace: IdNamespace,
     /// OpenGL context pointer with compiled SVG and FXAA shaders
-    pub(crate) gl_context_ptr: azul_core::gl::OptionGlContextPtr,
+    pub(crate) gl_context_ptr: OptionGlContextPtr,
 
     // Application-level shared state
+
     /// Shared application data (used by callbacks, shared across windows)
-    app_data: std::sync::Arc<std::cell::RefCell<azul_core::refany::RefAny>>,
-
+    app_data: Arc<RefCell<RefAny>>,
     /// Shared font cache (shared across windows to cache font loading)
-    fc_cache: std::sync::Arc<rust_fontconfig::FcFontCache>,
-
+    fc_cache: Arc<rust_fontconfig::FcFontCache>,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     frame_needs_regeneration: bool,
-
     /// Current scrollbar drag state (if dragging a scrollbar thumb)
-    scrollbar_drag_state: Option<azul_layout::ScrollbarDragState>,
-
+    scrollbar_drag_state: Option<ScrollbarDragState>,
     /// Synchronization for frame readiness (signals when WebRender has a new frame ready)
-    new_frame_ready: std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
+    new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl MacOSWindow {
@@ -977,7 +963,6 @@ impl MacOSWindow {
         }
 
         // 2. Check options.renderer - if it's Some, check hw_accel field
-        use azul_core::window::{HwAcceleration, OptionRendererOptions};
         if let Some(renderer) = options.renderer.as_option() {
             match renderer.hw_accel {
                 HwAcceleration::Disabled => return RenderBackend::CPU,
@@ -1045,7 +1030,7 @@ impl MacOSWindow {
     /// Create a new macOS window with given options and shared font cache.
     pub fn new_with_fc_cache(
         options: WindowCreateOptions,
-        fc_cache: std::sync::Arc<rust_fontconfig::FcFontCache>,
+        fc_cache: Arc<rust_fontconfig::FcFontCache>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
         Self::new_with_options_internal(options, Some(fc_cache), mtm)
@@ -1062,9 +1047,10 @@ impl MacOSWindow {
     /// Internal constructor with optional fc_cache parameter
     fn new_with_options_internal(
         options: WindowCreateOptions,
-        fc_cache_opt: Option<std::sync::Arc<rust_fontconfig::FcFontCache>>,
+        fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
+
         // Initialize NSApplication if needed
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
@@ -1072,6 +1058,7 @@ impl MacOSWindow {
         // Get screen dimensions for window positioning
         let screen = NSScreen::mainScreen(mtm)
             .ok_or_else(|| WindowError::PlatformError("No main screen".into()))?;
+        
         let screen_frame = screen.frame();
 
         // Determine window size from options
@@ -1151,8 +1138,8 @@ impl MacOSWindow {
             return Err(WindowError::PlatformError("No content view created".into()));
         }
 
-        // DO NOT show the window yet - we will show it after the first frame is ready
-        // to prevent white flash
+        // DO NOT show the window yet - we will show it after the first frame
+        // is ready to prevent white flash
         unsafe {
             window.center();
             // REMOVED: makeKeyAndOrderFront - will be called after first frame is ready
@@ -1162,16 +1149,16 @@ impl MacOSWindow {
         // Note: These will be applied before window is visible
         unsafe {
             match options.state.flags.frame {
-                azul_core::window::WindowFrame::Fullscreen => {
+                WindowFrame::Fullscreen => {
                     window.toggleFullScreen(None);
                 }
-                azul_core::window::WindowFrame::Maximized => {
+                WindowFrame::Maximized => {
                     window.performZoom(None);
                 }
-                azul_core::window::WindowFrame::Minimized => {
+                WindowFrame::Minimized => {
                     window.miniaturize(None);
                 }
-                azul_core::window::WindowFrame::Normal => {
+                WindowFrame::Normal => {
                     // Window is already in normal state
                 }
             }
@@ -1192,13 +1179,6 @@ impl MacOSWindow {
                 .unwrap_or(1.0)
         };
 
-        // TEMP DEBUG: Override HiDPI factor to test DPI scaling issue
-        let actual_hidpi_factor = 3.0;
-        eprintln!(
-            "[Window Init] HiDPI factor: {} (OVERRIDDEN FOR TESTING!)",
-            actual_hidpi_factor
-        );
-
         // Make OpenGL context current before initializing WebRender
         if let Some(ref ctx) = gl_context {
             unsafe {
@@ -1207,8 +1187,6 @@ impl MacOSWindow {
         }
 
         // Initialize WebRender renderer
-        use azul_core::window::{HwAcceleration, RendererType};
-
         let renderer_type = match backend {
             RenderBackend::OpenGL => RendererType::Hardware,
             RenderBackend::CPU => RendererType::Software,
@@ -1237,7 +1215,8 @@ impl MacOSWindow {
 
         // Create synchronization primitives for frame readiness
         let new_frame_ready =
-            std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+            Arc::new((Mutex::new(false), Condvar::new()));
+
         let notifier = Notifier {
             new_frame_ready: new_frame_ready.clone(),
         };
@@ -1277,16 +1256,16 @@ impl MacOSWindow {
             .resolve();
 
         // Create GlContextPtr for LayoutWindow
-        let gl_context_ptr: azul_core::gl::OptionGlContextPtr = gl_context
+        let gl_context_ptr: OptionGlContextPtr = gl_context
             .as_ref()
-            .map(|_| azul_core::gl::GlContextPtr::new(renderer_type, gl_funcs.clone()))
+            .map(|_| GlContextPtr::new(renderer_type, gl_funcs.clone()))
             .into();
 
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * 96.0) as u32; // Convert scale factor to DPI
         let mut current_window_state = FullWindowState {
             title: options.state.title.clone(),
-            size: azul_core::window::WindowSize {
+            size: WindowSize {
                 dimensions: options.state.size.dimensions,
                 dpi: actual_dpi, // Use actual DPI from screen
                 min_dimensions: options.state.size.min_dimensions,
@@ -1309,19 +1288,19 @@ impl MacOSWindow {
             hovered_file: None,
             dropped_file: None,
             focused_node: None,
-            last_hit_test: azul_layout::hit_test::FullHitTest::empty(None),
+            last_hit_test: FullHitTest::empty(None),
             selections: Default::default(),
             window_focused: true,
         };
 
         // Initialize resource caches
-        let image_cache = azul_core::resources::ImageCache::default();
-        let renderer_resources = azul_core::resources::RendererResources::default();
+        let image_cache = ImageCache::default();
+        let renderer_resources = RendererResources::default();
 
         // Initialize LayoutWindow with shared fc_cache or build a new one
         let fc_cache = fc_cache_opt
-            .unwrap_or_else(|| std::sync::Arc::new(rust_fontconfig::FcFontCache::build()));
-        let mut layout_window = azul_layout::window::LayoutWindow::new((*fc_cache).clone())
+            .unwrap_or_else(|| Arc::new(rust_fontconfig::FcFontCache::build()));
+        let mut layout_window = LayoutWindow::new((*fc_cache).clone())
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
             })?;
@@ -1342,7 +1321,7 @@ impl MacOSWindow {
 
         // Initialize shared application data (will be replaced by App later)
         let app_data =
-            std::sync::Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
+            Arc::new(RefCell::new(RefAny::new(())));
 
         // NOTE: We will set the window state pointer AFTER creating the MacOSWindow struct
         // because current_window_state will be moved into the struct, invalidating any pointer
@@ -1370,7 +1349,7 @@ impl MacOSWindow {
             current_window_state,
             last_hovered_node: None,
             layout_window: Some(layout_window),
-            menu_state: menu::MenuState::new(),
+            menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
             image_cache,
             renderer_resources,
             render_api,
@@ -1393,74 +1372,22 @@ impl MacOSWindow {
 
         // Set up WebRender document with root pipeline and viewport
         // This only needs to be done once at initialization
-        {
-            use azul_core::hit_test::PipelineId;
-            use webrender::{
-                api::units::{
-                    DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
-                    DeviceIntSize as WrDeviceIntSize,
-                },
-                render_api::Transaction as WrTransaction,
-            };
 
-            let physical_size = window.current_window_state.size.get_physical_size();
-            let framebuffer_size =
-                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        // NOTE: Don't send any transaction during initialization!
+        // The first transaction will be sent in drawRect
+        // when drawRect is called by macOS.
 
-            let mut txn = WrTransaction::new();
-
-            // Set root pipeline to root DOM (DomId 0)
-            let root_pipeline_id = PipelineId(0, document_id.id);
-            txn.set_root_pipeline(wr_translate_pipeline_id(root_pipeline_id));
-
-            // Set document view (viewport size)
-            txn.set_document_view(WrDeviceIntRect::from_origin_and_size(
-                WrDeviceIntPoint::new(0, 0),
-                framebuffer_size,
-            ));
-
-            eprintln!("[Window Init] Setting root pipeline and document view");
-            window
-                .render_api
-                .send_transaction(wr_translate_document_id(document_id), txn);
-            window.render_api.flush_scene_builder();
-        }
-
-        // Perform initial layout and render
+        // Perform initial layout
         eprintln!("[Window Init] Performing initial layout");
         if let Err(e) = window.regenerate_layout() {
             eprintln!("[Window Init] WARNING: Initial layout failed: {}", e);
         }
 
-        // CRITICAL: Flush scene builder to ensure display list transaction is processed
-        // WebRender runs in multi-threaded mode with scene builder on separate thread
-        eprintln!("[Window Init] Flushing scene builder after rebuild_display_list");
-        window.render_api.flush_scene_builder();
+        // Set frame_needs_regeneration to true so drawRect will build and send transaction
+        window.frame_needs_regeneration = true;
 
-        eprintln!("[Window Init] Generating initial frame");
-        window.generate_frame_if_needed();
-
-        // CRITICAL: Flush scene builder again after generate_frame transaction
-        eprintln!("[Window Init] Flushing scene builder after generate_frame");
-        window.render_api.flush_scene_builder();
-
-        // SOLUTION TO FIRST-FRAME RACE CONDITION:
-        // Block this thread until the Notifier signals that the first frame is ready.
-        // This prevents showing the window before WebRender has rendered the first frame.
-        eprintln!("[Window Init] Waiting for first frame from WebRender...");
-        {
-            let &(ref lock, ref cvar) = &*window.new_frame_ready;
-            let mut ready = lock.lock().unwrap();
-            while !*ready {
-                ready = cvar.wait(ready).unwrap();
-            }
-            *ready = false; // Consume the signal
-            eprintln!("[Window Init] ✓ First frame is ready!");
-        }
-
-        // Now that the first frame is ready in WebRender's backbuffer,
-        // we can safely show the window without a white flash.
-        eprintln!("[Window Init] Making window visible...");
+        // Show window immediately - drawRect will handle the first frame rendering
+        eprintln!("[Window Init] Making window visible (first frame will be rendered in drawRect)...");
         unsafe {
             window.window.makeKeyAndOrderFront(None);
         }
@@ -1478,6 +1405,7 @@ impl MacOSWindow {
     /// - Layout callback changes
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
         use azul_core::callbacks::LayoutCallback;
+        use std::io::Write;
 
         eprintln!("[regenerate_layout] START");
 
@@ -1491,7 +1419,7 @@ impl MacOSWindow {
 
         // 1. Call layout_callback to get styled_dom
         // Use window's cached image_cache and gl_context_ptr instead of creating empty ones
-        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
+        let mut callback_info = LayoutCallbackInfo::new(
             self.current_window_state.size.clone(),
             self.current_window_state.theme,
             &self.image_cache,
@@ -1500,7 +1428,6 @@ impl MacOSWindow {
         );
 
         eprintln!("[regenerate_layout] Calling layout_callback");
-        use std::io::Write;
         let _ = std::io::stderr().flush();
 
         let styled_dom = match &self.current_window_state.layout_callback {
@@ -1529,7 +1456,7 @@ impl MacOSWindow {
                 styled_dom,
                 &self.current_window_state,
                 &self.renderer_resources,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &ExternalSystemCallbacks::rust_internal(),
                 &mut None, // No debug messages for now
             )
             .map_err(|e| format!("Layout error: {:?}", e))?;
@@ -1545,12 +1472,14 @@ impl MacOSWindow {
 
         // 4. Rebuild display list and send to WebRender
         let dpi = self.current_window_state.size.get_hidpi_factor();
+        let mut txn = WrTransaction::new();
         crate::desktop::wr_translate2::rebuild_display_list(
+            &mut txn,
             layout_window,
             &mut self.render_api,
             &self.image_cache,
             Vec::new(),
-            &self.renderer_resources,
+            &mut self.renderer_resources,
             dpi,
         );
 
@@ -1558,7 +1487,7 @@ impl MacOSWindow {
         // This enables smooth fade-in/fade-out without display list rebuild
         let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
         for (dom_id, layout_result) in &layout_window.layout_results {
-            azul_layout::window::LayoutWindow::synchronize_scrollbar_opacity(
+            LayoutWindow::synchronize_scrollbar_opacity(
                 &mut layout_window.gpu_state_manager,
                 &layout_window.scroll_states,
                 *dom_id,
@@ -1610,8 +1539,8 @@ impl MacOSWindow {
     }
 
     /// Get the raw window handle for this window
-    pub fn get_raw_window_handle(&self) -> azul_core::window::RawWindowHandle {
-        use azul_core::window::{MacOSHandle, RawWindowHandle};
+    pub fn get_raw_window_handle(&self) -> RawWindowHandle {
+        use {MacOSHandle, RawWindowHandle};
 
         let ns_window_ptr = &*self.window as *const NSWindow as *mut std::ffi::c_void;
         let ns_view_ptr = if let Some(ref gl_view) = self.gl_view {
@@ -1758,7 +1687,7 @@ impl MacOSWindow {
 
         // Position changed?
         if previous.position != current.position {
-            use azul_core::window::WindowPosition;
+            use WindowPosition;
             match current.position {
                 WindowPosition::Initialized(pos) => {
                     let origin = NSPoint::new(pos.x as f64, pos.y as f64);
@@ -1808,9 +1737,9 @@ impl MacOSWindow {
     /// Map MouseCursorType to macOS cursor name
     fn map_cursor_type_to_macos(
         &self,
-        cursor_type: azul_core::window::MouseCursorType,
+        cursor_type: MouseCursorType,
     ) -> &'static str {
-        use azul_core::window::MouseCursorType;
+        use MouseCursorType;
         match cursor_type {
             MouseCursorType::Default | MouseCursorType::Arrow => "arrow",
             MouseCursorType::Crosshair => "crosshair",
@@ -1982,8 +1911,8 @@ impl MacOSWindow {
     }
 
     /// Apply window decorations changes
-    fn apply_decorations(&mut self, decorations: azul_core::window::WindowDecorations) {
-        use azul_core::window::WindowDecorations;
+    fn apply_decorations(&mut self, decorations: WindowDecorations) {
+        use WindowDecorations;
 
         let mut style_mask = self.window.styleMask();
 
@@ -2061,8 +1990,8 @@ impl MacOSWindow {
     }
 
     /// Apply window background material
-    fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
-        use azul_core::window::WindowBackgroundMaterial;
+    fn apply_background_material(&mut self, material: WindowBackgroundMaterial) {
+        use WindowBackgroundMaterial;
         use objc2_app_kit::{
             NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
             NSVisualEffectView,
@@ -2180,7 +2109,7 @@ impl MacOSWindow {
     /// Should be called after resize events.
     fn check_maximized_state(&mut self) {
         // Skip check if in fullscreen mode
-        if self.current_window_state.flags.frame == azul_core::window::WindowFrame::Fullscreen {
+        if self.current_window_state.flags.frame == WindowFrame::Fullscreen {
             return;
         }
 
@@ -2205,9 +2134,9 @@ impl MacOSWindow {
             && (window_frame.size.height - screen_frame.size.height).abs() < tolerance;
 
         let new_frame = if is_maximized {
-            azul_core::window::WindowFrame::Maximized
+            WindowFrame::Maximized
         } else {
-            azul_core::window::WindowFrame::Normal
+            WindowFrame::Normal
         };
 
         if new_frame != self.current_window_state.flags.frame {
@@ -2281,16 +2210,12 @@ impl MacOSWindow {
             }
         }
 
-        // After processing event, regenerate frame if needed
-        let needs_flush = self.frame_needs_regeneration;
-        self.generate_frame_if_needed();
-
-        // Flush scene builder if frame was regenerated (WebRender multi-threading)
-        if needs_flush {
-            self.render_api.flush_scene_builder();
-            // Request a redraw to display the new frame
-            // This tells macOS to schedule a drawRect: call
+        // After processing event, just request a redraw if needed
+        // The atomic transaction will be built in drawRect
+        if self.frame_needs_regeneration {
+            eprintln!("[handle_event] Frame needs regeneration, requesting redraw");
             self.request_redraw();
+            self.frame_needs_regeneration = false;
         }
     }
 
@@ -2387,6 +2312,44 @@ impl MacOSWindow {
         eprintln!("[finalize_delegate_pointer] ✓ WindowDelegate can now call back to MacOSWindow");
     }
 
+    /// Build and send a complete atomic WebRender transaction
+    /// This is the CRITICAL function that matches upstream WebRender's pattern:
+    /// ONE transaction containing resources + display lists + root_pipeline + document_view
+    fn build_and_send_webrender_transaction(&mut self, txn: &mut WrTransaction) -> Result<(), WindowError> {
+        
+        eprintln!("[build_atomic_txn] ========== START ==========");
+        
+        // CRITICAL: Regenerate layout FIRST if needed
+        // Layout must be current before building display lists
+        if self.frame_needs_regeneration {
+            eprintln!("[build_atomic_txn] Frame needs regeneration, calling regenerate_layout");
+            if let Err(e) = self.regenerate_layout() {
+                eprintln!("[build_atomic_txn] Layout failed: {}", e);
+                return Err(WindowError::PlatformError(format!("Layout failed: {}", e).into()));
+            }
+            self.frame_needs_regeneration = false;
+        }
+        
+        // Get layout_window
+        let layout_window = self.layout_window.as_mut()
+            .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
+        
+        eprintln!("[build_atomic_txn] Building into provided transaction");
+        
+        eprintln!("[build_atomic_txn] Calling build_webrender_transaction()");
+        // Build everything into this transaction using helper functions
+        crate::desktop::wr_translate2::build_webrender_transaction(
+            txn,
+            layout_window,
+            &mut self.render_api,
+            &self.image_cache,
+        ).map_err(|e| WindowError::PlatformError(format!("Failed to build transaction: {}", e).into()))?;
+        
+        eprintln!("[build_atomic_txn] ========== BUILD COMPLETE ==========");
+
+        Ok(())
+    }
+
     /// This is the MAIN rendering entry point, called ONLY from GLView::drawRect:
     ///
     /// This method follows the idiomatic macOS drawing pattern where all rendering
@@ -2414,12 +2377,16 @@ impl MacOSWindow {
                 .ok_or_else(|| WindowError::PlatformError("OpenGL functions are missing".into()))?;
 
             unsafe {
+                eprintln!("[MACOS NATIVE] >>>>> Calling NSOpenGLContext.makeCurrentContext() <<<<<");
                 // Make context current before any GL operations
                 gl_context.makeCurrentContext();
+                eprintln!("[MACOS NATIVE] >>>>> makeCurrentContext() RETURNED <<<<<");
 
+                eprintln!("[MACOS NATIVE] >>>>> Calling NSOpenGLContext.update() <<<<<");
                 // CRITICAL: Synchronize context with the view's drawable surface
                 // This must be called every frame to handle window moves/resizes
                 gl_context.update(self.mtm);
+                eprintln!("[MACOS NATIVE] >>>>> update() RETURNED <<<<<");
 
                 // CRITICAL: Set the viewport to the physical size of the window
                 let physical_size = self.current_window_state.size.get_physical_size();
@@ -2427,19 +2394,42 @@ impl MacOSWindow {
                     "[render_and_present_in_draw_rect] Setting glViewport to: {}x{}",
                     physical_size.width, physical_size.height
                 );
+                eprintln!("[MACOS NATIVE] >>>>> Calling glViewport({}, {}, {}, {}) <<<<<", 0, 0, physical_size.width, physical_size.height);
                 gl_fns.functions.viewport(
                     0,
                     0,
                     physical_size.width as i32,
                     physical_size.height as i32,
                 );
+                eprintln!("[MACOS NATIVE] >>>>> glViewport() RETURNED <<<<<");
             }
         }
 
+        // Step 1.5: CRITICAL - Create, build, and send WebRender transaction ATOMICALLY
+        // This is the ONLY place where Transaction::new() should be called!
+        // This matches the working WebRender example pattern: ONE transaction per frame
+        eprintln!("[render_and_present_in_draw_rect] >>>>> Creating ONE atomic WebRender transaction <<<<<");
+        let mut txn = WrTransaction::new();
+        
+        // Build everything into this transaction (resources, display lists, etc.)
+        self.build_and_send_webrender_transaction(&mut txn)?;
+        
+        // Send the complete atomic transaction
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            let doc_id = wr_translate_document_id(layout_window.document_id);
+            eprintln!("[render_and_present_in_draw_rect] >>>>> Calling render_api.send_transaction({:?}, txn) <<<<<", doc_id);
+            self.render_api.send_transaction(doc_id, txn);
+            eprintln!("[render_and_present_in_draw_rect] >>>>> Calling render_api.flush_scene_builder() <<<<<");
+            self.render_api.flush_scene_builder();
+            eprintln!("[render_and_present_in_draw_rect] >>>>> flush_scene_builder() RETURNED <<<<<");
+        }
+        eprintln!("[render_and_present_in_draw_rect] >>>>> Transaction sent and flushed <<<<<");
+
         // Step 2: Call WebRender to composite the scene
         if let Some(ref mut renderer) = self.renderer {
-            eprintln!("[render_and_present_in_draw_rect] Calling renderer.update()");
+            eprintln!("[WEBRENDER] >>>>> Calling renderer.update() <<<<<");
             renderer.update();
+            eprintln!("[WEBRENDER] >>>>> renderer.update() RETURNED <<<<<");
 
             let physical_size = self.current_window_state.size.get_physical_size();
             let device_size = webrender::api::units::DeviceIntSize::new(
@@ -2448,20 +2438,26 @@ impl MacOSWindow {
             );
 
             eprintln!(
-                "[render_and_present_in_draw_rect] Calling renderer.render() with size: {:?}",
+                "[WEBRENDER] >>>>> Calling renderer.render({:?}, 0) <<<<<",
                 device_size
             );
 
             match renderer.render(device_size, 0) {
                 Ok(results) => {
                     eprintln!(
-                        "[render_and_present_in_draw_rect] ✓ Render successful! Stats: {:?}",
+                        "[WEBRENDER] >>>>> renderer.render() RETURNED <<<<<"
+                    );
+                    eprintln!(
+                        "[WEBRENDER] ✓ Render successful! Stats: {:?}",
                         results.stats
                     );
                 }
                 Err(errors) => {
                     eprintln!(
-                        "[render_and_present_in_draw_rect] ✗ Render errors: {:?}",
+                        "[WEBRENDER] >>>>> renderer.render() RETURNED WITH ERROR <<<<<"
+                    );
+                    eprintln!(
+                        "[WEBRENDER] ✗ Render errors: {:?}",
                         errors
                     );
                     return Err(WindowError::PlatformError(
@@ -2478,10 +2474,11 @@ impl MacOSWindow {
         match self.backend {
             RenderBackend::OpenGL => {
                 if let Some(ref gl_context) = self.gl_context {
-                    eprintln!("[render_and_present_in_draw_rect] Flushing OpenGL buffer");
+                    eprintln!("[MACOS NATIVE] >>>>> Calling NSOpenGLContext.flushBuffer() (SWAP BUFFERS) <<<<<");
                     unsafe {
                         gl_context.flushBuffer();
                     }
+                    eprintln!("[MACOS NATIVE] >>>>> flushBuffer() RETURNED - SCREEN NOW UPDATED <<<<<");
                 }
             }
             RenderBackend::CPU => {
@@ -2490,7 +2487,7 @@ impl MacOSWindow {
             }
         }
 
-        eprintln!("[render_and_present_in_draw_rect] DONE");
+        eprintln!("[render_and_present_in_draw_rect] ========== FRAME COMPLETE ==========\n");
         Ok(())
     }
 }
@@ -2504,6 +2501,7 @@ impl PlatformWindow for MacOSWindow {
     {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
+
         Self::new_with_options(options, mtm)
     }
 
@@ -2522,6 +2520,7 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
+
         // Update current_window_state based on properties
         if let Some(title) = props.title {
             self.current_window_state.title = title.into();
@@ -2614,8 +2613,12 @@ impl PlatformWindow for MacOSWindow {
                 app.sendEvent(&event);
             }
 
-            // Generate frame if needed after event processing
-            self.generate_frame_if_needed();
+            // Atomic transaction will be built in drawRect if needed
+            // Just request redraw here if layout changed
+            if self.frame_needs_regeneration {
+                self.request_redraw();
+                self.frame_needs_regeneration = false;
+            }
 
             Some(macos_event)
         } else {
@@ -2638,20 +2641,6 @@ impl PlatformWindow for MacOSWindow {
             }
             RenderBackend::CPU => RenderContext::CPU,
         }
-    }
-
-    // In macos/mod.rs
-
-    /// Present the rendered frame to the screen.
-    ///
-    /// NOTE: In the macOS drawing model, this is now a NO-OP for the OpenGL backend.
-    /// All rendering is driven by drawRect:, which is triggered by calling request_redraw().
-    ///
-    /// This method exists only to satisfy the PlatformWindow trait.
-    fn present(&mut self) -> Result<(), WindowError> {
-        // Rendering is now handled by drawRect: -> render_and_present_in_draw_rect()
-        // This method is effectively deprecated for the macOS backend.
-        Ok(())
     }
 
     fn is_open(&self) -> bool {

@@ -24,39 +24,34 @@ struct XhtmlData {
 
 extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
     use std::io::Write;
-    eprintln!("[layout_xhtml] CALLED!");
+    eprintln!("[layout_rectangles] CALLED - NO TEXT VERSION!");
     let _ = std::io::stderr().flush();
 
-    // Create a simple DOM with text and a colored rectangle
-    // Body should automatically grow to fit its children (no explicit size needed)
+    // Create a simple DOM with ONLY colored rectangles - NO TEXT!
     let mut dom = Dom::body()
-        .with_inline_style("padding: 20px; width: 640px; height: 480px;")
+        .with_inline_style("padding: 20px; width: 640px; height: 480px; background: #f0f0f0;")
         .with_children(
             vec![
-                // Text node - wrapped in a div with explicit size
-                Dom::div()
-                    .with_inline_style("font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; height: 30px;")
-                    .with_children(vec![Dom::text("Azul Display List Test")].into()),
-                // Red rectangle
-                Dom::div().with_inline_style("width: 200px; height: 100px; background: #FF0000; margin: 10px;"),
-                // Text with inline style
-                Dom::div()
-                    .with_inline_style("font-size: 16px; color: #000000; width: 600px; height: 25px;")
-                    .with_children(vec![Dom::text("This is some sample text to test font rendering")].into()),
+                // Red rectangle with border
+                Dom::div().with_inline_style("width: 200px; height: 100px; background: #FF0000; border: 2px solid #990000; margin-bottom: 20px;"),
+                // Green rectangle with border
+                Dom::div().with_inline_style("width: 300px; height: 80px; background: #00FF00; border: 2px solid #009900; margin-bottom: 20px;"),
+                // Blue rectangle with border
+                Dom::div().with_inline_style("width: 250px; height: 120px; background: #0000FF; border: 2px solid #000099;"),
             ]
             .into(),
         );
 
     eprintln!(
-        "[layout_xhtml] Dom created with {} total children",
+        "[layout_rectangles] Dom created with {} total children (NO TEXT)",
         dom.estimated_total_children
     );
-    eprintln!("[layout_xhtml] Dom node_count: {}", dom.node_count());
+    eprintln!("[layout_rectangles] Dom node_count: {}", dom.node_count());
     let _ = std::io::stderr().flush();
 
     let styled = dom.style(CssApiWrapper { css: Css::empty() });
     eprintln!(
-        "[layout_xhtml] StyledDom created with {} nodes",
+        "[layout_rectangles] StyledDom created with {} nodes",
         styled.styled_nodes.len()
     );
     let _ = std::io::stderr().flush();
@@ -119,9 +114,11 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
 
 #[cfg(feature = "desktop")]
 fn main() {
+    eprintln!("=== Rectangle Rendering Test (NO TEXT) ===");
+    
     // Load XHTML content using include_bytes!
     let data = XhtmlData {
-        xhtml_content: XHTML_BYTES,
+        xhtml_content: "",  // Not used
     };
     let config = AppConfig::new();
     let app = App::new(RefAny::new(data), config);

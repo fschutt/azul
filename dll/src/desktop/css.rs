@@ -1,40 +1,4 @@
-//!
-//! # Supported CSS properties
-//!
-//! | CSS Key                                            | Value syntax | Description | Example(s) | Parsing function |
-//! |----------------------------------------------------|--------------|-------------|------------|------------------|
-//! | `border-radius`                                    |              |             |            |                  |
-//! | `background`                                       |              |             |            |                  |
-//! | `background-color`                                 |              |             |            |                  |
-//! | `background-size`                                  |              |             |            |                  |
-//! | `background-image`                                 |              |             |            |                  |
-//! | `background-position`                              |              |             |            |                  |
-//! | `background-repeat`                                |              |             |            |                  |
-//! | `color`                                            |              |             |            |                  |
-//! | `font-size`                                        |              |             |            |                  |
-//! | `font-family`                                      |              |             |            |                  |
-//! | `text-align`                                       |              |             |            |                  |
-//! | `letter-spacing`                                   |              |             |            |                  |
-//! | `line-height`                                      |              |             |            |                  |
-//! | `word-spacing`                                     |              |             |            |                  |
-//! | `tab-width`                                        |              |             |            |                  |
-//! | `cursor`                                           |              |             |            |                  |
-//! | `width`, `min-width`, `max-width`                  |              |             |            |                  |
-//! | `height`, `min-height`, `max-height`               |              |             |            |                  |
-//! | `position`                                         |              |             |            |                  |
-//! | `top`, `right`, `left`, `bottom`                   |              |             |            |                  |
-//! | `flex-wrap`                                        |              |             |            |                  |
-//! | `flex-direction`                                   |              |             |            |                  |
-//! | `flex-grow`                                        |              |             |            |                  |
-//! | `flex-shrink`                                      |              |             |            |                  |
-//! | `justify-content`                                  |              |             |            |                  |
-//! | `align-items`                                      |              |             |            |                  |
-//! | `align-content`                                    |              |             |            |                  |
-//! | `overflow`, `overflow-x`, `overflow-y`             |              |             |            |                  |
-//! | `padding`, `-top`, `-left`, `-right`, `-bottom`    |              |             |            |                  |
-//! | `margin`,  `-top`, `-left`, `-right`, `-bottom`    |              |             |            |                  |
-//! | `border`,  `-top`, `-left`, `-right`, `-bottom`    |              |             |            |                  |
-//! | `box-shadow`, `-top`, `-left`, `-right`, `-bottom` |              |             |            |                  |
+//! Re-exports for CSS properties
 
 #[cfg(feature = "css_parser")]
 use azul_css::parser2::{self, CssParseError};

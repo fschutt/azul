@@ -688,8 +688,8 @@ where
         node_index: usize,
         children_indices: &[usize],
     ) -> Result<()> {
-        // 1. Paint the node's background and border.
-        self.paint_node_background_and_border(builder, node_index)?;
+        // NOTE: We do NOT paint the node's background here - that was already done by generate_for_stacking_context!
+        // Only paint selection, cursor, and content for the current node
 
         // 2. Paint selection highlights and the text cursor if applicable.
         self.paint_selection_and_cursor(builder, node_index)?;

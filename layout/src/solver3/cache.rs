@@ -565,16 +565,15 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .unwrap_or_default();
 
     let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
-    // Check if height is auto (default PixelValue is considered auto for layout purposes)
-    let is_auto_height = matches!(css_height, azul_css::props::layout::LayoutHeight::Px(px) if px == azul_css::props::basic::pixel::PixelValue::zero());
-
-    if is_auto_height {
-        let node_props = &tree.get(node_index).unwrap().box_props;
-        let main_axis_padding_border =
-            node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
-
-        let new_main_size = content_size.main(writing_mode) + main_axis_padding_border;
-        final_used_size = final_used_size.with_main(writing_mode, new_main_size);
+    
+    if should_use_content_height(&css_height) {
+        final_used_size = apply_content_based_height(
+            final_used_size,
+            content_size,
+            tree,
+            node_index,
+            writing_mode,
+        );
     }
 
     // --- Phase 3: Check for scrollbars and potential reflow ---
@@ -677,6 +676,45 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     Ok(())
+}
+
+/// Checks if the given CSS height value should use content-based sizing
+fn should_use_content_height(css_height: &azul_css::props::layout::LayoutHeight) -> bool {
+    match css_height {
+        azul_css::props::layout::LayoutHeight::Px(px) => {
+            // Check if it's zero or if it has no explicit pixel value (means auto)
+            px == &azul_css::props::basic::pixel::PixelValue::zero() 
+                || (px.to_pixels_no_percent().is_none() && px.to_percent().is_none())
+        },
+        azul_css::props::layout::LayoutHeight::MinContent | 
+        azul_css::props::layout::LayoutHeight::MaxContent => {
+            // These are content-based, so they should use the content size
+            true
+        }
+    }
+}
+
+/// Applies content-based height sizing to a node
+fn apply_content_based_height<T: ParsedFontTrait>(
+    mut used_size: LogicalSize,
+    content_size: LogicalSize,
+    tree: &LayoutTree<T>,
+    node_index: usize,
+    writing_mode: azul_css::props::layout::LayoutWritingMode,
+) -> LogicalSize {
+    let node_props = &tree.get(node_index).unwrap().box_props;
+    let main_axis_padding_border =
+        node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
+
+    let new_main_size = content_size.main(writing_mode) + main_axis_padding_border;
+    used_size = used_size.with_main(writing_mode, new_main_size);
+    
+    eprintln!(
+        "[apply_content_based_height] Auto height: content_size={:?}, padding_border={}, new_main_size={}",
+        content_size, main_axis_padding_border, new_main_size
+    );
+    
+    used_size
 }
 
 fn hash_styled_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
