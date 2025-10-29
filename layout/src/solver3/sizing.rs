@@ -400,7 +400,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 // Keep old name as an alias for backward compatibility
-pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
     ifc_root_index: usize,

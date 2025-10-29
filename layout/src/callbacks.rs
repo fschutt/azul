@@ -4,7 +4,7 @@
 //! UI callbacks. Callbacks need access to layout information (node sizes, positions,
 //! hierarchy), which is why this module lives in azul-layout instead of azul-core.
 
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 
 // Re-export callback macro from azul-core
 use azul_core::impl_callback;
@@ -24,6 +24,7 @@ use azul_core::{
 };
 use azul_css::{
     props::property::{CssProperty, CssPropertyType},
+    system::SystemStyle,
     AzString,
 };
 use rust_fontconfig::FcFontCache;
@@ -49,11 +50,44 @@ pub struct Callback {
 impl_callback!(Callback);
 
 impl Callback {
+    /// Convert from CoreCallback (stored as usize) to Callback (actual function pointer)
+    ///
+    /// # Safety
+    /// The caller must ensure that the usize in CoreCallback.cb was originally a valid
+    /// function pointer of type `CallbackType`. This is guaranteed when CoreCallback
+    /// is created through standard APIs, but unsafe code could violate this.
     pub fn from_core(core: CoreCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core.cb) },
         }
     }
+
+    /// Convert to CoreCallback (function pointer stored as usize)
+    ///
+    /// This is always safe - we're just casting the function pointer to usize for storage.
+    pub fn to_core(self) -> CoreCallback {
+        CoreCallback {
+            cb: self.cb as usize,
+        }
+    }
+
+    /// Safely invoke the callback with the given data and info
+    ///
+    /// This is a safe wrapper around calling the function pointer directly.
+    pub fn invoke(&self, data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+        (self.cb)(data, info)
+    }
+}
+
+/// Safe conversion from CoreCallback to function pointer
+///
+/// This provides a type-safe way to convert CoreCallback.cb (usize) to the actual
+/// function pointer type without using transmute directly in application code.
+///
+/// # Safety
+/// The caller must ensure the usize was originally a valid CallbackType function pointer.
+pub unsafe fn core_callback_to_fn(core: CoreCallback) -> CallbackType {
+    core::mem::transmute(core.cb)
 }
 
 /// Optional Callback
@@ -117,6 +151,10 @@ pub struct CallbackInfo {
     image_cache: *mut ImageCache,
     /// System font cache (can be regenerated / refreshed in callbacks)
     system_fonts: *mut FcFontCache,
+    /// Platform-specific system style (colors, spacing, etc.)
+    /// Used for CSD rendering and menu windows.
+    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation.
+    system_style: Arc<SystemStyle>,
     /// Currently running timers (polling functions, run on the main thread)
     timers: *mut FastHashMap<TimerId, Timer>,
     /// Currently running threads (asynchronous functions running each on a different thread)
@@ -176,6 +214,7 @@ impl CallbackInfo {
         gl_context: &'a OptionGlContextPtr,
         image_cache: &'a mut ImageCache,
         system_fonts: &'a mut FcFontCache,
+        system_style: Arc<SystemStyle>,
         timers: &'a mut FastHashMap<TimerId, Timer>,
         threads: &'a mut FastHashMap<ThreadId, Thread>,
         timers_removed: &'a mut FastBTreeSet<TimerId>,
@@ -213,6 +252,7 @@ impl CallbackInfo {
             gl_context: gl_context as *const OptionGlContextPtr,
             image_cache: image_cache as *mut ImageCache,
             system_fonts: system_fonts as *mut FcFontCache,
+            system_style,
             timers: timers as *mut FastHashMap<TimerId, Timer>,
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             timers_removed: timers_removed as *mut FastBTreeSet<TimerId>,
@@ -256,6 +296,25 @@ impl CallbackInfo {
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.internal_get_layout_window().get_node_position(node_id)
+    }
+
+    /// Get the bounding rectangle of a node (position + size)
+    ///
+    /// This is particularly useful for menu positioning, where you need
+    /// to know where a UI element is to popup a menu relative to it.
+    pub fn get_node_rect(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+        let position = self.get_node_position(node_id)?;
+        let size = self.get_node_size(node_id)?;
+        Some(LogicalRect::new(position, size))
+    }
+
+    /// Get the bounding rectangle of the hit node
+    ///
+    /// Convenience method that combines get_hit_node() and get_node_rect().
+    /// Useful for menu positioning based on the clicked element.
+    pub fn get_hit_node_rect(&self) -> Option<LogicalRect> {
+        let hit_node = self.get_hit_node();
+        self.get_node_rect(hit_node)
     }
 
     // ===== Timer Management =====
@@ -639,6 +698,11 @@ impl CallbackInfo {
     pub fn get_current_time(&self) -> azul_core::task::Instant {
         let cb = self.get_system_time_fn();
         (cb.cb)()
+    }
+
+    /// Get a clone of the system style Arc
+    pub fn get_system_style(&self) -> Arc<SystemStyle> {
+        self.system_style.clone()
     }
 }
 

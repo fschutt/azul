@@ -212,7 +212,7 @@ macro_rules! impl_float_value {
 }
 
 /// Trait to allow `define_dimension_property!` to work.
-pub(crate) trait PixelValueTaker {
+pub trait PixelValueTaker {
     fn from_pixel_value(inner: crate::props::basic::pixel::PixelValue) -> Self;
 }
 

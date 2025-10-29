@@ -941,23 +941,25 @@ pub struct MacOSWindow {
 
     // WebRender infrastructure for proper hit-testing and rendering
     /// Main render API for registering fonts, images, display lists
-    pub(crate) render_api: webrender::RenderApi,
+    pub render_api: webrender::RenderApi,
     /// WebRender renderer (software or hardware depending on backend)
-    pub(crate) renderer: Option<webrender::Renderer>,
+    pub renderer: Option<webrender::Renderer>,
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes)
-    pub(crate) hit_tester: crate::desktop::wr_translate2::AsyncHitTester,
+    pub hit_tester: crate::desktop::wr_translate2::AsyncHitTester,
     /// WebRender document ID
-    pub(crate) document_id: DocumentId,
+    pub document_id: DocumentId,
     /// WebRender ID namespace
-    pub(crate) id_namespace: IdNamespace,
+    pub id_namespace: IdNamespace,
     /// OpenGL context pointer with compiled SVG and FXAA shaders
-    pub(crate) gl_context_ptr: OptionGlContextPtr,
+    pub gl_context_ptr: OptionGlContextPtr,
 
     // Application-level shared state
     /// Shared application data (used by callbacks, shared across windows)
     app_data: Arc<RefCell<RefAny>>,
     /// Shared font cache (shared across windows to cache font loading)
     fc_cache: Arc<rust_fontconfig::FcFontCache>,
+    /// System style (shared across windows)
+    system_style: Arc<azul_css::system::SystemStyle>,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     frame_needs_regeneration: bool,
     /// Current scrollbar drag state (if dragging a scrollbar thumb)
@@ -1378,6 +1380,7 @@ impl MacOSWindow {
             gl_context_ptr,
             app_data,
             fc_cache,
+            system_style: Arc::new(azul_css::system::SystemStyle::new()),
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
@@ -1442,24 +1445,44 @@ impl MacOSWindow {
 
         // 1. Call layout_callback to get styled_dom
         // Use window's cached image_cache and gl_context_ptr instead of creating empty ones
-        let mut callback_info = LayoutCallbackInfo::new(
+        // Create LayoutCallbackInfo with Arc<SystemStyle>
+        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
             self.current_window_state.size.clone(),
             self.current_window_state.theme,
             &self.image_cache,
             &self.gl_context_ptr,
             &*self.fc_cache,
+            self.system_style.clone(),
         );
 
         eprintln!("[regenerate_layout] Calling layout_callback");
         let _ = std::io::stderr().flush();
 
-        let styled_dom = match &self.current_window_state.layout_callback {
+        let user_styled_dom = match &self.current_window_state.layout_callback {
             LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
             LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
                 &mut marshaled.marshal_data.clone(),
                 &mut *app_data_borrowed,
                 &mut callback_info,
             ),
+        };
+
+        // Inject CSD decorations if needed
+        let styled_dom = if crate::desktop::csd::should_inject_csd(
+            self.current_window_state.flags.has_decorations,
+            self.current_window_state.flags.decorations,
+        ) {
+            eprintln!("[regenerate_layout] Injecting CSD decorations");
+            crate::desktop::csd::wrap_user_dom_with_decorations(
+                user_styled_dom,
+                &self.current_window_state.title,
+                true,               // inject titlebar
+                true,               // has minimize
+                true,               // has maximize
+                &self.system_style, // pass SystemStyle for native look
+            )
+        } else {
+            user_styled_dom
         };
 
         eprintln!(
@@ -2372,53 +2395,6 @@ impl MacOSWindow {
         eprintln!("[finalize_delegate_pointer] ✓ WindowDelegate can now call back to MacOSWindow");
     }
 
-    /// Build and send a complete atomic WebRender transaction
-    /// This is the CRITICAL function that matches upstream WebRender's pattern:
-    /// ONE transaction containing resources + display lists + root_pipeline + document_view
-    fn build_and_send_webrender_transaction(
-        &mut self,
-        txn: &mut WrTransaction,
-    ) -> Result<(), WindowError> {
-        eprintln!("[build_atomic_txn] ========== START ==========");
-
-        // CRITICAL: Regenerate layout FIRST if needed
-        // Layout must be current before building display lists
-        if self.frame_needs_regeneration {
-            eprintln!("[build_atomic_txn] Frame needs regeneration, calling regenerate_layout");
-            if let Err(e) = self.regenerate_layout() {
-                eprintln!("[build_atomic_txn] Layout failed: {}", e);
-                return Err(WindowError::PlatformError(
-                    format!("Layout failed: {}", e).into(),
-                ));
-            }
-            self.frame_needs_regeneration = false;
-        }
-
-        // Get layout_window
-        let layout_window = self
-            .layout_window
-            .as_mut()
-            .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
-
-        eprintln!("[build_atomic_txn] Building into provided transaction");
-
-        eprintln!("[build_atomic_txn] Calling build_webrender_transaction()");
-        // Build everything into this transaction using helper functions
-        crate::desktop::wr_translate2::build_webrender_transaction(
-            txn,
-            layout_window,
-            &mut self.render_api,
-            &self.image_cache,
-        )
-        .map_err(|e| {
-            WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
-        })?;
-
-        eprintln!("[build_atomic_txn] ========== BUILD COMPLETE ==========");
-
-        Ok(())
-    }
-
     /// This is the MAIN rendering entry point, called ONLY from GLView::drawRect:
     ///
     /// This method follows the idiomatic macOS drawing pattern where all rendering
@@ -2486,10 +2462,47 @@ impl MacOSWindow {
             "[render_and_present_in_draw_rect] >>>>> Creating ONE atomic WebRender transaction \
              <<<<<"
         );
+
         let mut txn = WrTransaction::new();
 
         // Build everything into this transaction (resources, display lists, etc.)
-        self.build_and_send_webrender_transaction(&mut txn)?;
+
+        eprintln!("[build_atomic_txn] ========== START ==========");
+
+        // CRITICAL: Regenerate layout FIRST if needed
+        // Layout must be current before building display lists
+        if self.frame_needs_regeneration {
+            eprintln!("[build_atomic_txn] Frame needs regeneration, calling regenerate_layout");
+            if let Err(e) = self.regenerate_layout() {
+                eprintln!("[build_atomic_txn] Layout failed: {}", e);
+                return Err(WindowError::PlatformError(
+                    format!("Layout failed: {}", e).into(),
+                ));
+            }
+            self.frame_needs_regeneration = false;
+        }
+
+        // Get layout_window
+        let layout_window = self
+            .layout_window
+            .as_mut()
+            .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
+
+        eprintln!("[build_atomic_txn] Building into provided transaction");
+
+        eprintln!("[build_atomic_txn] Calling build_webrender_transaction()");
+        // Build everything into this transaction using helper functions
+        crate::desktop::wr_translate2::build_webrender_transaction(
+            &mut txn,
+            layout_window,
+            &mut self.render_api,
+            &self.image_cache,
+        )
+        .map_err(|e| {
+            WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
+        })?;
+
+        eprintln!("[build_atomic_txn] ========== BUILD COMPLETE ==========");
 
         // Send the complete atomic transaction
         if let Some(layout_window) = self.layout_window.as_ref() {
@@ -2847,5 +2860,72 @@ impl MacOSEvent {
             },
             _ => MacOSEvent::Other,
         }
+    }
+}
+
+impl MacOSWindow {
+    /// Inject a menu bar into the window
+    ///
+    /// On macOS, this creates a native NSMenu hierarchy attached to the application.
+    /// Menu callbacks are wired up to trigger when menu items are clicked.
+    ///
+    /// # Returns
+    /// * `Ok(())` if menu injection succeeded
+    /// * `Err(String)` if menu injection failed
+    pub fn inject_menu_bar(&mut self) -> Result<(), String> {
+        // TODO: Implement native NSMenu creation
+        // 1. Extract menu structure from WindowState
+        // 2. Convert to NSMenu hierarchy
+        // 3. Set as application menu with [NSApp setMainMenu:]
+        // 4. Wire up callbacks for menu items
+
+        eprintln!("[inject_menu_bar] TODO: Implement native macOS menu injection");
+        Ok(())
+    }
+
+    /// Gets information about the screen the window is currently on.
+    pub fn get_screen_info(&self) -> Option<objc2::rc::Retained<objc2_app_kit::NSScreen>> {
+        self.window.screen()
+    }
+
+    /// Returns the frame of the window in screen coordinates.
+    pub fn get_window_frame(&self) -> objc2_foundation::NSRect {
+        self.window.frame()
+    }
+
+    /// Returns the DPI scale factor for the window.
+    pub fn get_backing_scale_factor(&self) -> f64 {
+        self.window.backingScaleFactor()
+    }
+
+    /// Get display information for the screen this window is on
+    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+        let screen = self.get_screen_info()?;
+        let frame = screen.frame();
+        let visible_frame = screen.visibleFrame();
+        let scale = screen.backingScaleFactor();
+
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(frame.origin.x as f32, frame.origin.y as f32),
+            LogicalSize::new(frame.size.width as f32, frame.size.height as f32),
+        );
+
+        let work_area = LogicalRect::new(
+            LogicalPosition::new(visible_frame.origin.x as f32, visible_frame.origin.y as f32),
+            LogicalSize::new(
+                visible_frame.size.width as f32,
+                visible_frame.size.height as f32,
+            ),
+        );
+
+        Some(crate::desktop::display::DisplayInfo {
+            name: screen.localizedName().to_string(),
+            bounds,
+            work_area,
+            scale_factor: scale as f32,
+            is_primary: false, // Would need to check if this is the main screen
+        })
     }
 }

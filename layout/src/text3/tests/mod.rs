@@ -25,7 +25,7 @@ pub mod two;
 // --- Mocking Infrastructure ---
 
 #[derive(Debug, Clone)]
-pub(crate) struct MockFont {
+pub struct MockFont {
     id: u16,
     metrics: LayoutFontMetrics,
     glyphs: HashMap<char, (u16, f32)>,
@@ -162,7 +162,7 @@ impl ParsedFontTrait for MockFont {
 }
 
 #[derive(Debug)]
-pub(crate) struct MockFontLoader {
+pub struct MockFontLoader {
     fonts: HashMap<String, Arc<MockFont>>,
 }
 
@@ -179,13 +179,13 @@ impl FontLoaderTrait<MockFont> for MockFontLoader {
 }
 
 // A mock FontManager that doesn't use fontconfig
-pub(crate) struct MockFontManager {
+pub struct MockFontManager {
     loader: Arc<MockFontLoader>,
     cache: Mutex<HashMap<FontRef, Arc<MockFont>>>,
 }
 
 impl MockFontManager {
-    pub(crate) fn new(loader: Arc<MockFontLoader>) -> Self {
+    pub fn new(loader: Arc<MockFontLoader>) -> Self {
         Self {
             loader,
             cache: Mutex::new(HashMap::new()),
@@ -209,7 +209,7 @@ impl FontProviderTrait<MockFont> for MockFontManager {
     }
 }
 
-pub(crate) fn create_mock_font_manager() -> MockFontManager {
+pub fn create_mock_font_manager() -> MockFontManager {
     let mut glyphs = HashMap::new();
     // Latin lowercase
     glyphs.insert('f', (1, 10.0));
@@ -283,7 +283,7 @@ pub(crate) fn create_mock_font_manager() -> MockFontManager {
     MockFontManager::new(loader)
 }
 
-pub(crate) fn create_mock_font_loader() -> Arc<MockFontLoader> {
+pub fn create_mock_font_loader() -> Arc<MockFontLoader> {
     let mut glyphs = HashMap::new();
     // Latin lowercase
     glyphs.insert('f', (1, 10.0));

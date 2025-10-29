@@ -110,7 +110,7 @@ The `FlagsChanged` event fires when modifier keys are pressed/released without o
 **Location**: `dll/src/desktop/shell2/macos/events.rs`
 
 ```rust
-pub(crate) fn handle_flags_changed(&mut self, event: &NSEvent) -> EventProcessResult {
+pub fn handle_flags_changed(&mut self, event: &NSEvent) -> EventProcessResult {
     let modifiers = unsafe { event.modifierFlags() };
 
     // Detect which modifiers are pressed
@@ -194,7 +194,7 @@ Context menus are shown on right-click with hit-testing to determine which node 
 #### Mouse Up Handler Enhancement
 
 ```rust
-pub(crate) fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
+pub fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
     // ... position extraction
 
     if let Some(hit_node) = hit_test_result {

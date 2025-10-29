@@ -53,7 +53,7 @@ enum AsyncScreenshotGrabberMode {
 }
 
 /// Renderer infrastructure for capturing screenshots and scaling them asynchronously.
-pub(crate) struct AsyncScreenshotGrabber {
+pub struct AsyncScreenshotGrabber {
     /// The textures used to scale screenshots.
     scaling_textures: Vec<Texture>,
     /// PBOs available to be used for screenshot readback.

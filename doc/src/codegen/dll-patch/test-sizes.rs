@@ -15,7 +15,7 @@
     pub use self::dummy::*;
 
     #[cfg(not(feature = "link-static"))]
-    pub(crate) mod dummy {
+    pub mod dummy {
         use super::*;
         impl ::core::fmt::Debug for AzCallback                          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzLayoutCallbackInner               { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}

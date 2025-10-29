@@ -2,7 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
-use alloc::{alloc::Layout, boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{alloc::Layout, boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 use core::{
     ffi::c_void,
     fmt,
@@ -19,6 +19,7 @@ use azul_css::{
         },
         property::{CssProperty, CssPropertyType},
     },
+    system::SystemStyle,
     AzString,
 };
 use rust_fontconfig::{FcFontCache, FontSource};
@@ -649,10 +650,14 @@ pub struct LayoutCallbackInfo {
     pub gl_context: *const OptionGlContextPtr,
     /// Reference to the system font cache
     pub system_fonts: *const FcFontCache,
+    /// Platform-specific system style (colors, spacing, etc.)
+    /// Used for CSD rendering and menu windows.
+    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation.
+    pub system_style: Arc<SystemStyle>,
     /// Extension for future ABI stability (referenced data)
-    _abi_ref: *const c_void,
+    _abi_ref: *const core::ffi::c_void,
     /// Extension for future ABI stability (mutable data)
-    _abi_mut: *mut c_void,
+    _abi_mut: *mut core::ffi::c_void,
 }
 
 impl Clone for LayoutCallbackInfo {
@@ -663,6 +668,7 @@ impl Clone for LayoutCallbackInfo {
             image_cache: self.image_cache,
             gl_context: self.gl_context,
             system_fonts: self.system_fonts,
+            system_style: self.system_style.clone(),
             _abi_ref: self._abi_ref,
             _abi_mut: self._abi_mut,
         }
@@ -676,6 +682,7 @@ impl LayoutCallbackInfo {
         image_cache: &'a ImageCache,
         gl_context: &'a OptionGlContextPtr,
         fc_cache: &'a FcFontCache,
+        system_style: Arc<SystemStyle>,
     ) -> Self {
         Self {
             window_size,
@@ -683,9 +690,29 @@ impl LayoutCallbackInfo {
             image_cache: image_cache as *const ImageCache,
             gl_context: gl_context as *const OptionGlContextPtr,
             system_fonts: fc_cache as *const FcFontCache,
+            system_style,
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         }
+    }
+
+    /// Get a clone of the system style Arc
+    pub fn get_system_style(&self) -> Arc<SystemStyle> {
+        self.system_style.clone()
+    }
+
+    /// Get the ABI extension pointer (for future extensibility)
+    pub fn get_abi_ref(&self) -> *const c_void {
+        self._abi_ref
+    }
+
+    /// Set the ABI extension pointer (for future extensibility)
+    ///
+    /// # Safety
+    /// The caller must ensure the pointer remains valid for the lifetime
+    /// of this LayoutCallbackInfo and is properly cleaned up.
+    pub unsafe fn set_abi_ref(&mut self, ptr: *const c_void) {
+        self._abi_ref = ptr;
     }
 
     fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {

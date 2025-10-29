@@ -104,7 +104,7 @@ pub fn run(
 
                 loop {
                     autoreleasepool(|_| {
-                        // Process all pending events
+                        // First, process all pending events (non-blocking)
                         loop {
                             let event = unsafe {
                                 app.nextEventMatchingMask_untilDate_inMode_dequeue(
@@ -141,6 +141,24 @@ pub fn run(
                                     std::process::exit(0);
                                 }
                                 AppTerminationBehavior::RunForever => unreachable!(),
+                            }
+                        }
+
+                        // After processing all events, wait for next event (blocking)
+                        // This prevents busy-waiting and reduces CPU usage to near-zero when idle
+                        let distant_future = objc2_foundation::NSDate::distantFuture();
+                        let event = unsafe {
+                            app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                                NSEventMask::Any,
+                                Some(&distant_future), // Block until event arrives
+                                objc2_foundation::ns_string!("kCFRunLoopDefaultMode"),
+                                true,
+                            )
+                        };
+
+                        if let Some(event) = event {
+                            unsafe {
+                                app.sendEvent(&event);
                             }
                         }
                     });
@@ -271,25 +289,153 @@ pub fn run(
 
 #[cfg(target_os = "linux")]
 pub fn run(
-    _config: AppConfig,
-    _fc_cache: Arc<FcFontCache>,
+    config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    use super::linux::LinuxWindow;
+    use std::cell::RefCell;
 
-    let mut window = LinuxWindow::new(root_window)?;
+    use azul_core::{refany::RefAny, resources::AppTerminationBehavior};
 
-    while window.is_open() {
-        // First, dispatch all events that are already queued up.
-        // poll_event is non-blocking.
-        while window.poll_event().is_some() {
-            // Event handling logic is inside poll_event for both X11 and Wayland
+    use super::linux::{registry, AppResources, LinuxWindow};
+
+    // Initialize shared resources once at startup
+    let resources = Arc::new(AppResources::new(config.clone(), fc_cache));
+
+    eprintln!("[Linux run()] Creating root window with shared resources");
+
+    // Create the root window
+    let window = LinuxWindow::new_with_resources(root_window, resources.clone())?;
+
+    // Box and register window in global registry
+    let window_ptr = Box::into_raw(Box::new(window));
+
+    // Get window ID and display for registration
+    let (window_id, display_ptr) = unsafe {
+        match &*window_ptr {
+            LinuxWindow::X11(x11_window) => (x11_window.window, x11_window.display),
+            LinuxWindow::Wayland(wayland_window) => {
+                // For Wayland, we use the wl_display pointer as the window ID
+                // This is safe because display pointers are unique per window
+                (wayland_window.display as u64, wayland_window.display)
+            }
+        }
+    };
+
+    // Register the window
+    unsafe {
+        registry::register_x11_window(window_id, window_ptr as *mut _);
+    }
+
+    eprintln!(
+        "[Linux run()] Window registered (ID: {}), entering event loop",
+        window_id
+    );
+
+    // Main event loop with multi-window support
+    loop {
+        // Get all active window IDs
+        let window_ids = registry::get_all_x11_window_ids();
+
+        if window_ids.is_empty() {
+            eprintln!("[Linux run()] All windows closed, exiting event loop");
+            break;
         }
 
-        // After dispatching all pending events, we can safely block
-        // until a new event arrives from the display server.
-        // This is much more efficient than sleeping.
-        window.wait_for_events()?;
+        let is_multi_window = window_ids.len() > 1;
+
+        // Process events for all windows
+        for wid in &window_ids {
+            if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
+                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+
+                // Poll all pending events (non-blocking)
+                while window.poll_event().is_some() {
+                    // Event handling is done inside poll_event
+                }
+            }
+        }
+
+        // Wait strategy based on number of windows
+        if !is_multi_window {
+            // Single window: Block on XNextEvent (efficient)
+            if let Some(win_ptr) = unsafe { registry::get_x11_window(window_ids[0]) } {
+                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+                window.wait_for_events()?;
+            }
+        } else {
+            // Multi-window: Use select() on X11 connection fd to wait efficiently
+            // This is much better than sleep() as it wakes immediately when events arrive
+            wait_for_x11_connection_activity(display_ptr)?;
+        }
+    }
+
+    // Clean up: Unregister and drop all windows
+    eprintln!("[Linux run()] Cleaning up windows");
+    let window_ids = registry::get_all_x11_window_ids();
+    for wid in window_ids {
+        if let Some(win_ptr) = registry::unregister_x11_window(wid) {
+            unsafe {
+                drop(Box::from_raw(win_ptr as *mut LinuxWindow));
+            }
+        }
+    }
+
+    // Handle termination behavior
+    match config.termination_behavior {
+        AppTerminationBehavior::EndProcess => {
+            eprintln!("[Linux run()] Terminating process");
+            std::process::exit(0);
+        }
+        AppTerminationBehavior::ReturnToMain => {
+            eprintln!("[Linux run()] Returning to main()");
+            // Return normally
+        }
+        AppTerminationBehavior::RunForever => {
+            eprintln!("[Linux run()] RunForever mode - but all windows closed");
+            // Should not exit, but all windows are closed
+        }
+    }
+
+    Ok(())
+}
+
+/// Wait for activity on the X11 connection using select()
+///
+/// This is more efficient than sleeping as it wakes immediately when events arrive.
+#[cfg(target_os = "linux")]
+fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<(), WindowError> {
+    use std::mem;
+
+    use super::linux::x11::{defines::Display, dlopen::Xlib};
+
+    // Get the X11 library to access XConnectionNumber
+    let xlib = Xlib::new()
+        .map_err(|e| WindowError::PlatformError(format!("Failed to load Xlib: {:?}", e)))?;
+
+    // Get the file descriptor for the X11 connection
+    let connection_fd = unsafe { (xlib.XConnectionNumber)(display as *mut Display) };
+
+    // Use select() to wait for events on the X11 connection
+    unsafe {
+        let mut read_fds: libc::fd_set = mem::zeroed();
+        libc::FD_ZERO(&mut read_fds);
+        libc::FD_SET(connection_fd, &mut read_fds);
+
+        // Wait indefinitely for events (no timeout)
+        let result = libc::select(
+            connection_fd + 1,
+            &mut read_fds,
+            std::ptr::null_mut(), // No write fds
+            std::ptr::null_mut(), // No error fds
+            std::ptr::null_mut(), // No timeout - block indefinitely
+        );
+
+        if result < 0 {
+            return Err(WindowError::PlatformError(
+                "select() failed while waiting for X11 events".into(),
+            ));
+        }
     }
 
     Ok(())

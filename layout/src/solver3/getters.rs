@@ -430,11 +430,7 @@ pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) 
     }
 }
 
-// TODO: STUB helper functions that would be needed for the above code.
-pub(crate) fn get_display_property(
-    styled_dom: &StyledDom,
-    dom_id: Option<NodeId>,
-) -> LayoutDisplay {
+pub fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutDisplay {
     let Some(id) = dom_id else {
         return LayoutDisplay::Inline;
     };
@@ -448,8 +444,7 @@ pub(crate) fn get_display_property(
         .unwrap_or(LayoutDisplay::Inline)
 }
 
-// TODO: STUB helper
-pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
+pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
     let cache = &styled_dom.css_property_cache.ptr;
@@ -481,8 +476,8 @@ pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> St
     StyleProperties {
         font_selector: crate::text3::cache::FontSelector {
             family: font_family_name,
-            weight: rust_fontconfig::FcWeight::Normal, // Stub for now
-            style: crate::text3::cache::FontStyle::Normal, // Stub for now
+            weight: rust_fontconfig::FcWeight::Normal, // STUB for now
+            style: crate::text3::cache::FontStyle::Normal, // STUB for now
             unicode_ranges: Vec::new(),
         },
         font_size_px: font_size,

@@ -1063,7 +1063,7 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                     analyzed_arg_type = analyze_type(field_type)
                     if is_primitive_arg(analyzed_arg_type[1]):
                         if field_name == "ptr" and private_pointers:
-                            code += indent_str + "    " + "pub(crate) "
+                            code += indent_str + "    " + "pub "
                         else:
                             code += indent_str + "    " + "pub "
                         code += field_name + ": " + field_type + ",\r\n"
@@ -1074,7 +1074,7 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
 
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
                         if field_name == "ptr":
-                            code += indent_str + "    " + "pub(crate) "
+                            code += indent_str + "    " + "pub "
                         else:
                             code += indent_str + "    " + "pub "
                         field_postfix = wrapper_postfix
@@ -1219,7 +1219,7 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
         fn_args_with_mem_transmute = strip_fn_arg_types_mem_transmute(fn_args)
-        code += "        pub(crate) fn " + fn_name + "(" + fn_args + ")" + return_arrow + fn_return + " { unsafe { transmute(azul_dll::" + fn_name + "(" + fn_args_with_mem_transmute + ")) } }\r\n"
+        code += "        pub fn " + fn_name + "(" + fn_args + ")" + return_arrow + fn_return + " { unsafe { transmute(azul_dll::" + fn_name + "(" + fn_args_with_mem_transmute + ")) } }\r\n"
     code += "    }\r\n\r\n"
 
     code += "    #[cfg(not(feature = \"link-static\"))]\r\n"
@@ -1234,7 +1234,7 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "            pub(crate) fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
+        code += "            pub fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
     code += "        }\r\n\r\n"
     code += "    }\r\n\r\n"
 

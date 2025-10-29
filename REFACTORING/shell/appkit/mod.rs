@@ -82,37 +82,37 @@ mod gl;
 mod menu;
 
 /// OpenGL context guard, to be returned by window.make_current_gl()
-pub(crate) struct GlContextGuard {
+pub struct GlContextGuard {
     glc: *mut Object,
 }
 
-pub(crate) struct MacApp {
-    pub(crate) functions: Rc<GenericGlContext>,
-    pub(crate) data: Arc<Mutex<AppData>>,
+pub struct MacApp {
+    pub functions: Rc<GenericGlContext>,
+    pub data: Arc<Mutex<AppData>>,
 }
 
-pub(crate) struct AppData {
+pub struct AppData {
     pub userdata: App,
     pub active_menus: BTreeMap<MenuTarget, CommandMap>,
     pub windows: BTreeMap<WindowId, Window>,
 }
 
-pub(crate) struct Window {
+pub struct Window {
     /// Internal Window ID
-    pub(crate) id: WindowId,
+    pub id: WindowId,
     /// NSWindow
-    pub(crate) ns_window: Option<Retained<NSWindow>>,
+    pub ns_window: Option<Retained<NSWindow>>,
     /// Observer that fires a notification when the window is closed
-    pub(crate) observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
+    pub observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
     /// See azul-core, stores the entire UI (DOM, CSS styles, layout results, etc.)
-    pub(crate) internal: LayoutWindow,
+    pub internal: LayoutWindow,
     /// Main render API that can be used to register and un-register fonts and images
-    pub(crate) render_api: WrRenderApi,
+    pub render_api: WrRenderApi,
     /// WebRender renderer implementation (software or hardware)
-    pub(crate) renderer: Option<WrRenderer>,
+    pub renderer: Option<WrRenderer>,
     /// Hit-tester, lazily initialized and updated every time the display list changes layout
-    pub(crate) hit_tester: AsyncHitTester,
-    pub(crate) gl_context_ptr: OptionGlContextPtr,
+    pub hit_tester: AsyncHitTester,
+    pub gl_context_ptr: OptionGlContextPtr,
     /*
     /// ID -> Callback map for the window menu (default: empty map)
     menu_bar: Option<WindowsMenuBar>,
@@ -429,7 +429,7 @@ impl Window {
     }
 
     /// Utility for making the GL context current, returning a guard that resets it afterwards
-    pub(crate) fn make_current_gl(gl_context: *mut Object) -> GlContextGuard {
+    pub fn make_current_gl(gl_context: *mut Object) -> GlContextGuard {
         unsafe {
             let _: () = msg_send![gl_context, makeCurrentContext];
             GlContextGuard { glc: gl_context }
@@ -441,7 +441,7 @@ impl Window {
     }
 
     /// Function that flushes the buffer and "ends" the drawing code
-    pub(crate) fn finish_gl(guard: GlContextGuard) {
+    pub fn finish_gl(guard: GlContextGuard) {
         unsafe {
             let _: () = msg_send![guard.glc, flushBuffer];
         }
@@ -449,24 +449,24 @@ impl Window {
 
     /// On macOS, we might do something akin to `[self.ns_window setTitle:new_title]`
     /// or update the menubar, etc.
-    pub(crate) fn update_menus(&mut self) {
+    pub fn update_menus(&mut self) {
         // Called from `event::regenerate_dom` etc. after the DOM changes
     }
 
     /// Mousse has entered the window
-    pub(crate) fn on_mouse_enter(&mut self, prev: CursorPosition, cur: CursorPosition) {
+    pub fn on_mouse_enter(&mut self, prev: CursorPosition, cur: CursorPosition) {
         // TODO
     }
 
-    pub(crate) fn on_cursor_change(&mut self, prev: Option<MouseCursorType>, cur: MouseCursorType) {
+    pub fn on_cursor_change(&mut self, prev: Option<MouseCursorType>, cur: MouseCursorType) {
         // TODO
     }
 
-    pub(crate) fn set_cursor(&mut self, handle: &RawWindowHandle, cursor: MouseCursorType) {
+    pub fn set_cursor(&mut self, handle: &RawWindowHandle, cursor: MouseCursorType) {
         // TODO
     }
 
-    pub(crate) fn create_and_open_context_menu(
+    pub fn create_and_open_context_menu(
         &self,
         context_menu: &Menu,
         hit: &HitTestItem,
@@ -476,7 +476,7 @@ impl Window {
         // TODO: on Windows, this creates a menu and calls TrackCursorPosition
     }
 
-    pub(crate) fn destroy(
+    pub fn destroy(
         &mut self,
         userdata: &mut App,
         guard: &GlContextGuard,
@@ -488,7 +488,7 @@ impl Window {
 
     // --- functions necessary for process.rs handling
 
-    pub(crate) fn start_stop_timers(
+    pub fn start_stop_timers(
         &mut self,
         added: FastHashMap<TimerId, Timer>,
         removed: FastBTreeSet<TimerId>,
@@ -513,7 +513,7 @@ impl Window {
          */
     }
 
-    pub(crate) fn start_stop_threads(
+    pub fn start_stop_threads(
         &mut self,
         mut added: FastHashMap<ThreadId, Thread>,
         removed: FastBTreeSet<ThreadId>,
@@ -539,7 +539,7 @@ impl Window {
 
     // Stop all timers that have a NodeId attached to them because in the next
     // frame the NodeId would be invalid, leading to crashes / panics
-    pub(crate) fn stop_timers_with_node_ids(&mut self) {
+    pub fn stop_timers_with_node_ids(&mut self) {
         let timers_to_remove = self
             .internal
             .timers
@@ -553,7 +553,7 @@ impl Window {
     // ScrollResult contains information about what nodes need to be scrolled,
     // whether they were scrolled by the system or by the user and how far they
     // need to be scrolled
-    pub(crate) fn do_system_scroll(&mut self, scroll: ScrollResult) {
+    pub fn do_system_scroll(&mut self, scroll: ScrollResult) {
         // for scrolled_node in scroll {
         //      self.render_api.scroll_node_with_id();
         //      let scrolled_rect = LogicalRect { origin: scroll_offset, size: visible.size };
@@ -640,7 +640,7 @@ fn destroy_windows(app: &MacApp, old: Vec<WindowId>) {
     }
 }
 
-pub(crate) fn synchronize_window_state_with_os(window: &Window) {
+pub fn synchronize_window_state_with_os(window: &Window) {
     // TODO: window.set_title
 }
 

@@ -83,7 +83,7 @@ pub fn generate_rust_dll_bindings(
         let fn_args_transmuted = strip_fn_arg_types_mem_transmute(fn_args);
 
         code.push_str(&format!(
-            "        pub(crate) fn {}({}){}{}  {{ unsafe {{ transmute(azul_dll::{}({})) }} }}\n",
+            "        pub fn {}({}){}{}  {{ unsafe {{ transmute(azul_dll::{}({})) }} }}\n",
             fn_name, fn_args, return_arrow, fn_return, fn_name, fn_args_transmuted
         ));
     }
@@ -104,7 +104,7 @@ pub fn generate_rust_dll_bindings(
         let fn_args_stripped = strip_fn_arg_types(fn_args);
 
         code.push_str(&format!(
-            "            pub(crate) fn {}({}){}{};\n",
+            "            pub fn {}({}){}{};\n",
             fn_name, fn_args_stripped, return_arrow, fn_return
         ));
     }

@@ -123,7 +123,7 @@ use crate::{
 mod debug;
 mod gpu_buffer;
 mod gpu_cache;
-pub(crate) mod init;
+pub mod init;
 mod shade;
 mod upload;
 mod vertex;
@@ -342,7 +342,7 @@ impl From<GlyphFormat> for ShaderColorMode {
 /// the variants we need for a given shader, so not every variant is bound for every
 /// batch.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum TextureSampler {
+pub enum TextureSampler {
     Color0,
     Color1,
     Color2,
@@ -358,7 +358,7 @@ pub(crate) enum TextureSampler {
 }
 
 impl TextureSampler {
-    pub(crate) fn color(n: usize) -> TextureSampler {
+    pub fn color(n: usize) -> TextureSampler {
         match n {
             0 => TextureSampler::Color0,
             1 => TextureSampler::Color1,
@@ -738,7 +738,7 @@ impl DebugOverlayState {
 
 /// Tracks buffer damage rects over a series of frames.
 #[derive(Debug, Default)]
-pub(crate) struct BufferDamageTracker {
+pub struct BufferDamageTracker {
     damage_rects: [DeviceRect; 4],
     current_offset: usize,
 }
@@ -850,8 +850,8 @@ pub struct Renderer {
 
     pub renderer_errors: Vec<RendererError>,
 
-    pub(crate) async_frame_recorder: Option<AsyncScreenshotGrabber>,
-    pub(crate) async_screenshots: Option<AsyncScreenshotGrabber>,
+    pub async_frame_recorder: Option<AsyncScreenshotGrabber>,
+    pub async_screenshots: Option<AsyncScreenshotGrabber>,
 
     /// List of profile results from previous frames. Can be retrieved
     /// via get_frame_profiles().

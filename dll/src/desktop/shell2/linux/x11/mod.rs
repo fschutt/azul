@@ -1,11 +1,10 @@
 //! X11 implementation for Linux using the shell2 architecture.
 
-mod decorations;
-pub(crate) mod defines; // Make defines public within crate for Wayland to access
-pub(crate) mod dlopen; // Make dlopen public within crate for Wayland to access
-pub(crate) mod events; // Make events public within crate for Wayland to access
-pub(crate) mod gl; // Make gl public within crate for Wayland to access
-mod menu;
+pub mod defines;
+pub mod dlopen;
+pub mod events;
+pub mod gl;
+pub mod menu;
 
 use std::{
     cell::RefCell,
@@ -30,7 +29,8 @@ use azul_core::{
 };
 use azul_layout::{
     window::LayoutWindow,
-    window_state::{WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+    ScrollbarDragState,
 };
 use rust_fontconfig::FcFontCache;
 use webrender::Renderer as WrRenderer;
@@ -64,8 +64,8 @@ pub struct X11Window {
 
     // Shell2 state
     pub layout_window: Option<LayoutWindow>,
-    pub current_window_state: WindowState,
-    pub previous_window_state: Option<WindowState>,
+    pub current_window_state: FullWindowState,
+    pub previous_window_state: Option<FullWindowState>,
     pub render_api: Option<webrender::RenderApi>,
     pub renderer: Option<WrRenderer>,
     pub hit_tester: Option<AsyncHitTester>,
@@ -76,12 +76,12 @@ pub struct X11Window {
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
     id_namespace: Option<IdNamespace>,
 
-    // X11 specific state
-    menu_manager: Option<menu::MenuManager>,
+    // V2 Event system state
+    pub scrollbar_drag_state: Option<ScrollbarDragState>,
+    pub frame_needs_regeneration: bool,
 
     // Shared resources
-    fc_cache: Arc<FcFontCache>,
-    app_data: Arc<RefCell<RefAny>>,
+    pub resources: Arc<super::AppResources>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -98,14 +98,30 @@ impl PlatformWindow for X11Window {
     where
         Self: Sized,
     {
-        // This is a stand-in since the real `App` isn't passed down yet.
-        let fc_cache = Arc::new(FcFontCache::build());
-        let app_data = Arc::new(RefCell::new(RefAny::new(())));
-        Self::new(options, fc_cache, app_data)
+        // This is a stand-in for tests - use new_with_resources() in production
+        let resources = Arc::new(super::AppResources::default_for_testing());
+        Self::new_with_resources(options, resources)
     }
 
     fn get_state(&self) -> WindowState {
-        self.current_window_state.clone().into()
+        WindowState {
+            title: self.current_window_state.title.clone(),
+            size: self.current_window_state.size,
+            position: self.current_window_state.position,
+            flags: self.current_window_state.flags,
+            theme: self.current_window_state.theme,
+            debug_state: self.current_window_state.debug_state,
+            keyboard_state: self.current_window_state.keyboard_state.clone(),
+            mouse_state: self.current_window_state.mouse_state.clone(),
+            touch_state: self.current_window_state.touch_state.clone(),
+            ime_position: self.current_window_state.ime_position,
+            platform_specific_options: self.current_window_state.platform_specific_options.clone(),
+            renderer_options: self.current_window_state.renderer_options,
+            background_color: self.current_window_state.background_color,
+            layout_callback: self.current_window_state.layout_callback.clone(),
+            close_callback: self.current_window_state.close_callback.clone(),
+            monitor: self.current_window_state.monitor.clone(),
+        }
     }
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
         if let Some(title) = props.title {
@@ -127,15 +143,12 @@ impl PlatformWindow for X11Window {
                 }
             }
 
-            if decorations::handle_decoration_event(self, &event) {
-                self.process_events(); // CSD interactions might require UI updates
-                continue;
-            }
-
-            self.previous_window_state = Some(self.current_window_state.clone());
-
-            match unsafe { event.type_ } {
-                defines::Expose => self.request_redraw(),
+            // Process event with V2 handlers
+            let result = match unsafe { event.type_ } {
+                defines::Expose => {
+                    self.request_redraw();
+                    ProcessEventResult::DoNothing
+                }
                 defines::ConfigureNotify => {
                     let ev = unsafe { &event.configure };
                     let (new_width, new_height) = (ev.width as u32, ev.height as u32);
@@ -146,6 +159,7 @@ impl PlatformWindow for X11Window {
                             LogicalSize::new(new_width as f32, new_height as f32);
                         self.regenerate_layout().ok();
                     }
+                    ProcessEventResult::DoNothing
                 }
                 defines::ClientMessage => {
                     if unsafe { event.client_message.data.l[0] } as Atom
@@ -154,22 +168,27 @@ impl PlatformWindow for X11Window {
                         self.is_open = false;
                         return Some(X11Event::Close);
                     }
+                    ProcessEventResult::DoNothing
                 }
                 defines::ButtonPress | defines::ButtonRelease => {
-                    events::handle_mouse_button(self, unsafe { &event.button })
+                    self.handle_mouse_button(unsafe { &event.button })
                 }
-                defines::MotionNotify => events::handle_mouse_move(self, unsafe { &event.motion }),
+                defines::MotionNotify => self.handle_mouse_move(unsafe { &event.motion }),
                 defines::KeyPress | defines::KeyRelease => {
-                    events::handle_keyboard(self, unsafe { &mut event.key })
+                    self.handle_keyboard(unsafe { &mut event.key })
                 }
                 defines::EnterNotify | defines::LeaveNotify => {
-                    events::handle_mouse_crossing(self, unsafe { &event.crossing })
+                    self.handle_mouse_crossing(unsafe { &event.crossing })
                 }
-                _ => {}
-            }
+                _ => ProcessEventResult::DoNothing,
+            };
 
-            self.process_events();
+            // Request redraw if needed
+            if result != ProcessEventResult::DoNothing {
+                self.request_redraw();
+            }
         }
+
         None
     }
 
@@ -235,10 +254,13 @@ impl PlatformWindow for X11Window {
 }
 
 impl X11Window {
-    pub fn new(
+    /// Create a new X11 window with shared resources
+    ///
+    /// This is the preferred way to create X11 windows, as it allows
+    /// sharing font cache, app data, and system styling across windows.
+    pub fn new_with_resources(
         options: WindowCreateOptions,
-        fc_cache: Arc<FcFontCache>,
-        app_data: Arc<RefCell<RefAny>>,
+        resources: Arc<super::AppResources>,
     ) -> Result<Self, WindowError> {
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
@@ -382,7 +404,30 @@ impl X11Window {
             ime_manager,
             render_mode,
             layout_window: None,
-            current_window_state: options.state.into(),
+            current_window_state: FullWindowState {
+                title: options.state.title.clone(),
+                size: options.state.size,
+                position: options.state.position,
+                flags: options.state.flags,
+                theme: options.state.theme,
+                debug_state: options.state.debug_state,
+                keyboard_state: Default::default(),
+                mouse_state: Default::default(),
+                touch_state: Default::default(),
+                ime_position: options.state.ime_position,
+                platform_specific_options: options.state.platform_specific_options.clone(),
+                renderer_options: options.state.renderer_options,
+                background_color: options.state.background_color,
+                layout_callback: options.state.layout_callback,
+                close_callback: options.state.close_callback.clone(),
+                monitor: options.state.monitor,
+                hovered_file: None,
+                dropped_file: None,
+                focused_node: None,
+                last_hit_test: azul_layout::hit_test::FullHitTest::empty(None),
+                selections: Default::default(),
+                window_focused: true,
+            },
             previous_window_state: None,
             renderer,
             render_api,
@@ -393,13 +438,18 @@ impl X11Window {
             renderer_resources: RendererResources::default(),
             gl_context_ptr,
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
-            menu_manager: None,
-            fc_cache,
-            app_data,
+            scrollbar_drag_state: None,
+            frame_needs_regeneration: false,
+            resources,
         };
 
         unsafe { (window.xlib.XMapWindow)(display, window.window) };
         unsafe { (window.xlib.XFlush)(display) };
+
+        // Register window in global registry for multi-window support
+        unsafe {
+            super::registry::register_x11_window(window.window, &mut window as *mut _);
+        }
 
         Ok(window)
     }
@@ -425,32 +475,449 @@ impl X11Window {
                 return;
             }
         }
-        self.previous_window_state = Some(self.current_window_state.clone());
-        match unsafe { event.type_ } {
-            defines::Expose => self.request_redraw(),
-            defines::KeyPress | defines::KeyRelease => {
-                events::handle_keyboard(self, unsafe { &mut event.key })
+
+        // Process event with V2 handlers
+        let result = match unsafe { event.type_ } {
+            defines::Expose => {
+                self.request_redraw();
+                ProcessEventResult::DoNothing
             }
-            // ... other event handlers ...
-            _ => {}
+            defines::ButtonPress | defines::ButtonRelease => {
+                self.handle_mouse_button(unsafe { &event.button })
+            }
+            defines::MotionNotify => self.handle_mouse_move(unsafe { &event.motion }),
+            defines::KeyPress | defines::KeyRelease => {
+                self.handle_keyboard(unsafe { &mut event.key })
+            }
+            defines::EnterNotify | defines::LeaveNotify => {
+                self.handle_mouse_crossing(unsafe { &event.crossing })
+            }
+            _ => ProcessEventResult::DoNothing,
+        };
+
+        // Request redraw if needed
+        if result != ProcessEventResult::DoNothing {
+            self.request_redraw();
         }
-        self.process_events();
     }
 
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        // Stub for now. A full implementation would call
-        // LayoutWindow::layout_and_generate_display_list
+        use std::io::Write;
+
+        use azul_core::callbacks::LayoutCallback;
+
+        eprintln!("[regenerate_layout] START");
+
+        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+
+        // Borrow app_data from Arc<RefCell<>>
+        let mut app_data_borrowed = self.resources.app_data.borrow_mut();
+
+        // Update layout_window's fc_cache with the shared one from resources
+        layout_window.font_manager.fc_cache = self.resources.fc_cache.clone();
+
+        // 1. Call layout_callback to get styled_dom
+        // Create LayoutCallbackInfo with Arc<SystemStyle>
+        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
+            self.current_window_state.size.clone(),
+            self.current_window_state.theme,
+            &self.image_cache,
+            &self.gl_context_ptr,
+            &*self.resources.fc_cache,
+            self.resources.system_style.clone(),
+        );
+
+        eprintln!("[regenerate_layout] Calling layout_callback");
+        let _ = std::io::stderr().flush();
+
+        let user_styled_dom = match &self.current_window_state.layout_callback {
+            LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
+            LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
+                &mut marshaled.marshal_data.clone(),
+                &mut *app_data_borrowed,
+                &mut callback_info,
+            ),
+        };
+
+        // Inject CSD decorations if needed
+        let styled_dom = if crate::desktop::csd::should_inject_csd(
+            self.current_window_state.flags.has_decorations,
+            self.current_window_state.flags.decorations,
+        ) {
+            eprintln!("[regenerate_layout] Injecting CSD decorations");
+            crate::desktop::csd::wrap_user_dom_with_decorations(
+                user_styled_dom,
+                &self.current_window_state.title,
+                true,                         // inject titlebar
+                true,                         // has minimize
+                true,                         // has maximize
+                &self.resources.system_style, // pass SystemStyle for native look
+            )
+        } else {
+            user_styled_dom
+        };
+
+        eprintln!(
+            "[regenerate_layout] StyledDom received: {} nodes",
+            styled_dom.styled_nodes.len()
+        );
+        eprintln!(
+            "[regenerate_layout] StyledDom hierarchy length: {}",
+            styled_dom.node_hierarchy.len()
+        );
+        let _ = std::io::stderr().flush();
+
+        // 2. Perform layout with solver3
+        eprintln!("[regenerate_layout] Calling layout_and_generate_display_list");
+        layout_window
+            .layout_and_generate_display_list(
+                styled_dom,
+                &self.current_window_state,
+                &self.renderer_resources,
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &mut None, // No debug messages for now
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+
+        eprintln!(
+            "[regenerate_layout] Layout completed, {} DOMs",
+            layout_window.layout_results.len()
+        );
+
+        // 3. Calculate scrollbar states based on new layout
+        // This updates scrollbar geometry (thumb position/size ratios, visibility)
+        layout_window.scroll_states.calculate_scrollbar_states();
+
+        // 4. Rebuild display list and send to WebRender
+        let dpi_factor = self.current_window_state.size.get_hidpi_factor();
+        let mut txn = webrender::Transaction::new();
+        let render_api = self.render_api.as_mut().ok_or("No render API")?;
+        crate::desktop::wr_translate2::rebuild_display_list(
+            &mut txn,
+            layout_window,
+            render_api,
+            &self.image_cache,
+            Vec::new(),
+            &mut self.renderer_resources,
+            dpi_factor,
+        );
+
+        // 5. Synchronize scrollbar opacity with GPU cache AFTER display list submission
+        // This enables smooth fade-in/fade-out without display list rebuild
+        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            azul_layout::LayoutWindow::synchronize_scrollbar_opacity(
+                &mut layout_window.gpu_state_manager,
+                &layout_window.scroll_states,
+                *dom_id,
+                &layout_result.layout_tree,
+                &system_callbacks,
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )), // fade_delay
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )), // fade_duration
+            );
+        }
+
+        // 6. Mark that frame needs regeneration (will be called once at event processing end)
+        self.frame_needs_regeneration = true;
+
         Ok(())
     }
 
-    pub(crate) fn process_window_events_v2(&mut self) -> ProcessEventResult {
-        // Stub for now. A full implementation would use state-diffing.
-        ProcessEventResult::DoNothing
+    /// Generate frame if needed and reset flag
+    pub fn generate_frame_if_needed(&mut self) {
+        if !self.frame_needs_regeneration {
+            return;
+        }
+
+        if let (Some(ref mut layout_window), Some(ref mut render_api)) =
+            (self.layout_window.as_mut(), self.render_api.as_mut())
+        {
+            let mut txn = webrender::Transaction::new();
+            crate::desktop::wr_translate2::generate_frame(
+                &mut txn,
+                layout_window,
+                render_api,
+                true, // Display list was rebuilt
+            );
+            render_api.send_transaction(
+                crate::desktop::wr_translate2::wr_translate_document_id(self.document_id.unwrap()),
+                txn,
+            );
+        }
+
+        self.frame_needs_regeneration = false;
+    }
+
+    /// Synchronize X11 window properties with current_window_state
+    fn sync_window_state(&mut self) {
+        use std::ffi::CString;
+
+        // Get copies of previous and current state to avoid borrow checker issues
+        let (previous, current) = match &self.previous_window_state {
+            Some(prev) => (prev.clone(), self.current_window_state.clone()),
+            None => return, // First frame, nothing to sync
+        };
+
+        // Title changed?
+        if previous.title != current.title {
+            let c_title = CString::new(current.title.as_str()).unwrap();
+            unsafe {
+                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
+            }
+        }
+
+        // Size changed?
+        if previous.size.dimensions != current.size.dimensions {
+            let width = current.size.dimensions.width as u32;
+            let height = current.size.dimensions.height as u32;
+            unsafe {
+                (self.xlib.XResizeWindow)(self.display, self.window, width, height);
+            }
+        }
+
+        // Position changed?
+        if previous.position != current.position {
+            match current.position {
+                azul_core::window::WindowPosition::Initialized(pos) => unsafe {
+                    (self.xlib.XMoveWindow)(self.display, self.window, pos.x, pos.y);
+                },
+                azul_core::window::WindowPosition::Uninitialized => {}
+            }
+        }
+
+        // Visibility changed?
+        if previous.flags.is_visible != current.flags.is_visible {
+            unsafe {
+                if current.flags.is_visible {
+                    (self.xlib.XMapWindow)(self.display, self.window);
+                } else {
+                    (self.xlib.XUnmapWindow)(self.display, self.window);
+                }
+            }
+        }
+
+        // Window frame state changed? (Minimize/Maximize/Normal)
+        if previous.flags.frame != current.flags.frame {
+            use azul_core::window::WindowFrame;
+            match current.flags.frame {
+                WindowFrame::Minimized => {
+                    // TODO: Minimize via XIconifyWindow (not yet in dlopen wrapper)
+                    // For now, use XUnmapWindow as fallback
+                    unsafe {
+                        (self.xlib.XUnmapWindow)(self.display, self.window);
+                    }
+                }
+                WindowFrame::Maximized => {
+                    // Maximize via _NET_WM_STATE
+                    unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                        event.type_ = defines::ClientMessage;
+                        event.window = self.window;
+                        event.message_type = (self.xlib.XInternAtom)(
+                            self.display,
+                            b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                            0,
+                        );
+                        event.format = 32;
+                        event.data.l[0] = 1; // _NET_WM_STATE_ADD
+                        event.data.l[1] = (self.xlib.XInternAtom)(
+                            self.display,
+                            b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
+                            0,
+                        ) as i64;
+                        event.data.l[2] = (self.xlib.XInternAtom)(
+                            self.display,
+                            b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
+                            0,
+                        ) as i64;
+                        event.data.l[3] = 1; // Source indication
+
+                        (self.xlib.XSendEvent)(
+                            self.display,
+                            root,
+                            0,
+                            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                            &mut event as *mut _ as *mut defines::XEvent,
+                        );
+                    }
+                }
+                WindowFrame::Normal | WindowFrame::Fullscreen => {
+                    // Restore to normal - remove maximize state
+                    if previous.flags.frame == WindowFrame::Maximized {
+                        unsafe {
+                            let screen = (self.xlib.XDefaultScreen)(self.display);
+                            let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                            event.type_ = defines::ClientMessage;
+                            event.window = self.window;
+                            event.message_type = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                                0,
+                            );
+                            event.format = 32;
+                            event.data.l[0] = 0; // _NET_WM_STATE_REMOVE
+                            event.data.l[1] = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
+                                0,
+                            ) as i64;
+                            event.data.l[2] = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
+                                0,
+                            ) as i64;
+                            event.data.l[3] = 1; // Source indication
+
+                            (self.xlib.XSendEvent)(
+                                self.display,
+                                root,
+                                0,
+                                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                                &mut event as *mut _ as *mut defines::XEvent,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Mouse cursor synchronization - compute from current hit test
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
+            self.set_cursor(cursor_test.cursor_icon);
+        }
+
+        // Flush X11 commands
+        unsafe {
+            (self.xlib.XFlush)(self.display);
+        }
+    }
+
+    /// Set the mouse cursor for this window
+    fn set_cursor(&mut self, cursor_type: azul_core::window::MouseCursorType) {
+        use defines::*;
+
+        // Map MouseCursorType to X11 cursor constants
+        let cursor_id = match cursor_type {
+            azul_core::window::MouseCursorType::Default
+            | azul_core::window::MouseCursorType::Arrow => XC_left_ptr,
+            azul_core::window::MouseCursorType::Crosshair => XC_crosshair,
+            azul_core::window::MouseCursorType::Hand => XC_hand2,
+            azul_core::window::MouseCursorType::Move => XC_fleur,
+            azul_core::window::MouseCursorType::Text => XC_xterm,
+            azul_core::window::MouseCursorType::Wait => XC_watch,
+            azul_core::window::MouseCursorType::Progress => XC_watch,
+            azul_core::window::MouseCursorType::NotAllowed => XC_X_cursor,
+            azul_core::window::MouseCursorType::EResize => XC_right_side,
+            azul_core::window::MouseCursorType::NResize => XC_top_side,
+            azul_core::window::MouseCursorType::NeResize => XC_top_right_corner,
+            azul_core::window::MouseCursorType::NwResize => XC_top_left_corner,
+            azul_core::window::MouseCursorType::SResize => XC_bottom_side,
+            azul_core::window::MouseCursorType::SeResize => XC_bottom_right_corner,
+            azul_core::window::MouseCursorType::SwResize => XC_bottom_left_corner,
+            azul_core::window::MouseCursorType::WResize => XC_left_side,
+            azul_core::window::MouseCursorType::EwResize => XC_sb_h_double_arrow,
+            azul_core::window::MouseCursorType::NsResize => XC_sb_v_double_arrow,
+            azul_core::window::MouseCursorType::NeswResize => XC_sizing,
+            azul_core::window::MouseCursorType::NwseResize => XC_sizing,
+            azul_core::window::MouseCursorType::ColResize => XC_sb_h_double_arrow,
+            azul_core::window::MouseCursorType::RowResize => XC_sb_v_double_arrow,
+            // Additional cursor types that may not have exact X11 equivalents
+            azul_core::window::MouseCursorType::Help => XC_left_ptr, // No help cursor in X11
+            azul_core::window::MouseCursorType::ContextMenu => XC_left_ptr,
+            azul_core::window::MouseCursorType::Cell => XC_crosshair,
+            azul_core::window::MouseCursorType::VerticalText => XC_xterm,
+            azul_core::window::MouseCursorType::Alias => XC_hand2,
+            azul_core::window::MouseCursorType::Copy => XC_hand2,
+            azul_core::window::MouseCursorType::NoDrop => XC_X_cursor,
+            azul_core::window::MouseCursorType::Grab => XC_hand2,
+            azul_core::window::MouseCursorType::Grabbing => XC_fleur,
+            azul_core::window::MouseCursorType::AllScroll => XC_fleur,
+            azul_core::window::MouseCursorType::ZoomIn => XC_left_ptr,
+            azul_core::window::MouseCursorType::ZoomOut => XC_left_ptr,
+        };
+
+        unsafe {
+            let cursor = (self.xlib.XCreateFontCursor)(self.display, cursor_id);
+            (self.xlib.XDefineCursor)(self.display, self.window, cursor);
+            (self.xlib.XFreeCursor)(self.display, cursor);
+        }
+    }
+
+    /// Calculates the DPI of the screen the window is on.
+    pub fn get_screen_dpi(&self) -> Option<f32> {
+        // TODO: Implement proper DPI detection with XRandR
+        // For now, return default DPI
+        Some(96.0)
+    }
+
+    /// Get display information for the screen this window is on
+    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+        unsafe {
+            let screen = (self.xlib.XDefaultScreen)(self.display);
+
+            // Get screen dimensions in pixels
+            let width_px = (self.xlib.XDisplayWidth)(self.display, screen);
+            let height_px = (self.xlib.XDisplayHeight)(self.display, screen);
+
+            // Get screen dimensions in millimeters for DPI calculation
+            let width_mm = (self.xlib.XDisplayWidthMM)(self.display, screen);
+            let height_mm = (self.xlib.XDisplayHeightMM)(self.display, screen);
+
+            // Calculate DPI
+            let dpi_x = if width_mm > 0 {
+                (width_px as f32 / width_mm as f32) * 25.4
+            } else {
+                96.0
+            };
+
+            let dpi_y = if height_mm > 0 {
+                (height_px as f32 / height_mm as f32) * 25.4
+            } else {
+                96.0
+            };
+
+            // Use average DPI for scale factor
+            let avg_dpi = (dpi_x + dpi_y) / 2.0;
+            let scale_factor = avg_dpi / 96.0;
+
+            let bounds = LogicalRect::new(
+                LogicalPosition::zero(),
+                LogicalSize::new(width_px as f32, height_px as f32),
+            );
+
+            // Approximate work area by subtracting common panel height
+            let work_area = LogicalRect::new(
+                LogicalPosition::zero(),
+                LogicalSize::new(width_px as f32, (height_px - 24).max(0) as f32),
+            );
+
+            Some(crate::desktop::display::DisplayInfo {
+                name: format!(":0.{}", screen),
+                bounds,
+                work_area,
+                scale_factor,
+                is_primary: true,
+            })
+        }
     }
 }
 
 impl Drop for X11Window {
     fn drop(&mut self) {
+        // Unregister from global registry before closing
+        super::registry::unregister_x11_window(self.window);
         self.close();
     }
 }

@@ -255,7 +255,7 @@ impl VecContents {
 
 // Helper functions for formatting values
 
-pub(crate) fn format_pixel_value(p: &PixelValue) -> String {
+pub fn format_pixel_value(p: &PixelValue) -> String {
     match p.metric {
         SizeMetric::Px => format!(
             "PixelValue::const_px({})",
@@ -288,32 +288,32 @@ pub(crate) fn format_pixel_value(p: &PixelValue) -> String {
     }
 }
 
-pub(crate) fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
+pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
     format!(
         "PixelValueNoPercent {{ inner: {} }}",
         format_pixel_value(&p.inner)
     )
 }
 
-pub(crate) fn format_float_value(f: &FloatValue) -> String {
+pub fn format_float_value(f: &FloatValue) -> String {
     format!("FloatValue::const_new({})", libm::roundf(f.get()) as isize)
 }
 
-pub(crate) fn format_percentage_value(f: &PercentageValue) -> String {
+pub fn format_percentage_value(f: &PercentageValue) -> String {
     format!(
         "PercentageValue::const_new({})",
         libm::roundf(f.normalized() * 100.0) as isize
     )
 }
 
-pub(crate) fn format_angle_value(f: &AngleValue) -> String {
+pub fn format_angle_value(f: &AngleValue) -> String {
     format!(
         "AngleValue::const_deg({})",
         libm::roundf(f.to_degrees()) as isize
     )
 }
 
-pub(crate) fn format_color_value(c: &ColorU) -> String {
+pub fn format_color_value(c: &ColorU) -> String {
     format!(
         "ColorU {{ r: {}, g: {}, b: {}, a: {} }}",
         c.r, c.g, c.b, c.a
@@ -618,7 +618,7 @@ fn format_style_background_size(c: &StyleBackgroundSize) -> String {
 
 // Scrollbar-related impls moved to `props/style/scrollbar.rs`
 
-pub(crate) fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
+pub fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
     format!(

@@ -864,7 +864,7 @@ impl Ord for ProcessEventResult {
 }
 
 /// Invoke callbacks for a given target and event filter
-pub(crate) fn invoke_callbacks(
+pub fn invoke_callbacks(
     window: &mut Win32Window,
     target: CallbackTarget,
     event_filter: azul_core::events::EventFilter,
@@ -972,7 +972,7 @@ pub(crate) fn invoke_callbacks(
 }
 
 /// Process a single callback result and update window state
-pub(crate) fn process_callback_result(
+pub fn process_callback_result(
     window: &mut Win32Window,
     result: &CallCallbacksResult,
 ) -> ProcessEventResult {

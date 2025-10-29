@@ -7,7 +7,7 @@
 //! - Verifying display list generation
 
 use azul_core::{callbacks::LayoutCallbackInfo, dom::Dom, refany::RefAny, styled_dom::StyledDom};
-use azul_css::{css::Css, parser2::CssApiWrapper};
+use azul_css::{css::Css, parser2::CssApiWrapper, system::SystemStyle};
 
 struct AppData {
     content: &'static str,
@@ -116,6 +116,7 @@ fn main() {
         &azul_core::resources::ImageCache::default(),
         &azul_core::gl::OptionGlContextPtr::None,
         &*fc_cache,
+        std::sync::Arc::new(SystemStyle::default()),
     );
 
     let styled_dom = layout_callback(&mut app_data, &mut callback_info);

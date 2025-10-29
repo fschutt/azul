@@ -217,8 +217,8 @@ pub struct TimerCallbackInfo {
     pub frame_start: Instant,
     pub call_count: usize,
     pub is_about_to_finish: bool,
-    pub(crate) _abi_ref: *const c_void,
-    pub(crate) _abi_mut: *mut c_void,
+    pub _abi_ref: *const c_void,
+    pub _abi_mut: *mut c_void,
 }
 
 impl TimerCallbackInfo {

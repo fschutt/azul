@@ -118,7 +118,7 @@ impl AsyncHitTester {
 
 /// Same interface as azul-core: FullHitTest::new
 /// but uses webrender to compare the results of the two hit-testing implementations
-pub(crate) fn fullhittest_new_webrender(
+pub fn fullhittest_new_webrender(
     wr_hittester: &dyn WrApiHitTester,
     document_id: DocumentId,
     old_focus_node: Option<DomNodeId>,
@@ -273,7 +273,7 @@ pub(crate) fn fullhittest_new_webrender(
 ///
 /// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
 /// indicate whether it was used during the current frame or not.
-pub(crate) fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
+pub fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
 
     use crate::desktop::wr_translate::{
@@ -289,7 +289,7 @@ pub(crate) fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransac
 }
 
 /// Synchronize transform / opacity keys
-pub(crate) fn synchronize_gpu_values(
+pub fn synchronize_gpu_values(
     layout_results: &[LayoutResult],
     dpi: &DpiScaleFactor,
     txn: &mut WrTransaction,
@@ -382,7 +382,7 @@ pub(crate) fn synchronize_gpu_values(
     });
 }
 
-pub(crate) fn wr_synchronize_updated_images(
+pub fn wr_synchronize_updated_images(
     updated_images: Vec<UpdateImageResult>,
     txn: &mut WrTransaction,
 ) {
@@ -404,7 +404,7 @@ pub(crate) fn wr_synchronize_updated_images(
 
 /// Returns the size fo the built display list
 #[cfg(not(any(all(macos, test), all(windows, test))))]
-pub(crate) fn rebuild_display_list(
+pub fn rebuild_display_list(
     internal: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
@@ -467,7 +467,7 @@ pub(crate) fn rebuild_display_list(
 
 /// Generates a new frame for webrender
 // #[cfg(not(test))]
-pub(crate) fn generate_frame(
+pub fn generate_frame(
     internal: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     display_list_was_rebuilt: bool,
@@ -536,7 +536,7 @@ fn wr_translate_layouted_glyphs(input: &[GlyphInstance]) -> Vec<WrGlyphInstance>
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_mix_blend_mode(mix_blend_mode: CssMixBlendMode) -> WrMixBlendMode {
+pub const fn wr_translate_mix_blend_mode(mix_blend_mode: CssMixBlendMode) -> WrMixBlendMode {
     match mix_blend_mode {
         CssMixBlendMode::Normal => WrMixBlendMode::Normal,
         CssMixBlendMode::Multiply => WrMixBlendMode::Multiply,
@@ -558,24 +558,24 @@ pub(crate) const fn wr_translate_mix_blend_mode(mix_blend_mode: CssMixBlendMode)
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
+pub const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
     WrEpoch(epoch.into_u32())
 }
 
 // webrender -> core
 
 #[inline(always)]
-pub(crate) const fn translate_id_namespace_wr(ns: WrIdNamespace) -> IdNamespace {
+pub const fn translate_id_namespace_wr(ns: WrIdNamespace) -> IdNamespace {
     IdNamespace(ns.0)
 }
 
 #[inline(always)]
-pub(crate) const fn translate_pipeline_id_wr(pipeline_id: WrPipelineId) -> PipelineId {
+pub const fn translate_pipeline_id_wr(pipeline_id: WrPipelineId) -> PipelineId {
     PipelineId(pipeline_id.0, pipeline_id.1)
 }
 
 #[inline(always)]
-pub(crate) const fn translate_document_id_wr(document_id: WrDocumentId) -> DocumentId {
+pub const fn translate_document_id_wr(document_id: WrDocumentId) -> DocumentId {
     DocumentId {
         namespace_id: translate_id_namespace_wr(document_id.namespace_id),
         id: document_id.id,
@@ -583,7 +583,7 @@ pub(crate) const fn translate_document_id_wr(document_id: WrDocumentId) -> Docum
 }
 
 #[inline(always)]
-pub(crate) const fn translate_font_key_wr(font_key: WrFontKey) -> FontKey {
+pub const fn translate_font_key_wr(font_key: WrFontKey) -> FontKey {
     FontKey {
         key: font_key.1,
         namespace: translate_id_namespace_wr(font_key.0),
@@ -591,7 +591,7 @@ pub(crate) const fn translate_font_key_wr(font_key: WrFontKey) -> FontKey {
 }
 
 #[inline(always)]
-pub(crate) const fn translate_font_instance_key_wr(
+pub const fn translate_font_instance_key_wr(
     font_instance_key: WrFontInstanceKey,
 ) -> FontInstanceKey {
     FontInstanceKey {
@@ -601,7 +601,7 @@ pub(crate) const fn translate_font_instance_key_wr(
 }
 
 #[inline(always)]
-pub(crate) const fn translate_image_key_wr(image_key: WrImageKey) -> ImageKey {
+pub const fn translate_image_key_wr(image_key: WrImageKey) -> ImageKey {
     ImageKey {
         key: image_key.1,
         namespace: translate_id_namespace_wr(image_key.0),
@@ -609,13 +609,13 @@ pub(crate) const fn translate_image_key_wr(image_key: WrImageKey) -> ImageKey {
 }
 
 #[inline(always)]
-pub(crate) const fn translate_epoch_wr(epoch: WrEpoch) -> Epoch {
+pub const fn translate_epoch_wr(epoch: WrEpoch) -> Epoch {
     Epoch::from(epoch.0)
 }
 
 /*
 #[inline]
-pub(crate) fn translate_image_descriptor_wr(descriptor: WrImageDescriptor) -> ImageDescriptor {
+pub fn translate_image_descriptor_wr(descriptor: WrImageDescriptor) -> ImageDescriptor {
     ImageDescriptor {
         format: translate_image_format_wr(descriptor.format),
         width: descriptor.size.width as usize,
@@ -627,7 +627,7 @@ pub(crate) fn translate_image_descriptor_wr(descriptor: WrImageDescriptor) -> Im
 }
 
 #[inline]
-pub(crate) fn translate_image_descriptor_flags_wr(flags: WrImageDescriptorFlags) -> ImageDescriptorFlags {
+pub fn translate_image_descriptor_flags_wr(flags: WrImageDescriptorFlags) -> ImageDescriptorFlags {
     ImageDescriptorFlags {
         is_opaque: flags.contains(WrImageDescriptorFlags::IS_OPAQUE),
         allow_mipmaps: flags.contains(WrImageDescriptorFlags::ALLOW_MIPMAPS),
@@ -657,12 +657,12 @@ const fn wr_translate_id_namespace(ns: IdNamespace) -> WrIdNamespace {
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_font_key(font_key: FontKey) -> WrFontKey {
+pub const fn wr_translate_font_key(font_key: FontKey) -> WrFontKey {
     WrFontKey(wr_translate_id_namespace(font_key.namespace), font_key.key)
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_font_instance_key(
+pub const fn wr_translate_font_instance_key(
     font_instance_key: FontInstanceKey,
 ) -> WrFontInstanceKey {
     WrFontInstanceKey(
@@ -672,7 +672,7 @@ pub(crate) const fn wr_translate_font_instance_key(
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_image_key(image_key: ImageKey) -> WrImageKey {
+pub const fn wr_translate_image_key(image_key: ImageKey) -> WrImageKey {
     WrImageKey(
         wr_translate_id_namespace(image_key.namespace),
         image_key.key,
@@ -680,12 +680,12 @@ pub(crate) const fn wr_translate_image_key(image_key: ImageKey) -> WrImageKey {
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipelineId {
+pub const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipelineId {
     WrPipelineId(pipeline_id.0, pipeline_id.1)
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_document_id(document_id: DocumentId) -> WrDocumentId {
+pub const fn wr_translate_document_id(document_id: DocumentId) -> WrDocumentId {
     WrDocumentId {
         namespace_id: wr_translate_id_namespace(document_id.namespace_id),
         id: document_id.id,
@@ -693,12 +693,12 @@ pub(crate) const fn wr_translate_document_id(document_id: DocumentId) -> WrDocum
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSize {
+pub fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSize {
     WrLayoutSize::new(logical_size.width, logical_size.height)
 }
 
 #[inline]
-pub(crate) fn wr_translate_image_descriptor(
+pub fn wr_translate_image_descriptor(
     descriptor: ImageDescriptor,
 ) -> Option<WrImageDescriptor> {
     use webrender::api::units::DeviceIntSize;
@@ -712,7 +712,7 @@ pub(crate) fn wr_translate_image_descriptor(
 }
 
 #[inline]
-pub(crate) fn wr_translate_image_descriptor_flags(
+pub fn wr_translate_image_descriptor_flags(
     flags: ImageDescriptorFlags,
 ) -> WrImageDescriptorFlags {
     let mut f = WrImageDescriptorFlags::empty();
@@ -722,7 +722,7 @@ pub(crate) fn wr_translate_image_descriptor_flags(
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_add_font_instance(
+pub fn wr_translate_add_font_instance(
     add_font_instance: AddFontInstance,
 ) -> WrAddFontInstance {
     WrAddFontInstance {
@@ -998,12 +998,12 @@ fn wr_translate_layout_size(input: CssLayoutSize) -> WrLayoutSize {
 }
 
 #[inline]
-pub(crate) fn wr_translate_layout_point(input: CssLayoutPoint) -> WrLayoutPoint {
+pub fn wr_translate_layout_point(input: CssLayoutPoint) -> WrLayoutPoint {
     WrLayoutPoint::new(input.x as f32, input.y as f32)
 }
 
 #[inline]
-pub(crate) fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutPoint {
+pub fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutPoint {
     WrLayoutPoint::new(input.x, input.y)
 }
 
@@ -1118,7 +1118,7 @@ fn wr_translate_alpha_type(alpha_type: AlphaType) -> WrAlphaType {
     }
 }
 
-pub(crate) fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
+pub fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
     let mut debug_flags = WrDebugFlags::empty();
 
     debug_flags.set(WrDebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
@@ -1186,7 +1186,7 @@ pub(crate) fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_resource_update(
+pub fn wr_translate_resource_update(
     resource_update: ResourceUpdate,
 ) -> Option<WrResourceUpdate> {
     match resource_update {
@@ -1232,7 +1232,7 @@ fn wr_translate_add_image(add_image: AddImage) -> Option<WrAddImage> {
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
+pub fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
     match image_data {
         ImageData::Raw(data) => WrImageData::Raw(u8vec_into_wr_type(data)),
         ImageData::External(external) => {
@@ -1256,12 +1256,12 @@ fn wr_translate_external_image_data(external: ExternalImageData) -> WrExternalIm
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_external_image_id(external: ExternalImageId) -> WrExternalImageId {
+pub const fn wr_translate_external_image_id(external: ExternalImageId) -> WrExternalImageId {
     WrExternalImageId(external.inner)
 }
 
 #[inline(always)]
-pub(crate) const fn translate_external_image_id_wr(external: WrExternalImageId) -> ExternalImageId {
+pub const fn translate_external_image_id_wr(external: WrExternalImageId) -> ExternalImageId {
     ExternalImageId { inner: external.0 }
 }
 
@@ -1315,7 +1315,7 @@ fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect
 }
 
 #[inline]
-pub(crate) const fn wr_translate_layout_transform(t: &ComputedTransform3D) -> WrLayoutTransform {
+pub const fn wr_translate_layout_transform(t: &ComputedTransform3D) -> WrLayoutTransform {
     WrLayoutTransform::new(
         t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3], t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
         t.m[2][0], t.m[2][1], t.m[2][2], t.m[2][3], t.m[3][0], t.m[3][1], t.m[3][2], t.m[3][3],
@@ -1323,7 +1323,7 @@ pub(crate) const fn wr_translate_layout_transform(t: &ComputedTransform3D) -> Wr
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
+pub fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
     WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
 }
 
@@ -1344,7 +1344,7 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 //
 // The translation should iterate through display_list.items and convert each
 // DisplayListItem to the appropriate WebRender primitive (push_rect, push_border, etc.)
-pub(crate) fn wr_translate_display_list(
+pub fn wr_translate_display_list(
     document_id: DocumentId,
     render_api: &mut WrRenderApi,
     input: DisplayList, // Changed from CachedDisplayList

@@ -25,7 +25,7 @@ use rust_fontconfig::FcFontCache;
 // are set correctly and the hit-test has been performed, will call the callbacks
 // and return what the application should do next
 #[must_use]
-pub(crate) fn process_event(
+pub fn process_event(
     window_handle: &RawWindowHandle,
     window: &mut Window,
     fc_cache: &FcFontCache,
@@ -88,7 +88,7 @@ pub(crate) fn process_event(
 }
 
 #[must_use]
-pub(crate) fn process_timer(
+pub fn process_timer(
     timer_id: usize,
     window_handle: &RawWindowHandle,
     window: &mut Window,
@@ -130,7 +130,7 @@ pub(crate) fn process_timer(
 }
 
 #[must_use]
-pub(crate) fn process_threads(
+pub fn process_threads(
     window_handle: &RawWindowHandle,
     data: &mut RefAny,
     window: &mut Window,
@@ -179,7 +179,7 @@ pub(crate) fn process_threads(
 }
 
 #[must_use]
-pub(crate) fn process_callback_results(
+pub fn process_callback_results(
     mut callback_results: CallCallbacksResult,
     window: &mut Window,
     nodes_to_check: &NodesToCheck,

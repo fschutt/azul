@@ -5,7 +5,7 @@ use std::ffi::CStr;
 pub mod common;
 pub mod traits;
 pub mod types;
-pub(crate) mod shaders;
+pub mod shaders;
 
 use crate::shaders::{brush_image_texture_2d, brush_solid, brush_solid_alpha_pass};
 use traits::Program;

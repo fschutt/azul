@@ -67,6 +67,15 @@ impl LogicalRect {
         true
     }
 
+    /// Returns whether this rectangle contains the given point
+    #[inline]
+    pub fn contains(&self, point: LogicalPosition) -> bool {
+        point.x >= self.min_x()
+            && point.x < self.max_x()
+            && point.y >= self.min_y()
+            && point.y < self.max_y()
+    }
+
     /// Faster union for a Vec<LayoutRect>
     #[inline]
     pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {

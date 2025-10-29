@@ -61,6 +61,10 @@ pub struct Wayland {
     pub wl_surface_attach:
         unsafe extern "C" fn(surface: *mut wl_surface, buffer: *mut wl_buffer, i32, i32),
     pub wl_surface_damage: unsafe extern "C" fn(surface: *mut wl_surface, i32, i32, i32, i32),
+    pub wl_surface_frame: unsafe extern "C" fn(surface: *mut wl_surface) -> *mut wl_callback,
+
+    pub wl_callback_add_listener:
+        unsafe extern "C" fn(*mut wl_callback, *const wl_callback_listener, *mut c_void) -> i32,
 
     pub xdg_wm_base_pong: unsafe extern "C" fn(*mut xdg_wm_base, u32),
     pub xdg_wm_base_get_xdg_surface:
@@ -68,10 +72,33 @@ pub struct Wayland {
     pub xdg_surface_get_toplevel: unsafe extern "C" fn(*mut xdg_surface) -> *mut xdg_toplevel,
     pub xdg_surface_ack_configure: unsafe extern "C" fn(*mut xdg_surface, u32),
     pub xdg_toplevel_set_title: unsafe extern "C" fn(*mut xdg_toplevel, *const i8),
+    pub xdg_toplevel_set_minimized: unsafe extern "C" fn(*mut xdg_toplevel),
+    pub xdg_toplevel_set_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
+    pub xdg_toplevel_unset_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_wm_base_add_listener:
         unsafe extern "C" fn(*mut xdg_wm_base, *const xdg_wm_base_listener, *mut c_void) -> i32,
     pub xdg_surface_add_listener:
         unsafe extern "C" fn(*mut xdg_surface, *const xdg_surface_listener, *mut c_void) -> i32,
+
+    // xdg_popup and xdg_positioner functions
+    pub xdg_wm_base_create_positioner:
+        unsafe extern "C" fn(*mut xdg_wm_base) -> *mut xdg_positioner,
+    pub xdg_positioner_set_size: unsafe extern "C" fn(*mut xdg_positioner, i32, i32),
+    pub xdg_positioner_set_anchor_rect:
+        unsafe extern "C" fn(*mut xdg_positioner, i32, i32, i32, i32),
+    pub xdg_positioner_set_anchor: unsafe extern "C" fn(*mut xdg_positioner, u32),
+    pub xdg_positioner_set_gravity: unsafe extern "C" fn(*mut xdg_positioner, u32),
+    pub xdg_positioner_set_constraint_adjustment: unsafe extern "C" fn(*mut xdg_positioner, u32),
+    pub xdg_positioner_destroy: unsafe extern "C" fn(*mut xdg_positioner),
+    pub xdg_surface_get_popup: unsafe extern "C" fn(
+        *mut xdg_surface,
+        *mut xdg_surface,
+        *mut xdg_positioner,
+    ) -> *mut xdg_popup,
+    pub xdg_popup_add_listener:
+        unsafe extern "C" fn(*mut xdg_popup, *const xdg_popup_listener, *mut c_void) -> i32,
+    pub xdg_popup_grab: unsafe extern "C" fn(*mut xdg_popup, *mut wl_seat, u32),
+    pub xdg_popup_destroy: unsafe extern "C" fn(*mut xdg_popup),
 
     pub wl_seat_get_pointer: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_pointer,
     pub wl_seat_get_keyboard: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_keyboard,
@@ -171,6 +198,9 @@ impl Wayland {
             wl_surface_commit: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_attach: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_damage: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_surface_frame: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+
+            wl_callback_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             xdg_wm_base_pong: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_wm_base_get_xdg_surface: unsafe {
@@ -179,8 +209,28 @@ impl Wayland {
             xdg_surface_get_toplevel: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
             xdg_surface_ack_configure: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_set_title: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_toplevel_set_minimized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_toplevel_set_maximized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_toplevel_unset_maximized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_wm_base_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+
+            // xdg_popup and xdg_positioner
+            xdg_wm_base_create_positioner: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor)
+            },
+            xdg_positioner_set_size: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_positioner_set_anchor_rect: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_positioner_set_anchor: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_positioner_set_gravity: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_positioner_set_constraint_adjustment: unsafe {
+                std::mem::transmute(wl_proxy_marshal_ptr)
+            },
+            xdg_positioner_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_surface_get_popup: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            xdg_popup_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            xdg_popup_grab: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_popup_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
 
             wl_seat_get_pointer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
             wl_seat_get_keyboard: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },

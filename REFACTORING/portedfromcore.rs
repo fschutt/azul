@@ -1447,9 +1447,9 @@ pub struct TimerCallbackInfo {
     /// This is useful to rebuild the DOM once the timer (usually an animation) has finished.
     pub is_about_to_finish: bool,
     /// Extension for future ABI stability (referenced data)
-    pub(crate) _abi_ref: *const c_void,
+    pub _abi_ref: *const c_void,
     /// Extension for future ABI stability (mutable data)
-    pub(crate) _abi_mut: *mut c_void,
+    pub _abi_mut: *mut c_void,
 }
 
 impl Clone for TimerCallbackInfo {

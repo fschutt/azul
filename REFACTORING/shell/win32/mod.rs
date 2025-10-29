@@ -3249,7 +3249,7 @@ fn destroy_windows(app: &mut AppData, old: Vec<WindowId>) {
     }
 }
 
-pub(crate) fn synchronize_window_state_with_os(window: &Window) {
+pub fn synchronize_window_state_with_os(window: &Window) {
     // TODO: window.set_title
 }
 

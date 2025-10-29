@@ -696,7 +696,7 @@ impl Drop for GLsyncPtr {
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
 /// be shared across pipelines, however this turns out to be very difficult in practice.
-pub(crate) type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>;
+pub type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>;
 
 /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
 /// as WebRender needs it for drawing. To transparently do this, we store the epoch that the

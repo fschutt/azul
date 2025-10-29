@@ -41,7 +41,7 @@ impl SharedHitTester {
         Arc::clone(&*guard)
     }
 
-    pub(crate) fn update(&self, new_hit_tester: Arc<HitTester>) {
+    pub fn update(&self, new_hit_tester: Arc<HitTester>) {
         let mut guard = self.hit_tester.lock().unwrap();
         *guard = new_hit_tester;
     }

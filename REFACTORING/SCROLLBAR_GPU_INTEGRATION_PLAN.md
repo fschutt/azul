@@ -227,7 +227,7 @@ builder.push_scrollbar_with_opacity_key(
 **Modify `dll/src/desktop/wr_translate.rs`:**
 
 ```rust
-pub(crate) fn synchronize_gpu_values(
+pub fn synchronize_gpu_values(
     layout_results: &[LayoutResult],
     dpi: &DpiScaleFactor,
     txn: &mut WrTransaction,

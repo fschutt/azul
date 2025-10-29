@@ -1,7 +1,7 @@
 //! WebRender type translation functions for shell2
 //!
 //! This module provides translations between azul-core types and WebRender types,
-//! plus hit-testing integration. Simplified version of wr_translate.rs for shell2.
+//! plus hit-testing integration.
 
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::mem;
@@ -119,7 +119,7 @@ pub const WR_SHADER_CACHE: Option<&Rc<RefCell<webrender::Shaders>>> = None;
 pub fn default_renderer_options(
     options: &azul_layout::window_state::WindowCreateOptions,
 ) -> WrRendererOptions {
-    use webrender::api::ColorF as WrColorF;
+    use webrender::{api::ColorF as WrColorF, ShaderPrecacheFlags};
 
     WrRendererOptions {
         resource_override_path: None,
@@ -134,6 +134,9 @@ pub fn default_renderer_options(
         },
         enable_multithreading: false,
         debug_flags: wr_translate_debug_flags(&options.state.debug_state),
+        // Enable shader precaching: compile all shaders at initialization
+        // This prevents stuttering when shaders are compiled on-demand
+        precache_flags: ShaderPrecacheFlags::FULL_COMPILE,
         ..WrRendererOptions::default()
     }
 }
@@ -274,6 +277,22 @@ pub fn wr_translate_logical_position(
     pos: azul_core::geom::LogicalPosition,
 ) -> webrender::api::units::LayoutPoint {
     webrender::api::units::LayoutPoint::new(pos.x, pos.y)
+}
+
+/// Translate physical position to WebRender WorldPoint
+/// Used for hit-testing with physical coordinates
+pub fn translate_world_point(
+    pos: azul_core::geom::PhysicalPosition<f32>,
+) -> webrender::api::units::WorldPoint {
+    webrender::api::units::WorldPoint::new(pos.x, pos.y)
+}
+
+/// Translate WebRender hit test to azul-core FullHitTest
+/// This converts the raw hit-test result from WebRender to our internal representation
+pub fn translate_hit_test_result<T>(_wr_result: T) -> azul_core::hit_test::FullHitTest {
+    // For now, return an empty hit test result
+    // A full implementation would convert WebRender's hit test items to our format
+    azul_core::hit_test::FullHitTest::empty(None)
 }
 
 /// Translate ScrollbarHitId to WebRender ItemTag
@@ -1702,7 +1721,6 @@ pub fn get_webrender_border(
 
 /// Build a complete atomic WebRender transaction (matching upstream WebRender pattern)
 /// This creates ONE transaction with: resources + display lists + root_pipeline + document_view
-/// This is the CRITICAL fix - upstream WebRender requires all scene data in ONE atomic transaction
 pub fn build_webrender_transaction(
     txn: &mut WrTransaction,
     layout_window: &mut LayoutWindow,

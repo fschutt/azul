@@ -139,6 +139,11 @@ name = "test_rectangles"
 path = "examples/test_rectangles.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "menu_rendering_demo"
+path = "examples/menu_rendering_demo.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """

@@ -97,6 +97,7 @@ pub struct Xlib {
     pub XFillRectangle: XFillRectangle,
     pub XFlush: XFlush,
     pub XSync: XSync,
+    pub XConnectionNumber: XConnectionNumber,
     pub XSetLocaleModifiers: XSetLocaleModifiers,
     pub XOpenIM: XOpenIM,
     pub XCloseIM: XCloseIM,
@@ -110,6 +111,15 @@ pub struct Xlib {
     pub XSetErrorHandler: XSetErrorHandler,
     pub XChangeProperty: XChangeProperty,
     pub XChangeWindowAttributes: XChangeWindowAttributes,
+    pub XResizeWindow: XResizeWindow,
+    pub XUnmapWindow: XUnmapWindow,
+    pub XCreateFontCursor: XCreateFontCursor,
+    pub XDefineCursor: XDefineCursor,
+    pub XFreeCursor: XFreeCursor,
+    pub XDisplayWidth: XDisplayWidth,
+    pub XDisplayHeight: XDisplayHeight,
+    pub XDisplayWidthMM: XDisplayWidthMM,
+    pub XDisplayHeightMM: XDisplayHeightMM,
 }
 
 impl Xlib {
@@ -141,6 +151,7 @@ impl Xlib {
             XFillRectangle: load_symbol!(lib, _, "XFillRectangle"),
             XFlush: load_symbol!(lib, _, "XFlush"),
             XSync: load_symbol!(lib, _, "XSync"),
+            XConnectionNumber: load_symbol!(lib, _, "XConnectionNumber"),
             XSetLocaleModifiers: load_symbol!(lib, _, "XSetLocaleModifiers"),
             XOpenIM: load_symbol!(lib, _, "XOpenIM"),
             XCloseIM: load_symbol!(lib, _, "XCloseIM"),
@@ -154,6 +165,15 @@ impl Xlib {
             XSetErrorHandler: load_symbol!(lib, _, "XSetErrorHandler"),
             XChangeProperty: load_symbol!(lib, _, "XChangeProperty"),
             XChangeWindowAttributes: load_symbol!(lib, _, "XChangeWindowAttributes"),
+            XResizeWindow: load_symbol!(lib, _, "XResizeWindow"),
+            XUnmapWindow: load_symbol!(lib, _, "XUnmapWindow"),
+            XCreateFontCursor: load_symbol!(lib, _, "XCreateFontCursor"),
+            XDefineCursor: load_symbol!(lib, _, "XDefineCursor"),
+            XFreeCursor: load_symbol!(lib, _, "XFreeCursor"),
+            XDisplayWidth: load_symbol!(lib, _, "XDisplayWidth"),
+            XDisplayHeight: load_symbol!(lib, _, "XDisplayHeight"),
+            XDisplayWidthMM: load_symbol!(lib, _, "XDisplayWidthMM"),
+            XDisplayHeightMM: load_symbol!(lib, _, "XDisplayHeightMM"),
             _lib: lib,
         }))
     }

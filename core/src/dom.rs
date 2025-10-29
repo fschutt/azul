@@ -424,7 +424,7 @@ impl NodeType {
         }
     }
 
-    pub(crate) fn format(&self) -> Option<String> {
+    pub fn format(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
             Text(s) => Some(format!("{}", s)),
@@ -860,20 +860,20 @@ impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeData {
     /// `div`, `p`, `img`, etc.
-    pub(crate) node_type: NodeType,
+    pub node_type: NodeType,
     /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
-    pub(crate) dataset: OptionRefAny,
+    pub dataset: OptionRefAny,
     /// Stores all ids and classes as one vec - size optimization since
     /// most nodes don't have any classes or IDs.
-    pub(crate) ids_and_classes: IdOrClassVec,
+    pub ids_and_classes: IdOrClassVec,
     /// Callbacks attached to this node:
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    pub(crate) callbacks: CoreCallbackDataVec,
+    pub callbacks: CoreCallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML.
-    pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
+    pub inline_css_props: NodeDataInlineCssPropertyVec,
     /// Tab index (commonly used property).
-    pub(crate) tab_index: OptionTabIndex,
+    pub tab_index: OptionTabIndex,
     /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
     /// etc.
     ///
@@ -921,13 +921,13 @@ impl Hash for NodeData {
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
     /// Optional clip mask for this DOM node.
-    pub(crate) clip_mask: Option<ImageMask>,
+    pub clip_mask: Option<ImageMask>,
     /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
-    pub(crate) accessibility: Option<Box<AccessibilityInfo>>,
+    pub accessibility: Option<Box<AccessibilityInfo>>,
     /// Menu bar that should be displayed at the top of this nodes rect.
-    pub(crate) menu_bar: Option<Box<Menu>>,
+    pub menu_bar: Option<Box<Menu>>,
     /// Context menu that should be opened when the item is left-clicked.
-    pub(crate) context_menu: Option<Box<Menu>>,
+    pub context_menu: Option<Box<Menu>>,
     // ... insert further API extensions here...
 }
 

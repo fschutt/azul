@@ -39,11 +39,11 @@ use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
 use crate::geom::LogicalPosition;
 
 /// CPU feature detection: true if initialization has been performed
-pub(crate) static INITIALIZED: AtomicBool = AtomicBool::new(false);
+pub static INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// CPU feature detection: true if AVX instructions are available
-pub(crate) static USE_AVX: AtomicBool = AtomicBool::new(false);
+pub static USE_AVX: AtomicBool = AtomicBool::new(false);
 /// CPU feature detection: true if SSE instructions are available
-pub(crate) static USE_SSE: AtomicBool = AtomicBool::new(false);
+pub static USE_SSE: AtomicBool = AtomicBool::new(false);
 
 /// Specifies the coordinate system convention for rotations.
 ///

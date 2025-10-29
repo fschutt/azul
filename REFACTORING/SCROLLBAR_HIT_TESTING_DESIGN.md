@@ -140,7 +140,7 @@ If NO:  perform_regular_hit_test() → dispatch_callbacks()
 ```rust
 // In dll/src/desktop/shell2/macos/events.rs
 impl MacOSWindow {
-    pub(crate) fn handle_mouse_down(
+    pub fn handle_mouse_down(
         &mut self,
         event: &NSEvent,
         button: MouseButton,
@@ -263,7 +263,7 @@ impl MacOSWindow {
         }
     }
 
-    pub(crate) fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
@@ -301,7 +301,7 @@ impl MacOSWindow {
         EventProcessResult::DoNothing
     }
 
-    pub(crate) fn handle_mouse_up(
+    pub fn handle_mouse_up(
         &mut self,
         event: &NSEvent,
         button: MouseButton,

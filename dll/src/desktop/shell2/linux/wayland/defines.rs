@@ -58,6 +58,10 @@ pub struct wl_event_queue {
     _private: [u8; 0],
 }
 #[repr(C)]
+pub struct wl_callback {
+    _private: [u8; 0],
+}
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct wl_interface {
     pub name: *const c_char,
@@ -93,6 +97,14 @@ pub struct xdg_surface {
 }
 #[repr(C)]
 pub struct xdg_toplevel {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct xdg_popup {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct xdg_positioner {
     _private: [u8; 0],
 }
 
@@ -230,6 +242,55 @@ pub struct xdg_wm_base_listener {
 pub struct xdg_surface_listener {
     pub configure: extern "C" fn(data: *mut c_void, xdg_surface: *mut xdg_surface, serial: u32),
 }
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct xdg_popup_listener {
+    pub configure: extern "C" fn(
+        data: *mut c_void,
+        xdg_popup: *mut xdg_popup,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ),
+    pub popup_done: extern "C" fn(data: *mut c_void, xdg_popup: *mut xdg_popup),
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_callback_listener {
+    pub done: extern "C" fn(data: *mut c_void, callback: *mut wl_callback, callback_data: u32),
+}
+
+// XDG Positioner Enums (from xdg-shell protocol)
+pub const XDG_POSITIONER_ANCHOR_NONE: u32 = 0;
+pub const XDG_POSITIONER_ANCHOR_TOP: u32 = 1;
+pub const XDG_POSITIONER_ANCHOR_BOTTOM: u32 = 2;
+pub const XDG_POSITIONER_ANCHOR_LEFT: u32 = 3;
+pub const XDG_POSITIONER_ANCHOR_RIGHT: u32 = 4;
+pub const XDG_POSITIONER_ANCHOR_TOP_LEFT: u32 = 5;
+pub const XDG_POSITIONER_ANCHOR_BOTTOM_LEFT: u32 = 6;
+pub const XDG_POSITIONER_ANCHOR_TOP_RIGHT: u32 = 7;
+pub const XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT: u32 = 8;
+
+pub const XDG_POSITIONER_GRAVITY_NONE: u32 = 0;
+pub const XDG_POSITIONER_GRAVITY_TOP: u32 = 1;
+pub const XDG_POSITIONER_GRAVITY_BOTTOM: u32 = 2;
+pub const XDG_POSITIONER_GRAVITY_LEFT: u32 = 3;
+pub const XDG_POSITIONER_GRAVITY_RIGHT: u32 = 4;
+pub const XDG_POSITIONER_GRAVITY_TOP_LEFT: u32 = 5;
+pub const XDG_POSITIONER_GRAVITY_BOTTOM_LEFT: u32 = 6;
+pub const XDG_POSITIONER_GRAVITY_TOP_RIGHT: u32 = 7;
+pub const XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT: u32 = 8;
+
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_NONE: u32 = 0;
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X: u32 = 1;
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y: u32 = 2;
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_X: u32 = 4;
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y: u32 = 8;
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_X: u32 = 16;
+pub const XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y: u32 = 32;
 
 // Wayland Constants
 pub const WL_SEAT_CAPABILITY_POINTER: u32 = 1;

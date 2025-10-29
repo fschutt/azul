@@ -30,9 +30,8 @@ trait CallbackExt {
 
 impl CallbackExt for azul_layout::callbacks::Callback {
     fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self {
-        Self {
-            cb: unsafe { std::mem::transmute(core_callback.cb) },
-        }
+        // Use the existing safe wrapper method from Callback
+        azul_layout::callbacks::Callback::from_core(core_callback)
     }
 }
 
@@ -51,7 +50,7 @@ pub enum EventProcessResult {
 
 /// Target for callback dispatch - either a specific node or all root nodes.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum CallbackTarget {
+pub enum CallbackTarget {
     /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
     Node(HitTestNode),
     /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events,
@@ -355,7 +354,7 @@ impl MacOSWindow {
     }
 
     /// Process a mouse button down event.
-    pub(crate) fn handle_mouse_down(
+    pub fn handle_mouse_down(
         &mut self,
         event: &NSEvent,
         button: MouseButton,
@@ -387,7 +386,7 @@ impl MacOSWindow {
 
         // Use V2 cross-platform event system - it will automatically:
         // - Detect MouseDown event (left/right/middle)
-        // - Dispatch to hovered nodes
+        // - Dispatch to hovered nodes (including CSD buttons with callbacks)
         // - Handle event propagation
         // - Process callback results recursively
         let result = self.process_window_events_v2();
@@ -396,11 +395,7 @@ impl MacOSWindow {
     }
 
     /// Process a mouse button up event.
-    pub(crate) fn handle_mouse_up(
-        &mut self,
-        event: &NSEvent,
-        button: MouseButton,
-    ) -> EventProcessResult {
+    pub fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
@@ -443,7 +438,7 @@ impl MacOSWindow {
     }
 
     /// Process a mouse move event.
-    pub(crate) fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
@@ -468,7 +463,7 @@ impl MacOSWindow {
     }
 
     /// Process mouse entered window event.
-    pub(crate) fn handle_mouse_entered(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_mouse_entered(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
@@ -488,7 +483,7 @@ impl MacOSWindow {
     }
 
     /// Process mouse exited window event.
-    pub(crate) fn handle_mouse_exited(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_mouse_exited(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
@@ -509,7 +504,7 @@ impl MacOSWindow {
     }
 
     /// Process a scroll wheel event.
-    pub(crate) fn handle_scroll_wheel(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_scroll_wheel(&mut self, event: &NSEvent) -> EventProcessResult {
         let delta_x = unsafe { event.scrollingDeltaX() };
         let delta_y = unsafe { event.scrollingDeltaY() };
         let _has_precise = unsafe { event.hasPreciseScrollingDeltas() };
@@ -562,7 +557,7 @@ impl MacOSWindow {
     }
 
     /// Process a key down event.
-    pub(crate) fn handle_key_down(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_key_down(&mut self, event: &NSEvent) -> EventProcessResult {
         let key_code = unsafe { event.keyCode() };
         let modifiers = unsafe { event.modifierFlags() };
 
@@ -590,7 +585,7 @@ impl MacOSWindow {
     }
 
     /// Process a key up event.
-    pub(crate) fn handle_key_up(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_key_up(&mut self, event: &NSEvent) -> EventProcessResult {
         let key_code = unsafe { event.keyCode() };
         let modifiers = unsafe { event.modifierFlags() };
 
@@ -610,7 +605,7 @@ impl MacOSWindow {
     }
 
     /// Process a flags changed event (modifier keys).
-    pub(crate) fn handle_flags_changed(&mut self, event: &NSEvent) -> EventProcessResult {
+    pub fn handle_flags_changed(&mut self, event: &NSEvent) -> EventProcessResult {
         let modifiers = unsafe { event.modifierFlags() };
 
         // Determine which modifier keys are currently pressed
@@ -679,7 +674,7 @@ impl MacOSWindow {
     }
 
     /// Process a window resize event.
-    pub(crate) fn handle_resize(&mut self, new_width: f64, new_height: f64) -> EventProcessResult {
+    pub fn handle_resize(&mut self, new_width: f64, new_height: f64) -> EventProcessResult {
         use azul_core::geom::LogicalSize;
 
         let new_size = LogicalSize {
@@ -713,7 +708,7 @@ impl MacOSWindow {
     }
 
     /// Process a file drop event.
-    pub(crate) fn handle_file_drop(&mut self, paths: Vec<String>) -> EventProcessResult {
+    pub fn handle_file_drop(&mut self, paths: Vec<String>) -> EventProcessResult {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
@@ -994,13 +989,18 @@ impl MacOSWindow {
             context_menu.items.as_slice().len()
         );
 
-        self.show_context_menu_at_position(context_menu, position, event);
+        // Check if native context menus are enabled
+        if self.current_window_state.flags.use_native_context_menus {
+            self.show_native_context_menu_at_position(context_menu, position, event);
+        } else {
+            self.show_window_based_context_menu(context_menu, position);
+        }
 
         Some(())
     }
 
     /// Show an NSMenu as a context menu at the given screen position.
-    fn show_context_menu_at_position(
+    fn show_native_context_menu_at_position(
         &self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
@@ -1069,6 +1069,46 @@ impl MacOSWindow {
         }
     }
 
+    /// Show a context menu using Azul window-based menu system
+    ///
+    /// This uses the same unified menu system as regular menus (crate::desktop::menu::show_menu)
+    /// but spawns at cursor position instead of below a trigger rect.
+    fn show_window_based_context_menu(
+        &self,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+    ) {
+        // Get parent window position
+        let parent_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                LogicalPosition::new(pos.x as f32, pos.y as f32)
+            }
+            _ => LogicalPosition::new(0.0, 0.0),
+        };
+
+        // Create menu window using the unified menu system
+        // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
+        let _menu_options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.system_style.clone(),
+            parent_pos,
+            None,           // No trigger rect for context menus (they spawn at cursor)
+            Some(position), // Cursor position for menu positioning
+            None,           // No parent menu
+        );
+
+        // TODO: Queue window creation request for processing in main event loop
+        // For now, we log the request. The proper implementation requires:
+        // 1. A queue of pending WindowCreateOptions
+        // 2. Processing this queue in the event loop via create_window()
+        // 3. Multi-window support in the macOS event loop (similar to X11)
+        eprintln!(
+            "[macOS] Window-based context menu requested at screen ({}, {}) - requires \
+             multi-window support",
+            position.x, position.y
+        );
+    }
+
     // ========================================================================
     // Helper Functions for V2 Event System
     // ========================================================================
@@ -1130,7 +1170,7 @@ impl MacOSWindow {
 
     /// V2: Process window events using cross-platform dispatch system.
     /// This replaces process_window_events with recursive callback handling.
-    pub(crate) fn process_window_events_v2(&mut self) -> ProcessEventResult {
+    pub fn process_window_events_v2(&mut self) -> ProcessEventResult {
         self.process_window_events_recursive_v2(0)
     }
 
@@ -1324,6 +1364,7 @@ impl MacOSWindow {
                 &self.gl_context_ptr,
                 &mut self.image_cache,
                 &mut fc_cache_clone,
+                self.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
                 &self.current_window_state,

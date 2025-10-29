@@ -212,6 +212,116 @@ impl SystemStyle {
 
         style
     }
+
+    /// Create a CSS stylesheet for CSD (Client-Side Decorations) titlebar
+    ///
+    /// This generates CSS rules for the CSD titlebar using system colors,
+    /// fonts, and metrics to match the native platform look.
+    pub fn create_csd_stylesheet(&self) -> Stylesheet {
+        use alloc::format;
+
+        use crate::parser2::new_from_str;
+
+        // Build CSS string from SystemStyle
+        let mut css = String::new();
+
+        // Get system colors with fallbacks
+        let bg_color = self
+            .colors
+            .window_background
+            .unwrap_or(ColorU::new_rgb(240, 240, 240));
+        let text_color = self.colors.text.unwrap_or(ColorU::new_rgb(0, 0, 0));
+        let accent_color = self.colors.accent.unwrap_or(ColorU::new_rgb(0, 120, 215));
+        let border_color = match self.theme {
+            Theme::Dark => ColorU::new_rgb(60, 60, 60),
+            Theme::Light => ColorU::new_rgb(200, 200, 200),
+        };
+
+        // Get system metrics with fallbacks
+        let corner_radius = self
+            .metrics
+            .corner_radius
+            .map(|px| format!("{}px", px.to_pixels(1.0)))
+            .unwrap_or_else(|| "4px".to_string());
+
+        // Titlebar container
+        css.push_str(&format!(
+            ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
+             border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
+             align-items: center; justify-content: space-between; padding: 0 8px; }} ",
+            bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
+        ));
+
+        // Title text
+        css.push_str(&format!(
+            ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
+             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }} ",
+            text_color.r, text_color.g, text_color.b,
+        ));
+
+        // Button container
+        css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
+
+        // Buttons
+        css.push_str(&format!(
+            ".csd-button {{ width: 32px; height: 24px; border-radius: {}; background: \
+             transparent; color: rgb({}, {}, {}); font-size: 16px; line-height: 24px; text-align: \
+             center; cursor: pointer; user-select: none; }} ",
+            corner_radius, text_color.r, text_color.g, text_color.b,
+        ));
+
+        // Button hover state
+        let hover_color = match self.theme {
+            Theme::Dark => ColorU::new_rgb(60, 60, 60),
+            Theme::Light => ColorU::new_rgb(220, 220, 220),
+        };
+        css.push_str(&format!(
+            ".csd-button:hover {{ background: rgb({}, {}, {}); }} ",
+            hover_color.r, hover_color.g, hover_color.b,
+        ));
+
+        // Close button hover (red on all platforms)
+        css.push_str(
+            ".csd-close:hover { background: rgb(232, 17, 35); color: rgb(255, 255, 255); } ",
+        );
+
+        // Platform-specific button styling
+        match self.platform {
+            Platform::MacOs => {
+                // macOS traffic light buttons (left side)
+                css.push_str(".csd-buttons { position: absolute; left: 8px; } ");
+                css.push_str(
+                    ".csd-close { background: rgb(255, 95, 86); width: 12px; height: 12px; \
+                     border-radius: 50%; } ",
+                );
+                css.push_str(
+                    ".csd-minimize { background: rgb(255, 189, 46); width: 12px; height: 12px; \
+                     border-radius: 50%; } ",
+                );
+                css.push_str(
+                    ".csd-maximize { background: rgb(40, 201, 64); width: 12px; height: 12px; \
+                     border-radius: 50%; } ",
+                );
+            }
+            Platform::Linux(_) => {
+                // Linux - title on left, buttons on right
+                css.push_str(".csd-title { text-align: left; } ");
+            }
+            _ => {
+                // Windows and others - standard layout
+            }
+        }
+
+        // Parse CSS string into Stylesheet
+        let (mut parsed_css, _warnings) = new_from_str(&css);
+
+        // Return first stylesheet (should always exist)
+        if !parsed_css.stylesheets.is_empty() {
+            parsed_css.stylesheets.into_library_owned_vec().remove(0)
+        } else {
+            Stylesheet::default()
+        }
+    }
 }
 
 // -- Platform-Specific Implementations (with I/O) --

@@ -758,6 +758,37 @@ pub struct WindowFlags {
     pub smooth_scroll_enabled: bool,
     /// Is automatic TAB switching supported?
     pub autotab_enabled: bool,
+    /// Window type classification (Normal, Menu, Tooltip, Dialog)
+    pub window_type: WindowType,
+    /// Enable client-side decorations (custom titlebar with CSD)
+    /// Only effective when decorations == WindowDecorations::None
+    pub has_decorations: bool,
+    /// Use native menus (Win32 HMENU, macOS NSMenu) instead of Azul window-based menus
+    /// Default: true on Windows/macOS, false on Linux
+    pub use_native_menus: bool,
+    /// Use native context menus instead of Azul window-based context menus
+    /// Default: true on Windows/macOS, false on Linux
+    pub use_native_context_menus: bool,
+}
+
+/// Window type classification for behavior control
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub enum WindowType {
+    /// Normal application window
+    Normal,
+    /// Menu popup window (always-on-top, frameless, auto-closes on focus loss)
+    Menu,
+    /// Tooltip window (always-on-top, no interaction)
+    Tooltip,
+    /// Dialog window (blocks parent window)
+    Dialog,
+}
+
+impl Default for WindowType {
+    fn default() -> Self {
+        Self::Normal
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -828,7 +859,63 @@ impl Default for WindowFlags {
             background_material: WindowBackgroundMaterial::Opaque,
             smooth_scroll_enabled: true,
             autotab_enabled: true,
+            window_type: WindowType::Normal,
+            has_decorations: false,
+            // Native menus are the default on platforms that support them (Windows/macOS)
+            // The platform layer will override this appropriately
+            use_native_menus: cfg!(any(target_os = "windows", target_os = "macos")),
+            use_native_context_menus: cfg!(any(target_os = "windows", target_os = "macos")),
         }
+    }
+}
+
+impl WindowFlags {
+    /// Check if window is a menu popup
+    #[inline]
+    pub fn is_menu_window(&self) -> bool {
+        self.window_type == WindowType::Menu
+    }
+
+    /// Check if window is a tooltip
+    #[inline]
+    pub fn is_tooltip_window(&self) -> bool {
+        self.window_type == WindowType::Tooltip
+    }
+
+    /// Check if window is a dialog
+    #[inline]
+    pub fn is_dialog_window(&self) -> bool {
+        self.window_type == WindowType::Dialog
+    }
+
+    /// Check if window currently has focus
+    #[inline]
+    pub fn window_has_focus(&self) -> bool {
+        self.has_focus
+    }
+
+    /// Check if close was requested via callback
+    #[inline]
+    pub fn is_close_requested(&self) -> bool {
+        self.close_requested
+    }
+
+    /// Check if window has client-side decorations enabled
+    #[inline]
+    pub fn has_csd(&self) -> bool {
+        self.has_decorations
+    }
+
+    /// Check if native menus should be used
+    #[inline]
+    pub fn use_native_menus(&self) -> bool {
+        self.use_native_menus
+    }
+
+    /// Check if native context menus should be used
+    #[inline]
+    pub fn use_native_context_menus(&self) -> bool {
+        self.use_native_context_menus
     }
 }
 

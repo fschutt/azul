@@ -76,7 +76,7 @@ const DITHERING_FEATURE: &str = "DITHERING";
 const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
 const FAST_PATH_FEATURE: &str = "FAST_PATH";
 
-pub(crate) enum ShaderKind {
+pub enum ShaderKind {
     Primitive,
     Cache(VertexArrayKind),
     ClipCache(VertexArrayKind),
@@ -102,7 +102,7 @@ pub struct LazilyCompiledShader {
 }
 
 impl LazilyCompiledShader {
-    pub(crate) fn new(
+    pub fn new(
         kind: ShaderKind,
         name: &'static str,
         unsorted_features: &[&'static str],

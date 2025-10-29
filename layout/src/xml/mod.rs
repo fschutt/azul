@@ -318,7 +318,7 @@ fn translate_xmlparser_error(e: xmlparser::Error) -> XmlParseError {
 }
 
 #[cfg(feature = "xml")]
-pub(crate) fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
+pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
     match e {
         roxmltree::Error::InvalidXmlPrefixUri(s) => {
             XmlError::InvalidXmlPrefixUri(translate_roxml_textpos(s))

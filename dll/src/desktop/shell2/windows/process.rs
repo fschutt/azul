@@ -58,7 +58,7 @@ pub enum ProcessEventResult {
 
 /// Process a timer event for a window
 #[must_use]
-pub(crate) fn process_timer(
+pub fn process_timer(
     timer_id: usize,
     window: &mut Win32Window,
     image_cache: &mut ImageCache,
@@ -122,7 +122,7 @@ pub(crate) fn process_timer(
 
 /// Process thread messages for a window
 #[must_use]
-pub(crate) fn process_threads(
+pub fn process_threads(
     window: &mut Win32Window,
     image_cache: &mut ImageCache,
     new_windows: &mut Vec<WindowCreateOptions>,
@@ -174,7 +174,7 @@ pub(crate) fn process_threads(
 
 /// Process callback results and determine what action to take next
 #[must_use]
-pub(crate) fn process_callback_results(
+pub fn process_callback_results(
     mut callback_results: CallCallbacksResult,
     window: &mut Win32Window,
     image_cache: &mut ImageCache,
@@ -267,7 +267,7 @@ pub(crate) fn process_callback_results(
 }
 
 /// Invoke callbacks for a given target and event filter
-pub(crate) fn invoke_callbacks(
+pub fn invoke_callbacks(
     window: &mut Win32Window,
     target: CallbackTarget,
     event_filter: azul_core::events::EventFilter,
@@ -375,7 +375,7 @@ pub(crate) fn invoke_callbacks(
 }
 
 /// Process a single callback result and update window state
-pub(crate) fn process_callback_result(
+pub fn process_callback_result(
     window: &mut Win32Window,
     result: &CallCallbacksResult,
 ) -> ProcessEventResult {

@@ -7,7 +7,7 @@ use webrender::api::{
 };
 
 #[derive(Debug, Default, Copy, Clone)]
-pub(crate) struct Compositor {}
+pub struct Compositor {}
 
 impl WrExternalImageHandler for Compositor {
     fn lock(

@@ -503,6 +503,7 @@ pub type XCreateSimpleWindow = unsafe extern "C" fn(
     c_ulong,
 ) -> Window;
 pub type XMapWindow = unsafe extern "C" fn(*mut Display, Window) -> c_int;
+pub type XUnmapWindow = unsafe extern "C" fn(*mut Display, Window) -> c_int;
 pub type XStoreName = unsafe extern "C" fn(*mut Display, Window, *const c_char) -> c_int;
 pub type XInternAtom = unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> Atom;
 pub type XSetWMProtocols = unsafe extern "C" fn(*mut Display, Window, *mut Atom, c_int) -> c_int;
@@ -529,6 +530,7 @@ pub type XFillRectangle =
     unsafe extern "C" fn(*mut Display, Drawable, GC, c_int, c_int, c_uint, c_uint) -> c_int;
 pub type XFlush = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XSync = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+pub type XConnectionNumber = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XSetLocaleModifiers = unsafe extern "C" fn(*const c_char) -> *mut c_char;
 pub type XOpenIM = unsafe extern "C" fn(*mut Display, *mut c_void, *mut c_char, *mut c_char) -> XIM;
 pub type XCloseIM = unsafe extern "C" fn(XIM) -> c_int;
@@ -582,3 +584,29 @@ pub type XkbSetDetectableAutoRepeat =
     unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> c_int;
 pub type XkbGetMap = unsafe extern "C" fn(*mut Display, c_uint, c_uint) -> *mut XkbDescRec;
 pub type XkbFreeKeyboard = unsafe extern "C" fn(*mut XkbDescRec, c_uint, c_int);
+
+// X11 Standard Cursor Font Constants (from cursorfont.h)
+pub const XC_left_ptr: c_uint = 68;
+pub const XC_crosshair: c_uint = 34;
+pub const XC_hand2: c_uint = 60;
+pub const XC_fleur: c_uint = 52;
+pub const XC_xterm: c_uint = 152;
+pub const XC_watch: c_uint = 150;
+pub const XC_X_cursor: c_uint = 0;
+pub const XC_top_side: c_uint = 138;
+pub const XC_bottom_side: c_uint = 16;
+pub const XC_left_side: c_uint = 70;
+pub const XC_right_side: c_uint = 96;
+pub const XC_top_left_corner: c_uint = 134;
+pub const XC_top_right_corner: c_uint = 136;
+pub const XC_bottom_left_corner: c_uint = 12;
+pub const XC_bottom_right_corner: c_uint = 14;
+pub const XC_sb_h_double_arrow: c_uint = 108;
+pub const XC_sb_v_double_arrow: c_uint = 116;
+pub const XC_sizing: c_uint = 120;
+
+// Display dimension functions
+pub type XDisplayWidth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+pub type XDisplayHeight = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+pub type XDisplayWidthMM = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+pub type XDisplayHeightMM = unsafe extern "C" fn(*mut Display, c_int) -> c_int;

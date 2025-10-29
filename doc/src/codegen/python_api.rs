@@ -83,7 +83,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
                     if field_name == "ptr" && field_data.r#type.contains("*") {
                         // Don't expose raw pointers to Python
                         code.push_str(&format!(
-                            "    pub(crate) {}: {}, // raw pointer not exposed to Python\r\n",
+                            "    pub {}: {}, // raw pointer not exposed to Python\r\n",
                             field_name, field_data.r#type
                         ));
                     } else if field_name != "cb" {

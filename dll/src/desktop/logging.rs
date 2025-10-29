@@ -4,10 +4,10 @@ use log::LevelFilter;
 
 use crate::desktop::dialogs::msg_box_ok;
 
-pub(crate) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
+pub static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
 #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
-pub(crate) fn set_up_logging(log_level: LevelFilter) {
+pub fn set_up_logging(log_level: LevelFilter) {
     use std::error::Error;
 
     use fern::InitError;
@@ -48,7 +48,7 @@ pub(crate) fn set_up_logging(log_level: LevelFilter) {
 
 /// In the (rare) case of a panic, print it to the stdout, log it to the file and
 /// prompt the user with a message box.
-pub(crate) fn set_up_panic_hooks() {
+pub fn set_up_panic_hooks() {
     use std::panic::{self, PanicInfo};
 
     use backtrace::{Backtrace, BacktraceFrame};

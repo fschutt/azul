@@ -728,7 +728,7 @@ impl LayoutWindow {
 // ... (imports and other functions) ...
 use crate::desktop::app::LayoutWindow; // Now need full LayoutWindow for context
 
-pub(crate) fn wr_translate_display_list(
+pub fn wr_translate_display_list(
     layout_window: &LayoutWindow,
     render_api: &mut WrRenderApi,
     dom_id: azul_core::dom::DomId,
@@ -780,7 +780,7 @@ pub(crate) fn wr_translate_display_list(
     built_display_list
 }
 
-pub(crate) fn scroll_all_nodes(scroll_manager: &ScrollManager, txn: &mut WrTransaction) {
+pub fn scroll_all_nodes(scroll_manager: &ScrollManager, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
     use crate::desktop::wr_translate::{
         wr_translate_external_scroll_id, wr_translate_logical_position,

@@ -213,7 +213,7 @@ Hit-Testing Phase (NOT YET IMPLEMENTED):
 
 4. **Integration into `handle_mouse_down()`**
    ```rust
-   pub(crate) fn handle_mouse_down(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
+   pub fn handle_mouse_down(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
        let position = get_mouse_position(event);
        
        // Update mouse state
@@ -232,7 +232,7 @@ Hit-Testing Phase (NOT YET IMPLEMENTED):
 
 5. **Integration into `handle_mouse_move()`**
    ```rust
-   pub(crate) fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
+   pub fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
        let position = get_mouse_position(event);
        
        // Handle active scrollbar drag
@@ -247,7 +247,7 @@ Hit-Testing Phase (NOT YET IMPLEMENTED):
 
 6. **Integration into `handle_mouse_up()`**
    ```rust
-   pub(crate) fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
+   pub fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
        let position = get_mouse_position(event);
        
        // Clear button flags

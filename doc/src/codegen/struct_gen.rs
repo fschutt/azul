@@ -22,7 +22,7 @@ pub struct GenerateConfig {
     pub indent: usize,
     /// Whether to auto-derive Debug, Clone, etc.
     pub autoderive: bool,
-    /// Whether to make pointer fields pub(crate) instead of pub
+    /// Whether to make pointer fields pub instead of pub
     pub private_pointers: bool,
     /// Whether to skip all derives (for Python bindings)
     pub no_derive: bool,

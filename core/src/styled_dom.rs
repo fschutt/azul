@@ -1378,7 +1378,7 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for OpenGL callbacks
-    pub(crate) fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
+    pub fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
         use crate::dom::NodeType;
         self.node_data
             .as_ref()

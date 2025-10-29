@@ -28,8 +28,8 @@ Here are the code changes to fix all the failing tests:
  }
  
  // TODO: STUB helper functions that would be needed for the above code.
--pub(crate) fn get_display_property(
-+pub(crate) fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutDisplay {
+-pub fn get_display_property(
++pub fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutDisplay {
 +    let Some(id) = dom_id else {
 +        return LayoutDisplay::Inline;
 +    };
@@ -44,7 +44,7 @@ Here are the code changes to fix all the failing tests:
 +}
 +
 +// TODO: STUB helper
-+pub(crate) fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
++pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
 +    let node_data = &styled_dom.node_data.as_container()[dom_id];
 +    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
 +    let cache = &styled_dom.css_property_cache.ptr;
@@ -107,7 +107,7 @@ Here are the code changes to fix all the failing tests:
 -/// performing a full recursive layout on atomic inlines (like inline-block), it uses
 -/// their already-calculated intrinsic sizes. This is necessary because during the
 -/// bottom-up intrinsic sizing pass, the available width for children is not yet known.
--pub(crate) fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+-pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 +/// Gathers all inline content for the intrinsic sizing pass.
 +fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
      ctx: &mut LayoutContext<T, Q>,

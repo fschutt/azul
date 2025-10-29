@@ -136,6 +136,8 @@ pub struct Win32Window {
     // Shared resources
     /// Font cache (shared across all windows)
     pub fc_cache: Arc<FcFontCache>,
+    /// System style (shared across all windows)
+    pub system_style: Arc<azul_css::system::SystemStyle>,
 }
 
 impl Win32Window {
@@ -387,6 +389,7 @@ impl Win32Window {
             scrollbar_drag_state: None,
             dpi: dpi_functions,
             fc_cache,
+            system_style: Arc::new(azul_css::system::SystemStyle::new()),
         })
     }
 
@@ -493,7 +496,7 @@ impl Win32Window {
     // ========================================================================
 
     /// V2: Process window events using cross-platform dispatch system.
-    pub(crate) fn process_window_events_v2(&mut self) -> process::ProcessEventResult {
+    pub fn process_window_events_v2(&mut self) -> process::ProcessEventResult {
         self.process_window_events_recursive_v2(0)
     }
 
@@ -1046,7 +1049,7 @@ impl Win32Window {
     /// Returns true if a context menu was shown
     fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
         // Get the topmost hovered node from hit test
-        let hit_test = &self.current_window_state.last_hit_test;
+        let hit_test = &self.current_window_state.last_hit_test.clone();
         if hit_test.is_empty() {
             return false;
         }
@@ -1076,17 +1079,24 @@ impl Win32Window {
                 };
 
                 if let Some(menu) = context_menu {
-                    self.show_context_menu(&menu, client_x, client_y, *dom_id, *node_id);
+                    // Check if native context menus are enabled
+                    if self.current_window_state.flags.use_native_context_menus {
+                        self.show_native_context_menu(&menu, client_x, client_y, *dom_id, *node_id);
+                    } else {
+                        self.show_window_based_context_menu(
+                            &menu, client_x, client_y, *dom_id, *node_id,
+                        );
+                    }
                     return true;
                 }
             }
         }
 
-        false
+        false;
     }
 
-    /// Show a context menu at screen coordinates
-    fn show_context_menu(
+    /// Show a context menu using native Win32 popup menu
+    fn show_native_context_menu(
         &mut self,
         menu: &azul_core::menu::Menu,
         client_x: i32,
@@ -1137,6 +1147,61 @@ impl Win32Window {
             );
             (self.win32.user32.DestroyMenu)(hmenu);
         }
+    }
+
+    /// Show a context menu using Azul window-based menu system
+    ///
+    /// This uses the same unified menu system as regular menus (crate::desktop::menu::show_menu)
+    /// but spawns at cursor position instead of below a trigger rect.
+    fn show_window_based_context_menu(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        client_x: i32,
+        client_y: i32,
+        _dom_id: azul_core::dom::DomId,
+        _node_id: azul_core::dom::NodeId,
+    ) {
+        // Convert client coordinates to screen coordinates
+        use self::dlopen::POINT;
+        let mut pt = POINT {
+            x: client_x,
+            y: client_y,
+        };
+        unsafe {
+            (self.win32.user32.ClientToScreen)(self.hwnd, &mut pt);
+        }
+
+        let cursor_pos = LogicalPosition::new(pt.x as f32, pt.y as f32);
+
+        // Get parent window position
+        let parent_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                LogicalPosition::new(pos.x as f32, pos.y as f32)
+            }
+            _ => LogicalPosition::new(0.0, 0.0),
+        };
+
+        // Create menu window using the unified menu system
+        // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
+        let _menu_options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.system_style.clone(),
+            parent_pos,
+            None,             // No trigger rect for context menus (they spawn at cursor)
+            Some(cursor_pos), // Cursor position for menu positioning
+            None,             // No parent menu
+        );
+
+        // TODO: Queue window creation request for processing in main event loop
+        // For now, we log the request. The proper implementation requires:
+        // 1. A queue of pending WindowCreateOptions
+        // 2. Processing this queue in the event loop via create_window()
+        // 3. Multi-window support in the Windows event loop (similar to X11)
+        eprintln!(
+            "[Windows] Window-based context menu requested at screen ({}, {}) - requires \
+             multi-window support",
+            pt.x, pt.y
+        );
     }
 }
 
@@ -2300,6 +2365,111 @@ impl PlatformWindow for Win32Window {
             use self::dlopen::constants::WM_PAINT;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_PAINT, 0, 0);
         }
+    }
+}
+
+impl crate::desktop::window_helpers::WindowQuery for Win32Window {
+    fn get_flags(&self) -> &azul_core::window::WindowFlags {
+        &self.current_window_state.flags
+    }
+}
+
+impl Win32Window {
+    /// Inject a menu bar into the window
+    ///
+    /// On Windows, this creates a native HMENU hierarchy attached to the window.
+    /// Menu callbacks are wired up to trigger via WM_COMMAND messages.
+    ///
+    /// # Returns
+    /// * `Ok(())` if menu injection succeeded
+    /// * `Err(String)` if menu injection failed
+    pub fn inject_menu_bar(&mut self) -> Result<(), String> {
+        // TODO: Implement native Windows menu creation
+        // 1. Extract menu structure from WindowState
+        // 2. Convert to HMENU hierarchy
+        // 3. Set as window menu with SetMenu(hwnd, hmenu)
+        // 4. Wire up WM_COMMAND handler for menu callbacks
+
+        eprintln!("[inject_menu_bar] TODO: Implement native Windows menu injection");
+        Ok(())
+    }
+
+    /// Gets the monitor information for the monitor that the window is currently on.
+    pub fn get_monitor_info(&self) -> Option<dlopen::constants::MONITORINFO> {
+        use dlopen::constants::{MONITORINFO, MONITOR_DEFAULTTONEAREST};
+
+        let monitor =
+            unsafe { (self.win32.user32.MonitorFromWindow)(self.hwnd, MONITOR_DEFAULTTONEAREST) };
+
+        if monitor.is_null() {
+            return None;
+        }
+
+        let mut monitor_info: MONITORINFO = unsafe { std::mem::zeroed() };
+        monitor_info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+
+        let result = unsafe { (self.win32.user32.GetMonitorInfoW)(monitor, &mut monitor_info) };
+
+        if result != 0 {
+            Some(monitor_info)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the position and size of the window in physical pixels.
+    pub fn get_window_rect(&self) -> Option<dlopen::RECT> {
+        let mut rect: dlopen::RECT = Default::default();
+        if unsafe { (self.win32.user32.GetWindowRect)(self.hwnd, &mut rect) } != 0 {
+            Some(rect)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the DPI of the window.
+    pub fn get_window_dpi(&self) -> u32 {
+        self.dpi.hwnd_dpi(self.hwnd)
+    }
+
+    /// Get display information for the monitor this window is on
+    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+        let monitor_info = self.get_monitor_info()?;
+
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(
+                monitor_info.rcMonitor.left as f32,
+                monitor_info.rcMonitor.top as f32,
+            ),
+            LogicalSize::new(
+                (monitor_info.rcMonitor.right - monitor_info.rcMonitor.left) as f32,
+                (monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top) as f32,
+            ),
+        );
+
+        let work_area = LogicalRect::new(
+            LogicalPosition::new(
+                monitor_info.rcWork.left as f32,
+                monitor_info.rcWork.top as f32,
+            ),
+            LogicalSize::new(
+                (monitor_info.rcWork.right - monitor_info.rcWork.left) as f32,
+                (monitor_info.rcWork.bottom - monitor_info.rcWork.top) as f32,
+            ),
+        );
+
+        let dpi = self.get_window_dpi();
+        let scale_factor = dpi as f32 / 96.0;
+
+        Some(crate::desktop::display::DisplayInfo {
+            name: "Current Monitor".to_string(),
+            bounds,
+            work_area,
+            scale_factor,
+            is_primary: false, // Would need additional check
+        })
     }
 }
 

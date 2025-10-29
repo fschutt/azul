@@ -121,14 +121,14 @@ pub struct LayoutWindow {
 1. **dll/src/desktop/shell/appkit/mod.rs** (line ~103):
 ```rust
 // OLD:
-pub(crate) struct Window {
-    pub(crate) internal: WindowInternal,
+pub struct Window {
+    pub internal: WindowInternal,
     // ...
 }
 
 // NEW:
-pub(crate) struct Window {
-    pub(crate) internal: azul_layout::LayoutWindow,
+pub struct Window {
+    pub internal: azul_layout::LayoutWindow,
     // ...
 }
 ```

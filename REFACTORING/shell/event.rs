@@ -251,7 +251,7 @@ fn az_gpu_scroll_render(current_window: &mut Window, userdata: &mut App, _guard:
 }
 
 // Window has received focus
-pub(crate) fn wm_set_focus(
+pub fn wm_set_focus(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -265,7 +265,7 @@ pub(crate) fn wm_set_focus(
 }
 
 // Window has lost focus
-pub(crate) fn wm_kill_focus(
+pub fn wm_kill_focus(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -278,7 +278,7 @@ pub(crate) fn wm_kill_focus(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_mousemove(
+pub fn wm_mousemove(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -363,7 +363,7 @@ pub(crate) fn wm_mousemove(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_keydown(
+pub fn wm_keydown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -405,7 +405,7 @@ pub(crate) fn wm_keydown(
 }
 
 // Composite text input
-pub(crate) fn wm_char(
+pub fn wm_char(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -428,7 +428,7 @@ pub(crate) fn wm_char(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_keyup(
+pub fn wm_keyup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -467,7 +467,7 @@ pub(crate) fn wm_keyup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_mouseleave(
+pub fn wm_mouseleave(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -504,7 +504,7 @@ pub(crate) fn wm_mouseleave(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_rbuttondown(
+pub fn wm_rbuttondown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -521,7 +521,7 @@ pub(crate) fn wm_rbuttondown(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_rbuttonup(
+pub fn wm_rbuttonup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -545,7 +545,7 @@ pub(crate) fn wm_rbuttonup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_mbuttondown(
+pub fn wm_mbuttondown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -562,7 +562,7 @@ pub(crate) fn wm_mbuttondown(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_mbuttonup(
+pub fn wm_mbuttonup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -579,7 +579,7 @@ pub(crate) fn wm_mbuttonup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_lbuttondown(
+pub fn wm_lbuttondown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -596,7 +596,7 @@ pub(crate) fn wm_lbuttondown(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_lbuttonup(
+pub fn wm_lbuttonup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -620,7 +620,7 @@ pub(crate) fn wm_lbuttonup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_mousewheel(
+pub fn wm_mousewheel(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -638,7 +638,7 @@ pub(crate) fn wm_mousewheel(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-pub(crate) fn wm_dpichanged(
+pub fn wm_dpichanged(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -651,7 +651,7 @@ pub(crate) fn wm_dpichanged(
 }
 
 // NOTE: This will generate a new frame, but not paint it yet, call wm_paint() afterwards
-pub(crate) fn wm_size(
+pub fn wm_size(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -718,7 +718,7 @@ pub(crate) fn wm_size(
     );
 }
 
-pub(crate) fn wm_paint(
+pub fn wm_paint(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -783,7 +783,7 @@ pub(crate) fn wm_paint(
     gl.use_program(current_program[0] as u32);
 }
 
-pub(crate) fn wm_quit(
+pub fn wm_quit(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -794,7 +794,7 @@ pub(crate) fn wm_quit(
     // TODO: execute quit callback
 }
 
-pub(crate) fn wm_destroy(
+pub fn wm_destroy(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
