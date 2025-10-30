@@ -24,7 +24,7 @@ use azul_core::{
     resources::{AppConfig, DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
     window::{
         HwAcceleration, KeyboardState, MouseCursorType, MouseState, RawWindowHandle, RendererType,
-        WindowDecorations,
+        WindowDecorations, XlibHandle,
     },
 };
 use azul_layout::{
@@ -41,7 +41,10 @@ use self::{
 };
 use super::common::gl::GlFunctions;
 use crate::desktop::{
-    shell2::common::{PlatformWindow, RenderContext, WindowError, WindowProperties},
+    shell2::common::{
+        event_v2::{self, PlatformWindowV2},
+        PlatformWindow, RenderContext, WindowError, WindowProperties,
+    },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
 
@@ -78,6 +81,7 @@ pub struct X11Window {
 
     // V2 Event system state
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
+    pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
 
     // Shared resources
@@ -439,6 +443,7 @@ impl X11Window {
             gl_context_ptr,
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             scrollbar_drag_state: None,
+            last_hovered_node: None,
             frame_needs_regeneration: false,
             resources,
         };
@@ -455,7 +460,7 @@ impl X11Window {
     }
 
     fn process_events(&mut self) {
-        let result = self.process_window_events_v2();
+        let result = self.process_window_events_recursive_v2(0);
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
         }
@@ -910,6 +915,163 @@ impl X11Window {
                 scale_factor,
                 is_primary: true,
             })
+        }
+    }
+}
+
+// ========================= PlatformWindowV2 Trait Implementation =========================
+
+impl PlatformWindowV2 for X11Window {
+    // =========================================================================
+    // REQUIRED: Simple Getter Methods
+    // =========================================================================
+
+    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
+        self.layout_window.as_mut()
+    }
+
+    fn get_layout_window(&self) -> Option<&LayoutWindow> {
+        self.layout_window.as_ref()
+    }
+
+    fn get_current_window_state(&self) -> &FullWindowState {
+        &self.current_window_state
+    }
+
+    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
+        &mut self.current_window_state
+    }
+
+    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+        &self.previous_window_state
+    }
+
+    fn set_previous_window_state(&mut self, state: FullWindowState) {
+        self.previous_window_state = Some(state);
+    }
+
+    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
+        &mut self.image_cache
+    }
+
+    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
+        &mut self.renderer_resources
+    }
+
+    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
+        &self.resources.fc_cache
+    }
+
+    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
+        &self.gl_context_ptr
+    }
+
+    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
+        &self.resources.system_style
+    }
+
+    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
+        &self.resources.app_data
+    }
+
+    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
+        self.scrollbar_drag_state.as_ref()
+    }
+
+    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
+        &mut self.scrollbar_drag_state
+    }
+
+    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+        self.scrollbar_drag_state = state;
+    }
+
+    fn get_hit_tester(&self) -> &AsyncHitTester {
+        self.hit_tester
+            .as_ref()
+            .expect("Hit tester must be initialized")
+    }
+
+    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
+        self.hit_tester
+            .as_mut()
+            .expect("Hit tester must be initialized")
+    }
+
+    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
+        self.last_hovered_node.as_ref()
+    }
+
+    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
+        self.last_hovered_node = node;
+    }
+
+    fn get_document_id(&self) -> DocumentId {
+        self.document_id.expect("Document ID must be initialized")
+    }
+
+    fn get_id_namespace(&self) -> IdNamespace {
+        self.id_namespace.expect("ID namespace must be initialized")
+    }
+
+    fn get_render_api(&self) -> &webrender::RenderApi {
+        self.render_api
+            .as_ref()
+            .expect("Render API must be initialized")
+    }
+
+    fn get_render_api_mut(&mut self) -> &mut webrender::RenderApi {
+        self.render_api
+            .as_mut()
+            .expect("Render API must be initialized")
+    }
+
+    fn get_renderer(&self) -> Option<&webrender::Renderer> {
+        self.renderer.as_ref()
+    }
+
+    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
+        self.renderer.as_mut()
+    }
+
+    fn get_raw_window_handle(&self) -> RawWindowHandle {
+        RawWindowHandle::Xlib(XlibHandle {
+            window: self.window,
+            display: self.display as *mut c_void,
+        })
+    }
+
+    fn needs_frame_regeneration(&self) -> bool {
+        self.frame_needs_regeneration
+    }
+
+    fn mark_frame_needs_regeneration(&mut self) {
+        self.frame_needs_regeneration = true;
+    }
+
+    fn clear_frame_regeneration_flag(&mut self) {
+        self.frame_needs_regeneration = false;
+    }
+
+    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+        let layout_window = self
+            .layout_window
+            .as_mut()
+            .expect("Layout window must exist for callback invocation");
+
+        event_v2::InvokeSingleCallbackBorrows {
+            layout_window,
+            window_handle: RawWindowHandle::Xlib(XlibHandle {
+                window: self.window,
+                display: self.display as *mut c_void,
+            }),
+            gl_context_ptr: &self.gl_context_ptr,
+            image_cache: &mut self.image_cache,
+            fc_cache_clone: (*self.resources.fc_cache).clone(),
+            system_style: self.resources.system_style.clone(),
+            previous_window_state: &self.previous_window_state,
+            current_window_state: &self.current_window_state,
+            renderer_resources: &mut self.renderer_resources,
         }
     }
 }

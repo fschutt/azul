@@ -32,14 +32,14 @@ use std::{
 };
 
 use azul_core::{
+    events::ProcessEventResult,
     geom::LogicalPosition,
     gl::OptionGlContextPtr,
     hit_test::{DocumentId, PipelineId},
     menu::CoreMenuCallback,
     refany::RefAny,
     resources::{DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
-    window::{OptionMouseCursorType, RendererType, RawWindowHandle, WindowsHandle, WindowFrame},
-    events::ProcessEventResult,
+    window::{OptionMouseCursorType, RawWindowHandle, RendererType, WindowFrame, WindowsHandle},
 };
 use azul_layout::{
     hit_test::FullHitTest,
@@ -56,7 +56,10 @@ use self::{
     gl::GlFunctions,
 };
 use crate::desktop::{
-    shell2::common::{event_v2::{self, PlatformWindowV2}, Compositor, WindowError, WindowProperties},
+    shell2::common::{
+        event_v2::{self, PlatformWindowV2},
+        Compositor, WindowError, WindowProperties,
+    },
     wr_translate2::{
         default_renderer_options, translate_document_id_wr, translate_id_namespace_wr,
         wr_translate_document_id, AsyncHitTester, Notifier, WR_SHADER_CACHE,
@@ -2294,7 +2297,9 @@ impl Win32Window {
     /// Gets the monitor information for the monitor that the window is currently on.
     #[cfg(target_os = "windows")]
     pub fn get_monitor_info(&self) -> Option<winapi::um::winuser::MONITORINFO> {
-        use winapi::um::winuser::{MonitorFromWindow, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+        use winapi::um::winuser::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
 
         let monitor = unsafe { MonitorFromWindow(self.hwnd as _, MONITOR_DEFAULTTONEAREST) };
 
@@ -2381,129 +2386,132 @@ impl PlatformWindowV2 for Win32Window {
     // =========================================================================
     // REQUIRED: Simple Getter Methods
     // =========================================================================
-    
+
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
         self.layout_window.as_mut()
     }
-    
+
     fn get_layout_window(&self) -> Option<&LayoutWindow> {
         self.layout_window.as_ref()
     }
-    
+
     fn get_current_window_state(&self) -> &FullWindowState {
         &self.current_window_state
     }
-    
+
     fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
         &mut self.current_window_state
     }
-    
+
     fn get_previous_window_state(&self) -> &Option<FullWindowState> {
         &self.previous_window_state
     }
-    
+
     fn set_previous_window_state(&mut self, state: FullWindowState) {
         self.previous_window_state = Some(state);
     }
-    
+
     fn get_image_cache_mut(&mut self) -> &mut ImageCache {
         &mut self.image_cache
     }
-    
+
     fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
         &mut self.renderer_resources
     }
-    
+
     fn get_fc_cache(&self) -> &Arc<FcFontCache> {
         &self.fc_cache
     }
-    
+
     fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
         &self.gl_context_ptr
     }
-    
+
     fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
         &self.system_style
     }
-    
+
     fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
         &self.app_data
     }
-    
+
     fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
         self.scrollbar_drag_state.as_ref()
     }
-    
+
     fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
         &mut self.scrollbar_drag_state
     }
-    
+
     fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
         self.scrollbar_drag_state = state;
     }
-    
+
     fn get_hit_tester(&self) -> &AsyncHitTester {
         &self.hit_tester
     }
-    
+
     fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
         &mut self.hit_tester
     }
-    
+
     fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
         self.last_hovered_node.as_ref()
     }
-    
+
     fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
         self.last_hovered_node = node;
     }
-    
+
     fn get_document_id(&self) -> DocumentId {
         self.document_id
     }
-    
+
     fn get_id_namespace(&self) -> IdNamespace {
         self.id_namespace
     }
-    
+
     fn get_render_api(&self) -> &WrRenderApi {
         &self.render_api
     }
-    
+
     fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
         &mut self.render_api
     }
-    
+
     fn get_renderer(&self) -> Option<&webrender::Renderer> {
         self.renderer.as_ref()
     }
-    
+
     fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
         self.renderer.as_mut()
     }
-    
+
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::Windows(WindowsHandle {
             hwnd: self.hwnd as *mut std::ffi::c_void,
             hinstance: self.hinstance as *mut std::ffi::c_void,
         })
     }
-    
+
     fn needs_frame_regeneration(&self) -> bool {
         self.frame_needs_regeneration
     }
-    
+
     fn mark_frame_needs_regeneration(&mut self) {
         self.frame_needs_regeneration = true;
     }
-    
+
     fn clear_frame_regeneration_flag(&mut self) {
         self.frame_needs_regeneration = false;
     }
-    
+
     fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
-        let layout_window = self.layout_window.as_mut().expect("Layout window must exist for callback invocation");
-        
+        let layout_window = self
+            .layout_window
+            .as_mut()
+            .expect("Layout window must exist for callback invocation");
+
         event_v2::InvokeSingleCallbackBorrows {
             layout_window,
             window_handle: RawWindowHandle::Windows(WindowsHandle {

@@ -1,8 +1,8 @@
 //! Cross-platform V2 event processing system
 //!
-//! This module contains the **complete unified event processing logic** that is shared across all platforms
-//! (macOS, Windows, X11, Wayland). The V2 system uses state-diffing between frames to detect
-//! events, eliminating platform-specific event handling differences.
+//! This module contains the **complete unified event processing logic** that is shared across all
+//! platforms (macOS, Windows, X11, Wayland). The V2 system uses state-diffing between frames to
+//! detect events, eliminating platform-specific event handling differences.
 //!
 //! ## Architecture
 //!
@@ -116,18 +116,21 @@ use core::cell::RefCell;
 use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::DomId,
-    events::{dispatch_events, CallbackTarget as CoreCallbackTarget, EventFilter, ProcessEventResult},
+    events::{
+        dispatch_events, CallbackTarget as CoreCallbackTarget, EventFilter, ProcessEventResult,
+    },
     geom::LogicalPosition,
     gl::*,
     hit_test::{DocumentId, PipelineId},
     id::NodeId as CoreNodeId,
     refany::RefAny,
-    resources::{ImageCache, IdNamespace, RendererResources},
+    resources::{IdNamespace, ImageCache, RendererResources},
     window::RawWindowHandle,
 };
-
 use azul_layout::{
-    callbacks::{CallCallbacksResult, CallbackInfo, Callback as LayoutCallback, ExternalSystemCallbacks},
+    callbacks::{
+        CallCallbacksResult, Callback as LayoutCallback, CallbackInfo, ExternalSystemCallbacks,
+    },
     hit_test::FullHitTest,
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{create_events_from_states, FullWindowState},
@@ -151,7 +154,8 @@ pub struct HitTestNode {
 pub enum CallbackTarget {
     /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
     Node(HitTestNode),
-    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events, keys)
+    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events,
+    /// keys)
     RootNodes,
 }
 
@@ -195,12 +199,14 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 /// - Hit testing state (`get_hit_tester`, `get_scrollbar_drag_state`, etc.)
 /// - Frame regeneration (`needs_frame_regeneration`, `mark_frame_needs_regeneration`, etc.)
 /// - Raw window handle (`get_raw_window_handle`)
-/// - **Callback preparation (`prepare_callback_invocation`)** - Returns all borrows needed for callbacks
+/// - **Callback preparation (`prepare_callback_invocation`)** - Returns all borrows needed for
+///   callbacks
 ///
 /// ## Provided Methods (Complete Logic - All Cross-Platform!)
 ///
 /// These methods have default implementations with the full cross-platform logic:
-/// - `invoke_callbacks_v2()` - **FULLY CROSS-PLATFORM!** Callback dispatch using `prepare_callback_invocation()`
+/// - `invoke_callbacks_v2()` - **FULLY CROSS-PLATFORM!** Callback dispatch using
+///   `prepare_callback_invocation()`
 /// - `process_window_events_recursive_v2()` - Main event processing with recursion
 /// - `process_callback_result_v2()` - Handle callback results
 /// - `perform_scrollbar_hit_test()` - Scrollbar interaction
@@ -215,117 +221,116 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 /// 2. Import the trait: `use crate::desktop::shell2::common::event_v2::PlatformWindowV2;`
 /// 3. Call `self.process_window_events_recursive_v2(0)` after updating window state
 /// 4. Done! All event processing is now unified.
-///
 pub trait PlatformWindowV2 {
     // =========================================================================
     // REQUIRED: Simple Getter Methods (Platform Must Implement)
     // =========================================================================
-    
+
     // === Layout Window Access ===
-    
+
     /// Get mutable access to the layout window
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow>;
-    
+
     /// Get immutable access to the layout window
     fn get_layout_window(&self) -> Option<&LayoutWindow>;
-    
+
     // === Window State Access ===
-    
+
     /// Get the current window state
     fn get_current_window_state(&self) -> &FullWindowState;
-    
+
     /// Get mutable access to the current window state
     fn get_current_window_state_mut(&mut self) -> &mut FullWindowState;
-    
+
     /// Get the previous window state (if available)
     fn get_previous_window_state(&self) -> &Option<FullWindowState>;
-    
+
     /// Set the previous window state
     fn set_previous_window_state(&mut self, state: FullWindowState);
-    
+
     // === Resource Access ===
-    
+
     /// Get mutable access to image cache
     fn get_image_cache_mut(&mut self) -> &mut ImageCache;
-    
+
     /// Get mutable access to renderer resources
     fn get_renderer_resources_mut(&mut self) -> &mut RendererResources;
-    
+
     /// Get the font cache
     fn get_fc_cache(&self) -> &Arc<FcFontCache>;
-    
+
     /// Get the OpenGL context pointer
     fn get_gl_context_ptr(&self) -> &OptionGlContextPtr;
-    
+
     /// Get the system style
     fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle>;
-    
+
     /// Get the shared application data
     fn get_app_data(&self) -> &Arc<RefCell<RefAny>>;
-    
+
     // === Scrollbar State ===
-    
+
     /// Get the current scrollbar drag state
     fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState>;
-    
+
     /// Get mutable access to scrollbar drag state
     fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState>;
-    
+
     /// Set scrollbar drag state
     fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>);
-    
+
     // === Hit Testing ===
-    
+
     /// Get the async hit tester
     fn get_hit_tester(&self) -> &AsyncHitTester;
-    
+
     /// Get mutable access to hit tester
     fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester;
-    
+
     /// Get the last hovered node
     fn get_last_hovered_node(&self) -> Option<&HitTestNode>;
-    
+
     /// Set the last hovered node
     fn set_last_hovered_node(&mut self, node: Option<HitTestNode>);
-    
+
     // === WebRender Infrastructure ===
-    
+
     /// Get the document ID
     fn get_document_id(&self) -> DocumentId;
-    
+
     /// Get the ID namespace
     fn get_id_namespace(&self) -> IdNamespace;
-    
+
     /// Get the render API
     fn get_render_api(&self) -> &WrRenderApi;
-    
+
     /// Get mutable access to render API
     fn get_render_api_mut(&mut self) -> &mut WrRenderApi;
-    
+
     /// Get the renderer (if available)
     fn get_renderer(&self) -> Option<&webrender::Renderer>;
-    
+
     /// Get mutable access to renderer
     fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer>;
-    
+
     // === Timers and Threads ===
-    
+
     /// Get raw window handle for spawning child windows
     fn get_raw_window_handle(&self) -> RawWindowHandle;
-    
+
     // === Frame Regeneration ===
-    
+
     /// Check if frame needs regeneration
     fn needs_frame_regeneration(&self) -> bool;
-    
+
     /// Mark that the frame needs regeneration
     fn mark_frame_needs_regeneration(&mut self);
-    
+
     /// Clear frame regeneration flag
     fn clear_frame_regeneration_flag(&mut self);
-    
+
     // === Callback Invocation Preparation ===
-    
+
     /// Borrow all resources needed for `invoke_single_callback` in one call.
     ///
     /// This method returns a struct with individual field borrows, allowing the borrow
@@ -334,11 +339,11 @@ pub trait PlatformWindowV2 {
     /// ## Returns
     /// * `InvokeSingleCallbackBorrows` - All borrowed resources needed for callback invocation
     fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows;
-    
+
     // =========================================================================
     // PROVIDED: Callback Invocation (Cross-Platform Implementation)
     // =========================================================================
-    
+
     /// Invoke callbacks for a given target and event filter.
     ///
     /// This method is now **provided** (cross-platform) because all required state
@@ -428,7 +433,7 @@ pub trait PlatformWindowV2 {
 
         // Prepare all borrows in one call - avoids multiple &mut self borrows
         let mut borrows = self.prepare_callback_invocation();
-        
+
         let mut results = Vec::new();
 
         for callback_data in callback_data_list {
@@ -453,11 +458,11 @@ pub trait PlatformWindowV2 {
 
         results
     }
-    
+
     // =========================================================================
     // PROVIDED: Complete Logic (Default Implementations)
     // =========================================================================
-    
+
     /// GPU-accelerated smooth scrolling.
     ///
     /// This applies a scroll delta to a node and updates WebRender's display list
@@ -522,7 +527,7 @@ pub trait PlatformWindowV2 {
         self.mark_frame_needs_regeneration();
         Ok(())
     }
-    
+
     /// Process all window events using the V2 state-diffing system.
     ///
     /// This is the **main entry point** for event processing. Call this after updating
@@ -597,7 +602,8 @@ pub trait PlatformWindowV2 {
             };
 
             // Invoke callbacks and collect results
-            let callback_results = self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
+            let callback_results =
+                self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
 
             for callback_result in callback_results {
                 let event_result = self.process_callback_result_v2(&callback_result);
@@ -628,7 +634,7 @@ pub trait PlatformWindowV2 {
 
         result
     }
-    
+
     /// V2: Process callback result and determine what action to take.
     ///
     /// This converts the callback result into a `ProcessEventResult` that tells
@@ -736,14 +742,13 @@ pub trait PlatformWindowV2 {
             }
             Update::RefreshDomAllWindows => {
                 self.mark_frame_needs_regeneration();
-                event_result =
-                    event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
             }
         }
 
         event_result
     }
-    
+
     /// Perform scrollbar hit-test at the given position.
     ///
     /// Returns `Some(ScrollbarHitId)` if a scrollbar was hit, `None` otherwise.
@@ -774,7 +779,7 @@ pub trait PlatformWindowV2 {
 
         None
     }
-    
+
     /// Handle scrollbar click (thumb or track).
     ///
     /// Returns `ProcessEventResult` indicating whether to redraw.
@@ -817,7 +822,7 @@ pub trait PlatformWindowV2 {
             }
         }
     }
-    
+
     /// Handle track click - jump scroll to clicked position.
     fn handle_track_click(
         &mut self,
@@ -912,7 +917,7 @@ pub trait PlatformWindowV2 {
 
         ProcessEventResult::ShouldReRenderCurrentWindow
     }
-    
+
     /// Handle scrollbar drag - update scroll position based on mouse delta.
     fn handle_scrollbar_drag(
         &mut self,
@@ -951,13 +956,14 @@ pub trait PlatformWindowV2 {
             ScrollbarOrientation::Horizontal
         };
 
-        let scrollbar_state = match layout_window
-            .scroll_states
-            .get_scrollbar_state(dom_id, node_id, orientation)
-        {
-            Some(s) if s.visible => s,
-            _ => return ProcessEventResult::DoNothing,
-        };
+        let scrollbar_state =
+            match layout_window
+                .scroll_states
+                .get_scrollbar_state(dom_id, node_id, orientation)
+            {
+                Some(s) if s.visible => s,
+                _ => return ProcessEventResult::DoNothing,
+            };
 
         let scroll_state = match layout_window
             .scroll_states

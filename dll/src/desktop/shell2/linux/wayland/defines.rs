@@ -6,6 +6,7 @@ use std::ffi::{c_char, c_int, c_void};
 
 // Opaque structs from wayland-client.h
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct wl_display {
     _private: [u8; 0],
 }

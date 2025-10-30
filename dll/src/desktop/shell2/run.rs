@@ -3,7 +3,7 @@
 //! This module provides the cross-platform run() function that starts
 //! the application and event loop for each platform.
 
-use std::sync::Arc;
+use std::{ffi::c_void, sync::Arc};
 
 use azul_core::resources::AppConfig;
 use azul_layout::window_state::WindowCreateOptions;
@@ -317,7 +317,10 @@ pub fn run(
             LinuxWindow::Wayland(wayland_window) => {
                 // For Wayland, we use the wl_display pointer as the window ID
                 // This is safe because display pointers are unique per window
-                (wayland_window.display as u64, wayland_window.display)
+                (
+                    wayland_window.display as u64,
+                    wayland_window.display as *mut c_void,
+                )
             }
         }
     };

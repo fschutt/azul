@@ -10,11 +10,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use azul_core::{
-    refany::RefAny, 
-    resources::ImageCache,
-    events::ProcessEventResult,
-};
+use azul_core::{events::ProcessEventResult, refany::RefAny, resources::ImageCache};
 use azul_layout::{
     callbacks::CallCallbacksResult,
     thread::Thread,

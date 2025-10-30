@@ -68,26 +68,23 @@ mod windows {
     pub fn get_displays() -> Vec<DisplayInfo> {
         // On Windows, without direct monitor enumeration API,
         // return a reasonable default for the primary display
-        
+
         // Use winapi to get the primary monitor dimensions
         #[cfg(target_os = "windows")]
         unsafe {
             use winapi::um::winuser::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-            
+
             let width = GetSystemMetrics(SM_CXSCREEN) as f32;
             let height = GetSystemMetrics(SM_CYSCREEN) as f32;
-            
-            let bounds = LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(width, height),
-            );
-            
+
+            let bounds = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(width, height));
+
             // Approximate work area (subtract taskbar height ~40px)
             let work_area = LogicalRect::new(
                 LogicalPosition::zero(),
                 LogicalSize::new(width, (height - 40.0).max(0.0)),
             );
-            
+
             return vec![DisplayInfo {
                 name: "\\\\.\\DISPLAY1".to_string(),
                 bounds,
@@ -96,7 +93,7 @@ mod windows {
                 is_primary: true,
             }];
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         vec![]
     }

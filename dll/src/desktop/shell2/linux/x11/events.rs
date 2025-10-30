@@ -29,6 +29,7 @@ use azul_core::{
 use azul_layout::callbacks::{CallCallbacksResult, CallbackInfo};
 
 use super::{defines::*, dlopen::Xlib, X11Window};
+use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
 // ============================================================================
 // IME Support (X Input Method)
@@ -162,216 +163,6 @@ impl X11Window {
 
     /// V2: Process window events using cross-platform dispatch system.
     ///
-    /// This is the main entry point for event processing. It:
-    /// 1. Compares previous_window_state with current_window_state
-    /// 2. Detects all events that occurred (mouse moves, clicks, keys, etc.)
-    /// 3. Determines which callbacks to invoke based on hit-testing
-    /// 4. Invokes callbacks and processes results (DOM changes, window state, etc.)
-    /// 5. Handles recursion when callbacks modify the DOM
-    pub fn process_window_events_v2(&mut self) -> ProcessEventResult {
-        self.process_window_events_recursive_v2(0)
-    }
-
-    /// V2: Recursive event processing with depth limit.
-    ///
-    /// This prevents infinite loops when callbacks trigger more events.
-    fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
-        const MAX_EVENT_RECURSION_DEPTH: usize = 5;
-
-        if depth >= MAX_EVENT_RECURSION_DEPTH {
-            eprintln!(
-                "[Events] Max recursion depth {} reached",
-                MAX_EVENT_RECURSION_DEPTH
-            );
-            return ProcessEventResult::DoNothing;
-        }
-
-        use azul_layout::window_state::create_events_from_states;
-
-        // Get previous state (or use current as fallback for first frame)
-        let previous_state = self
-            .previous_window_state
-            .as_ref()
-            .unwrap_or(&self.current_window_state);
-
-        // Detect all events that occurred by comparing states
-        let events = create_events_from_states(&self.current_window_state, previous_state);
-
-        if events.is_empty() {
-            return ProcessEventResult::DoNothing;
-        }
-
-        // Get hit test if available
-        let hit_test = if !self.current_window_state.last_hit_test.is_empty() {
-            Some(&self.current_window_state.last_hit_test)
-        } else {
-            None
-        };
-
-        // Use cross-platform dispatch logic to determine which callbacks to invoke
-        let dispatch_result = dispatch_events(&events, hit_test);
-
-        if dispatch_result.is_empty() {
-            return ProcessEventResult::DoNothing;
-        }
-
-        // Invoke all callbacks and collect results
-        let mut result = ProcessEventResult::DoNothing;
-        let mut should_stop_propagation = false;
-        let mut should_recurse = false;
-
-        for callback_to_invoke in &dispatch_result.callbacks {
-            if should_stop_propagation {
-                break;
-            }
-
-            // Convert core CallbackTarget to shell CallbackTarget
-            let target = match &callback_to_invoke.target {
-                CoreCallbackTarget::Node { dom_id, node_id } => CallbackTarget::Node(HitTestNode {
-                    dom_id: dom_id.inner as u64,
-                    node_id: node_id.index() as u64,
-                }),
-                CoreCallbackTarget::RootNodes => CallbackTarget::RootNodes,
-            };
-
-            // Invoke callbacks and collect results
-            let callback_results =
-                self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
-
-            for callback_result in callback_results {
-                let event_result = self.process_callback_result_v2(&callback_result);
-                result = result.max(event_result);
-
-                // Check if we should stop propagation
-                if callback_result.stop_propagation {
-                    should_stop_propagation = true;
-                    break;
-                }
-
-                // Check if we need to recurse (DOM was regenerated)
-                if matches!(
-                    callback_result.callbacks_update_screen,
-                    Update::RefreshDom | Update::RefreshDomAllWindows
-                ) {
-                    should_recurse = true;
-                }
-            }
-        }
-
-        // Recurse if needed
-        if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
-            let recursive_result = self.process_window_events_recursive_v2(depth + 1);
-            result = result.max(recursive_result);
-        }
-
-        result
-    }
-
-    /// V2: Invoke callbacks for a given target and event filter.
-    /// Returns all callback results (may be multiple callbacks per target).
-    fn invoke_callbacks_v2(
-        &mut self,
-        target: CallbackTarget,
-        event_filter: EventFilter,
-    ) -> Vec<CallCallbacksResult> {
-        use azul_core::id::NodeId as CoreNodeId;
-
-        // Collect callbacks based on target
-        let callback_data_list = match target {
-            CallbackTarget::Node(node) => {
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let dom_id = DomId {
-                    inner: node.dom_id as usize,
-                };
-                let node_id = match NodeId::from_usize(node.node_id as usize) {
-                    Some(nid) => nid,
-                    None => return Vec::new(),
-                };
-
-                let layout_result = match layout_window.layout_results.get(&dom_id) {
-                    Some(lr) => lr,
-                    None => return Vec::new(),
-                };
-
-                let binding = layout_result.styled_dom.node_data.as_container();
-                let node_data = match binding.get(node_id) {
-                    Some(nd) => nd,
-                    None => return Vec::new(),
-                };
-
-                node_data
-                    .get_callbacks()
-                    .as_container()
-                    .iter()
-                    .filter(|cd| cd.event == event_filter)
-                    .cloned()
-                    .collect::<Vec<_>>()
-            }
-            CallbackTarget::RootNodes => {
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let mut callbacks = Vec::new();
-                for (_dom_id, layout_result) in &layout_window.layout_results {
-                    if let Some(root_node) = layout_result
-                        .styled_dom
-                        .node_data
-                        .as_container()
-                        .get(CoreNodeId::ZERO)
-                    {
-                        for callback in root_node.get_callbacks().iter() {
-                            if callback.event == event_filter {
-                                callbacks.push(callback.clone());
-                            }
-                        }
-                    }
-                }
-                callbacks
-            }
-        };
-
-        if callback_data_list.is_empty() {
-            return Vec::new();
-        }
-
-        // Invoke all collected callbacks
-        let window_handle = self.get_raw_window_handle();
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return Vec::new(),
-        };
-        let mut fc_cache_clone = (*self.resources.fc_cache).clone();
-        let mut results = Vec::new();
-
-        for callback_data in callback_data_list {
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data.clone(),
-                &window_handle,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut fc_cache_clone,
-                self.resources.system_style.clone(),
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            results.push(callback_result);
-        }
-
-        results
-    }
-
     /// V2: Process callback result and update window state.
     /// Returns the appropriate ProcessEventResult based on what changed.
     fn process_callback_result_v2(&mut self, result: &CallCallbacksResult) -> ProcessEventResult {
@@ -502,7 +293,7 @@ impl X11Window {
         }
 
         // V2 system will automatically detect MouseDown/MouseUp and dispatch callbacks
-        self.process_window_events_v2()
+        self.process_window_events_recursive_v2(0)
     }
 
     /// Handle mouse motion events
@@ -524,7 +315,7 @@ impl X11Window {
         self.update_hit_test(position);
 
         // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
-        self.process_window_events_v2()
+        self.process_window_events_recursive_v2(0)
     }
 
     /// Handle mouse entering/leaving window
@@ -547,7 +338,7 @@ impl X11Window {
         }
 
         // V2 system will detect MouseEnter/MouseLeave from state diff
-        self.process_window_events_v2()
+        self.process_window_events_recursive_v2(0)
     }
 
     /// Handle scroll wheel events (X11 button 4/5)
@@ -594,7 +385,7 @@ impl X11Window {
         }
 
         // V2 system will detect Scroll event from state diff
-        self.process_window_events_v2()
+        self.process_window_events_recursive_v2(0)
     }
 
     /// Handle keyboard events (key press/release)
@@ -677,7 +468,7 @@ impl X11Window {
         }
 
         // V2 system will detect VirtualKeyDown/VirtualKeyUp/TextInput from state diff
-        self.process_window_events_v2()
+        self.process_window_events_recursive_v2(0)
     }
 
     // ========================================================================

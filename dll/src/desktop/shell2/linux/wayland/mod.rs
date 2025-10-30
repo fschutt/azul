@@ -48,7 +48,10 @@ use self::{
 };
 use super::common::gl::GlFunctions;
 use crate::desktop::{
-    shell2::common::{PlatformWindow, RenderContext, WindowError, WindowProperties},
+    shell2::common::{
+        event_v2::{self, PlatformWindowV2},
+        PlatformWindow, RenderContext, WindowError, WindowProperties,
+    },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
 
@@ -73,7 +76,7 @@ struct CpuFallbackState {
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
-    display: *mut defines::wl_display,
+    pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
     compositor: *mut defines::wl_compositor,
     shm: *mut defines::wl_shm,
@@ -106,6 +109,7 @@ pub struct WaylandWindow {
 
     // V2 Event system state
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
+    pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
 
@@ -168,6 +172,7 @@ pub struct WaylandPopup {
 
     // V2 Event system state
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
+    pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool,
 
@@ -493,6 +498,161 @@ impl PlatformWindow for WaylandWindow {
     }
 }
 
+// ============================================================================
+// PlatformWindowV2 Trait Implementation (Cross-platform V2 Event System)
+// ============================================================================
+
+impl PlatformWindowV2 for WaylandWindow {
+    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
+        self.layout_window.as_mut()
+    }
+
+    fn get_layout_window(&self) -> Option<&LayoutWindow> {
+        self.layout_window.as_ref()
+    }
+
+    fn get_current_window_state(&self) -> &FullWindowState {
+        &self.current_window_state
+    }
+
+    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
+        &mut self.current_window_state
+    }
+
+    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+        &self.previous_window_state
+    }
+
+    fn set_previous_window_state(&mut self, state: FullWindowState) {
+        self.previous_window_state = Some(state);
+    }
+
+    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
+        self.last_hovered_node.as_ref()
+    }
+
+    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
+        self.last_hovered_node = node;
+    }
+
+    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
+        self.scrollbar_drag_state.as_ref()
+    }
+
+    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
+        &mut self.scrollbar_drag_state
+    }
+
+    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+        self.scrollbar_drag_state = state;
+    }
+
+    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
+        &mut self.image_cache
+    }
+
+    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
+        &mut self.renderer_resources
+    }
+
+    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
+        &self.gl_context_ptr
+    }
+
+    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
+        &self.fc_cache
+    }
+
+    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
+        &self.resources.system_style
+    }
+
+    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
+        &self.app_data
+    }
+
+    fn get_render_api_mut(&mut self) -> &mut webrender::RenderApi {
+        self.render_api
+            .as_mut()
+            .expect("Render API not initialized")
+    }
+
+    fn get_render_api(&self) -> &webrender::RenderApi {
+        self.render_api
+            .as_ref()
+            .expect("Render API not initialized")
+    }
+
+    fn get_document_id(&self) -> DocumentId {
+        self.document_id.expect("Document ID not initialized")
+    }
+
+    fn get_id_namespace(&self) -> IdNamespace {
+        self.id_namespace.expect("ID namespace not initialized")
+    }
+
+    fn get_hit_tester(&self) -> &AsyncHitTester {
+        self.hit_tester
+            .as_ref()
+            .expect("Hit tester not initialized")
+    }
+
+    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
+        self.hit_tester
+            .as_mut()
+            .expect("Hit tester not initialized")
+    }
+
+    fn get_renderer(&self) -> Option<&WrRenderer> {
+        self.renderer.as_ref()
+    }
+
+    fn get_renderer_mut(&mut self) -> Option<&mut WrRenderer> {
+        self.renderer.as_mut()
+    }
+
+    fn get_raw_window_handle(&self) -> RawWindowHandle {
+        RawWindowHandle::Wayland(WaylandHandle {
+            surface: self.surface as *mut c_void,
+            display: self.display as *mut c_void,
+        })
+    }
+
+    fn needs_frame_regeneration(&self) -> bool {
+        self.frame_needs_regeneration
+    }
+
+    fn mark_frame_needs_regeneration(&mut self) {
+        self.frame_needs_regeneration = true;
+    }
+
+    fn clear_frame_regeneration_flag(&mut self) {
+        self.frame_needs_regeneration = false;
+    }
+
+    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+        let layout_window = self
+            .layout_window
+            .as_mut()
+            .expect("Layout window must exist for callback invocation");
+
+        event_v2::InvokeSingleCallbackBorrows {
+            layout_window,
+            window_handle: RawWindowHandle::Wayland(WaylandHandle {
+                surface: self.surface as *mut c_void,
+                display: self.display as *mut c_void,
+            }),
+            gl_context_ptr: &self.gl_context_ptr,
+            image_cache: &mut self.image_cache,
+            fc_cache_clone: (*self.fc_cache).clone(),
+            system_style: self.resources.system_style.clone(),
+            previous_window_state: &self.previous_window_state,
+            current_window_state: &self.current_window_state,
+            renderer_resources: &mut self.renderer_resources,
+        }
+    }
+}
+
 impl WaylandWindow {
     pub fn new(
         options: WindowCreateOptions,
@@ -574,6 +734,7 @@ impl WaylandWindow {
             keyboard_state: events::KeyboardState::new(),
             pointer_state: events::PointerState::new(),
             scrollbar_drag_state: None,
+            last_hovered_node: None,
             frame_needs_regeneration: false,
             frame_callback_pending: false,
             // CPU rendering state will be initialized after receiving wl_shm from registry
@@ -705,283 +866,9 @@ impl WaylandWindow {
     }
 
     /// Process events using state-diffing architecture.
-    ///
     /// V2: Uses cross-platform dispatch system with recursive callback handling.
     pub fn process_events(&mut self) -> ProcessEventResult {
         self.process_window_events_recursive_v2(0)
-    }
-
-    /// V2: Recursive event processing with depth limit.
-    ///
-    /// This prevents infinite loops when callbacks trigger more events.
-    fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
-        const MAX_EVENT_RECURSION_DEPTH: usize = 5;
-
-        if depth >= MAX_EVENT_RECURSION_DEPTH {
-            eprintln!(
-                "[Wayland Events] Max recursion depth {} reached",
-                MAX_EVENT_RECURSION_DEPTH
-            );
-            return ProcessEventResult::DoNothing;
-        }
-
-        use azul_core::events::{
-            dispatch_events, CallbackTarget as CoreCallbackTarget, EventFilter,
-        };
-        use azul_layout::window_state::create_events_from_states;
-
-        // Get previous state (or use current as fallback for first frame)
-        let previous_state = self
-            .previous_window_state
-            .as_ref()
-            .unwrap_or(&self.current_window_state);
-
-        // Detect all events that occurred by comparing states
-        let events = create_events_from_states(&self.current_window_state, previous_state);
-
-        if events.is_empty() {
-            return ProcessEventResult::DoNothing;
-        }
-
-        // Get hit test if available
-        let hit_test = if !self.current_window_state.last_hit_test.is_empty() {
-            Some(&self.current_window_state.last_hit_test)
-        } else {
-            None
-        };
-
-        // Use cross-platform dispatch logic to determine which callbacks to invoke
-        let dispatch_result = dispatch_events(&events, hit_test);
-
-        if dispatch_result.is_empty() {
-            return ProcessEventResult::DoNothing;
-        }
-
-        // Invoke all callbacks and collect results
-        let mut result = ProcessEventResult::DoNothing;
-        let mut should_stop_propagation = false;
-        let mut should_recurse = false;
-
-        for callback_to_invoke in &dispatch_result.callbacks {
-            if should_stop_propagation {
-                break;
-            }
-
-            // Convert core CallbackTarget to shell CallbackTarget
-            let target = match &callback_to_invoke.target {
-                CoreCallbackTarget::Node { dom_id, node_id } => CallbackTarget::Node(HitTestNode {
-                    dom_id: dom_id.inner as u64,
-                    node_id: node_id.index() as u64,
-                }),
-                CoreCallbackTarget::RootNodes => CallbackTarget::RootNodes,
-            };
-
-            // Invoke callbacks and collect results
-            let callback_results =
-                self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
-
-            for callback_result in callback_results {
-                let event_result = self.process_callback_result_v2(&callback_result);
-                result = result.max(event_result);
-
-                // Check if we should stop propagation
-                if callback_result.stop_propagation {
-                    should_stop_propagation = true;
-                    break;
-                }
-
-                // Check if we need to recurse (DOM was regenerated)
-                use azul_core::callbacks::Update;
-                if matches!(
-                    callback_result.callbacks_update_screen,
-                    Update::RefreshDom | Update::RefreshDomAllWindows
-                ) {
-                    should_recurse = true;
-                }
-            }
-        }
-
-        // Recurse if needed
-        if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
-            let recursive_result = self.process_window_events_recursive_v2(depth + 1);
-            result = result.max(recursive_result);
-        }
-
-        result
-    }
-
-    /// V2: Invoke callbacks for a given target and event filter.
-    /// Returns all callback results (may be multiple callbacks per target).
-    fn invoke_callbacks_v2(
-        &mut self,
-        target: CallbackTarget,
-        event_filter: azul_core::events::EventFilter,
-    ) -> Vec<azul_layout::callbacks::CallCallbacksResult> {
-        use azul_core::{dom::NodeId, id::NodeId as CoreNodeId};
-        use azul_layout::callbacks::CallCallbacksResult;
-
-        // Collect callbacks based on target
-        let callback_data_list = match target {
-            CallbackTarget::Node(node) => {
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let dom_id = DomId {
-                    inner: node.dom_id as usize,
-                };
-                let node_id = match NodeId::from_usize(node.node_id as usize) {
-                    Some(nid) => nid,
-                    None => return Vec::new(),
-                };
-
-                let layout_result = match layout_window.layout_results.get(&dom_id) {
-                    Some(lr) => lr,
-                    None => return Vec::new(),
-                };
-
-                let binding = layout_result.styled_dom.node_data.as_container();
-                let node_data = match binding.get(node_id) {
-                    Some(nd) => nd,
-                    None => return Vec::new(),
-                };
-
-                node_data
-                    .get_callbacks()
-                    .as_container()
-                    .iter()
-                    .filter(|cd| cd.event == event_filter)
-                    .cloned()
-                    .collect::<Vec<_>>()
-            }
-            CallbackTarget::RootNodes => {
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let mut callbacks = Vec::new();
-                for (_dom_id, layout_result) in &layout_window.layout_results {
-                    if let Some(root_node) = layout_result
-                        .styled_dom
-                        .node_data
-                        .as_container()
-                        .get(CoreNodeId::ZERO)
-                    {
-                        for callback in root_node.get_callbacks().iter() {
-                            if callback.event == event_filter {
-                                callbacks.push(callback.clone());
-                            }
-                        }
-                    }
-                }
-                callbacks
-            }
-        };
-
-        if callback_data_list.is_empty() {
-            return Vec::new();
-        }
-
-        // Invoke all collected callbacks
-        let window_handle = self.get_raw_window_handle();
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return Vec::new(),
-        };
-        let mut fc_cache_clone = (*self.resources.fc_cache).clone();
-        let mut results = Vec::new();
-
-        for callback_data in callback_data_list {
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data.clone(),
-                &window_handle,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut fc_cache_clone,
-                self.resources.system_style.clone(),
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            results.push(callback_result);
-        }
-
-        results
-    }
-
-    /// V2: Process callback result and update window state.
-    /// Returns the appropriate ProcessEventResult based on what changed.
-    fn process_callback_result_v2(
-        &mut self,
-        result: &azul_layout::callbacks::CallCallbacksResult,
-    ) -> ProcessEventResult {
-        let mut event_result = ProcessEventResult::DoNothing;
-
-        // Handle window state modifications
-        if let Some(ref modified_state) = result.modified_window_state {
-            self.current_window_state.title = modified_state.title.clone();
-            self.current_window_state.size = modified_state.size;
-            self.current_window_state.position = modified_state.position;
-            self.current_window_state.flags = modified_state.flags;
-            self.current_window_state.background_color = modified_state.background_color;
-
-            // Check if window should close
-            if modified_state.flags.close_requested {
-                self.is_open = false;
-                return ProcessEventResult::DoNothing;
-            }
-
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Handle focus changes
-        if let Some(new_focus) = result.update_focused_node {
-            self.current_window_state.focused_node = new_focus;
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Handle image updates
-        if result.images_changed.is_some() || result.image_masks_changed.is_some() {
-            event_result =
-                event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-        }
-
-        // Handle timers and threads
-        if result.timers.is_some()
-            || result.timers_removed.is_some()
-            || result.threads.is_some()
-            || result.threads_removed.is_some()
-        {
-            // TODO: Implement timer/thread management for Wayland
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Process Update screen command
-        use azul_core::callbacks::Update;
-        match result.callbacks_update_screen {
-            Update::DoNothing => {}
-            Update::RefreshDom | Update::RefreshDomAllWindows => {
-                // DOM regeneration happens via recursion in process_window_events_recursive_v2
-                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
-        }
-
-        event_result
-    }
-
-    /// Get raw window handle for callbacks
-    fn get_raw_window_handle(&self) -> RawWindowHandle {
-        RawWindowHandle::Wayland(WaylandHandle {
-            surface: self.surface as *mut std::ffi::c_void,
-            display: self.display as *mut std::ffi::c_void,
-        })
     }
 
     /// Handle keyboard key event with full XKB translation
@@ -1872,6 +1759,7 @@ impl WaylandPopup {
             render_mode: RenderMode::Cpu(None),
 
             scrollbar_drag_state: None,
+            last_hovered_node: None,
             frame_needs_regeneration: true,
             frame_callback_pending: false,
 

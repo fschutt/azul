@@ -22,10 +22,8 @@ use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_foundation::NSPoint;
 
 use super::MacOSWindow;
-
 // Re-export common types
 pub use crate::desktop::shell2::common::event_v2::HitTestNode;
-
 // Import V2 cross-platform event processing trait
 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
@@ -456,11 +454,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -488,11 +496,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -515,11 +533,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -543,11 +571,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -603,11 +641,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -638,11 +686,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -665,11 +723,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
@@ -800,11 +868,21 @@ impl MacOSWindow {
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                EventProcessResult::RequestRedraw
+            }
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                EventProcessResult::RequestRedraw
+            }
         }
     }
 
