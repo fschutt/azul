@@ -23,6 +23,7 @@ pub mod registry;
 mod wcreate;
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     ffi::c_void,
     ptr,
@@ -31,17 +32,20 @@ use std::{
 };
 
 use azul_core::{
+    geom::LogicalPosition,
     gl::OptionGlContextPtr,
     hit_test::{DocumentId, PipelineId},
     menu::CoreMenuCallback,
     refany::RefAny,
     resources::{DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
-    window::{OptionMouseCursorType, RendererType, WindowFrame},
+    window::{OptionMouseCursorType, RendererType, RawWindowHandle, WindowsHandle, WindowFrame},
+    events::ProcessEventResult,
 };
 use azul_layout::{
     hit_test::FullHitTest,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
+    ScrollbarDragState,
 };
 use rust_fontconfig::FcFontCache;
 use webrender::{RenderApi as WrRenderApi, Renderer as WrRenderer, Transaction as WrTransaction};
@@ -50,10 +54,9 @@ use self::{
     dlopen::{DynamicLibrary, HDC, HGLRC, HINSTANCE, HMENU, HWND},
     dpi::DpiFunctions,
     gl::GlFunctions,
-    process::ProcessEventResult,
 };
 use crate::desktop::{
-    shell2::common::{Compositor, WindowError, WindowProperties},
+    shell2::common::{event_v2::{self, PlatformWindowV2}, Compositor, WindowError, WindowProperties},
     wr_translate2::{
         default_renderer_options, translate_document_id_wr, translate_id_namespace_wr,
         wr_translate_document_id, AsyncHitTester, Notifier, WR_SHADER_CACHE,
@@ -126,6 +129,8 @@ pub struct Win32Window {
     // Input state
     /// High surrogate for UTF-16 character composition
     pub high_surrogate: Option<u16>,
+    /// Last hovered node (for hover state tracking)
+    pub last_hovered_node: Option<event_v2::HitTestNode>,
     /// Scrollbar drag state (for drag interactions)
     pub scrollbar_drag_state: Option<azul_layout::ScrollbarDragState>,
 
@@ -134,6 +139,8 @@ pub struct Win32Window {
     pub dpi: DpiFunctions,
 
     // Shared resources
+    /// Shared application data (used by callbacks, shared across windows)
+    pub app_data: Arc<RefCell<RefAny>>,
     /// Font cache (shared across all windows)
     pub fc_cache: Arc<FcFontCache>,
     /// System style (shared across all windows)
@@ -386,8 +393,10 @@ impl Win32Window {
             timers: HashMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
+            last_hovered_node: None,
             scrollbar_drag_state: None,
             dpi: dpi_functions,
+            app_data,
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
         })
@@ -489,112 +498,6 @@ impl Win32Window {
 
             Ok(())
         }
-    }
-
-    // ========================================================================
-    // V2 Cross-Platform Event Processing (similar to macOS implementation)
-    // ========================================================================
-
-    /// V2: Process window events using cross-platform dispatch system.
-    pub fn process_window_events_v2(&mut self) -> process::ProcessEventResult {
-        self.process_window_events_recursive_v2(0)
-    }
-
-    /// V2: Recursive event processing with depth limit.
-    fn process_window_events_recursive_v2(&mut self, depth: usize) -> process::ProcessEventResult {
-        const MAX_EVENT_RECURSION_DEPTH: usize = 5;
-
-        if depth >= MAX_EVENT_RECURSION_DEPTH {
-            eprintln!(
-                "[Events] Max recursion depth {} reached",
-                MAX_EVENT_RECURSION_DEPTH
-            );
-            return process::ProcessEventResult::DoNothing;
-        }
-
-        use azul_core::events::{dispatch_events, CallbackTarget as CoreCallbackTarget};
-        use azul_layout::window_state::create_events_from_states;
-
-        // Get previous state (or use current as fallback for first frame)
-        let previous_state = self
-            .previous_window_state
-            .as_ref()
-            .unwrap_or(&self.current_window_state);
-
-        // Detect all events that occurred by comparing states
-        let events = create_events_from_states(&self.current_window_state, previous_state);
-
-        if events.is_empty() {
-            return process::ProcessEventResult::DoNothing;
-        }
-
-        // Get hit test if available
-        let hit_test = if !self.current_window_state.last_hit_test.is_empty() {
-            Some(&self.current_window_state.last_hit_test)
-        } else {
-            None
-        };
-
-        // Use cross-platform dispatch logic to determine which callbacks to invoke
-        let dispatch_result = dispatch_events(&events, hit_test);
-
-        if dispatch_result.is_empty() {
-            return process::ProcessEventResult::DoNothing;
-        }
-
-        // Invoke all callbacks and collect results
-        let mut result = process::ProcessEventResult::DoNothing;
-        let mut should_stop_propagation = false;
-        let mut should_recurse = false;
-
-        for callback_to_invoke in &dispatch_result.callbacks {
-            if should_stop_propagation {
-                break;
-            }
-
-            // Convert core CallbackTarget to process CallbackTarget
-            let target = match &callback_to_invoke.target {
-                CoreCallbackTarget::Node { dom_id, node_id } => {
-                    process::CallbackTarget::Node(process::HitTestNode {
-                        dom_id: dom_id.inner as u64,
-                        node_id: node_id.index() as u64,
-                    })
-                }
-                CoreCallbackTarget::RootNodes => process::CallbackTarget::RootNodes,
-            };
-
-            // Invoke callbacks through process module
-            let callback_results =
-                process::invoke_callbacks(self, target, callback_to_invoke.event_filter);
-
-            for callback_result in callback_results {
-                let event_result = process::process_callback_result(self, &callback_result);
-                result = result.max(event_result);
-
-                // Check if we should stop propagation
-                if callback_result.stop_propagation {
-                    should_stop_propagation = true;
-                    break;
-                }
-
-                // Check if we need to recurse (DOM was regenerated)
-                use azul_core::callbacks::Update;
-                if matches!(
-                    callback_result.callbacks_update_screen,
-                    Update::RefreshDom | Update::RefreshDomAllWindows
-                ) {
-                    should_recurse = true;
-                }
-            }
-        }
-
-        // Recurse if needed
-        if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
-            let recursive_result = self.process_window_events_recursive_v2(depth + 1);
-            result = result.max(recursive_result);
-        }
-
-        result
     }
 
     /// Regenerate layout (called after DOM changes)
@@ -1092,7 +995,7 @@ impl Win32Window {
             }
         }
 
-        false;
+        false
     }
 
     /// Show a context menu using native Win32 popup menu
@@ -1329,7 +1232,7 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.flags.close_requested = true;
 
             // Process window events to trigger OnWindowClose callback
-            let _ = window.process_window_events_v2();
+            let _ = window.process_window_events_recursive_v2(0);
 
             // Check if callback cancelled the close
             if window.current_window_state.flags.close_requested {
@@ -1483,7 +1386,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
             // Request WM_MOUSELEAVE notification
             use self::dlopen::{TME_LEAVE, TRACKMOUSEEVENT};
@@ -1498,7 +1401,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // Request redraw if needed
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1523,10 +1426,10 @@ unsafe extern "system" fn window_proc(
                 CursorPosition::OutOfWindow(last_pos);
 
             // Process events - this will trigger MouseLeave callbacks
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
             // Request redraw if needed to clear hover states
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1581,10 +1484,10 @@ unsafe extern "system" fn window_proc(
             (window.win32.user32.SetCapture)(hwnd);
 
             // V2 system will detect MouseDown event
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
             // Request redraw if needed
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1642,10 +1545,10 @@ unsafe extern "system" fn window_proc(
             (window.win32.user32.ReleaseCapture)();
 
             // V2 system will detect MouseUp event
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
             // Request redraw if needed
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1691,10 +1594,10 @@ unsafe extern "system" fn window_proc(
             }
 
             // V2 system will detect MouseDown event
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
             // Request redraw if needed
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1745,10 +1648,10 @@ unsafe extern "system" fn window_proc(
             // If context menu was shown, skip normal mouse up processing
             if !showed_context_menu {
                 // V2 system will detect MouseUp event
-                let result = window.process_window_events_v2();
+                let result = window.process_window_events_recursive_v2(0);
 
                 // Request redraw if needed
-                if !matches!(result, process::ProcessEventResult::DoNothing) {
+                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
             }
@@ -1776,9 +1679,9 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.middle_down = true;
 
             // V2 system will detect MouseDown event
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1806,9 +1709,9 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.middle_down = false;
 
             // V2 system will detect MouseUp event
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1879,9 +1782,9 @@ unsafe extern "system" fn window_proc(
             }
 
             // V2 system will detect Scroll event
-            let result = window.process_window_events_v2();
+            let result = window.process_window_events_recursive_v2(0);
 
-            if !matches!(result, process::ProcessEventResult::DoNothing) {
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
@@ -1917,9 +1820,9 @@ unsafe extern "system" fn window_proc(
                     .insert_hm_item(scan_code);
 
                 // V2 system will detect VirtualKeyDown event
-                let result = window.process_window_events_v2();
+                let result = window.process_window_events_recursive_v2(0);
 
-                if !matches!(result, process::ProcessEventResult::DoNothing) {
+                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
             }
@@ -1954,9 +1857,9 @@ unsafe extern "system" fn window_proc(
                     .remove_hm_item(&scan_code);
 
                 // V2 system will detect VirtualKeyUp event
-                let result = window.process_window_events_v2();
+                let result = window.process_window_events_recursive_v2(0);
 
-                if !matches!(result, process::ProcessEventResult::DoNothing) {
+                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
             }
@@ -2000,13 +1903,13 @@ unsafe extern "system" fn window_proc(
                     azul_core::window::OptionChar::Some(chr as u32);
 
                 // V2 system will detect TextInput event
-                let result = window.process_window_events_v2();
+                let result = window.process_window_events_recursive_v2(0);
 
                 // Clear character after processing
                 window.current_window_state.keyboard_state.current_char =
                     azul_core::window::OptionChar::None;
 
-                if !matches!(result, process::ProcessEventResult::DoNothing) {
+                if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
             }
@@ -2182,7 +2085,7 @@ unsafe extern "system" fn window_proc(
                         }
 
                         // Process window events to trigger FileDrop callbacks
-                        window.process_window_events_v2();
+                        window.process_window_events_recursive_v2(0);
 
                         // Clear dropped file after processing
                         window.current_window_state.dropped_file = None;
@@ -2368,12 +2271,6 @@ impl PlatformWindow for Win32Window {
     }
 }
 
-impl crate::desktop::window_helpers::WindowQuery for Win32Window {
-    fn get_flags(&self) -> &azul_core::window::WindowFlags {
-        &self.current_window_state.flags
-    }
-}
-
 impl Win32Window {
     /// Inject a menu bar into the window
     ///
@@ -2395,11 +2292,11 @@ impl Win32Window {
     }
 
     /// Gets the monitor information for the monitor that the window is currently on.
-    pub fn get_monitor_info(&self) -> Option<dlopen::constants::MONITORINFO> {
-        use dlopen::constants::{MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    #[cfg(target_os = "windows")]
+    pub fn get_monitor_info(&self) -> Option<winapi::um::winuser::MONITORINFO> {
+        use winapi::um::winuser::{MonitorFromWindow, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 
-        let monitor =
-            unsafe { (self.win32.user32.MonitorFromWindow)(self.hwnd, MONITOR_DEFAULTTONEAREST) };
+        let monitor = unsafe { MonitorFromWindow(self.hwnd as _, MONITOR_DEFAULTTONEAREST) };
 
         if monitor.is_null() {
             return None;
@@ -2408,13 +2305,18 @@ impl Win32Window {
         let mut monitor_info: MONITORINFO = unsafe { std::mem::zeroed() };
         monitor_info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
 
-        let result = unsafe { (self.win32.user32.GetMonitorInfoW)(monitor, &mut monitor_info) };
+        let result = unsafe { GetMonitorInfoW(monitor, &mut monitor_info as *mut _) };
 
         if result != 0 {
             Some(monitor_info)
         } else {
             None
         }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn get_monitor_info(&self) -> Option<()> {
+        None
     }
 
     /// Returns the position and size of the window in physical pixels.
@@ -2429,7 +2331,7 @@ impl Win32Window {
 
     /// Returns the DPI of the window.
     pub fn get_window_dpi(&self) -> u32 {
-        self.dpi.hwnd_dpi(self.hwnd)
+        unsafe { self.dpi.hwnd_dpi(self.hwnd as _) }
     }
 
     /// Get display information for the monitor this window is on
@@ -2470,6 +2372,152 @@ impl Win32Window {
             scale_factor,
             is_primary: false, // Would need additional check
         })
+    }
+}
+
+// ========================= PlatformWindowV2 Trait Implementation =========================
+
+impl PlatformWindowV2 for Win32Window {
+    // =========================================================================
+    // REQUIRED: Simple Getter Methods
+    // =========================================================================
+    
+    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
+        self.layout_window.as_mut()
+    }
+    
+    fn get_layout_window(&self) -> Option<&LayoutWindow> {
+        self.layout_window.as_ref()
+    }
+    
+    fn get_current_window_state(&self) -> &FullWindowState {
+        &self.current_window_state
+    }
+    
+    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
+        &mut self.current_window_state
+    }
+    
+    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+        &self.previous_window_state
+    }
+    
+    fn set_previous_window_state(&mut self, state: FullWindowState) {
+        self.previous_window_state = Some(state);
+    }
+    
+    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
+        &mut self.image_cache
+    }
+    
+    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
+        &mut self.renderer_resources
+    }
+    
+    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
+        &self.fc_cache
+    }
+    
+    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
+        &self.gl_context_ptr
+    }
+    
+    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
+        &self.system_style
+    }
+    
+    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
+        &self.app_data
+    }
+    
+    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
+        self.scrollbar_drag_state.as_ref()
+    }
+    
+    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
+        &mut self.scrollbar_drag_state
+    }
+    
+    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+        self.scrollbar_drag_state = state;
+    }
+    
+    fn get_hit_tester(&self) -> &AsyncHitTester {
+        &self.hit_tester
+    }
+    
+    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
+        &mut self.hit_tester
+    }
+    
+    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
+        self.last_hovered_node.as_ref()
+    }
+    
+    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
+        self.last_hovered_node = node;
+    }
+    
+    fn get_document_id(&self) -> DocumentId {
+        self.document_id
+    }
+    
+    fn get_id_namespace(&self) -> IdNamespace {
+        self.id_namespace
+    }
+    
+    fn get_render_api(&self) -> &WrRenderApi {
+        &self.render_api
+    }
+    
+    fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
+        &mut self.render_api
+    }
+    
+    fn get_renderer(&self) -> Option<&webrender::Renderer> {
+        self.renderer.as_ref()
+    }
+    
+    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
+        self.renderer.as_mut()
+    }
+    
+    fn get_raw_window_handle(&self) -> RawWindowHandle {
+        RawWindowHandle::Windows(WindowsHandle {
+            hwnd: self.hwnd as *mut std::ffi::c_void,
+            hinstance: self.hinstance as *mut std::ffi::c_void,
+        })
+    }
+    
+    fn needs_frame_regeneration(&self) -> bool {
+        self.frame_needs_regeneration
+    }
+    
+    fn mark_frame_needs_regeneration(&mut self) {
+        self.frame_needs_regeneration = true;
+    }
+    
+    fn clear_frame_regeneration_flag(&mut self) {
+        self.frame_needs_regeneration = false;
+    }
+    
+    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+        let layout_window = self.layout_window.as_mut().expect("Layout window must exist for callback invocation");
+        
+        event_v2::InvokeSingleCallbackBorrows {
+            layout_window,
+            window_handle: RawWindowHandle::Windows(WindowsHandle {
+                hwnd: self.hwnd as *mut std::ffi::c_void,
+                hinstance: self.hinstance as *mut std::ffi::c_void,
+            }),
+            gl_context_ptr: &self.gl_context_ptr,
+            image_cache: &mut self.image_cache,
+            fc_cache_clone: (*self.fc_cache).clone(),
+            system_style: self.system_style.clone(),
+            previous_window_state: &self.previous_window_state,
+            current_window_state: &self.current_window_state,
+            renderer_resources: &mut self.renderer_resources,
+        }
     }
 }
 

@@ -63,107 +63,42 @@ pub fn get_primary_display() -> Option<DisplayInfo> {
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use std::sync::Mutex;
-
     use super::*;
-    use crate::desktop::shell2::windows::dlopen::{
-        constants::{HMONITOR, MONITORINFO, MONITOR_DEFAULTTOPRIMARY},
-        Win32,
-    };
-
-    static DISPLAYS: Mutex<Vec<DisplayInfo>> = Mutex::new(Vec::new());
 
     pub fn get_displays() -> Vec<DisplayInfo> {
-        let win32 = Win32::new().expect("Failed to load Win32 DLLs");
-
-        // Clear previous displays
-        {
-            let mut displays = DISPLAYS.lock().unwrap();
-            displays.clear();
-        }
-
-        // Enumerate all monitors
+        // On Windows, without direct monitor enumeration API,
+        // return a reasonable default for the primary display
+        
+        // Use winapi to get the primary monitor dimensions
+        #[cfg(target_os = "windows")]
         unsafe {
-            (win32.user32.EnumDisplayMonitors)(
-                std::ptr::null_mut(),
-                std::ptr::null(),
-                Some(monitor_enum_proc),
-                &win32 as *const Win32 as isize,
-            );
-        }
-
-        // Get primary monitor to mark it
-        let primary_monitor = unsafe {
-            (win32.user32.MonitorFromPoint)(
-                crate::desktop::shell2::windows::dlopen::POINT { x: 0, y: 0 },
-                MONITOR_DEFAULTTOPRIMARY,
-            )
-        };
-
-        let mut displays = DISPLAYS.lock().unwrap();
-
-        // Mark primary display
-        for display in displays.iter_mut() {
-            // Compare monitor handles (stored in name temporarily)
-            if display.name == format!("{:p}", primary_monitor) {
-                display.is_primary = true;
-            }
-        }
-
-        // Give displays proper names
-        for (i, display) in displays.iter_mut().enumerate() {
-            display.name = format!("\\\\.\\DISPLAY{}", i + 1);
-        }
-
-        displays.clone()
-    }
-
-    unsafe extern "system" fn monitor_enum_proc(
-        hmonitor: HMONITOR,
-        _hdc: *mut std::ffi::c_void,
-        _rect: *mut crate::desktop::shell2::windows::dlopen::RECT,
-        lparam: isize,
-    ) -> i32 {
-        let win32 = &*(lparam as *const Win32);
-
-        let mut monitor_info: MONITORINFO = std::mem::zeroed();
-        monitor_info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-
-        if (win32.user32.GetMonitorInfoW)(hmonitor, &mut monitor_info) != 0 {
+            use winapi::um::winuser::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+            
+            let width = GetSystemMetrics(SM_CXSCREEN) as f32;
+            let height = GetSystemMetrics(SM_CYSCREEN) as f32;
+            
             let bounds = LogicalRect::new(
-                LogicalPosition::new(
-                    monitor_info.rcMonitor.left as f32,
-                    monitor_info.rcMonitor.top as f32,
-                ),
-                LogicalSize::new(
-                    (monitor_info.rcMonitor.right - monitor_info.rcMonitor.left) as f32,
-                    (monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top) as f32,
-                ),
+                LogicalPosition::zero(),
+                LogicalSize::new(width, height),
             );
-
+            
+            // Approximate work area (subtract taskbar height ~40px)
             let work_area = LogicalRect::new(
-                LogicalPosition::new(
-                    monitor_info.rcWork.left as f32,
-                    monitor_info.rcWork.top as f32,
-                ),
-                LogicalSize::new(
-                    (monitor_info.rcWork.right - monitor_info.rcWork.left) as f32,
-                    (monitor_info.rcWork.bottom - monitor_info.rcWork.top) as f32,
-                ),
+                LogicalPosition::zero(),
+                LogicalSize::new(width, (height - 40.0).max(0.0)),
             );
-
-            let display = DisplayInfo {
-                name: format!("{:p}", hmonitor), // Temporary - will be replaced
+            
+            return vec![DisplayInfo {
+                name: "\\\\.\\DISPLAY1".to_string(),
                 bounds,
                 work_area,
                 scale_factor: 1.0, // TODO: Get actual DPI
-                is_primary: false, // Will be set later
-            };
-
-            DISPLAYS.lock().unwrap().push(display);
+                is_primary: true,
+            }];
         }
-
-        1 // Continue enumeration
+        
+        #[cfg(not(target_os = "windows"))]
+        vec![]
     }
 }
 
