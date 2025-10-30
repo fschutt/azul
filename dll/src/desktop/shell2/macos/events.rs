@@ -65,6 +65,20 @@ pub enum CallbackTarget {
 }
 
 impl MacOSWindow {
+    /// Convert ProcessEventResult to platform-specific EventProcessResult
+    #[inline]
+    fn convert_process_result(result: azul_core::events::ProcessEventResult) -> EventProcessResult {
+        use azul_core::events::ProcessEventResult as PER;
+        match result {
+            PER::DoNothing => EventProcessResult::DoNothing,
+            PER::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            PER::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            PER::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            PER::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            PER::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
+    }
+
     /// Query WebRender hit-tester for scrollbar hits
     fn perform_scrollbar_hit_test(
         &self,
@@ -397,7 +411,7 @@ impl MacOSWindow {
         // - Process callback results recursively
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        Self::convert_process_result(result)
     }
 
     /// Process a mouse button up event.
@@ -440,7 +454,14 @@ impl MacOSWindow {
         // Use V2 cross-platform event system - automatically detects MouseUp
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process a mouse move event.
@@ -465,7 +486,14 @@ impl MacOSWindow {
         // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process mouse entered window event.
@@ -485,7 +513,14 @@ impl MacOSWindow {
         // V2 system will detect MouseEnter events from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process mouse exited window event.
@@ -506,7 +541,14 @@ impl MacOSWindow {
         // V2 system will detect MouseLeave events from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process a scroll wheel event.
@@ -559,7 +601,14 @@ impl MacOSWindow {
         // V2 system will detect Scroll event from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process a key down event.
@@ -587,7 +636,14 @@ impl MacOSWindow {
         // V2 system will detect VirtualKeyDown and TextInput from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process a key up event.
@@ -607,7 +663,14 @@ impl MacOSWindow {
         // V2 system will detect VirtualKeyUp from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Process a flags changed event (modifier keys).
@@ -735,7 +798,14 @@ impl MacOSWindow {
         // Clear dropped file after processing
         self.current_window_state.dropped_file = None;
 
-        self.process_callback_result_to_event_result_v2(result)
+        match result {
+            azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
+            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::UpdateHitTesterAndProcessAgain => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => EventProcessResult::RequestRedraw,
+            azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => EventProcessResult::RequestRedraw,
+        }
     }
 
     /// Perform hit testing at given position using WebRender hit-testing API.

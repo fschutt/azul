@@ -155,28 +155,66 @@ pub enum CallbackTarget {
     RootNodes,
 }
 
+/// Borrowed resources needed for `invoke_single_callback`.
+///
+/// This struct borrows individual fields from the window, allowing the borrow checker
+/// to see that we're borrowing distinct fields rather than `&mut self` multiple times.
+/// This avoids borrow checker conflicts when calling trait methods.
+pub struct InvokeSingleCallbackBorrows<'a> {
+    /// Mutable layout window for callback invocation
+    pub layout_window: &'a mut LayoutWindow,
+    /// Raw window handle for platform identification
+    pub window_handle: RawWindowHandle,
+    /// OpenGL context pointer
+    pub gl_context_ptr: &'a OptionGlContextPtr,
+    /// Mutable image cache
+    pub image_cache: &'a mut ImageCache,
+    /// Cloned font cache (FcFontCache doesn't support &mut access)
+    pub fc_cache_clone: FcFontCache,
+    /// System style (Arc, cheap to clone)
+    pub system_style: Arc<azul_css::system::SystemStyle>,
+    /// Previous window state
+    pub previous_window_state: &'a Option<FullWindowState>,
+    /// Current window state
+    pub current_window_state: &'a FullWindowState,
+    /// Renderer resources
+    pub renderer_resources: &'a mut RendererResources,
+}
+
 /// Trait that platform-specific window types must implement to use the unified V2 event system.
 ///
 /// This trait provides **default implementations** for all complex cross-platform logic.
-/// Platform implementations only need to implement the simple getter methods.
+/// Platform implementations only need to implement the simple getter methods (27 methods).
 ///
-/// ## Required Methods (Simple Getters)
+/// ## Required Methods (Simple Getters - 27 total)
 ///
 /// Platforms must implement these methods to expose their internal state:
 /// - Layout window access (`get_layout_window`, `get_layout_window_mut`)
 /// - Window state access (`get_current_window_state`, `get_previous_window_state`, etc.)
 /// - Resource access (`get_image_cache_mut`, `get_renderer_resources_mut`, etc.)
 /// - Hit testing state (`get_hit_tester`, `get_scrollbar_drag_state`, etc.)
+/// - Frame regeneration (`needs_frame_regeneration`, `mark_frame_needs_regeneration`, etc.)
+/// - Raw window handle (`get_raw_window_handle`)
+/// - **Callback preparation (`prepare_callback_invocation`)** - Returns all borrows needed for callbacks
 ///
-/// ## Provided Methods (Complete Logic)
+/// ## Provided Methods (Complete Logic - All Cross-Platform!)
 ///
 /// These methods have default implementations with the full cross-platform logic:
-/// - `process_window_events()` - Main event processing entry point
-/// - `invoke_callbacks_v2()` - Callback dispatch
+/// - `invoke_callbacks_v2()` - **FULLY CROSS-PLATFORM!** Callback dispatch using `prepare_callback_invocation()`
+/// - `process_window_events_recursive_v2()` - Main event processing with recursion
 /// - `process_callback_result_v2()` - Handle callback results
 /// - `perform_scrollbar_hit_test()` - Scrollbar interaction
 /// - `handle_scrollbar_click()` - Scrollbar click handling
 /// - `handle_scrollbar_drag()` - Scrollbar drag handling
+/// - `gpu_scroll()` - GPU-accelerated smooth scrolling
+///
+/// ## Platform Implementation Checklist
+///
+/// To integrate a new platform:
+/// 1. Implement the 26 required getter methods
+/// 2. Import the trait: `use crate::desktop::shell2::common::event_v2::PlatformWindowV2;`
+/// 3. Call `self.process_window_events_recursive_v2(0)` after updating window state
+/// 4. Done! All event processing is now unified.
 ///
 pub trait PlatformWindowV2 {
     // =========================================================================
@@ -286,54 +324,135 @@ pub trait PlatformWindowV2 {
     /// Clear frame regeneration flag
     fn clear_frame_regeneration_flag(&mut self);
     
-    // === Callback Invocation ===
+    // === Callback Invocation Preparation ===
+    
+    /// Borrow all resources needed for `invoke_single_callback` in one call.
+    ///
+    /// This method returns a struct with individual field borrows, allowing the borrow
+    /// checker to see that we're borrowing distinct fields rather than `&mut self` multiple times.
+    ///
+    /// ## Returns
+    /// * `InvokeSingleCallbackBorrows` - All borrowed resources needed for callback invocation
+    fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows;
+    
+    // =========================================================================
+    // PROVIDED: Callback Invocation (Cross-Platform Implementation)
+    // =========================================================================
     
     /// Invoke callbacks for a given target and event filter.
     ///
-    /// **Platform Implementation Required**: This method MUST be implemented by each platform
-    /// because it requires direct field access to avoid borrow checker issues with trait methods.
+    /// This method is now **provided** (cross-platform) because all required state
+    /// is accessible through trait getter methods. No platform-specific code needed!
     ///
-    /// ## Implementation Pattern
+    /// ## Workflow
+    /// 1. Collect callbacks from NodeData based on target (Node or RootNodes)
+    /// 2. Filter callbacks by event type
+    /// 3. Invoke each callback using `layout_window.invoke_single_callback()`
+    /// 4. Return all callback results
     ///
-    /// ```rust,ignore
-    /// fn invoke_callbacks_v2(&mut self, target: CallbackTarget, event_filter: EventFilter) -> Vec<CallCallbacksResult> {
-    ///     // 1. Collect callbacks from NodeData
-    ///     let callback_data_list = match target {
-    ///         CallbackTarget::Node(node) => { /* collect from node */ }
-    ///         CallbackTarget::RootNodes => { /* collect from all roots */ }
-    ///     };
-    ///     
-    ///     // 2. Prepare for callback invocation
-    ///     let window_handle = self.get_raw_window_handle();
-    ///     let mut fc_cache_clone = (*self.fc_cache).clone();
-    ///     
-    ///     // 3. Invoke each callback using layout_window.invoke_single_callback()
-    ///     let mut results = Vec::new();
-    ///     for callback_data in callback_data_list {
-    ///         let mut callback = Callback::from_core(callback_data.callback);
-    ///         let result = self.layout_window.as_mut().unwrap().invoke_single_callback(
-    ///             &mut callback,
-    ///             &mut callback_data.data.clone(),
-    ///             &window_handle,
-    ///             &self.gl_context_ptr,
-    ///             &mut self.image_cache,
-    ///             &mut fc_cache_clone,
-    ///             self.system_style.clone(),
-    ///             &ExternalSystemCallbacks::rust_internal(),
-    ///             &self.previous_window_state,
-    ///             &self.current_window_state,
-    ///             &self.renderer_resources,
-    ///         );
-    ///         results.push(result);
-    ///     }
-    ///     results
-    /// }
-    /// ```
+    /// ## Returns
+    /// * `Vec<CallCallbacksResult>` - Results from all invoked callbacks
     fn invoke_callbacks_v2(
         &mut self,
         target: CallbackTarget,
         event_filter: EventFilter,
-    ) -> Vec<CallCallbacksResult>;
+    ) -> Vec<CallCallbacksResult> {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            id::NodeId as CoreNodeId,
+        };
+
+        // Collect callbacks based on target
+        let callback_data_list = match target {
+            CallbackTarget::Node(node) => {
+                let layout_window = match self.get_layout_window() {
+                    Some(lw) => lw,
+                    None => return Vec::new(),
+                };
+
+                let dom_id = DomId {
+                    inner: node.dom_id as usize,
+                };
+                let node_id = match NodeId::from_usize(node.node_id as usize) {
+                    Some(nid) => nid,
+                    None => return Vec::new(),
+                };
+
+                let layout_result = match layout_window.layout_results.get(&dom_id) {
+                    Some(lr) => lr,
+                    None => return Vec::new(),
+                };
+
+                let binding = layout_result.styled_dom.node_data.as_container();
+                let node_data = match binding.get(node_id) {
+                    Some(nd) => nd,
+                    None => return Vec::new(),
+                };
+
+                node_data
+                    .get_callbacks()
+                    .as_container()
+                    .iter()
+                    .filter(|cd| cd.event == event_filter)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }
+            CallbackTarget::RootNodes => {
+                let layout_window = match self.get_layout_window() {
+                    Some(lw) => lw,
+                    None => return Vec::new(),
+                };
+
+                let mut callbacks = Vec::new();
+                for (_dom_id, layout_result) in &layout_window.layout_results {
+                    if let Some(root_node) = layout_result
+                        .styled_dom
+                        .node_data
+                        .as_container()
+                        .get(CoreNodeId::ZERO)
+                    {
+                        for callback in root_node.get_callbacks().iter() {
+                            if callback.event == event_filter {
+                                callbacks.push(callback.clone());
+                            }
+                        }
+                    }
+                }
+                callbacks
+            }
+        };
+
+        if callback_data_list.is_empty() {
+            return Vec::new();
+        }
+
+        // Prepare all borrows in one call - avoids multiple &mut self borrows
+        let mut borrows = self.prepare_callback_invocation();
+        
+        let mut results = Vec::new();
+
+        for callback_data in callback_data_list {
+            let mut callback = LayoutCallback::from_core(callback_data.callback);
+
+            let callback_result = borrows.layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data.clone(),
+                &borrows.window_handle,
+                borrows.gl_context_ptr,
+                borrows.image_cache,
+                &mut borrows.fc_cache_clone,
+                borrows.system_style.clone(),
+                &ExternalSystemCallbacks::rust_internal(),
+                borrows.previous_window_state,
+                borrows.current_window_state,
+                borrows.renderer_resources,
+            );
+
+            results.push(callback_result);
+        }
+
+        results
+    }
     
     // =========================================================================
     // PROVIDED: Complete Logic (Default Implementations)

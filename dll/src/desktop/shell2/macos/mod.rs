@@ -1105,119 +1105,23 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         self.frame_needs_regeneration = false;
     }
     
-    // =========================================================================
-    // REQUIRED: Callback Invocation (Direct Field Access)
-    // =========================================================================
-    
-    fn invoke_callbacks_v2(
-        &mut self,
-        target: event_v2::CallbackTarget,
-        event_filter: azul_core::events::EventFilter,
-    ) -> Vec<azul_layout::callbacks::CallCallbacksResult> {
-        use azul_core::{
-            dom::{DomId, NodeId},
-            id::NodeId as CoreNodeId,
-        };
-
-        // Collect callbacks based on target
-        let callback_data_list = match target {
-            event_v2::CallbackTarget::Node(node) => {
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let dom_id = DomId {
-                    inner: node.dom_id as usize,
-                };
-                let node_id = match NodeId::from_usize(node.node_id as usize) {
-                    Some(nid) => nid,
-                    None => return Vec::new(),
-                };
-
-                let layout_result = match layout_window.layout_results.get(&dom_id) {
-                    Some(lr) => lr,
-                    None => return Vec::new(),
-                };
-
-                let binding = layout_result.styled_dom.node_data.as_container();
-                let node_data = match binding.get(node_id) {
-                    Some(nd) => nd,
-                    None => return Vec::new(),
-                };
-
-                node_data
-                    .get_callbacks()
-                    .as_container()
-                    .iter()
-                    .filter(|cd| cd.event == event_filter)
-                    .cloned()
-                    .collect::<Vec<_>>()
-            }
-            event_v2::CallbackTarget::RootNodes => {
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let mut callbacks = Vec::new();
-                for (_dom_id, layout_result) in &layout_window.layout_results {
-                    if let Some(root_node) = layout_result
-                        .styled_dom
-                        .node_data
-                        .as_container()
-                        .get(CoreNodeId::ZERO)
-                    {
-                        for callback in root_node.get_callbacks().iter() {
-                            if callback.event == event_filter {
-                                callbacks.push(callback.clone());
-                            }
-                        }
-                    }
-                }
-                callbacks
-            }
-        };
-
-        if callback_data_list.is_empty() {
-            return Vec::new();
-        }
-
-        // Invoke all collected callbacks using DIRECT field access
-        let window_handle = RawWindowHandle::MacOS(MacOSHandle {
-            ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
-            ns_view: std::ptr::null_mut(),
-        });
+    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+        let layout_window = self.layout_window.as_mut().expect("Layout window must exist for callback invocation");
         
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return Vec::new(),
-        };
-        
-        let mut fc_cache_clone = (*self.fc_cache).clone();
-        let mut results = Vec::new();
-
-        for callback_data in callback_data_list {
-            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
-
-            let callback_result = layout_window.invoke_single_callback(
-                &mut callback,
-                &mut callback_data.data.clone(),
-                &window_handle,
-                &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut fc_cache_clone,
-                self.system_style.clone(),
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
-            );
-
-            results.push(callback_result);
+        event_v2::InvokeSingleCallbackBorrows {
+            layout_window,
+            window_handle: RawWindowHandle::MacOS(MacOSHandle {
+                ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
+                ns_view: std::ptr::null_mut(),
+            }),
+            gl_context_ptr: &self.gl_context_ptr,
+            image_cache: &mut self.image_cache,
+            fc_cache_clone: (*self.fc_cache).clone(),
+            system_style: self.system_style.clone(),
+            previous_window_state: &self.previous_window_state,
+            current_window_state: &self.current_window_state,
+            renderer_resources: &mut self.renderer_resources,
         }
-
-        results
     }
 }
 
