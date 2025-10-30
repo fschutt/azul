@@ -73,6 +73,42 @@ struct CpuFallbackState {
     stride: i32,
 }
 
+/// Monitor state tracking for multi-monitor support
+#[derive(Debug, Clone)]
+pub struct MonitorState {
+    pub proxy: *mut defines::wl_output,
+    pub name: String,
+    pub scale: i32,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub make: String,  // Manufacturer (from wl_output.geometry)
+    pub model: String, // Model (from wl_output.geometry)
+}
+
+impl MonitorState {
+    /// Generate a stable MonitorId from this monitor's properties
+    pub fn get_monitor_id(&self, index: usize) -> azul_core::window::MonitorId {
+        use azul_css::props::basic::{LayoutPoint, LayoutSize};
+        
+        // Use make + model + name for more stable hash
+        // This handles cases where position changes but physical monitor doesn't
+        let stable_name = if !self.make.is_empty() && !self.model.is_empty() {
+            format!("{}-{}-{}", self.make, self.model, self.name)
+        } else {
+            self.name.clone()
+        };
+        
+        azul_core::window::MonitorId::from_properties(
+            index,
+            &stable_name,
+            LayoutPoint::new(self.x as isize, self.y as isize),
+            LayoutSize::new(self.width as isize, self.height as isize),
+        )
+    }
+}
+
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
@@ -107,11 +143,20 @@ pub struct WaylandWindow {
 
     render_mode: RenderMode,
 
+    // Monitor tracking for multi-monitor support
+    pub known_outputs: Vec<MonitorState>,
+    pub current_outputs: Vec<*mut defines::wl_output>,
+
     // V2 Event system state
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
     pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
+
+    // Multi-window support
+    /// Pending window creation requests (for popup menus, dialogs, etc.)
+    /// Processed in Phase 3 of the event loop
+    pub pending_window_creates: Vec<WindowCreateOptions>,
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
@@ -739,6 +784,9 @@ impl WaylandWindow {
             frame_callback_pending: false,
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
+            known_outputs: Vec::new(),
+            current_outputs: Vec::new(),
+            pending_window_creates: Vec::new(),
             resources: resources.clone(),
             fc_cache: resources.fc_cache.clone(),
             app_data: resources.app_data.clone(),
@@ -759,6 +807,20 @@ impl WaylandWindow {
 
         window.surface =
             unsafe { (window.wayland.wl_compositor_create_surface)(window.compositor) };
+        
+        // Add wl_surface listener to track which monitors the window is on
+        let surface_listener = defines::wl_surface_listener {
+            enter: events::wl_surface_enter_handler,
+            leave: events::wl_surface_leave_handler,
+        };
+        unsafe {
+            (window.wayland.wl_surface_add_listener)(
+                window.surface,
+                &surface_listener,
+                &mut window as *mut _ as *mut _,
+            )
+        };
+        
         window.xdg_surface = unsafe {
             (window.wayland.xdg_wm_base_get_xdg_surface)(window.xdg_wm_base, window.surface)
         };
@@ -811,7 +873,37 @@ impl WaylandWindow {
         unsafe { (window.wayland.wl_surface_commit)(window.surface) };
         unsafe { (window.wayland.wl_display_flush)(display) };
 
+        // TODO: Window positioning on Wayland
+        // Wayland does not support programmatic window positioning - the compositor
+        // decides where windows are placed. The options.state.position and 
+        // options.state.monitor fields are hints that may be ignored.
+        // 
+        // For feature parity with X11/Windows/macOS, we would position the window here,
+        // but Wayland protocol intentionally does not provide this capability.
+        // Applications should handle windows opening on unexpected monitors gracefully
+        // by tracking actual monitor via wl_surface enter/leave events.
+        //
+        // See: https://wayland.freedesktop.org/docs/html/ch04.html#sect-Protocol-xdg_surface
+        window.position_window_on_monitor(&options);
+
         Ok(window)
+    }
+
+    /// Position window on requested monitor (Wayland does not support this)
+    fn position_window_on_monitor(&mut self, _options: &WindowCreateOptions) {
+        // TODO: Wayland limitation
+        // Unlike X11/Windows/macOS, Wayland does not allow applications to position
+        // windows programmatically. The compositor controls all window placement.
+        // 
+        // This function exists for API consistency across platforms, but is a no-op
+        // on Wayland. Applications should:
+        // 1. Use options.state.monitor as a hint (may be ignored by compositor)
+        // 2. Track actual monitor via get_current_monitor_id() after mapping
+        // 3. Handle windows opening on unexpected monitors gracefully
+        // 
+        // Possible future improvements:
+        // - Use xdg_toplevel_set_fullscreen(output) for fullscreen windows
+        // - Use layer-shell protocol for positioned overlays (requires compositor support)
     }
 
     fn initialize_webrender(
@@ -877,6 +969,9 @@ impl WaylandWindow {
 
         // Only process key press events (state == 1)
         let is_pressed = state == 1;
+
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
 
         // XKB uses keycode = evdev_keycode + 8
         let xkb_keycode = key + 8;
@@ -956,14 +1051,44 @@ impl WaylandWindow {
             self.current_window_state.keyboard_state.current_char = OptionChar::None;
         }
 
+        // V2: Process events through state-diffing system
+        let result = self.process_window_events_recursive_v2(0);
+
+        // Process the result
+        match result {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!("[Wayland] Layout regeneration error: {}", e);
+                }
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.frame_needs_regeneration = true;
+            }
+            _ => {}
+        }
+
         self.frame_needs_regeneration = true;
     }
 
     /// Handle pointer motion event
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
+        
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+        
         self.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
+
+        // Handle scrollbar dragging if active
+        if self.scrollbar_drag_state.is_some() {
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            let result = PlatformWindowV2::handle_scrollbar_drag(self, logical_pos);
+            if !matches!(result, ProcessEventResult::DoNothing) {
+                self.frame_needs_regeneration = true;
+            }
+            return;
+        }
 
         // Record input sample for gesture detection (movement during button press)
         let button_state = 
@@ -974,6 +1099,22 @@ impl WaylandWindow {
 
         // Update hit test for hover effects
         self.update_hit_test(logical_pos);
+
+        // V2: Process events through state-diffing system
+        let result = self.process_window_events_recursive_v2(0);
+
+        // Process the result
+        match result {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!("[Wayland] Layout regeneration error: {}", e);
+                }
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.frame_needs_regeneration = true;
+            }
+            _ => {}
+        }
 
         self.frame_needs_regeneration = true;
     }
@@ -994,6 +1135,39 @@ impl WaylandWindow {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
+
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Check for scrollbar hit FIRST (before state changes)
+        if is_down {
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position) {
+                let result = PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                if !matches!(result, ProcessEventResult::DoNothing) {
+                    self.frame_needs_regeneration = true;
+                }
+                return;
+            }
+
+            // Check for context menu (right-click)
+            if mouse_button == MouseButton::Right {
+                if let Some(hit_node) = self.last_hovered_node {
+                    if self.try_show_context_menu(hit_node, position) {
+                        // Context menu was shown, consume the event
+                        self.frame_needs_regeneration = true;
+                        return;
+                    }
+                }
+            }
+        } else {
+            // End scrollbar drag if active
+            if self.scrollbar_drag_state.is_some() {
+                self.scrollbar_drag_state = None;
+                self.frame_needs_regeneration = true;
+                return;
+            }
+        }
 
         if is_down {
             // Button pressed
@@ -1018,6 +1192,22 @@ impl WaylandWindow {
         };
         self.record_input_sample(position, button_state, is_down, !is_down);
 
+        // V2: Process events through state-diffing system
+        let result = self.process_window_events_recursive_v2(0);
+
+        // Process the result
+        match result {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!("[Wayland] Layout regeneration error: {}", e);
+                }
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.frame_needs_regeneration = true;
+            }
+            _ => {}
+        }
+
         self.frame_needs_regeneration = true;
     }
 
@@ -1027,6 +1217,9 @@ impl WaylandWindow {
 
         const WL_POINTER_AXIS_VERTICAL_SCROLL: u32 = 0;
         const WL_POINTER_AXIS_HORIZONTAL_SCROLL: u32 = 1;
+
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
 
         match axis {
             WL_POINTER_AXIS_VERTICAL_SCROLL => {
@@ -1044,6 +1237,22 @@ impl WaylandWindow {
                 };
                 self.current_window_state.mouse_state.scroll_x =
                     OptionF32::Some(current + value as f32);
+            }
+            _ => {}
+        }
+
+        // V2: Process events through state-diffing system
+        let result = self.process_window_events_recursive_v2(0);
+
+        // Process the result
+        match result {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                if let Err(e) = self.regenerate_layout() {
+                    eprintln!("[Wayland] Layout regeneration error: {}", e);
+                }
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.frame_needs_regeneration = true;
             }
             _ => {}
         }
@@ -1094,6 +1303,91 @@ impl WaylandWindow {
             self.current_window_state.last_hit_test =
                 wr_translate2::translate_hit_test_result(hit_test_result);
         }
+    }
+
+    /// Try to show context menu for a node at the given position
+    /// Returns true if a context menu was shown
+    fn try_show_context_menu(&mut self, node: event_v2::HitTestNode, position: LogicalPosition) -> bool {
+        use azul_core::dom::DomId;
+        use azul_core::id::NodeId;
+
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return false,
+        };
+
+        let dom_id = DomId {
+            inner: node.dom_id as usize,
+        };
+
+        // Get layout result for this DOM
+        let layout_result = match layout_window.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return false,
+        };
+
+        // Check if this node has a context menu
+        let node_id = match NodeId::from_usize(node.node_id as usize) {
+            Some(nid) => nid,
+            None => return false,
+        };
+
+        let binding = layout_result.styled_dom.node_data.as_container();
+        let node_data = match binding.get(node_id) {
+            Some(nd) => nd,
+            None => return false,
+        };
+
+        // Context menus are stored directly on NodeData
+        // Clone to avoid borrow conflict (same pattern as macOS/X11)
+        let context_menu = match node_data.get_context_menu() {
+            Some(menu) => (**menu).clone(),
+            None => return false,
+        };
+
+        eprintln!(
+            "[Wayland Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
+            position.x,
+            position.y,
+            node,
+            context_menu.items.as_slice().len()
+        );
+
+        // Queue the window creation instead of creating immediately
+        self.show_window_based_context_menu(&context_menu, position);
+        true
+    }
+
+    /// Queue a window-based context menu for creation in the event loop
+    /// This is part of the unified multi-window menu system (Shell2 V2)
+    fn show_window_based_context_menu(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+    ) {
+        // Get parent window position (Wayland doesn't expose absolute positions)
+        let parent_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
+            }
+            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
+        };
+
+        // Create menu window options using unified menu system
+        let menu_options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.resources.system_style.clone(),
+            parent_pos,
+            None,           // No trigger rect for context menus
+            Some(position), // Cursor position
+            None,           // No parent menu
+        );
+
+        eprintln!(
+            "[Wayland] Queuing window-based context menu at screen ({}, {})",
+            position.x, position.y
+        );
+        self.pending_window_creates.push(menu_options);
     }
 
     /// Process window events (V2 wrapper for external use)
@@ -1184,6 +1478,20 @@ impl WaylandWindow {
 
         // Sync visibility
         // TODO: Wayland visibility control via xdg_toplevel methods
+
+        // Mouse cursor synchronization - compute from current hit test
+        // TODO: Wayland cursor support requires wl_cursor and wl_pointer protocols
+        // For now, this is a placeholder - full implementation needs:
+        // 1. Load cursor theme via wl_cursor_theme_load()
+        // 2. Get cursor from theme via wl_cursor_theme_get_cursor()
+        // 3. Attach cursor buffer to wl_pointer via wl_pointer_set_cursor()
+        // 4. Track wl_pointer from wl_seat (not yet implemented)
+        //
+        // Reference: https://wayland.freedesktop.org/docs/html/ch04.html#sect-Protocol-Input
+        if let Some(_layout_window) = self.layout_window.as_ref() {
+            // let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
+            // self.set_cursor(cursor_test.cursor_icon);  // Not yet implemented
+        }
 
         // Commit changes if needed
         if needs_commit {
@@ -1488,6 +1796,63 @@ impl WaylandWindow {
             scale_factor,
             is_primary: true,
         })
+    }
+
+    /// Get the current display/monitor the window is on
+    ///
+    /// Uses the CLI-detected monitors from display::get_displays() and matches them
+    /// with the wl_output surfaces the window is currently on.
+    ///
+    /// Returns the first monitor if the window is on multiple monitors,
+    /// or the primary monitor if tracking hasn't been initialized yet.
+    pub fn get_current_monitor(&self) -> Option<crate::desktop::display::DisplayInfo> {
+        let all_displays = crate::desktop::display::get_displays();
+
+        if all_displays.is_empty() {
+            return None;
+        }
+
+        // If we don't have any tracked outputs yet, return the primary display
+        if self.current_outputs.is_empty() {
+            return all_displays.into_iter().find(|d| d.is_primary);
+        }
+
+        // Try to match the first current output with our known outputs
+        let current_output_ptr = self.current_outputs.first()?;
+
+        // Find the index of this output in our known outputs list
+        let output_index = self
+            .known_outputs
+            .iter()
+            .position(|known| &known.proxy == current_output_ptr)?;
+
+        // Return the display at that index, or the primary if out of range
+        all_displays
+            .get(output_index)
+            .cloned()
+            .or_else(|| all_displays.into_iter().find(|d| d.is_primary))
+    }
+
+    /// Get the monitor ID the window is currently on
+    ///
+    /// This returns a stable MonitorId based on monitor properties (name, position, size).
+    /// The ID remains stable even if monitors are added/removed, as long as the physical
+    /// monitor configuration doesn't change.
+    pub fn get_current_monitor_id(&self) -> azul_core::window::MonitorId {
+        if self.current_outputs.is_empty() {
+            return azul_core::window::MonitorId::PRIMARY;
+        }
+
+        // Find the MonitorState for the first current output
+        let current_output_ptr = self.current_outputs.first().copied();
+        
+        if let Some(ptr) = current_output_ptr {
+            if let Some((index, monitor_state)) = self.known_outputs.iter().enumerate().find(|(_, m)| m.proxy == ptr) {
+                return monitor_state.get_monitor_id(index);
+            }
+        }
+
+        azul_core::window::MonitorId::PRIMARY
     }
 }
 

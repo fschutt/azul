@@ -873,7 +873,8 @@ impl MacOSWindow {
         let node_data = binding.get(node_id)?;
 
         // Context menus are stored directly on NodeData, not as callbacks
-        let context_menu = node_data.get_context_menu()?;
+        // Clone the menu to avoid borrow conflicts
+        let context_menu = node_data.get_context_menu()?.clone();
 
         eprintln!(
             "[Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
@@ -885,9 +886,9 @@ impl MacOSWindow {
 
         // Check if native context menus are enabled
         if self.current_window_state.flags.use_native_context_menus {
-            self.show_native_context_menu_at_position(context_menu, position, event);
+            self.show_native_context_menu_at_position(&context_menu, position, event);
         } else {
-            self.show_window_based_context_menu(context_menu, position);
+            self.show_window_based_context_menu(&context_menu, position);
         }
 
         Some(())
@@ -967,8 +968,10 @@ impl MacOSWindow {
     ///
     /// This uses the same unified menu system as regular menus (crate::desktop::menu::show_menu)
     /// but spawns at cursor position instead of below a trigger rect.
+    /// 
+    /// The menu window creation is queued and will be processed in Phase 3 of the event loop.
     fn show_window_based_context_menu(
-        &self,
+        &mut self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
     ) {
@@ -980,9 +983,9 @@ impl MacOSWindow {
             _ => LogicalPosition::new(0.0, 0.0),
         };
 
-        // Create menu window using the unified menu system
+        // Create menu window options using the unified menu system
         // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
-        let _menu_options = crate::desktop::menu::show_menu(
+        let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.system_style.clone(),
             parent_pos,
@@ -991,16 +994,15 @@ impl MacOSWindow {
             None,           // No parent menu
         );
 
-        // TODO: Queue window creation request for processing in main event loop
-        // For now, we log the request. The proper implementation requires:
-        // 1. A queue of pending WindowCreateOptions
-        // 2. Processing this queue in the event loop via create_window()
-        // 3. Multi-window support in the macOS event loop (similar to X11)
+        // Queue window creation request for processing in Phase 3 of the event loop
+        // The event loop will create the window with MacOSWindow::new_with_fc_cache()
         eprintln!(
-            "[macOS] Window-based context menu requested at screen ({}, {}) - requires \
-             multi-window support",
+            "[macOS] Queuing window-based context menu at screen ({}, {}) - will be created in \
+             event loop Phase 3",
             position.x, position.y
         );
+        
+        self.pending_window_creates.push(menu_options);
     }
 
     // ========================================================================

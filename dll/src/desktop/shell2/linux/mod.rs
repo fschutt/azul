@@ -7,6 +7,10 @@ pub mod common;
 pub mod registry;
 pub mod resources;
 
+/// GNOME native menu integration (DBus)
+#[cfg(feature = "gnome-menus")]
+pub mod gnome_menu;
+
 /// Wayland implementation
 pub mod wayland;
 /// X11 implementation
@@ -15,6 +19,7 @@ pub mod x11;
 use std::{cell::RefCell, sync::Arc};
 
 use azul_core::resources::AppConfig;
+use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
 use azul_layout::window_state::{WindowCreateOptions, WindowState};
 pub use resources::AppResources;
 use rust_fontconfig::FcFontCache;
@@ -276,7 +281,7 @@ pub fn get_monitors() -> azul_core::window::MonitorVec {
     };
 
     let monitor = Monitor {
-        id: 0,
+        id: azul_core::window::MonitorId::new(0),
         name: if std::env::var("WAYLAND_DISPLAY").is_ok() {
             Some("wayland-0".to_string().into()).into()
         } else {
@@ -285,6 +290,10 @@ pub fn get_monitors() -> azul_core::window::MonitorVec {
         size: LayoutSize::round(width as f32, height as f32),
         position: LayoutPoint::zero(),
         scale_factor,
+        work_area: LayoutRect::new(
+            LayoutPoint::zero(),
+            LayoutSize::round(width as f32, (height as i32 - 24).max(0) as f32),
+        ),
         video_modes: VideoModeVec::from_const_slice(&[]),
         is_primary_monitor: true,
     };

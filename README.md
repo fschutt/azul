@@ -4,7 +4,7 @@
 [![CI](https://github.com/fschutt/azul/actions/workflows/rust.yml/badge.svg)](https://github.com/fschutt/azul/actions/workflows/rust.yml)
 [![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.58%20stable-blue.svg)]()
+[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.86%20stable-blue.svg)]()
 [![dependency status](https://deps.rs/repo/github/fschutt/azul/status.svg)](https://deps.rs/repo/github/fschutt/azul)
 <!-- [END badges] -->
 
@@ -12,7 +12,7 @@
 built using the WebRender rendering engine and a CSS / HTML-like document
 object model for rapid development of beautiful, native desktop applications
 
-###### [Website](https://azul.rs/) | [Releases](https://azul.rs/releases) | [User guide](https://azul.rs/guide) | [API documentation](https://azul.rs/api) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Matrix Chat](https://discord.gg/nxUmsCG)
+###### [Website](https://azul.rs/) | [Releases](https://azul.rs/releases) | [User guide](https://azul.rs/guide) | [API documentation](https://azul.rs/api) | [Discord](https://discord.gg/nxUmsCG)
 
 ## Screenshots 
 

@@ -64,6 +64,11 @@ pub struct wl_callback {
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct wl_output {
+    _private: [u8; 0],
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct wl_interface {
     pub name: *const c_char,
     pub version: c_int,
@@ -262,6 +267,42 @@ pub struct xdg_popup_listener {
 #[derive(Copy, Clone)]
 pub struct wl_callback_listener {
     pub done: extern "C" fn(data: *mut c_void, callback: *mut wl_callback, callback_data: u32),
+}
+
+// wl_output listener for monitor information
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_output_listener {
+    pub geometry: extern "C" fn(
+        data: *mut c_void,
+        wl_output: *mut wl_output,
+        x: i32,
+        y: i32,
+        physical_width: i32,
+        physical_height: i32,
+        subpixel: i32,
+        make: *const c_char,
+        model: *const c_char,
+        transform: i32,
+    ),
+    pub mode: extern "C" fn(
+        data: *mut c_void,
+        wl_output: *mut wl_output,
+        flags: u32,
+        width: i32,
+        height: i32,
+        refresh: i32,
+    ),
+    pub done: extern "C" fn(data: *mut c_void, wl_output: *mut wl_output),
+    pub scale: extern "C" fn(data: *mut c_void, wl_output: *mut wl_output, factor: i32),
+}
+
+// wl_surface listener for enter/leave events
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_surface_listener {
+    pub enter: extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
+    pub leave: extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
 }
 
 // XDG Positioner Enums (from xdg-shell protocol)

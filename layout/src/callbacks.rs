@@ -583,6 +583,12 @@ impl CallbackInfo {
     pub fn get_current_window_state(&self) -> WindowState {
         unsafe { (*self.current_window_state).clone().into() }
     }
+    
+    /// Get the full (immutable) current window state
+    /// This includes position, size, DPI, and other read-only state
+    pub fn get_full_window_state(&self) -> &FullWindowState {
+        unsafe { &*self.current_window_state }
+    }
 
     pub fn get_current_window_flags(&self) -> WindowFlags {
         unsafe { (*self.current_window_state).flags.clone() }
@@ -681,6 +687,26 @@ impl CallbackInfo {
     pub fn get_current_window_handle(&self) -> RawWindowHandle {
         unsafe { (*self.current_window_handle).clone() }
     }
+    
+    /// Get the system style (for menu rendering, CSD, etc.)
+    /// This is useful for creating custom menus or other system-styled UI.
+    pub fn get_system_style(&self) -> alloc::sync::Arc<azul_css::system::SystemStyle> {
+        self.system_style.clone()
+    }
+    
+    /// Get the current cursor position in logical coordinates relative to the window
+    pub fn get_cursor_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+        self.cursor_in_viewport.into_option()
+    }
+    
+    /// Get the layout rectangle of the currently hit node (in logical coordinates)
+    pub fn get_hit_node_layout_rect(&self) -> Option<azul_core::geom::LogicalRect> {
+        // Get the layout rectangle for the hit node from the layout tree
+        unsafe {
+            let layout_window = &*self.layout_window;
+            layout_window.get_node_layout_rect(self.hit_dom_node)
+        }
+    }
 
     // ===== CSS Property Access =====
 
@@ -704,11 +730,6 @@ impl CallbackInfo {
     pub fn get_current_time(&self) -> azul_core::task::Instant {
         let cb = self.get_system_time_fn();
         (cb.cb)()
-    }
-
-    /// Get a clone of the system style Arc
-    pub fn get_system_style(&self) -> Arc<SystemStyle> {
-        self.system_style.clone()
     }
     
     // ===== Manager Access (Read-Only) =====

@@ -473,6 +473,67 @@ pub fn show_menu(
     )
 }
 
+/// Convenience function to spawn a menu from a callback
+/// 
+/// This is the recommended way to spawn menus from callbacks. It automatically
+/// extracts the necessary information from CallbackInfo.
+/// 
+/// # Example
+/// ```no_run
+/// use azul_core::menu::{Menu, MenuPopupPosition};
+/// use azul_core::callbacks::Update;
+/// use azul_dll::desktop::menu::spawn_menu_from_callback;
+/// 
+/// extern "C" fn my_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+///     let menu = Menu::new("Context Menu")
+///         .with_item("Copy", copy_callback)
+///         .with_item("Paste", paste_callback);
+///     
+///     spawn_menu_from_callback(info, menu, MenuPopupPosition::AutoCursor);
+///     Update::DoNothing
+/// }
+/// ```
+pub fn spawn_menu_from_callback(
+    info: &mut azul_layout::callbacks::CallbackInfo,
+    menu: Menu,
+    _position: MenuPopupPosition,
+) {
+    use azul_core::geom::LogicalPosition;
+    use azul_core::window::WindowPosition;
+    
+    // Get parent window position in logical coordinates
+    let full_window_state = info.get_full_window_state();
+    
+    // Convert window position to logical coordinates
+    let parent_window_pos = match full_window_state.position {
+        WindowPosition::Initialized(phys_pos) => {
+            let hidpi_factor = full_window_state.size.get_hidpi_factor().inner.get();
+            LogicalPosition::new(
+                phys_pos.x as f32 / hidpi_factor,
+                phys_pos.y as f32 / hidpi_factor,
+            )
+        }
+        WindowPosition::Uninitialized => LogicalPosition::new(0.0, 0.0),
+    };
+    
+    // Get trigger rect and cursor position
+    let trigger_rect = info.get_hit_node_layout_rect();
+    let cursor_pos = info.get_cursor_position();
+    
+    // Create menu window
+    let menu_window = show_menu(
+        menu,
+        info.get_system_style(),
+        parent_window_pos,
+        trigger_rect,
+        cursor_pos,
+        None, // parent_menu_id
+    );
+    
+    // Spawn the window
+    info.create_window(menu_window);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

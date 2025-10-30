@@ -52,6 +52,96 @@ impl PointerState {
 
 // -- Listener Implementations --
 
+// wl_output listener handlers
+extern "C" fn wl_output_geometry_handler(
+    data: *mut c_void,
+    output: *mut wl_output,
+    x: i32,
+    y: i32,
+    _physical_width: i32,
+    _physical_height: i32,
+    _subpixel: i32,
+    make: *const i8,
+    model: *const i8,
+    _transform: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    
+    // Find the MonitorState for this output
+    if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
+        monitor.x = x;
+        monitor.y = y;
+        
+        if !make.is_null() {
+            if let Ok(make_str) = unsafe { CStr::from_ptr(make).to_str() } {
+                monitor.make = make_str.to_string();
+            }
+        }
+        
+        if !model.is_null() {
+            if let Ok(model_str) = unsafe { CStr::from_ptr(model).to_str() } {
+                monitor.model = model_str.to_string();
+            }
+        }
+    }
+}
+
+extern "C" fn wl_output_mode_handler(
+    data: *mut c_void,
+    output: *mut wl_output,
+    _flags: u32,
+    width: i32,
+    height: i32,
+    _refresh: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    
+    // Find the MonitorState for this output and update dimensions
+    if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
+        monitor.width = width;
+        monitor.height = height;
+    }
+}
+
+extern "C" fn wl_output_done_handler(_data: *mut c_void, _output: *mut wl_output) {
+    // This event marks the end of a set of events for this output.
+    // In our implementation, we update fields incrementally, so no action needed here.
+}
+
+extern "C" fn wl_output_scale_handler(data: *mut c_void, output: *mut wl_output, factor: i32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    
+    // Find the MonitorState for this output and update scale
+    if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
+        monitor.scale = factor;
+    }
+}
+
+// wl_surface listener handlers
+pub(super) extern "C" fn wl_surface_enter_handler(
+    data: *mut c_void,
+    _surface: *mut wl_surface,
+    output: *mut wl_output,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    
+    // Add this output to current_outputs if not already present
+    if !window.current_outputs.contains(&output) {
+        window.current_outputs.push(output);
+    }
+}
+
+pub(super) extern "C" fn wl_surface_leave_handler(
+    data: *mut c_void,
+    _surface: *mut wl_surface,
+    output: *mut wl_output,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    
+    // Remove this output from current_outputs
+    window.current_outputs.retain(|&o| o != output);
+}
+
 extern "C" fn xdg_wm_base_ping_handler(data: *mut c_void, shell: *mut xdg_wm_base, serial: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe { (window.wayland.xdg_wm_base_pong)(shell, serial) };
@@ -120,6 +210,38 @@ pub(super) extern "C" fn registry_global_handler(
                 name: seat_name_handler,
             };
             unsafe { (window.wayland.wl_seat_add_listener)(seat, &listener, data) };
+        }
+        "wl_output" => {
+            let output = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    &window.wayland.wl_output_interface,
+                    version.min(3),
+                ) as *mut wl_output
+            };
+            
+            // Add a new MonitorState entry
+            use super::MonitorState;
+            window.known_outputs.push(MonitorState {
+                proxy: output,
+                name: format!("output-{}", name),
+                scale: 1,
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                make: String::new(),
+                model: String::new(),
+            });
+            
+            let listener = wl_output_listener {
+                geometry: wl_output_geometry_handler,
+                mode: wl_output_mode_handler,
+                done: wl_output_done_handler,
+                scale: wl_output_scale_handler,
+            };
+            unsafe { (window.wayland.wl_output_add_listener)(output, &listener, data) };
         }
         _ => {}
     }

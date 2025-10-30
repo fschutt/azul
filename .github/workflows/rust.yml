@@ -1,6 +1,6 @@
 # .github/workflows/ci-deploy.yml
 
-name: Combined CI and Deploy Workflow
+name: build
 
 on:
   # Run the 'ci' workflow on push and pull request

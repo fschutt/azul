@@ -84,6 +84,15 @@ pub struct X11Window {
     pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
 
+    // Multi-window support
+    /// Pending window creation requests (for popup menus, dialogs, etc.)
+    /// Processed in Phase 3 of the event loop
+    pub pending_window_creates: Vec<WindowCreateOptions>,
+
+    // GNOME native menu integration (optional)
+    #[cfg(feature = "gnome-menus")]
+    pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
+
     // Shared resources
     pub resources: Arc<super::AppResources>,
 }
@@ -303,6 +312,9 @@ impl X11Window {
         attributes.event_mask = event_mask;
 
         let size = options.state.size;
+        let position = options.state.position;
+        let monitor_id = options.state.monitor.id;
+        
         let window_handle = unsafe {
             (xlib.XCreateSimpleWindow)(
                 display,
@@ -445,11 +457,50 @@ impl X11Window {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: false,
+            pending_window_creates: Vec::new(),
+            #[cfg(feature = "gnome-menus")]
+            gnome_menu: None, // Initialize as None, will be set up if enabled
             resources,
         };
 
         unsafe { (window.xlib.XMapWindow)(display, window.window) };
         unsafe { (window.xlib.XFlush)(display) };
+
+        // Position window on requested monitor (or center on primary)
+        window.position_window_on_monitor(monitor_id, position, size);
+
+        // Initialize GNOME native menus if enabled
+        #[cfg(feature = "gnome-menus")]
+        if options.state.flags.use_native_menus {
+            let app_name = &options.state.title;
+            match super::gnome_menu::GnomeMenuManager::new(app_name) {
+                Some(menu_manager) => {
+                    // Try to set window properties for GNOME Shell integration
+                    match menu_manager.set_window_properties(window.window, display as *mut _) {
+                        Ok(_) => {
+                            super::gnome_menu::debug_log(&format!(
+                                "GNOME menu integration enabled for window: {}", 
+                                app_name
+                            ));
+                            window.gnome_menu = Some(menu_manager);
+                        }
+                        Err(e) => {
+                            super::gnome_menu::debug_log(&format!(
+                                "Failed to set GNOME window properties: {} - falling back to CSD menus",
+                                e
+                            ));
+                            // Continue without GNOME menus - will use CSD fallback
+                        }
+                    }
+                }
+                None => {
+                    super::gnome_menu::debug_log(
+                        "GNOME menus not available - using CSD fallback"
+                    );
+                    // Continue without GNOME menus - will use CSD fallback
+                }
+            }
+        }
 
         // Register window in global registry for multi-window support
         unsafe {
@@ -457,6 +508,51 @@ impl X11Window {
         }
 
         Ok(window)
+    }
+
+    /// Position window on requested monitor, or center on primary monitor
+    fn position_window_on_monitor(&mut self, monitor_id: azul_core::window::MonitorId, position: azul_core::window::WindowPosition, size: azul_core::window::WindowSize) {
+        use azul_core::window::WindowPosition;
+        use crate::desktop::display::get_monitors;
+        
+        // Get all available monitors
+        let monitors = get_monitors();
+        if monitors.len() == 0 {
+            return; // No monitors available, let window manager decide
+        }
+        
+        // Determine target monitor
+        let target_monitor = monitors.as_slice().iter()
+            .find(|m| m.id.index == monitor_id.index)
+            .or_else(|| monitors.as_slice().iter().find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0))
+            .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
+        
+        // Calculate window position
+        let (x, y) = match position {
+            WindowPosition::Initialized(pos) => {
+                // Explicit position requested - use it relative to monitor
+                (
+                    (target_monitor.position.x + pos.x as isize) as i32,
+                    (target_monitor.position.y + pos.y as isize) as i32,
+                )
+            }
+            WindowPosition::Uninitialized => {
+                // No explicit position - center on target monitor
+                let window_width = size.dimensions.width as isize;
+                let window_height = size.dimensions.height as isize;
+                
+                let center_x = target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
+                let center_y = target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
+                
+                (center_x as i32, center_y as i32)
+            }
+        };
+        
+        // Move window to calculated position
+        unsafe {
+            (self.xlib.XMoveWindow)(self.display, self.window, x, y);
+            (self.xlib.XFlush)(self.display);
+        }
     }
 
     fn process_events(&mut self) {

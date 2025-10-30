@@ -1200,6 +1200,51 @@ impl LayoutWindow {
 
         (scroll_ids, scroll_id_to_node_id)
     }
+    
+    /// Get the layout rectangle for a specific DOM node in logical coordinates
+    /// 
+    /// This is useful in callbacks to get the position and size of the hit node
+    /// for positioning menus, tooltips, or other overlays.
+    /// 
+    /// Returns None if the node is not currently laid out (e.g., display:none)
+    pub fn get_node_layout_rect(
+        &self,
+        node_id: azul_core::dom::DomNodeId,
+    ) -> Option<azul_core::geom::LogicalRect> {
+        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+        
+        // Get the layout tree from cache
+        let layout_tree = self.layout_cache.tree.as_ref()?;
+        
+        // Find the layout node index corresponding to this DOM node
+        // Convert NodeHierarchyItemId to Option<NodeId> for comparison
+        let target_node_id = node_id.node.into_crate_internal();
+        let layout_idx = layout_tree.nodes.iter()
+            .position(|node| node.dom_node_id == target_node_id)?;
+        
+        // Get the absolute position from cache
+        let abs_pos = self.layout_cache.absolute_positions.get(&layout_idx)?;
+        
+        // Get the layout node for size information
+        let layout_node = layout_tree.nodes.get(layout_idx)?;
+        
+        // Get the used size (the actual laid-out size)
+        let used_size = layout_node.used_size?;
+        
+        // Convert to logical coordinates
+        let hidpi_factor = self.current_window_state.size.get_hidpi_factor().inner.get();
+        
+        Some(LogicalRect::new(
+            LogicalPosition::new(
+                abs_pos.x as f32 / hidpi_factor,
+                abs_pos.y as f32 / hidpi_factor,
+            ),
+            LogicalSize::new(
+                used_size.width / hidpi_factor,
+                used_size.height / hidpi_factor,
+            ),
+        ))
+    }
 }
 
 /// Result of a layout operation

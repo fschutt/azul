@@ -148,6 +148,11 @@ pub struct Win32Window {
     pub fc_cache: Arc<FcFontCache>,
     /// System style (shared across all windows)
     pub system_style: Arc<azul_css::system::SystemStyle>,
+    
+    // Multi-window support
+    /// Pending window creation requests (for popup menus, dialogs, etc.)
+    /// Processed in Phase 3 of the event loop
+    pub pending_window_creates: Vec<WindowCreateOptions>,
 }
 
 impl Win32Window {
@@ -360,6 +365,9 @@ impl Win32Window {
             &win32,
         );
 
+        // Position window on requested monitor (or center on primary)
+        position_window_on_monitor(hwnd, current_window_state.monitor.id, current_window_state.position, current_window_state.size, &win32);
+
         // Enable drag-and-drop if shell32.dll is available
         if let Some(ref shell32) = win32.shell32 {
             unsafe {
@@ -402,6 +410,7 @@ impl Win32Window {
             app_data,
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            pending_window_creates: Vec::new(),
         })
     }
 
@@ -531,6 +540,142 @@ impl Win32Window {
         self.render_api.flush_scene_builder();
 
         Ok(())
+    }
+
+    /// Synchronize window state with Windows OS
+    ///
+    /// Applies changes from current_window_state to the OS window.
+    /// Called after callbacks have potentially modified window state.
+    fn sync_window_state(&mut self) {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+
+        // Get copies of previous and current state to avoid borrow checker issues
+        let (previous, current) = match &self.previous_window_state {
+            Some(prev) => (prev.clone(), self.current_window_state.clone()),
+            None => return, // First frame, nothing to sync
+        };
+
+        // Title changed?
+        if previous.title != current.title {
+            let wide_title: Vec<u16> = OsStr::new(current.title.as_str())
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+            unsafe {
+                (self.win32.user32.SetWindowTextW)(self.hwnd, wide_title.as_ptr());
+            }
+        }
+
+        // Size changed?
+        if previous.size.dimensions != current.size.dimensions {
+            let width = current.size.dimensions.width as i32;
+            let height = current.size.dimensions.height as i32;
+            unsafe {
+                use dlopen::constants::{SWP_NOMOVE, SWP_NOZORDER};
+                (self.win32.user32.SetWindowPos)(
+                    self.hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    width,
+                    height,
+                    SWP_NOMOVE | SWP_NOZORDER,
+                );
+            }
+        }
+
+        // Position changed?
+        if previous.position != current.position {
+            use azul_core::window::WindowPosition;
+            match current.position {
+                WindowPosition::Initialized(pos) => unsafe {
+                    use dlopen::constants::{SWP_NOSIZE, SWP_NOZORDER};
+                    (self.win32.user32.SetWindowPos)(
+                        self.hwnd,
+                        std::ptr::null_mut(),
+                        pos.x,
+                        pos.y,
+                        0,
+                        0,
+                        SWP_NOSIZE | SWP_NOZORDER,
+                    );
+                },
+                WindowPosition::Uninitialized => {}
+            }
+        }
+
+        // Visibility changed?
+        if previous.flags.is_visible != current.flags.is_visible {
+            unsafe {
+                use dlopen::constants::{SW_HIDE, SW_SHOW};
+                if current.flags.is_visible {
+                    (self.win32.user32.ShowWindow)(self.hwnd, SW_SHOW);
+                } else {
+                    (self.win32.user32.ShowWindow)(self.hwnd, SW_HIDE);
+                }
+            }
+        }
+
+        // Window frame state changed? (Minimize/Maximize/Normal)
+        if previous.flags.frame != current.flags.frame {
+            use azul_core::window::WindowFrame;
+            use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE};
+            unsafe {
+                match current.flags.frame {
+                    WindowFrame::Minimized => {
+                        (self.win32.user32.ShowWindow)(self.hwnd, SW_MINIMIZE);
+                    }
+                    WindowFrame::Maximized => {
+                        (self.win32.user32.ShowWindow)(self.hwnd, SW_MAXIMIZE);
+                    }
+                    WindowFrame::Normal | WindowFrame::Fullscreen => {
+                        // Restore from minimized/maximized
+                        if previous.flags.frame == WindowFrame::Minimized
+                            || previous.flags.frame == WindowFrame::Maximized
+                        {
+                            (self.win32.user32.ShowWindow)(self.hwnd, SW_RESTORE);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Mouse cursor synchronization - compute from current hit test
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
+            self.set_cursor(cursor_test.cursor_icon);
+        }
+    }
+
+    /// Set the mouse cursor for this window
+    fn set_cursor(&mut self, cursor_type: azul_core::window::MouseCursorType) {
+        use dlopen::constants::*;
+
+        // Map MouseCursorType to Windows cursor constants
+        let cursor_id = match cursor_type {
+            azul_core::window::MouseCursorType::Default
+            | azul_core::window::MouseCursorType::Arrow => IDC_ARROW,
+            azul_core::window::MouseCursorType::Crosshair => IDC_CROSS,
+            azul_core::window::MouseCursorType::Hand => IDC_HAND,
+            azul_core::window::MouseCursorType::Move => IDC_SIZEALL,
+            azul_core::window::MouseCursorType::Text => IDC_IBEAM,
+            azul_core::window::MouseCursorType::Wait => IDC_WAIT,
+            azul_core::window::MouseCursorType::Progress => IDC_APPSTARTING,
+            azul_core::window::MouseCursorType::NotAllowed | azul_core::window::MouseCursorType::NoDrop => IDC_NO,
+            azul_core::window::MouseCursorType::EResize | azul_core::window::MouseCursorType::WResize | azul_core::window::MouseCursorType::EwResize | azul_core::window::MouseCursorType::ColResize => IDC_SIZEWE,
+            azul_core::window::MouseCursorType::NResize | azul_core::window::MouseCursorType::SResize | azul_core::window::MouseCursorType::NsResize | azul_core::window::MouseCursorType::RowResize => IDC_SIZENS,
+            azul_core::window::MouseCursorType::NeResize | azul_core::window::MouseCursorType::SwResize | azul_core::window::MouseCursorType::NeswResize => IDC_SIZENESW,
+            azul_core::window::MouseCursorType::NwResize | azul_core::window::MouseCursorType::SeResize | azul_core::window::MouseCursorType::NwseResize => IDC_SIZENWSE,
+            azul_core::window::MouseCursorType::Help => IDC_HELP,
+            // Fallback to arrow for unsupported cursor types
+            _ => IDC_ARROW,
+        };
+
+        unsafe {
+            let cursor = (self.win32.user32.LoadCursorW)(std::ptr::null_mut(), cursor_id);
+            (self.win32.user32.SetCursor)(cursor);
+        }
     }
 
     /// Query WebRender hit-tester for scrollbar hits at given position
@@ -767,6 +912,8 @@ impl Win32Window {
     ///
     /// This uses the same unified menu system as regular menus (crate::desktop::menu::show_menu)
     /// but spawns at cursor position instead of below a trigger rect.
+    /// 
+    /// The menu window creation is queued and will be processed in Phase 3 of the event loop.
     fn show_window_based_context_menu(
         &mut self,
         menu: &azul_core::menu::Menu,
@@ -795,9 +942,9 @@ impl Win32Window {
             _ => LogicalPosition::new(0.0, 0.0),
         };
 
-        // Create menu window using the unified menu system
+        // Create menu window options using the unified menu system
         // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
-        let _menu_options = crate::desktop::menu::show_menu(
+        let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.system_style.clone(),
             parent_pos,
@@ -806,16 +953,15 @@ impl Win32Window {
             None,             // No parent menu
         );
 
-        // TODO: Queue window creation request for processing in main event loop
-        // For now, we log the request. The proper implementation requires:
-        // 1. A queue of pending WindowCreateOptions
-        // 2. Processing this queue in the event loop via create_window()
-        // 3. Multi-window support in the Windows event loop (similar to X11)
+        // Queue window creation request for processing in Phase 3 of the event loop
+        // The event loop will create the window with Win32Window::new()
         eprintln!(
-            "[Windows] Window-based context menu requested at screen ({}, {}) - requires \
-             multi-window support",
+            "[Windows] Queuing window-based context menu at screen ({}, {}) - will be created \
+             in event loop Phase 3",
             pt.x, pt.y
         );
+        
+        self.pending_window_creates.push(menu_options);
     }
 }
 
@@ -1766,6 +1912,9 @@ unsafe extern "system" fn window_proc(
                         window.current_window_state.background_color = modified_state.background_color;
                         window.current_window_state.layout_callback = modified_state.layout_callback;
                         window.current_window_state.close_callback = modified_state.close_callback;
+
+                        // Synchronize window state changes with OS
+                        window.sync_window_state();
                     }
 
                     // Process the result
@@ -2324,6 +2473,66 @@ impl PlatformWindowV2 for Win32Window {
             current_window_state: &self.current_window_state,
             renderer_resources: &mut self.renderer_resources,
         }
+    }
+}
+
+/// Position window on requested monitor, or center on primary monitor
+fn position_window_on_monitor(
+    hwnd: HWND,
+    monitor_id: azul_core::window::MonitorId,
+    position: azul_core::window::WindowPosition,
+    size: azul_core::window::WindowSize,
+    win32: &dlopen::Win32Libraries,
+) {
+    use azul_core::window::WindowPosition;
+    use crate::desktop::display::get_monitors;
+    
+    // Get all available monitors
+    let monitors = get_monitors();
+    if monitors.len() == 0 {
+        return; // No monitors available, use Windows default positioning
+    }
+    
+    // Determine target monitor
+    let target_monitor = monitors.as_slice().iter()
+        .find(|m| m.id.index == monitor_id.index)
+        .or_else(|| monitors.as_slice().iter().find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0))
+        .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
+    
+    // Calculate window position
+    let (x, y) = match position {
+        WindowPosition::Initialized(pos) => {
+            // Explicit position requested - use it relative to monitor
+            (
+                (target_monitor.position.x + pos.x as isize) as i32,
+                (target_monitor.position.y + pos.y as isize) as i32,
+            )
+        }
+        WindowPosition::Uninitialized => {
+            // No explicit position - center on target monitor
+            let window_width = size.dimensions.width as isize;
+            let window_height = size.dimensions.height as isize;
+            
+            let center_x = target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
+            let center_y = target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
+            
+            (center_x as i32, center_y as i32)
+        }
+    };
+    
+    // Move window to calculated position
+    unsafe {
+        use dlopen::constants::SWP_NOZORDER;
+        use dlopen::constants::SWP_NOSIZE;
+        (win32.user32.SetWindowPos)(
+            hwnd,
+            ptr::null_mut(), // No Z-order change
+            x,
+            y,
+            0, // Width (ignored with SWP_NOSIZE)
+            0, // Height (ignored with SWP_NOSIZE)
+            SWP_NOZORDER | SWP_NOSIZE,
+        );
     }
 }
 

@@ -81,6 +81,7 @@ use crate::desktop::{
 mod events;
 mod gl;
 mod menu;
+pub mod registry;
 
 use events::HitTestNode;
 use gl::GlFunctions;
@@ -975,6 +976,11 @@ pub struct MacOSWindow {
     /// Synchronization for frame readiness (signals when WebRender has a new frame ready)
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
 
+    // Multi-window support
+    /// Pending window creation requests (for popup menus, dialogs, etc.)
+    /// Processed in Phase 3 of the event loop
+    pub pending_window_creates: Vec<WindowCreateOptions>,
+
     // Timers and threads
     /// Active timers (TimerId -> NSTimer object)
     timers: std::collections::HashMap<usize, Retained<objc2_foundation::NSTimer>>,
@@ -1323,7 +1329,8 @@ impl MacOSWindow {
         // DO NOT show the window yet - we will show it after the first frame
         // is ready to prevent white flash
         unsafe {
-            window.center();
+            // Position window on requested monitor (or center on primary)
+            position_window_on_monitor(&window, options.state.monitor.id, options.state.position, options.state.size, mtm);
             // REMOVED: makeKeyAndOrderFront - will be called after first frame is ready
         }
 
@@ -1543,6 +1550,7 @@ impl MacOSWindow {
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
+            pending_window_creates: Vec::new(),
             timers: std::collections::HashMap::new(),
             thread_timer_running: None,
         };
@@ -2035,6 +2043,10 @@ impl MacOSWindow {
     }
 
     fn close_window(&mut self) {
+        // Unregister from global window registry before closing
+        let ns_window = self.get_ns_window_ptr();
+        registry::unregister_window(ns_window);
+        
         unsafe {
             self.window.close();
         }
@@ -2044,6 +2056,14 @@ impl MacOSWindow {
     /// Check if the window is still open
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    /// Get the NSWindow pointer for registry identification
+    /// 
+    /// Returns a raw pointer to the NSWindow object, which is used as a unique
+    /// identifier in the window registry for multi-window support.
+    pub fn get_ns_window_ptr(&self) -> *mut objc2::runtime::AnyObject {
+        Retained::as_ptr(&self.window) as *mut objc2::runtime::AnyObject
     }
 
     /// Apply window decorations changes
@@ -3061,5 +3081,79 @@ impl MacOSWindow {
             scale_factor: scale as f32,
             is_primary: false, // Would need to check if this is the main screen
         })
+    }
+}
+
+/// Position window on requested monitor, or center on primary monitor
+fn position_window_on_monitor(
+    window: &Retained<NSWindow>,
+    monitor_id: azul_core::window::MonitorId,
+    position: azul_core::window::WindowPosition,
+    size: azul_core::window::WindowSize,
+    mtm: MainThreadMarker,
+) {
+    use azul_core::window::WindowPosition;
+    use crate::desktop::display::get_monitors;
+    use objc2_app_kit::NSScreen;
+    
+    // Get all available monitors
+    let monitors = get_monitors();
+    if monitors.len() == 0 {
+        unsafe { window.center(); }
+        return; // No monitors available, use default centering
+    }
+    
+    // Get all NSScreens
+    let screens = unsafe { NSScreen::screens(mtm) };
+    if screens.len() == 0 {
+        unsafe { window.center(); }
+        return;
+    }
+    
+    // Determine target monitor
+    let target_monitor = monitors.as_slice().iter()
+        .find(|m| m.id.index == monitor_id.index)
+        .or_else(|| monitors.as_slice().iter().find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0))
+        .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
+    
+    // Find matching NSScreen by bounds
+    let target_screen = unsafe {
+        screens.iter().find(|screen| {
+            let frame = screen.frame();
+            (frame.origin.x as isize - target_monitor.position.x).abs() < 10 &&
+            (frame.origin.y as isize - target_monitor.position.y).abs() < 10
+        }).unwrap_or_else(|| screens.objectAtIndex(0))
+    };
+    
+    // Calculate window position
+    let screen_frame = unsafe { target_screen.frame() };
+    let window_frame = unsafe { window.frame() };
+    
+    let (x, y) = match position {
+        WindowPosition::Initialized(pos) => {
+            // Explicit position requested - use it relative to monitor
+            // Note: macOS y-axis is flipped (0 at bottom)
+            (
+                screen_frame.origin.x + pos.x as f64,
+                screen_frame.origin.y + pos.y as f64,
+            )
+        }
+        WindowPosition::Uninitialized => {
+            // No explicit position - center on target monitor
+            let center_x = screen_frame.origin.x + (screen_frame.size.width - window_frame.size.width) / 2.0;
+            let center_y = screen_frame.origin.y + (screen_frame.size.height - window_frame.size.height) / 2.0;
+            (center_x, center_y)
+        }
+    };
+    
+    // Set window frame with new position
+    use objc2_foundation::NSRect;
+    let new_frame = NSRect {
+        origin: objc2_foundation::NSPoint { x, y },
+        size: window_frame.size,
+    };
+    
+    unsafe {
+        window.setFrame_display(new_frame, false);
     }
 }

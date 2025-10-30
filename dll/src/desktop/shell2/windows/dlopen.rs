@@ -142,13 +142,34 @@ pub mod constants {
     pub const SW_HIDE: i32 = 0;
     pub const SW_SHOWNORMAL: i32 = 1;
     pub const SW_NORMAL: i32 = 1;
+    pub const SW_SHOW: i32 = 5;
     pub const SW_MINIMIZE: i32 = 6;
     pub const SW_MAXIMIZE: i32 = 3;
+    pub const SW_RESTORE: i32 = 9;
 
     // SetWindowPos flags
+    pub const SWP_NOSIZE: u32 = 0x0001;
     pub const SWP_NOMOVE: u32 = 0x0002;
     pub const SWP_NOZORDER: u32 = 0x0004;
     pub const SWP_FRAMECHANGED: u32 = 0x0020;
+
+    // Cursor constants (for LoadCursorW)
+    pub const IDC_ARROW: *const u16 = 32512 as *const u16;
+    pub const IDC_IBEAM: *const u16 = 32513 as *const u16;
+    pub const IDC_WAIT: *const u16 = 32514 as *const u16;
+    pub const IDC_CROSS: *const u16 = 32515 as *const u16;
+    pub const IDC_UPARROW: *const u16 = 32516 as *const u16;
+    pub const IDC_SIZE: *const u16 = 32640 as *const u16;
+    pub const IDC_ICON: *const u16 = 32641 as *const u16;
+    pub const IDC_SIZENWSE: *const u16 = 32642 as *const u16;
+    pub const IDC_SIZENESW: *const u16 = 32643 as *const u16;
+    pub const IDC_SIZEWE: *const u16 = 32644 as *const u16;
+    pub const IDC_SIZENS: *const u16 = 32645 as *const u16;
+    pub const IDC_SIZEALL: *const u16 = 32646 as *const u16;
+    pub const IDC_NO: *const u16 = 32648 as *const u16;
+    pub const IDC_HAND: *const u16 = 32649 as *const u16;
+    pub const IDC_APPSTARTING: *const u16 = 32650 as *const u16;
+    pub const IDC_HELP: *const u16 = 32651 as *const u16;
 
     // GetWindowLongPtr indices
     pub const GWLP_USERDATA: i32 = -21;
@@ -298,6 +319,7 @@ pub struct User32Functions {
     // Window properties
     pub SetWindowLongPtrW: unsafe extern "system" fn(HWND, i32, isize) -> isize,
     pub GetWindowLongPtrW: unsafe extern "system" fn(HWND, i32) -> isize,
+    pub SetWindowTextW: unsafe extern "system" fn(HWND, *const u16) -> BOOL,
 
     // Window class registration
     pub RegisterClassW: unsafe extern "system" fn(*const WNDCLASSW) -> ATOM,
@@ -323,6 +345,7 @@ pub struct User32Functions {
     pub PeekMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32, u32) -> BOOL,
     pub TranslateMessage: unsafe extern "system" fn(*const MSG) -> BOOL,
     pub DispatchMessageW: unsafe extern "system" fn(*const MSG) -> LRESULT,
+    pub WaitMessage: unsafe extern "system" fn() -> BOOL,
 
     // Module handle
     pub GetModuleHandleW: unsafe extern "system" fn(*const u16) -> HINSTANCE,
@@ -421,6 +444,9 @@ impl Win32Libraries {
                 GetWindowLongPtrW: user32_dll
                     .get_symbol("GetWindowLongPtrW")
                     .ok_or_else(|| "GetWindowLongPtrW not found".to_string())?,
+                SetWindowTextW: user32_dll
+                    .get_symbol("SetWindowTextW")
+                    .ok_or_else(|| "SetWindowTextW not found".to_string())?,
 
                 // Window class
                 RegisterClassW: user32_dll
@@ -480,6 +506,9 @@ impl Win32Libraries {
                 DispatchMessageW: user32_dll
                     .get_symbol("DispatchMessageW")
                     .ok_or_else(|| "DispatchMessageW not found".to_string())?,
+                WaitMessage: user32_dll
+                    .get_symbol("WaitMessage")
+                    .ok_or_else(|| "WaitMessage not found".to_string())?,
 
                 // Module
                 GetModuleHandleW: user32_dll

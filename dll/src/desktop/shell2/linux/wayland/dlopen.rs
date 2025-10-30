@@ -51,6 +51,7 @@ pub struct Wayland {
     pub wl_compositor_interface: wl_interface,
     pub wl_shm_interface: wl_interface,
     pub wl_seat_interface: wl_interface,
+    pub wl_output_interface: wl_interface,
     pub xdg_wm_base_interface: wl_interface,
 
     // Convenience wrappers for common operations
@@ -114,6 +115,14 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_shm_pool, i32, i32, i32, i32, u32) -> *mut wl_buffer,
     pub wl_buffer_destroy: unsafe extern "C" fn(*mut wl_buffer),
     pub wl_shm_pool_destroy: unsafe extern "C" fn(*mut wl_shm_pool),
+
+    // wl_output functions
+    pub wl_output_add_listener:
+        unsafe extern "C" fn(*mut wl_output, *const wl_output_listener, *mut c_void) -> i32,
+    
+    // wl_surface listener functions
+    pub wl_surface_add_listener:
+        unsafe extern "C" fn(*mut wl_surface, *const wl_surface_listener, *mut c_void) -> i32,
 
     // wayland-egl functions
     pub wl_egl_window_create: unsafe extern "C" fn(
@@ -187,6 +196,9 @@ impl Wayland {
             wl_seat_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_seat_interface")
             },
+            wl_output_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_output_interface")
+            },
             xdg_wm_base_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "xdg_wm_base_interface")
             },
@@ -242,6 +254,9 @@ impl Wayland {
             wl_shm_pool_create_buffer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
             wl_buffer_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_shm_pool_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+
+            wl_output_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            wl_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             wl_egl_window_create: load_symbol!(lib_egl, _, "wl_egl_window_create"),
             wl_egl_window_destroy: load_symbol!(lib_egl, _, "wl_egl_window_destroy"),

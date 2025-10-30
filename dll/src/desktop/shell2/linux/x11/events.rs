@@ -176,6 +176,9 @@ impl X11Window {
             self.current_window_state.flags = modified_state.flags;
             self.current_window_state.background_color = modified_state.background_color;
 
+            // Synchronize window state changes with OS
+            self.sync_window_state();
+
             // Check if window should close
             if modified_state.flags.close_requested {
                 self.is_open = false;
@@ -655,22 +658,32 @@ impl X11Window {
         };
 
         // Context menus are stored directly on NodeData
+        // Clone to avoid borrow conflict (same pattern as macOS)
         let context_menu = match node_data.get_context_menu() {
-            Some(menu) => menu,
+            Some(menu) => (**menu).clone(),
             None => return false,
         };
 
         eprintln!(
-            "[Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
+            "[X11 Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
             node,
             context_menu.items.as_slice().len()
         );
 
-        // Get system style from resources
-        let system_style = self.resources.system_style.clone();
+        // Queue the window creation instead of creating immediately
+        self.show_window_based_context_menu(&context_menu, position);
+        true
+    }
 
+    /// Queue a window-based context menu for creation in the event loop
+    /// This is part of the unified multi-window menu system (Shell2 V2)
+    fn show_window_based_context_menu(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+    ) {
         // Get parent window position
         let parent_pos = match self.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
@@ -679,32 +692,21 @@ impl X11Window {
             _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
         };
 
-        // Create menu window using the unified menu system
-        // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
+        // Create menu window options using unified menu system
         let menu_options = crate::desktop::menu::show_menu(
-            (**context_menu).clone(), // Dereference Box<Menu>
-            system_style,
+            menu.clone(),
+            self.resources.system_style.clone(),
             parent_pos,
-            None,           // No trigger rect for context menus (they spawn at cursor)
-            Some(position), // Cursor position for menu positioning
+            None,           // No trigger rect for context menus
+            Some(position), // Cursor position
             None,           // No parent menu
         );
 
-        // Create the menu window and register it in the window registry
-        // X11 supports full multi-window management via the registry system
-        match super::X11Window::new_with_resources(menu_options, self.resources.clone()) {
-            Ok(menu_window) => {
-                // Register as owned menu window to prevent drop
-                // The window will be managed by the registry and event loop
-                super::super::registry::register_owned_menu_window(Box::new(menu_window));
-                eprintln!("[Context Menu] Menu window created and registered successfully");
-                true
-            }
-            Err(e) => {
-                eprintln!("[Context Menu] Failed to create menu window: {:?}", e);
-                false
-            }
-        }
+        eprintln!(
+            "[X11] Queuing window-based context menu at screen ({}, {})",
+            position.x, position.y
+        );
+        self.pending_window_creates.push(menu_options);
     }
 }
 
