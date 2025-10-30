@@ -18,6 +18,92 @@
 //! 2. Call `process_window_events()` after updating platform state
 //! 3. Update the screen based on the returned `ProcessEventResult`
 //!
+//! ## Platform Integration Points
+//!
+//! ### macOS (dll/src/desktop/shell2/macos/events.rs)
+//!
+//! **Where to call `process_window_events()`:**
+//! - In each native event handler AFTER updating `current_window_state`
+//! - Examples:
+//!   - `handle_mouse_down()` - After setting mouse button state and hit test
+//!   - `handle_mouse_up()` - After clearing mouse button state
+//!   - `handle_mouse_moved()` - After updating cursor position and hit test
+//!   - `handle_key_down()` - After updating keyboard state
+//!   - `handle_scroll()` - After updating scroll delta
+//!   - `handle_window_resize()` - After updating size in window state
+//!
+//! **Peculiarities:**
+//! - Uses NSEvent for native input
+//! - Hit-testing done via `update_hit_test()` before processing
+//! - Scrollbar drag state stored in window struct
+//! - Must call `present()` for RequestRedraw results
+//!
+//! ### Windows (dll/src/desktop/shell2/windows/mod.rs)
+//!
+//! **Where to call `process_window_events()`:**
+//! - In WndProc message handlers AFTER updating `current_window_state`
+//! - Examples:
+//!   - `WM_LBUTTONDOWN/WM_RBUTTONDOWN` - After setting mouse state
+//!   - `WM_LBUTTONUP/WM_RBUTTONUP` - After clearing mouse state
+//!   - `WM_MOUSEMOVE` - After updating cursor position
+//!   - `WM_KEYDOWN/WM_KEYUP` - After updating keyboard state
+//!   - `WM_MOUSEWHEEL` - After updating scroll delta
+//!   - `WM_SIZE` - After updating window size
+//!
+//! **Peculiarities:**
+//! - Uses Win32 message loop (WndProc)
+//! - Hit-testing via WebRender on every mouse move
+//! - Must handle WM_PAINT separately for rendering
+//! - DPI scaling handled via GetDpiForWindow
+//!
+//! ### X11 (dll/src/desktop/shell2/linux/x11/events.rs)
+//!
+//! **Where to call `process_window_events()`:**
+//! - In event loop AFTER processing XEvent and updating `current_window_state`
+//! - Examples:
+//!   - `ButtonPress/ButtonRelease` - After setting mouse button state
+//!   - `MotionNotify` - After updating cursor position and hit test
+//!   - `KeyPress/KeyRelease` - After XIM processing and keyboard state update
+//!   - `ConfigureNotify` - After updating window size/position
+//!   - `EnterNotify/LeaveNotify` - After updating cursor in/out state
+//!
+//! **Peculiarities:**
+//! - XIM (X Input Method) for international text input
+//! - XFilterEvent must be called before processing for IME
+//! - Manual coordinate translation (relative to root window)
+//! - Expose events trigger redraw separately
+//!
+//! ### Wayland (dll/src/desktop/shell2/linux/wayland/mod.rs)
+//!
+//! **Where to call `process_window_events()`:**
+//! - In Wayland event handlers AFTER updating `current_window_state`
+//! - Examples:
+//!   - `wl_pointer::button` - After setting mouse button state
+//!   - `wl_pointer::motion` - After updating cursor position
+//!   - `wl_keyboard::key` - After updating keyboard state
+//!   - `xdg_toplevel::configure` - After updating window size
+//!
+//! **Peculiarities:**
+//! - Compositor-driven (no XY coordinates, uses surface-local coords)
+//! - Frame callbacks for rendering synchronization
+//! - Client-side decorations (CSD) always enabled
+//! - Seat-based input (single seat assumption for now)
+//!
+//! ## Migration Checklist
+//!
+//! When migrating a platform to use `PlatformWindowV2`:
+//!
+//! 1. ✅ Implement `PlatformWindowV2` trait (26 getter methods)
+//! 2. ✅ Implement `invoke_callbacks_v2()` with direct field access
+//! 3. ✅ Replace `process_window_events_v2()` calls with trait method
+//! 4. ✅ Remove old `invoke_callbacks_v2()` implementation
+//! 5. ✅ Remove old `process_callback_result_v2()` implementation
+//! 6. ✅ Remove scrollbar hit-test/click/drag functions (now in trait)
+//! 7. ✅ Verify all event handlers call `process_window_events()` at correct points
+//! 8. ✅ Test that callbacks fire correctly (mouse, keyboard, window events)
+//! 9. ✅ Test that scrollbar interaction works (hit-test, click, drag)
+//! 10. ✅ Test that window state changes propagate (resize, focus, etc.)
+//!
 //! Previously, this logic was duplicated ~4 times (~3000 lines) across:
 //! - `macos/events.rs` (~2000 lines)
 //! - `windows/process.rs` (~1800 lines)
@@ -332,14 +418,10 @@ pub trait PlatformWindowV2 {
     ///
     /// ## Returns
     /// * `ProcessEventResult` - Tells the platform what action to take (redraw, close, etc.)
-    fn process_window_events(&mut self) -> ProcessEventResult {
-        self.process_window_events_recursive_v2(0)
-    }
-    
-    /// V2: Recursive event processing with depth limit.
     ///
-    /// This implements the complete event processing workflow with recursion
-    /// for cases where callbacks regenerate the DOM.
+    /// ## Implementation
+    /// Recursively processes events with depth limiting (max 5 levels) to prevent
+    /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             eprintln!(

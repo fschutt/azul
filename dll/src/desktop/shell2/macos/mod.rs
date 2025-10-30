@@ -33,6 +33,7 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{FullWindowState, WindowCreateOptions, WindowState},
 };
+use rust_fontconfig::FcFontCache;
 use objc2::{
     define_class,
     msg_send,
@@ -60,6 +61,8 @@ use objc2_foundation::{
 
 use crate::desktop::{
     shell2::common::{
+        self,
+        event_v2::{self, PlatformWindowV2}, // Import event_v2 module AND trait
         Compositor, CompositorError, CompositorMode, PlatformWindow, RenderContext, WindowError,
         WindowProperties,
     },
@@ -974,6 +977,250 @@ pub struct MacOSWindow {
     thread_timer_running: Option<Retained<objc2_foundation::NSTimer>>,
 }
 
+// ============================================================================
+// Implement PlatformWindowV2 trait for cross-platform event processing
+// ============================================================================
+
+impl event_v2::PlatformWindowV2 for MacOSWindow {
+    // =========================================================================
+    // REQUIRED: Simple Getter Methods
+    // =========================================================================
+    
+    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
+        self.layout_window.as_mut()
+    }
+    
+    fn get_layout_window(&self) -> Option<&LayoutWindow> {
+        self.layout_window.as_ref()
+    }
+    
+    fn get_current_window_state(&self) -> &FullWindowState {
+        &self.current_window_state
+    }
+    
+    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
+        &mut self.current_window_state
+    }
+    
+    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+        &self.previous_window_state
+    }
+    
+    fn set_previous_window_state(&mut self, state: FullWindowState) {
+        self.previous_window_state = Some(state);
+    }
+    
+    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
+        &mut self.image_cache
+    }
+    
+    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
+        &mut self.renderer_resources
+    }
+    
+    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
+        &self.fc_cache
+    }
+    
+    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
+        &self.gl_context_ptr
+    }
+    
+    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
+        &self.system_style
+    }
+    
+    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
+        &self.app_data
+    }
+    
+    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
+        self.scrollbar_drag_state.as_ref()
+    }
+    
+    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
+        &mut self.scrollbar_drag_state
+    }
+    
+    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+        self.scrollbar_drag_state = state;
+    }
+    
+    fn get_hit_tester(&self) -> &AsyncHitTester {
+        &self.hit_tester
+    }
+    
+    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
+        &mut self.hit_tester
+    }
+    
+    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
+        self.last_hovered_node.as_ref()
+    }
+    
+    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
+        self.last_hovered_node = node;
+    }
+    
+    fn get_document_id(&self) -> DocumentId {
+        self.document_id
+    }
+    
+    fn get_id_namespace(&self) -> IdNamespace {
+        self.id_namespace
+    }
+    
+    fn get_render_api(&self) -> &WrRenderApi {
+        &self.render_api
+    }
+    
+    fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
+        &mut self.render_api
+    }
+    
+    fn get_renderer(&self) -> Option<&webrender::Renderer> {
+        self.renderer.as_ref()
+    }
+    
+    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
+        self.renderer.as_mut()
+    }
+    
+    fn get_raw_window_handle(&self) -> RawWindowHandle {
+        RawWindowHandle::MacOS(MacOSHandle {
+            ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
+            ns_view: std::ptr::null_mut(), // Not used in current implementation
+        })
+    }
+    
+    fn needs_frame_regeneration(&self) -> bool {
+        self.frame_needs_regeneration
+    }
+    
+    fn mark_frame_needs_regeneration(&mut self) {
+        self.frame_needs_regeneration = true;
+    }
+    
+    fn clear_frame_regeneration_flag(&mut self) {
+        self.frame_needs_regeneration = false;
+    }
+    
+    // =========================================================================
+    // REQUIRED: Callback Invocation (Direct Field Access)
+    // =========================================================================
+    
+    fn invoke_callbacks_v2(
+        &mut self,
+        target: event_v2::CallbackTarget,
+        event_filter: azul_core::events::EventFilter,
+    ) -> Vec<azul_layout::callbacks::CallCallbacksResult> {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            id::NodeId as CoreNodeId,
+        };
+
+        // Collect callbacks based on target
+        let callback_data_list = match target {
+            event_v2::CallbackTarget::Node(node) => {
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return Vec::new(),
+                };
+
+                let dom_id = DomId {
+                    inner: node.dom_id as usize,
+                };
+                let node_id = match NodeId::from_usize(node.node_id as usize) {
+                    Some(nid) => nid,
+                    None => return Vec::new(),
+                };
+
+                let layout_result = match layout_window.layout_results.get(&dom_id) {
+                    Some(lr) => lr,
+                    None => return Vec::new(),
+                };
+
+                let binding = layout_result.styled_dom.node_data.as_container();
+                let node_data = match binding.get(node_id) {
+                    Some(nd) => nd,
+                    None => return Vec::new(),
+                };
+
+                node_data
+                    .get_callbacks()
+                    .as_container()
+                    .iter()
+                    .filter(|cd| cd.event == event_filter)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }
+            event_v2::CallbackTarget::RootNodes => {
+                let layout_window = match self.layout_window.as_ref() {
+                    Some(lw) => lw,
+                    None => return Vec::new(),
+                };
+
+                let mut callbacks = Vec::new();
+                for (_dom_id, layout_result) in &layout_window.layout_results {
+                    if let Some(root_node) = layout_result
+                        .styled_dom
+                        .node_data
+                        .as_container()
+                        .get(CoreNodeId::ZERO)
+                    {
+                        for callback in root_node.get_callbacks().iter() {
+                            if callback.event == event_filter {
+                                callbacks.push(callback.clone());
+                            }
+                        }
+                    }
+                }
+                callbacks
+            }
+        };
+
+        if callback_data_list.is_empty() {
+            return Vec::new();
+        }
+
+        // Invoke all collected callbacks using DIRECT field access
+        let window_handle = RawWindowHandle::MacOS(MacOSHandle {
+            ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
+            ns_view: std::ptr::null_mut(),
+        });
+        
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return Vec::new(),
+        };
+        
+        let mut fc_cache_clone = (*self.fc_cache).clone();
+        let mut results = Vec::new();
+
+        for callback_data in callback_data_list {
+            let mut callback = azul_layout::callbacks::Callback::from_core(callback_data.callback);
+
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut callback_data.data.clone(),
+                &window_handle,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut fc_cache_clone,
+                self.system_style.clone(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            results.push(callback_result);
+        }
+
+        results
+    }
+}
+
 impl MacOSWindow {
     /// Determine which rendering backend to use
     fn determine_backend(options: &WindowCreateOptions) -> RenderBackend {
@@ -1877,7 +2124,7 @@ impl MacOSWindow {
 
         // Invoke close callback if it exists
         // This uses the V2 event system to detect CloseRequested and dispatch callbacks
-        let result = self.process_window_events_v2();
+        let result = self.process_window_events_recursive_v2(0);
 
         // Process the result - regenerate layout if callback modified DOM
         match result {
@@ -1924,7 +2171,7 @@ impl MacOSWindow {
 
         // Use V2 event system to detect CloseRequested and dispatch callbacks
         // This allows callbacks to modify DOM or prevent close by clearing the flag
-        let result = self.process_window_events_v2();
+        let result = self.process_window_events_recursive_v2(0);
 
         // Process the result - regenerate layout if needed
         match result {
