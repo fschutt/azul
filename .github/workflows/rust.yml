@@ -1,103 +1,104 @@
-name: Build
+# .github/workflows/ci-deploy.yml
+
+name: Combined CI and Deploy Workflow
 
 on:
+  # Run the 'ci' workflow on push and pull request
   push:
     branches:
       - 'master'
     tags:
-      # this is _not_ a regex, see: https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet
       - '[0-9]+.[0-9]+.[0-9]+*'
   pull_request:
+
+  # Allow manual runs with a choice of which workflow to execute
   workflow_dispatch:
     inputs:
-      release:
-          description: 'Make release'
+      run_mode:
+        description: 'Select the workflow to run'
+        type: choice
+        options:
+          - ci
+          - deploy
+        required: true
+        default: 'ci'
+
+# Permissions for deploying to GitHub Pages (only needed for 'deploy' mode)
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Concurrency setting to prevent multiple simultaneous deployments to Pages
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
-  setup:
-    name: Set up
-    runs-on: ubuntu-22.04
-    outputs:
-      VERSION: ${{ steps.setup.outputs.VERSION }}
-      DOING_RELEASE: ${{ steps.setup.outputs.DOING_RELEASE }}
-    steps:
-      - name: Set up env vars
-        id: setup
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF/refs\/tags\//}
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          DOING_RELEASE=$(echo $VERSION | grep -c '^[0-9]\+\.[0-9]\+\.[0-9]\+\(-\([a-zA-Z]\+\)\?[0-9]*\)\?$' || true)
-          echo "DOING_RELEASE=${DOING_RELEASE}" >> $GITHUB_OUTPUT
-          echo $VERSION
-          echo $DOING_RELEASE
+  # ===================================================================
+  # ==                  CI WORKFLOW ('ci' mode)                      ==
+  # ===================================================================
 
-  build:
-    name: Build on ${{ matrix.build }}
-    runs-on: ${{ matrix.os }}
-    needs: setup
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - build: macos-x64
-            os: macos-11
-          - build: windows-x64
-            os: windows-2022
-          - build: linux-x64
-            os: ubuntu-22.04
+  lint_and_check:
+    name: Lint & Static Checks
+    # Run this job for push, pull_request, or if 'ci' mode is manually selected
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    runs-on: ubuntu-latest
     steps:
-
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.85
-  
-      - name: Install clang (Linux)
-        if: matrix.build == 'linux-x64'
-        run: sudo apt install clang
+          toolchain: 1.80.0 # Pinning version for consistency
 
-      # Run checks and tests here!
+      - name: Check crates
+        run: |
+          cargo check -p azul-css
+          cargo check -p azul-core
+          cargo check -p azul-layout
+          cargo check -p azul-dll
 
-      - name: Check azul-css
-        run: cargo check -p azul-css
-
-      - name: Check azul-core
-        run: cargo check -p azul-core
-
-      - name: Check azul-layout
-        run: cargo check -p azul-layout
-
-      - name: Check azul-dll
-        run: cargo check -p azul-dll
-
-      - name: Run autofix
-        run: cargo run -r -p azul-doc autofix 
-
-      - name: Explain autofix
-        run: cargo run -r -p azul-doc autofix explain
-
-      - name: Apply "safe" autofix patches
-        run: cargo run -r -p azul-doc patch safe target/autofix/patches
-
-      - name: Apply "dangerous" autofix patches
-        run: cargo run -r -p azul-doc patch target/autofix/patches
-
-      - name: Normalize api.json
-        run: cargo run -r -p azul-doc normalize
+      - name: Run autofix and normalize
+        run: |
+          cargo run -r -p azul-doc autofix
+          cargo run -r -p azul-doc autofix explain
+          cargo run -r -p azul-doc patch safe target/autofix/patches
+          cargo run -r -p azul-doc patch target/autofix/patches
+          cargo run -r -p azul-doc normalize
 
       - name: Check for uncommitted changes after autofix
-        shell: bash
         run: |
           if [[ -n $(git status --porcelain) ]]; then
-            echo "There are uncommitted changes after running autofix:";
-            git status --porcelain;
-            exit 1;
+            echo "There are uncommitted changes after running autofix:"
+            git status --porcelain
+            exit 1
           else
-            echo "No uncommitted changes after autofix.";
+            echo "No uncommitted changes after autofix."
           fi
+
+  test_heavy:
+    name: Run Heavy Tests
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    runs-on: ubuntu-latest
+    needs: lint_and_check # Run after linting passes
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.0
+
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+
+      - name: Run Miri tests on RefAny
+        run: cargo +nightly miri test --lib -p azul-core
 
       - name: Run memtest
         run: cargo run -r -p azul-doc memtest run
@@ -105,89 +106,161 @@ jobs:
       - name: Run reftest
         run: cargo run -r -p azul-doc reftest run
 
-      - name: Install Miri (Linux)
-        if: matrix.build == 'linux-x64'
-        run: |
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
-  
-      - name: Run Miri tests on RefAny (Linux)
-        if: matrix.build == 'linux-x64'
-        run: cargo +nightly miri test --lib -p azul-core
-        continue-on-error: false
+  build_binaries:
+    name: Build Binaries on ${{ matrix.os }}
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    needs: lint_and_check # Run after linting passes
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_name: azul-macos-amd64
+            artifact_path: |
+              target/release/awb
+              target/release/libazul.dylib
+              target/release/libazul.a
+          - os: windows-latest
+            artifact_name: azul-windows-amd64
+            artifact_path: |
+              target/release/awb.exe
+              target/release/azul.dll
+              target/release/libazul.a
+              target/release/azul.dll.lib
+          - os: ubuntu-latest
+            artifact_name: azul-linux-amd64
+            artifact_path: |
+              target/release/awb
+              target/release/libazul.so
+              target/release/libazul.a
 
-      # Main DLL BUILD function here!
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.0
+
+      - name: Install clang (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y clang
 
       - name: Check azul.h (Linux)
-        if: matrix.build == 'linux-x64'
+        if: matrix.os == 'ubuntu-latest'
         run: clang api/c/azul.h -ferror-limit=0
 
-      - name: Build DLL
-        run: cargo build --release -p azul-dll --features="link-dynamic"
-
-      - name: Build Python extension
-        run: cargo build --release -p azul-dll --features="link-dynamic, python-extension"
+      - name: Build DLL and Python extension
+        run: |
+          cargo build --release -p azul-dll --features="link-dynamic"
+          cargo build --release -p azul-dll --features="link-dynamic, python-extension"
 
       - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
-  
-      - name: Build C examples (TODO)
-        run: exit 0; # TODO
-  
-      - name: Build C++ examples (TODO)
-        run: exit 0; # TODO
-  
-      - name: Build Python examples
-        if: matrix.build == 'windows-x64'
-        shell: bash
-        run: |
-          cp `pwd`/target/release/azul.dll `pwd`/target/release/azul.pyd
-          export PATH=`pwd`/target/release:$PATH
-          python3 examples/python/hello-world.py
-          exit 0; # TODO
-  
+
       - name: Build azul-workbench
         run: cargo build --release --bin azulc --manifest-path azulc/Cargo.toml --features="xml, std, font_loading, image_loading, gif, jpeg, png, tiff, bmp, text_layout"
-      
-      # Building & testing done, bundle artifacts
 
-      - name: Upload Artifacts (Linux)
-        uses: actions/upload-artifact@v4
-        if: matrix.build == 'linux-x64'
-        with:
-          name: 'azul-linux-amd64'
-          path: |
-            target/release/awb
-            target/release/libazul.so
-            target/release/libazul.a
-          retention-days: 2
-          if-no-files-found: error
-
-      - name: Upload Artifacts (Windows)
-        uses: actions/upload-artifact@v4
-        if: matrix.build == 'windows-x64'
-        with:
-          name: 'azul-windows-amd64'
-          path: |
-            target/release/awb
-            target/release/azul.dll
-            target/release/libazul.a
-            target/release/azul.dll.lib
-          retention-days: 2
-          if-no-files-found: error
-
-      - name: Upload Artifacts (Mac)
-        uses: actions/upload-artifact@v4
-        if: matrix.build == 'macos-x64'
-        with:
-          name: 'azul-macos-amd64'
-          path: |
-            target/release/awb
-            target/release/azul.dylib
-            target/release/libazul.a
-          retention-days: 2
-          if-no-files-found: error
-
-      - name: Done
+      - name: Test Python example (Windows)
+        if: matrix.os == 'windows-latest'
         shell: bash
-        run: echo "Build job done."
+        run: |
+          cp target/release/azul.dll target/release/azul.pyd
+          export PATH=$PATH:$(pwd)/target/release
+          python examples/python/hello-world.py
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          retention-days: 7
+          if-no-files-found: error
+
+  # ===================================================================
+  # ==               PAGES DEPLOYMENT ('deploy' mode)                ==
+  # ===================================================================
+
+  build_pages:
+    name: Build Pages on ${{ matrix.os }}
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Chrome (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run Reftests (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo run --manifest-path doc/Cargo.toml --release -- --reftest
+
+      - name: Build for ${{ matrix.platform }}
+        run: cargo run --manifest-path doc/Cargo.toml --release -- --build=${{ matrix.platform }}
+
+      - name: Upload ${{ matrix.platform }} page artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-artifact-${{ matrix.platform }}
+          path: 'doc/target/deploy'
+
+  merge_and_prepare_pages:
+    name: Merge & Prepare Pages Artifacts
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-latest
+    needs: build_pages
+    steps:
+      - name: Create merged directory
+        run: mkdir -p merged-artifacts
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: temp-artifacts/
+          pattern: pages-artifact-* # Download all artifacts starting with 'pages-artifact-'
+          merge-multiple: true # Merge them into a single directory
+
+      - name: Merge artifacts into final directory
+        run: |
+          echo "Merging downloaded artifacts..."
+          cp -r temp-artifacts/* merged-artifacts/
+          echo "Merged artifact contents:"
+          ls -R merged-artifacts
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload merged artifacts for Pages deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'merged-artifacts'
+
+  deploy_pages:
+    name: Deploy to GitHub Pages
+    if: github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-latest
+    needs: merge_and_prepare_pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
