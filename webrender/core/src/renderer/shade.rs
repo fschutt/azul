@@ -4,11 +4,10 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use api::{units::DeviceSize, ImageBufferKind};
+use api::{backport::precise_time_ns, units::DeviceSize, ImageBufferKind};
 use azul_core::gl::GlType;
 use euclid::default::Transform3D;
 use glyph_rasterizer::GlyphFormat;
-use time::precise_time_ns;
 use webrender_build::shader::{get_shader_features, ShaderFeatureFlags, ShaderFeatures};
 
 use crate::{

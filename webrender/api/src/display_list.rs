@@ -10,11 +10,11 @@ use serde::de::Deserializer;
 #[cfg(feature = "serialize")]
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use time::precise_time_ns;
 
 // local imports
 use crate::display_item as di;
 use crate::{
+    backport::precise_time_ns,
     color::ColorF,
     display_item_cache::*,
     font::{FontInstanceKey, GlyphInstance, GlyphOptions},

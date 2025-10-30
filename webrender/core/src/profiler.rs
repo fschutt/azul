@@ -28,10 +28,9 @@ use std::{
     time::Duration,
 };
 
-use api::{units::DeviceIntSize, ColorF, ColorU};
+use api::{backport::precise_time_ns, units::DeviceIntSize, ColorF, ColorU};
 use euclid::{default, vec2, Point2D, Rect, Size2D};
 use glyph_rasterizer::profiler::GlyphRasterizeProfiler;
-use time::precise_time_ns;
 
 use crate::{
     device::query::GpuTimer,

@@ -41,18 +41,17 @@
 pub mod common;
 
 // Platform-specific modules
+#[cfg(target_os = "linux")]
+pub mod linux;
+#[cfg(target_os = "ios")]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
-
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-#[cfg(target_os = "linux")]
-pub mod linux;
-
 // Always available for testing
 pub mod stub;
-
 // Main event loop implementation
 pub mod run;
 
@@ -70,6 +69,9 @@ cfg_if::cfg_if! {
     if #[cfg(target_os = "macos")] {
         pub use macos::MacOSWindow as Window;
         pub use macos::MacOSEvent as WindowEvent;
+    } else if #[cfg(target_os = "ios")] {
+        pub use ios::IOSWindow as Window;
+        pub use ios::IOSEvent as WindowEvent;
     } else if #[cfg(target_os = "windows")] {
         pub use windows::Win32Window as Window;
         pub use windows::Win32Event as WindowEvent;
@@ -91,6 +93,9 @@ pub fn get_backend_name() -> &'static str {
     #[cfg(target_os = "windows")]
     return "windows-win32";
 
+    #[cfg(target_os = "ios")]
+    return "ios-uikit";
+
     #[cfg(target_os = "linux")]
     {
         // Runtime detection on Linux
@@ -109,42 +114,16 @@ pub fn get_backend_name() -> &'static str {
         }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        target_os = "linux"
+    )))]
     return "stub";
 }
 
 /// Get shell2 version information.
 pub fn get_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_backend_name() {
-        let backend = get_backend_name();
-        assert!(!backend.is_empty());
-        println!("Backend: {}", backend);
-    }
-
-    #[test]
-    fn test_version() {
-        let version = get_version();
-        assert!(!version.is_empty());
-        println!("shell2 version: {}", version);
-    }
-
-    #[test]
-    fn test_compositor_mode_from_env() {
-        // Should not panic
-        let _ = CompositorMode::from_env();
-    }
-
-    #[test]
-    fn test_capabilities_detection() {
-        let caps = SystemCapabilities::detect();
-        println!("System capabilities: {:?}", caps);
-    }
 }

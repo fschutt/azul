@@ -50,6 +50,7 @@ use api::ExternalImage;
 #[cfg(feature = "replay")]
 use api::ExternalImageId;
 use api::{
+    backport::precise_time_ns,
     channel::{Receiver, Sender},
     units::*,
     Checkpoint, ColorF, ColorU, DocumentId, Epoch, ExternalImageHandler, ExternalImageSource,
@@ -60,7 +61,6 @@ use azul_core::gl;
 use euclid::{default, rect, Scale, Transform3D};
 use glyph_rasterizer::GlyphFormat;
 use init::*;
-use time::precise_time_ns;
 use upload::{upload_to_texture_cache, UploadTexturePool};
 
 #[cfg(any(feature = "capture", feature = "replay"))]

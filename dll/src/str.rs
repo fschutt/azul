@@ -24,6 +24,39 @@ pub enum FmtValue {
     StrVec(StringVec),
 }
 
+impl strfmt::DisplayStr for FmtValue {
+    fn display_str(&self, f: &mut strfmt::Formatter<'_, '_>) -> strfmt::Result<()> {
+        use strfmt::DisplayStr;
+        match self {
+            FmtValue::Bool(v) => format!("{v:?}").display_str(f),
+            FmtValue::Uchar(v) => v.display_str(f),
+            FmtValue::Schar(v) => v.display_str(f),
+            FmtValue::Ushort(v) => v.display_str(f),
+            FmtValue::Sshort(v) => v.display_str(f),
+            FmtValue::Uint(v) => v.display_str(f),
+            FmtValue::Sint(v) => v.display_str(f),
+            FmtValue::Ulong(v) => v.display_str(f),
+            FmtValue::Slong(v) => v.display_str(f),
+            FmtValue::Isize(v) => v.display_str(f),
+            FmtValue::Usize(v) => v.display_str(f),
+            FmtValue::Float(v) => v.display_str(f),
+            FmtValue::Double(v) => v.display_str(f),
+            FmtValue::Str(v) => v.as_str().display_str(f),
+            FmtValue::StrVec(sv) => {
+                "[".display_str(f)?;
+                for (i, s) in sv.as_ref().iter().enumerate() {
+                    if i != 0 {
+                        ", ".display_str(f)?;
+                    }
+                    s.as_str().display_str(f)?;
+                }
+                "]".display_str(f)?;
+                Ok(())
+            }
+        }
+    }
+}
+
 impl fmt::Display for FmtValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

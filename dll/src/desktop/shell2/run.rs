@@ -170,6 +170,28 @@ pub fn run(
     })
 }
 
+// Store initial options globally for the AppDelegate to retrieve.
+// Unsafe, but simple for this minimal example.
+#[cfg(target_os = "ios")]
+pub(super) static mut INITIAL_OPTIONS: Option<(AppConfig, Arc<FcFontCache>, WindowCreateOptions)> =
+    None;
+
+// On iOS, the `run` function doesn't manage an event loop.
+// Instead, it calls a bootstrap function that sets up the native
+// UIKit application and hands control over to the OS. This call never returns.
+#[cfg(target_os = "ios")]
+pub fn run(
+    config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    root_window: WindowCreateOptions,
+) -> Result<(), WindowError> {
+    unsafe {
+        INITIAL_OPTIONS = Some((config, fc_cache, root_window));
+        crate::desktop::shell2::ios::launch_app();
+        Ok(()) // Unreachable
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub fn run(
     config: AppConfig,

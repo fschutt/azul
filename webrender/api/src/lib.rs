@@ -35,6 +35,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate time;
 
+pub mod backport;
 pub mod channel;
 mod color;
 mod display_item;

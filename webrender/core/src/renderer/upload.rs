@@ -17,9 +17,8 @@
 
 use std::{collections::VecDeque, mem, sync::Arc, time::Duration};
 
-use api::{units::*, ExternalImageSource, ImageBufferKind, ImageFormat};
+use api::{backport::precise_time_ns, units::*, ExternalImageSource, ImageBufferKind, ImageFormat};
 use euclid::{point2, Transform3D};
-use time::precise_time_ns;
 
 use crate::{
     batch::BatchTextures,

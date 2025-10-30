@@ -10,6 +10,7 @@ categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2021"
 autoexamples = false
+build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
@@ -18,16 +19,16 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 azul-core = { path = "../core", version = "0.0.5", default-features = false }
 azul-css = { path = "../css", version = "0.0.5", default-features = false, optional = true }
 azul-layout = { path = "../layout", version = "0.0.5", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
-pyo3 = { version = "0.16.5", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
+pyo3 = { version = "0.27.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 log  = { version = "0.4.17",  default-features = false, optional = true }
-pyo3-log = { version = "0.6.0", default-features = false, optional = true }
+pyo3-log = { version = "0.13.2", default-features = false, optional = true }
 tfd         = { version = "0.1.0",  default-features = false, optional = true }
 clipboard2              = { version = "0.1.1",  default-features = false, optional = true }
-raw-window-handle       = { version = "0.5.0", default-features = false, optional = true }
-fern                    = { version = "0.6.1",  default-features = false, optional = true }
+raw-window-handle       = { version = "0.6.2", default-features = false, optional = true }
+fern                    = { version = "0.7.1",  default-features = false, optional = true }
 backtrace               = { version = "0.3.66", optional = true }
 rust-fontconfig         = { version = "1.0.3", default-features = false, features = ["std", "parsing"], optional = true }
-strfmt                  = { version = "0.1.6", default-features = false, optional = true }
+strfmt                  = { version = "0.2.5", default-features = false, optional = true }
 libm                    = { version = "0.2.2", default-features = false, optional = true }
 gl-context-loader       = { version ="0.1.8", default-features = false, optional = true }
 webrender               = { path = "../webrender/core", default-features = false, optional = true }
@@ -37,6 +38,11 @@ cfg-if = "1.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+
+[target.'cfg(any(target_os = "ios"))'.dependencies]
+objc = "0.2"
+objc-foundation = "0.1"
+objc_id = "0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", default-features = false, features = [
@@ -52,10 +58,7 @@ winapi = { version = "0.3.9", default-features = false, features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cgl = "0.3.2"
-dispatch2 = { version = "0.2.0", default-features = false, features = [
-    "std",
-    "objc2",
-] }
+dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"] }
 objc2 = "0.6.0"
 block2 = "0.6.0"
 objc2-core-foundation = { version = "0.3.0", default-features = true, features = [

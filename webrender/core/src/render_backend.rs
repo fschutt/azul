@@ -23,6 +23,7 @@ use std::{
 };
 
 use api::{
+    backport::precise_time_ns,
     channel::{single_msg_channel, Receiver, Sender},
     units::*,
     BoolParameter, Checkpoint, DebugFlags, DocumentId, ExternalScrollId, FramePublishId,
@@ -35,7 +36,6 @@ use glyph_rasterizer::FontInstance;
 use serde::Deserialize;
 #[cfg(feature = "capture")]
 use serde::Serialize;
-use time::precise_time_ns;
 
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::CaptureConfig;

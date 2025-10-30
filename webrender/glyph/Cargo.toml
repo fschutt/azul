@@ -41,4 +41,4 @@ tiny-skia = "0.11"
 
 [dev-dependencies]
 # Kept for potential local testing, matching the original crate's setup.
-env_logger = { version = "0.10", default-features = false }
+env_logger = { version = "0.11", default-features = false }

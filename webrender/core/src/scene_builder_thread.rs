@@ -5,6 +5,7 @@
 use std::{iter, thread, time::Duration};
 
 use api::{
+    backport::precise_time_ns,
     channel::{single_msg_channel, unbounded_channel, Receiver, Sender},
     units::*,
     AsyncBlobImageRasterizer, BlobImageRequest, BlobImageResult, Checkpoint, DebugFlags,
@@ -12,7 +13,6 @@ use api::{
     NotificationRequest, Parameter, PipelineId, PrimitiveKeyKind, QualitySettings,
 };
 use glyph_rasterizer::SharedFontResources;
-use time::precise_time_ns;
 
 #[cfg(feature = "capture")]
 use crate::capture::CaptureConfig;

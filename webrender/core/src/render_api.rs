@@ -6,10 +6,9 @@
 
 use std::{cell::Cell, fmt, marker::PhantomData, path::PathBuf, sync::Arc, u32};
 
-use api::MinimapData;
+use api::{backport::precise_time_ns, MinimapData};
 use azul_css::props::basic::font::FontRef;
 use glyph_rasterizer::SharedFontResources;
-use time::precise_time_ns;
 
 use crate::{
     api::{

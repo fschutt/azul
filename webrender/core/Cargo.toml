@@ -18,7 +18,7 @@ glslopt = "0.1.11"
 webrender_build = { path = "../build" }
 
 [dependencies]
-bincode = "1.0"
+bincode = "2.0"
 bitflags = "2"
 byteorder = "1.0"
 euclid = "0.22.10"
@@ -29,7 +29,7 @@ num-traits = "0.2"
 plane-split = "0.18"
 rayon = "1"
 smallvec = "1"
-time = "0.1"
+time = "0.3"
 api = { version = "0.62.0", path = "../api", package = "webrender_api" }
 webrender_build = { path = "../build" }
 glyph_rasterizer = { version = "0.1.0", path = "../glyph", package = "wr_azul_glyph_rasterizer", default-features = false }
@@ -37,11 +37,11 @@ azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }
 svg_fmt = "0.4"
-derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
+derive_more = { version = "2.0", default-features = false, features = ["add_assign"] }
 etagere = "0.2.13"
-topological-sort = "0.1"
-allocator-api2 = { version = "0.2.18", features = ["alloc"] }
+topological-sort = "0.2"
+allocator-api2 = { version = "0.3.1", features = ["alloc"] }
 
 [dev-dependencies]
-mozangle = "0.3.3"
-rand = "0.4"
+mozangle = "0.5.3"
+rand = "0.9"
