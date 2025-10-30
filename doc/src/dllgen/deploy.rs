@@ -132,11 +132,12 @@ pub fn generate_license_files(version: &str, output_dir: &Path) -> Result<()> {
         let opt = cargo_license::GetDependenciesOpt {
             avoid_dev_deps: true,
             avoid_build_deps: true,
+            avoid_proc_macros: true,
             direct_deps_only: false,
             root_only: false,
         };
 
-        let l = cargo_license::get_dependencies_from_cargo_lock(cargo_meta_cmd, opt)
+        let l = cargo_license::get_dependencies_from_cargo_lock(&cargo_meta_cmd, &opt)
             .unwrap_or_default()
             .into_iter()
             .map(|s| License {

@@ -192,6 +192,10 @@ pub struct CallbackInfo {
     /// frame)
     nodes_scrolled_in_callback:
         *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
+    /// Immutable reference to the scroll manager (for querying scroll state)
+    scroll_manager: *const crate::scroll::ScrollManager,
+    /// Immutable reference to the gesture/drag manager (for querying gesture state)
+    gesture_drag_manager: *const crate::gesture_drag_manager::GestureAndDragManager,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
@@ -274,6 +278,8 @@ impl CallbackInfo {
                 as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback
                 as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
+            scroll_manager: &layout_window.scroll_states as *const crate::scroll::ScrollManager,
+            gesture_drag_manager: &layout_window.gesture_drag_manager as *const crate::gesture_drag_manager::GestureAndDragManager,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -703,6 +709,27 @@ impl CallbackInfo {
     /// Get a clone of the system style Arc
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
         self.system_style.clone()
+    }
+    
+    // ===== Manager Access (Read-Only) =====
+    
+    /// Get immutable reference to the scroll manager
+    ///
+    /// Use this to query scroll state for nodes without modifying it.
+    /// To request programmatic scrolling, use `nodes_scrolled_in_callback`.
+    pub fn get_scroll_manager(&self) -> &crate::scroll::ScrollManager {
+        unsafe { &*self.scroll_manager }
+    }
+    
+    /// Get immutable reference to the gesture and drag manager
+    ///
+    /// Use this to query current gesture/drag state (e.g., "is this node being dragged?",
+    /// "what files are being dropped?", "is a long-press active?").
+    ///
+    /// The manager is updated by the event loop and provides read-only query access
+    /// to callbacks for gesture-aware UI behavior.
+    pub fn get_gesture_drag_manager(&self) -> &crate::gesture_drag_manager::GestureAndDragManager {
+        unsafe { &*self.gesture_drag_manager }
     }
 }
 

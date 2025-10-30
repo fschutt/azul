@@ -77,299 +77,10 @@ impl MacOSWindow {
         }
     }
 
-    /// Query WebRender hit-tester for scrollbar hits
-    fn perform_scrollbar_hit_test(
-        &self,
-        position: LogicalPosition,
-    ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-        use webrender::api::units::WorldPoint;
-
-        use crate::desktop::wr_translate2::AsyncHitTester;
-
-        let hit_tester = match &self.hit_tester {
-            AsyncHitTester::Resolved(ht) => ht,
-            _ => return None,
-        };
-
-        let world_point = WorldPoint::new(position.x, position.y);
-        let hit_result = hit_tester.hit_test(world_point);
-
-        // Check each hit item for scrollbar tag
-        for item in &hit_result.items {
-            if let Some(scrollbar_id) =
-                crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(item.tag)
-            {
-                return Some(scrollbar_id);
-            }
-        }
-
-        None
-    }
-
-    /// Handle scrollbar click (thumb or track)
-    fn handle_scrollbar_click(
-        &mut self,
-        hit_id: azul_core::hit_test::ScrollbarHitId,
-        position: LogicalPosition,
-    ) -> EventProcessResult {
-        use azul_core::hit_test::ScrollbarHitId;
-
-        match hit_id {
-            ScrollbarHitId::VerticalThumb(dom_id, node_id)
-            | ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
-                // Start drag
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return EventProcessResult::DoNothing,
-                };
-
-                let scroll_offset = layout_window
-                    .scroll_states
-                    .get_current_offset(dom_id, node_id)
-                    .unwrap_or_default();
-
-                self.scrollbar_drag_state = Some(azul_layout::ScrollbarDragState {
-                    hit_id,
-                    initial_mouse_pos: position,
-                    initial_scroll_offset: scroll_offset,
-                });
-
-                EventProcessResult::RequestRedraw
-            }
-
-            ScrollbarHitId::VerticalTrack(dom_id, node_id) => {
-                // Jump scroll to clicked position on track
-                self.handle_track_click(dom_id, node_id, position, true)
-            }
-
-            ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
-                // Jump scroll to clicked position on track
-                self.handle_track_click(dom_id, node_id, position, false)
-            }
-        }
-    }
-
-    /// Handle track click - jump scroll to clicked position
-    fn handle_track_click(
-        &mut self,
-        dom_id: azul_core::dom::DomId,
-        node_id: azul_core::dom::NodeId,
-        click_position: LogicalPosition,
-        is_vertical: bool,
-    ) -> EventProcessResult {
-        // Get scrollbar state to calculate target position
-        let layout_window = match self.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return EventProcessResult::DoNothing,
-        };
-
-        // Get current scrollbar geometry
-        let scrollbar_state = if is_vertical {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Vertical,
-            )
-        } else {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Horizontal,
-            )
-        };
-
-        let scrollbar_state = match scrollbar_state {
-            Some(s) if s.visible => s,
-            _ => return EventProcessResult::DoNothing,
-        };
-
-        // Get current scroll state
-        let scroll_state = match layout_window
-            .scroll_states
-            .get_scroll_state(dom_id, node_id)
-        {
-            Some(s) => s,
-            None => return EventProcessResult::DoNothing,
-        };
-
-        // Calculate which position on the track was clicked (0.0 = top/left, 1.0 = bottom/right)
-        let click_ratio = if is_vertical {
-            let track_top = scrollbar_state.track_rect.origin.y;
-            let track_height = scrollbar_state.track_rect.size.height;
-            ((click_position.y - track_top) / track_height).clamp(0.0, 1.0)
-        } else {
-            let track_left = scrollbar_state.track_rect.origin.x;
-            let track_width = scrollbar_state.track_rect.size.width;
-            ((click_position.x - track_left) / track_width).clamp(0.0, 1.0)
-        };
-
-        // Calculate target scroll position
-        // click_ratio should center the thumb at the clicked position
-        let container_size = if is_vertical {
-            scroll_state.container_rect.size.height
-        } else {
-            scroll_state.container_rect.size.width
-        };
-
-        let content_size = if is_vertical {
-            scroll_state.content_rect.size.height
-        } else {
-            scroll_state.content_rect.size.width
-        };
-
-        let max_scroll = (content_size - container_size).max(0.0);
-
-        // Center thumb at click position: target_scroll = click_ratio * max_scroll - (thumb_size /
-        // 2) For simplicity, just jump to click_ratio * max_scroll
-        let target_scroll = click_ratio * max_scroll;
-
-        // Calculate delta from current position
-        let current_scroll = if is_vertical {
-            scroll_state.current_offset.y
-        } else {
-            scroll_state.current_offset.x
-        };
-
-        let scroll_delta = target_scroll - current_scroll;
-
-        // Apply scroll using gpu_scroll
-        if let Err(e) = self.gpu_scroll(
-            dom_id.inner as u64,
-            node_id.index() as u64,
-            if is_vertical { 0.0 } else { scroll_delta },
-            if is_vertical { scroll_delta } else { 0.0 },
-        ) {
-            eprintln!("Track click scroll failed: {}", e);
-            return EventProcessResult::DoNothing;
-        }
-
-        EventProcessResult::RequestRedraw
-    }
-
-    /// Handle scrollbar drag (continuous thumb movement)
-    fn handle_scrollbar_drag(&mut self, current_pos: LogicalPosition) -> EventProcessResult {
-        let drag_state = match &self.scrollbar_drag_state {
-            Some(ds) => ds.clone(),
-            None => return EventProcessResult::DoNothing,
-        };
-
-        use azul_core::hit_test::ScrollbarHitId;
-        let (dom_id, node_id, is_vertical) = match drag_state.hit_id {
-            ScrollbarHitId::VerticalThumb(d, n) | ScrollbarHitId::VerticalTrack(d, n) => {
-                (d, n, true)
-            }
-            ScrollbarHitId::HorizontalThumb(d, n) | ScrollbarHitId::HorizontalTrack(d, n) => {
-                (d, n, false)
-            }
-        };
-
-        // Get scrollbar geometry to convert pixel delta to scroll delta
-        let layout_window = match self.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return EventProcessResult::DoNothing,
-        };
-
-        let scrollbar_state = if is_vertical {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Vertical,
-            )
-        } else {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Horizontal,
-            )
-        };
-
-        let scrollbar_state = match scrollbar_state {
-            Some(s) if s.visible => s,
-            _ => return EventProcessResult::DoNothing,
-        };
-
-        let scroll_state = match layout_window
-            .scroll_states
-            .get_scroll_state(dom_id, node_id)
-        {
-            Some(s) => s,
-            None => return EventProcessResult::DoNothing,
-        };
-
-        // Calculate mouse delta in pixels
-        let pixel_delta = if is_vertical {
-            current_pos.y - drag_state.initial_mouse_pos.y
-        } else {
-            current_pos.x - drag_state.initial_mouse_pos.x
-        };
-
-        // Convert pixel delta to scroll delta
-        // pixel_delta / track_size = scroll_delta / max_scroll
-        // Therefore: scroll_delta = (pixel_delta / track_size) * max_scroll
-
-        let track_size = if is_vertical {
-            scrollbar_state.track_rect.size.height
-        } else {
-            scrollbar_state.track_rect.size.width
-        };
-
-        let container_size = if is_vertical {
-            scroll_state.container_rect.size.height
-        } else {
-            scroll_state.container_rect.size.width
-        };
-
-        let content_size = if is_vertical {
-            scroll_state.content_rect.size.height
-        } else {
-            scroll_state.content_rect.size.width
-        };
-
-        let max_scroll = (content_size - container_size).max(0.0);
-
-        // Account for thumb size: usable track size is track_size - thumb_size
-        let thumb_size = scrollbar_state.thumb_size_ratio * track_size;
-        let usable_track_size = (track_size - thumb_size).max(1.0); // Avoid division by zero
-
-        // Calculate scroll delta
-        let scroll_delta = if usable_track_size > 0.0 {
-            (pixel_delta / usable_track_size) * max_scroll
-        } else {
-            0.0
-        };
-
-        // Calculate target scroll position (initial + delta from drag start)
-        let target_scroll = if is_vertical {
-            drag_state.initial_scroll_offset.y + scroll_delta
-        } else {
-            drag_state.initial_scroll_offset.x + scroll_delta
-        };
-
-        // Clamp to valid range
-        let target_scroll = target_scroll.clamp(0.0, max_scroll);
-
-        // Calculate delta from current position
-        let current_scroll = if is_vertical {
-            scroll_state.current_offset.y
-        } else {
-            scroll_state.current_offset.x
-        };
-
-        let delta_from_current = target_scroll - current_scroll;
-
-        // Use gpu_scroll to update scroll position
-        if let Err(e) = self.gpu_scroll(
-            dom_id.inner as u64,
-            node_id.index() as u64,
-            if is_vertical { 0.0 } else { delta_from_current },
-            if is_vertical { delta_from_current } else { 0.0 },
-        ) {
-            eprintln!("Scrollbar drag failed: {}", e);
-            return EventProcessResult::DoNothing;
-        }
-
-        EventProcessResult::RequestRedraw
-    }
+    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
+    // are now provided by the PlatformWindowV2 trait as default methods.
+    // The trait methods are cross-platform and work identically.
+    // See dll/src/desktop/shell2/common/event_v2.rs for the implementation.
 
     /// Process a mouse button down event.
     pub fn handle_mouse_down(
@@ -381,8 +92,10 @@ impl MacOSWindow {
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
         // Check for scrollbar hit FIRST (before state changes)
-        if let Some(scrollbar_hit_id) = self.perform_scrollbar_hit_test(position) {
-            return self.handle_scrollbar_click(scrollbar_hit_id, position);
+        // Use trait method from PlatformWindowV2
+        if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position) {
+            let result = PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            return Self::convert_process_result(result);
         }
 
         // Save previous state BEFORE making changes
@@ -398,6 +111,15 @@ impl MacOSWindow {
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = true,
             _ => {}
         }
+        
+        // Record input sample for gesture detection (button down starts new session)
+        let button_state = match button {
+            MouseButton::Left => 0x01,
+            MouseButton::Right => 0x02,
+            MouseButton::Middle => 0x04,
+            _ => 0x00,
+        };
+        self.record_input_sample(position, button_state, true, false);
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
@@ -433,6 +155,15 @@ impl MacOSWindow {
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = false,
             _ => {}
         }
+        
+        // Record input sample for gesture detection (button up ends session)
+        let button_state = match button {
+            MouseButton::Left => 0x01,
+            MouseButton::Right => 0x02,
+            MouseButton::Middle => 0x04,
+            _ => 0x00,
+        };
+        self.record_input_sample(position, button_state, false, true);
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
@@ -478,8 +209,10 @@ impl MacOSWindow {
         let position = LogicalPosition::new(location.x as f32, location.y as f32);
 
         // Handle active scrollbar drag (special case - not part of normal event system)
+        // Use trait method from PlatformWindowV2
         if self.scrollbar_drag_state.is_some() {
-            return self.handle_scrollbar_drag(position);
+            let result = PlatformWindowV2::handle_scrollbar_drag(self, position);
+            return Self::convert_process_result(result);
         }
 
         // Save previous state BEFORE making changes
@@ -487,6 +220,13 @@ impl MacOSWindow {
 
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        
+        // Record input sample for gesture detection (movement during button press)
+        let button_state = 
+            if self.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 } |
+            if self.current_window_state.mouse_state.right_down { 0x02 } else { 0x00 } |
+            if self.current_window_state.mouse_state.middle_down { 0x04 } else { 0x00 };
+        self.record_input_sample(position, button_state, false, false);
 
         // Update hit test
         self.update_hit_test(position);

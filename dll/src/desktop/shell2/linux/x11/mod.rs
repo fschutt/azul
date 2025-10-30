@@ -507,126 +507,23 @@ impl X11Window {
     }
 
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        use std::io::Write;
-
-        use azul_core::callbacks::LayoutCallback;
-
-        eprintln!("[regenerate_layout] START");
-
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        // Borrow app_data from Arc<RefCell<>>
-        let mut app_data_borrowed = self.resources.app_data.borrow_mut();
-
-        // Update layout_window's fc_cache with the shared one from resources
-        layout_window.font_manager.fc_cache = self.resources.fc_cache.clone();
-
-        // 1. Call layout_callback to get styled_dom
-        // Create LayoutCallbackInfo with Arc<SystemStyle>
-        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
-            self.current_window_state.size.clone(),
-            self.current_window_state.theme,
+        // Call unified regenerate_layout from common module
+        crate::desktop::shell2::common::layout_v2::regenerate_layout(
+            layout_window,
+            &self.resources.app_data,
+            &self.current_window_state,
+            &mut self.renderer_resources,
+            self.render_api.as_mut().ok_or("No render API")?,
             &self.image_cache,
             &self.gl_context_ptr,
-            &*self.resources.fc_cache,
-            self.resources.system_style.clone(),
-        );
+            &self.resources.fc_cache,
+            &self.resources.system_style,
+            self.document_id.ok_or("No document ID")?,
+        )?;
 
-        eprintln!("[regenerate_layout] Calling layout_callback");
-        let _ = std::io::stderr().flush();
-
-        let user_styled_dom = match &self.current_window_state.layout_callback {
-            LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
-            LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
-                &mut marshaled.marshal_data.clone(),
-                &mut *app_data_borrowed,
-                &mut callback_info,
-            ),
-        };
-
-        // Inject CSD decorations if needed
-        let styled_dom = if crate::desktop::csd::should_inject_csd(
-            self.current_window_state.flags.has_decorations,
-            self.current_window_state.flags.decorations,
-        ) {
-            eprintln!("[regenerate_layout] Injecting CSD decorations");
-            crate::desktop::csd::wrap_user_dom_with_decorations(
-                user_styled_dom,
-                &self.current_window_state.title,
-                true,                         // inject titlebar
-                true,                         // has minimize
-                true,                         // has maximize
-                &self.resources.system_style, // pass SystemStyle for native look
-            )
-        } else {
-            user_styled_dom
-        };
-
-        eprintln!(
-            "[regenerate_layout] StyledDom received: {} nodes",
-            styled_dom.styled_nodes.len()
-        );
-        eprintln!(
-            "[regenerate_layout] StyledDom hierarchy length: {}",
-            styled_dom.node_hierarchy.len()
-        );
-        let _ = std::io::stderr().flush();
-
-        // 2. Perform layout with solver3
-        eprintln!("[regenerate_layout] Calling layout_and_generate_display_list");
-        layout_window
-            .layout_and_generate_display_list(
-                styled_dom,
-                &self.current_window_state,
-                &self.renderer_resources,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &mut None, // No debug messages for now
-            )
-            .map_err(|e| format!("Layout error: {:?}", e))?;
-
-        eprintln!(
-            "[regenerate_layout] Layout completed, {} DOMs",
-            layout_window.layout_results.len()
-        );
-
-        // 3. Calculate scrollbar states based on new layout
-        // This updates scrollbar geometry (thumb position/size ratios, visibility)
-        layout_window.scroll_states.calculate_scrollbar_states();
-
-        // 4. Rebuild display list and send to WebRender
-        let dpi_factor = self.current_window_state.size.get_hidpi_factor();
-        let mut txn = webrender::Transaction::new();
-        let render_api = self.render_api.as_mut().ok_or("No render API")?;
-        crate::desktop::wr_translate2::rebuild_display_list(
-            &mut txn,
-            layout_window,
-            render_api,
-            &self.image_cache,
-            Vec::new(),
-            &mut self.renderer_resources,
-            dpi_factor,
-        );
-
-        // 5. Synchronize scrollbar opacity with GPU cache AFTER display list submission
-        // This enables smooth fade-in/fade-out without display list rebuild
-        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-        for (dom_id, layout_result) in &layout_window.layout_results {
-            azul_layout::LayoutWindow::synchronize_scrollbar_opacity(
-                &mut layout_window.gpu_state_manager,
-                &layout_window.scroll_states,
-                *dom_id,
-                &layout_result.layout_tree,
-                &system_callbacks,
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
-                    500,
-                )), // fade_delay
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
-                    200,
-                )), // fade_duration
-            );
-        }
-
-        // 6. Mark that frame needs regeneration (will be called once at event processing end)
+        // Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
         Ok(())
@@ -638,19 +535,13 @@ impl X11Window {
             return;
         }
 
-        if let (Some(ref mut layout_window), Some(ref mut render_api)) =
-            (self.layout_window.as_mut(), self.render_api.as_mut())
+        if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) =
+            (self.layout_window.as_mut(), self.render_api.as_mut(), self.document_id)
         {
-            let mut txn = webrender::Transaction::new();
-            crate::desktop::wr_translate2::generate_frame(
-                &mut txn,
+            crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
                 render_api,
-                true, // Display list was rebuilt
-            );
-            render_api.send_transaction(
-                crate::desktop::wr_translate2::wr_translate_document_id(self.document_id.unwrap()),
-                txn,
+                document_id,
             );
         }
 

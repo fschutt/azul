@@ -1358,6 +1358,16 @@ pub enum HoverEventFilter {
     TouchMove,
     TouchEnd,
     TouchCancel,
+    /// Drag started (mouse moved beyond threshold while button down)
+    DragStart,
+    /// Drag in progress (mouse moved during drag)
+    Drag,
+    /// Drag ended (mouse button released after drag)
+    DragEnd,
+    /// Double-click detected (two clicks within time/distance threshold)
+    DoubleClick,
+    /// Long press detected (button held down for extended time)
+    LongPress,
 }
 
 impl HoverEventFilter {
@@ -1387,6 +1397,11 @@ impl HoverEventFilter {
             HoverEventFilter::TouchMove => None,
             HoverEventFilter::TouchEnd => None,
             HoverEventFilter::TouchCancel => None,
+            HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
+            HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
+            HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
+            HoverEventFilter::DoubleClick => Some(FocusEventFilter::DoubleClick),
+            HoverEventFilter::LongPress => Some(FocusEventFilter::LongPress),
         }
     }
 }
@@ -1417,6 +1432,16 @@ pub enum FocusEventFilter {
     VirtualKeyUp,
     FocusReceived,
     FocusLost,
+    /// Drag started on focused element
+    DragStart,
+    /// Drag in progress on focused element
+    Drag,
+    /// Drag ended on focused element
+    DragEnd,
+    /// Double-click on focused element
+    DoubleClick,
+    /// Long press on focused element
+    LongPress,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -1456,6 +1481,16 @@ pub enum WindowEventFilter {
     ThemeChanged,
     WindowFocusReceived,
     WindowFocusLost,
+    /// Drag started anywhere in window
+    DragStart,
+    /// Drag in progress anywhere in window
+    Drag,
+    /// Drag ended anywhere in window
+    DragEnd,
+    /// Double-click anywhere in window
+    DoubleClick,
+    /// Long press anywhere in window
+    LongPress,
 }
 
 impl WindowEventFilter {
@@ -1495,6 +1530,11 @@ impl WindowEventFilter {
             WindowEventFilter::ThemeChanged => None,
             WindowEventFilter::WindowFocusReceived => None, // specific to window!
             WindowEventFilter::WindowFocusLost => None,     // specific to window!
+            WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
+            WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
+            WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),
+            WindowEventFilter::DoubleClick => Some(HoverEventFilter::DoubleClick),
+            WindowEventFilter::LongPress => Some(HoverEventFilter::LongPress),
         }
     }
 }

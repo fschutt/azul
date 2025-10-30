@@ -196,9 +196,24 @@ impl From<FullWindowState> for WindowState {
 
 /// Create Events by comparing current and previous window states.
 /// This is the cross-platform event detection layer.
+///
+/// Optionally takes a `GestureAndDragManager` to detect gesture events
+/// (DragStart, Drag, DragEnd, DoubleClick, LongPress).
 pub fn create_events_from_states(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
+) -> azul_core::events::Events {
+    create_events_from_states_with_gestures(current_state, previous_state, None)
+}
+
+/// Create Events with gesture detection support.
+///
+/// This version takes an optional `GestureAndDragManager` to detect
+/// multi-frame gestures that can't be detected from state diffing alone.
+pub fn create_events_from_states_with_gestures(
+    current_state: &FullWindowState,
+    previous_state: &FullWindowState,
+    gesture_manager: Option<&crate::gesture_drag_manager::GestureAndDragManager>,
 ) -> azul_core::events::Events {
     use azul_core::{
         events::{Events, FocusEventFilter, HoverEventFilter, WindowEventFilter},
@@ -388,6 +403,61 @@ pub fn create_events_from_states(
         .iter()
         .map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
         .collect();
+
+    // ========================================================================
+    // Gesture Detection (optional, requires GestureAndDragManager)
+    // ========================================================================
+    
+    if let Some(manager) = gesture_manager {
+        // Detect DragStart (gesture detection threshold exceeded)
+        if let Some(_detected_drag) = manager.detect_drag() {
+            // Only fire DragStart if we don't already have an active drag
+            // (to avoid repeated DragStart events)
+            if !manager.is_dragging() {
+                window_events.push(WindowEventFilter::DragStart);
+                hover_events.push(HoverEventFilter::DragStart);
+                focus_events.push(FocusEventFilter::DragStart);
+            }
+        }
+        
+        // Detect Drag (continuous drag movement)
+        // Fire this when actively dragging (node_drag or window_drag active)
+        if manager.is_dragging() && current_mouse_down {
+            // Check if mouse actually moved during drag
+            let current_pos = current_state.mouse_state.cursor_position.get_position();
+            let previous_pos = previous_state.mouse_state.cursor_position.get_position();
+            
+            if current_pos != previous_pos {
+                window_events.push(WindowEventFilter::Drag);
+                hover_events.push(HoverEventFilter::Drag);
+                focus_events.push(FocusEventFilter::Drag);
+            }
+        }
+        
+        // Detect DragEnd (mouse button released after drag)
+        if manager.is_dragging() && event_was_mouse_release {
+            window_events.push(WindowEventFilter::DragEnd);
+            hover_events.push(HoverEventFilter::DragEnd);
+            focus_events.push(FocusEventFilter::DragEnd);
+        }
+        
+        // Detect DoubleClick
+        if manager.detect_double_click() {
+            window_events.push(WindowEventFilter::DoubleClick);
+            hover_events.push(HoverEventFilter::DoubleClick);
+            focus_events.push(FocusEventFilter::DoubleClick);
+        }
+        
+        // Detect LongPress
+        if let Some(long_press) = manager.detect_long_press() {
+            // Only fire once per long press session
+            if !long_press.callback_invoked {
+                window_events.push(WindowEventFilter::LongPress);
+                hover_events.push(HoverEventFilter::LongPress);
+                focus_events.push(FocusEventFilter::LongPress);
+            }
+        }
+    }
 
     Events {
         window_events,

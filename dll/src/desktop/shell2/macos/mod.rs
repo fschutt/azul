@@ -1588,126 +1588,23 @@ impl MacOSWindow {
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        use std::io::Write;
-
-        use azul_core::callbacks::LayoutCallback;
-
-        eprintln!("[regenerate_layout] START");
-
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        // Borrow app_data from Arc<RefCell<>>
-        let mut app_data_borrowed = self.app_data.borrow_mut();
-
-        // Update layout_window's fc_cache with the shared one from App
-        layout_window.font_manager.fc_cache = self.fc_cache.clone();
-
-        // 1. Call layout_callback to get styled_dom
-        // Use window's cached image_cache and gl_context_ptr instead of creating empty ones
-        // Create LayoutCallbackInfo with Arc<SystemStyle>
-        let mut callback_info = azul_core::callbacks::LayoutCallbackInfo::new(
-            self.current_window_state.size.clone(),
-            self.current_window_state.theme,
-            &self.image_cache,
-            &self.gl_context_ptr,
-            &*self.fc_cache,
-            self.system_style.clone(),
-        );
-
-        eprintln!("[regenerate_layout] Calling layout_callback");
-        let _ = std::io::stderr().flush();
-
-        let user_styled_dom = match &self.current_window_state.layout_callback {
-            LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
-            LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
-                &mut marshaled.marshal_data.clone(),
-                &mut *app_data_borrowed,
-                &mut callback_info,
-            ),
-        };
-
-        // Inject CSD decorations if needed
-        let styled_dom = if crate::desktop::csd::should_inject_csd(
-            self.current_window_state.flags.has_decorations,
-            self.current_window_state.flags.decorations,
-        ) {
-            eprintln!("[regenerate_layout] Injecting CSD decorations");
-            crate::desktop::csd::wrap_user_dom_with_decorations(
-                user_styled_dom,
-                &self.current_window_state.title,
-                true,               // inject titlebar
-                true,               // has minimize
-                true,               // has maximize
-                &self.system_style, // pass SystemStyle for native look
-            )
-        } else {
-            user_styled_dom
-        };
-
-        eprintln!(
-            "[regenerate_layout] StyledDom received: {} nodes",
-            styled_dom.styled_nodes.len()
-        );
-        eprintln!(
-            "[regenerate_layout] StyledDom hierarchy length: {}",
-            styled_dom.node_hierarchy.len()
-        );
-        let _ = std::io::stderr().flush();
-
-        // 2. Perform layout with solver3
-        eprintln!("[regenerate_layout] Calling layout_and_generate_display_list");
-        layout_window
-            .layout_and_generate_display_list(
-                styled_dom,
-                &self.current_window_state,
-                &self.renderer_resources,
-                &ExternalSystemCallbacks::rust_internal(),
-                &mut None, // No debug messages for now
-            )
-            .map_err(|e| format!("Layout error: {:?}", e))?;
-
-        eprintln!(
-            "[regenerate_layout] Layout completed, {} DOMs",
-            layout_window.layout_results.len()
-        );
-
-        // 3. Calculate scrollbar states based on new layout
-        // This updates scrollbar geometry (thumb position/size ratios, visibility)
-        layout_window.scroll_states.calculate_scrollbar_states();
-
-        // 4. Rebuild display list and send to WebRender
-        let dpi_factor = self.current_window_state.size.get_hidpi_factor();
-        let mut txn = WrTransaction::new();
-        crate::desktop::wr_translate2::rebuild_display_list(
-            &mut txn,
+        // Call unified regenerate_layout from common module
+        crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
+            &self.app_data,
+            &self.current_window_state,
+            &mut self.renderer_resources,
             &mut self.render_api,
             &self.image_cache,
-            Vec::new(),
-            &mut self.renderer_resources,
-            dpi_factor,
-        );
+            &self.gl_context_ptr,
+            &self.fc_cache,
+            &self.system_style,
+            self.document_id,
+        )?;
 
-        // 5. Synchronize scrollbar opacity with GPU cache AFTER display list submission
-        // This enables smooth fade-in/fade-out without display list rebuild
-        let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-        for (dom_id, layout_result) in &layout_window.layout_results {
-            LayoutWindow::synchronize_scrollbar_opacity(
-                &mut layout_window.gpu_state_manager,
-                &layout_window.scroll_states,
-                *dom_id,
-                &layout_result.layout_tree,
-                &system_callbacks,
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
-                    500,
-                )), // fade_delay
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
-                    200,
-                )), // fade_duration
-            );
-        }
-
-        // 6. Mark that frame needs regeneration (will be called once at event processing end)
+        // Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
         Ok(())
@@ -1720,16 +1617,10 @@ impl MacOSWindow {
         }
 
         if let Some(ref mut layout_window) = self.layout_window {
-            let mut txn = WrTransaction::new();
-            crate::desktop::wr_translate2::generate_frame(
-                &mut txn,
+            crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
                 &mut self.render_api,
-                true, // Display list was rebuilt
-            );
-            self.render_api.send_transaction(
-                crate::desktop::wr_translate2::wr_translate_document_id(self.document_id),
-                txn,
+                self.document_id,
             );
         }
 
@@ -2334,14 +2225,98 @@ impl MacOSWindow {
     fn handle_menu_action(&mut self, tag: isize) {
         eprintln!("[MacOSWindow] Handling menu action for tag: {}", tag);
 
-        // Look up callback index from tag
-        if let Some(callback_index) = self.menu_state.get_callback_for_tag(tag as i64) {
-            eprintln!(
-                "[MacOSWindow] Menu item {} clicked (tag {})",
-                callback_index, tag
-            );
-        } else {
-            eprintln!("[MacOSWindow] No callback found for tag: {}", tag);
+        // Look up callback from tag
+        let callback = match self.menu_state.get_callback_for_tag(tag as i64) {
+            Some(cb) => cb.clone(),
+            None => {
+                eprintln!("[MacOSWindow] No callback found for tag: {}", tag);
+                return;
+            }
+        };
+
+        eprintln!("[MacOSWindow] Menu item clicked (tag {})", tag);
+
+        // Convert CoreMenuCallback to layout MenuCallback
+        use azul_layout::callbacks::{Callback, MenuCallback};
+
+        let layout_callback = Callback::from_core(callback.callback);
+        let mut menu_callback = MenuCallback {
+            callback: layout_callback,
+            data: callback.data,
+        };
+
+        // Get layout window to create callback info
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => {
+                eprintln!("[MacOSWindow] No layout window available");
+                return;
+            }
+        };
+
+        use azul_core::window::RawWindowHandle;
+        use std::ptr;
+        
+        let raw_handle = RawWindowHandle::MacOS(
+            azul_core::window::MacOSHandle {
+                ns_window: Retained::as_ptr(&self.window) as *mut _,
+                ns_view: ptr::null_mut(), // Not needed for menu callbacks
+            }
+        );
+
+        // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
+        let mut fc_cache_clone = (*self.fc_cache).clone();
+
+        // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
+        let callback_result = layout_window.invoke_single_callback(
+            &mut menu_callback.callback,
+            &mut menu_callback.data,
+            &raw_handle,
+            &self.gl_context_ptr,
+            &mut self.image_cache,
+            &mut fc_cache_clone,
+            self.system_style.clone(),
+            &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+            &self.previous_window_state,
+            &self.current_window_state,
+            &self.renderer_resources,
+        );
+
+        // Extract the Update result from CallCallbacksResult
+        let update = callback_result.callbacks_update_screen;
+
+        // Apply any window state changes
+        if let Some(modified_state) = callback_result.modified_window_state {
+            self.current_window_state.title = modified_state.title;
+            self.current_window_state.theme = modified_state.theme;
+            self.current_window_state.size = modified_state.size;
+            self.current_window_state.position = modified_state.position;
+            self.current_window_state.flags = modified_state.flags;
+            self.current_window_state.debug_state = modified_state.debug_state;
+            self.current_window_state.keyboard_state = modified_state.keyboard_state;
+            self.current_window_state.mouse_state = modified_state.mouse_state;
+            self.current_window_state.touch_state = modified_state.touch_state;
+            self.current_window_state.ime_position = modified_state.ime_position;
+            self.current_window_state.monitor = modified_state.monitor;
+            self.current_window_state.platform_specific_options = modified_state.platform_specific_options;
+            self.current_window_state.renderer_options = modified_state.renderer_options;
+            self.current_window_state.background_color = modified_state.background_color;
+            self.current_window_state.layout_callback = modified_state.layout_callback;
+            self.current_window_state.close_callback = modified_state.close_callback;
+        }
+
+        // Process the result
+        use azul_core::callbacks::Update;
+        match update {
+            Update::RefreshDom | Update::RefreshDomAllWindows => {
+                // Mark that we need to regenerate layout
+                self.frame_needs_regeneration = true;
+                // Request redraw to trigger regenerate_layout
+                self.request_redraw();
+            }
+            Update::DoNothing => {
+                // No action needed
+            }
         }
     }
 

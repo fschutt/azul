@@ -130,10 +130,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let content = comrak::markdown_to_html_with_plugins(
         &guide.content,
         &comrak::Options {
-            render: RenderOptions {
-                unsafe_: true,
-                ..Default::default()
-            },
+            render: RenderOptions::default(),
             parse: ParseOptions::default(),
             extension: ExtensionOptions {
                 strikethrough: true,

@@ -162,6 +162,8 @@ pub struct LayoutWindow {
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
     pub scroll_states: ScrollManager,
+    /// Gesture and drag manager for multi-frame interactions
+    pub gesture_drag_manager: crate::gesture_drag_manager::GestureAndDragManager,
     /// IFrame manager for all nodes across all DOMs
     pub iframe_manager: IFrameManager,
     /// GPU state manager for all nodes across all DOMs
@@ -222,6 +224,7 @@ impl LayoutWindow {
             image_cache: ImageCache::default(),
             layout_results: BTreeMap::new(),
             scroll_states: ScrollManager::new(),
+            gesture_drag_manager: crate::gesture_drag_manager::GestureAndDragManager::new(),
             iframe_manager: IFrameManager::new(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),

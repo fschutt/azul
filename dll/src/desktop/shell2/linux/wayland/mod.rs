@@ -965,6 +965,13 @@ impl WaylandWindow {
         self.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
 
+        // Record input sample for gesture detection (movement during button press)
+        let button_state = 
+            if self.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 } |
+            if self.current_window_state.mouse_state.right_down { 0x02 } else { 0x00 } |
+            if self.current_window_state.mouse_state.middle_down { 0x04 } else { 0x00 };
+        self.record_input_sample(logical_pos, button_state, false, false);
+
         // Update hit test for hover effects
         self.update_hit_test(logical_pos);
 
@@ -982,7 +989,13 @@ impl WaylandWindow {
             _ => return,
         };
 
-        if state == 1 {
+        let is_down = state == 1;
+        let position = match self.current_window_state.mouse_state.cursor_position {
+            CursorPosition::InWindow(pos) => pos,
+            _ => LogicalPosition::zero(),
+        };
+
+        if is_down {
             // Button pressed
             self.current_window_state.mouse_state.left_down = mouse_button == MouseButton::Left;
             self.current_window_state.mouse_state.right_down = mouse_button == MouseButton::Right;
@@ -995,6 +1008,15 @@ impl WaylandWindow {
             self.current_window_state.mouse_state.middle_down = false;
             self.pointer_state.button_down = None;
         }
+        
+        // Record input sample for gesture detection
+        let button_state = match mouse_button {
+            MouseButton::Left => 0x01,
+            MouseButton::Right => 0x02,
+            MouseButton::Middle => 0x04,
+            _ => 0x00,
+        };
+        self.record_input_sample(position, button_state, is_down, !is_down);
 
         self.frame_needs_regeneration = true;
     }
@@ -1084,108 +1106,23 @@ impl WaylandWindow {
     ///
     /// Wayland-specific implementation with mandatory CSD injection.
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        use crate::desktop::csd;
+        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        let layout_window = match &mut self.layout_window {
-            Some(lw) => lw,
-            None => return Err("No layout window".into()),
-        };
-
-        // 1. Call user's layout callback to get new DOM
-        let layout_callback = self.current_window_state.layout_callback.clone();
-
-        let mut callback_info = LayoutCallbackInfo::new(
-            self.current_window_state.size,
-            self.current_window_state.theme,
+        // Call unified regenerate_layout from common module
+        crate::desktop::shell2::common::layout_v2::regenerate_layout(
+            layout_window,
+            &self.resources.app_data,
+            &self.current_window_state,
+            &mut self.renderer_resources,
+            self.render_api.as_mut().ok_or("No render API")?,
             &self.image_cache,
             &self.gl_context_ptr,
-            &*self.fc_cache,
-            self.resources.system_style.clone(),
-        );
+            &self.fc_cache,
+            &self.resources.system_style,
+            self.document_id.ok_or("No document ID")?,
+        )?;
 
-        let user_dom = match &layout_callback {
-            azul_core::callbacks::LayoutCallback::Raw(inner) => (inner.cb)(
-                &mut self.resources.app_data.borrow_mut(),
-                &mut callback_info,
-            ),
-            azul_core::callbacks::LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
-                &mut marshaled.marshal_data.clone(),
-                &mut self.resources.app_data.borrow_mut(),
-                &mut callback_info,
-            ),
-        };
-
-        // 2. Check if CSD should be injected (can be disabled by user via has_decorations flag)
-        // On Wayland, there are no native decorations, but the user can disable CSD to have a
-        // borderless window
-        let should_inject_csd = csd::should_inject_csd(
-            self.current_window_state.flags.has_decorations,
-            self.current_window_state.flags.decorations,
-        );
-        let has_minimize = true;
-        let has_maximize = true;
-
-        let final_dom = if should_inject_csd {
-            csd::wrap_user_dom_with_decorations(
-                user_dom,
-                &self.current_window_state.title.as_str(),
-                should_inject_csd,
-                has_minimize,
-                has_maximize,
-                &self.resources.system_style,
-            )
-        } else {
-            user_dom
-        };
-
-        // 3. Perform layout with LayoutWindow
-        layout_window
-            .layout_and_generate_display_list(
-                final_dom,
-                &self.current_window_state,
-                &self.renderer_resources,
-                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &mut None, // debug_messages
-            )
-            .map_err(|e| format!("Layout failed: {:?}", e))?;
-
-        // 4. Calculate scrollbar states based on new layout
-        layout_window.scroll_states.calculate_scrollbar_states();
-
-        // 5. Rebuild display list and send to WebRender
-        if let Some(ref mut render_api) = self.render_api {
-            let dpi_factor = self.current_window_state.size.get_hidpi_factor();
-            let mut txn = webrender::Transaction::new();
-            crate::desktop::wr_translate2::rebuild_display_list(
-                &mut txn,
-                layout_window,
-                render_api,
-                &self.image_cache,
-                Vec::new(),
-                &mut self.renderer_resources,
-                dpi_factor,
-            );
-
-            // 6. Synchronize scrollbar opacity with GPU cache
-            let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-            for (dom_id, layout_result) in &layout_window.layout_results {
-                azul_layout::LayoutWindow::synchronize_scrollbar_opacity(
-                    &mut layout_window.gpu_state_manager,
-                    &layout_window.scroll_states,
-                    *dom_id,
-                    &layout_result.layout_tree,
-                    &system_callbacks,
-                    azul_core::task::Duration::System(
-                        azul_core::task::SystemTimeDiff::from_millis(500),
-                    ), // fade_delay
-                    azul_core::task::Duration::System(
-                        azul_core::task::SystemTimeDiff::from_millis(200),
-                    ), // fade_duration
-                );
-            }
-        }
-
-        // 7. Mark frame needs regeneration
+        // Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
         Ok(())

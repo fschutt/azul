@@ -505,334 +505,42 @@ impl Win32Window {
 
     /// Regenerate layout (called after DOM changes)
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
-        let layout_window = match self.layout_window.as_mut() {
-            Some(lw) => lw,
-            None => return Err("No layout window".into()),
-        };
+        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        eprintln!("[regenerate_layout] Regenerating display list");
-
-        // Rebuild display list via WebRender
-        let mut resource_updates = Vec::new();
-        let mut txn = WrTransaction::new();
-        crate::desktop::wr_translate2::rebuild_display_list(
-            &mut txn,
+        // Call unified regenerate_layout from common module
+        crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
+            &self.app_data,
+            &self.current_window_state,
+            &mut self.renderer_resources,
             &mut self.render_api,
             &self.image_cache,
-            resource_updates,
-            &mut self.renderer_resources,
-            layout_window.current_window_state.size.get_hidpi_factor(),
-        );
-        self.render_api
-            .send_transaction(wr_translate_document_id(self.document_id), txn);
-        self.render_api.flush_scene_builder();
+            &self.gl_context_ptr,
+            &self.fc_cache,
+            &self.system_style,
+            self.document_id,
+        )?;
 
-        let mut txn = WrTransaction::new();
-        crate::desktop::wr_translate2::generate_frame(
-            &mut txn,
+        // Send frame immediately (Windows doesn't batch like macOS/X11)
+        let layout_window = self.layout_window.as_mut().unwrap();
+        crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
             &mut self.render_api,
-            true,
+            self.document_id,
         );
-        self.render_api
-            .send_transaction(wr_translate_document_id(self.document_id), txn);
         self.render_api.flush_scene_builder();
-
-        eprintln!("[regenerate_layout] Display list regenerated");
 
         Ok(())
     }
 
     /// Query WebRender hit-tester for scrollbar hits at given position
-    fn perform_scrollbar_hit_test(
-        &self,
-        position: azul_core::geom::LogicalPosition,
-    ) -> Option<azul_core::hit_test::ScrollbarHitId> {
-        use webrender::api::units::WorldPoint;
-
-        use crate::desktop::wr_translate2::AsyncHitTester;
-
-        let hit_tester = match &self.hit_tester {
-            AsyncHitTester::Resolved(ht) => ht,
-            _ => return None,
-        };
-
-        let world_point = WorldPoint::new(position.x, position.y);
-        let hit_result = hit_tester.hit_test(world_point);
-
-        // Check each hit item for scrollbar tag
-        for item in &hit_result.items {
-            if let Some(scrollbar_id) =
-                crate::desktop::wr_translate2::translate_item_tag_to_scrollbar_hit_id(item.tag)
-            {
-                return Some(scrollbar_id);
-            }
-        }
-
-        None
-    }
-
-    /// Handle scrollbar click (thumb or track)
-    fn handle_scrollbar_click(
-        &mut self,
-        hit_id: azul_core::hit_test::ScrollbarHitId,
-        position: azul_core::geom::LogicalPosition,
-    ) {
-        use azul_core::hit_test::ScrollbarHitId;
-
-        match hit_id {
-            ScrollbarHitId::VerticalThumb(dom_id, node_id)
-            | ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
-                // Start drag
-                let layout_window = match self.layout_window.as_ref() {
-                    Some(lw) => lw,
-                    None => return,
-                };
-
-                let scroll_offset = layout_window
-                    .scroll_states
-                    .get_current_offset(dom_id, node_id)
-                    .unwrap_or_default();
-
-                self.scrollbar_drag_state = Some(azul_layout::ScrollbarDragState {
-                    hit_id,
-                    initial_mouse_pos: position,
-                    initial_scroll_offset: scroll_offset,
-                });
-
-                // Capture mouse for drag operations
-                unsafe {
-                    (self.win32.user32.SetCapture)(self.hwnd);
-                }
-            }
-
-            ScrollbarHitId::VerticalTrack(dom_id, node_id) => {
-                // Jump scroll to clicked position on track
-                self.handle_track_click(dom_id, node_id, position, true);
-            }
-
-            ScrollbarHitId::HorizontalTrack(dom_id, node_id) => {
-                // Jump scroll to clicked position on track
-                self.handle_track_click(dom_id, node_id, position, false);
-            }
-        }
-    }
-
-    /// Handle track click - jump scroll to clicked position
-    fn handle_track_click(
-        &mut self,
-        dom_id: azul_core::dom::DomId,
-        node_id: azul_core::dom::NodeId,
-        click_position: azul_core::geom::LogicalPosition,
-        is_vertical: bool,
-    ) {
-        let layout_window = match self.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return,
-        };
-
-        // Get scrollbar state
-        let scrollbar_state = if is_vertical {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Vertical,
-            )
-        } else {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Horizontal,
-            )
-        };
-
-        let scrollbar_state = match scrollbar_state {
-            Some(s) if s.visible => s,
-            _ => return,
-        };
-
-        let scroll_state = match layout_window
-            .scroll_states
-            .get_scroll_state(dom_id, node_id)
-        {
-            Some(s) => s,
-            None => return,
-        };
-
-        // Calculate click ratio (0.0 = top/left, 1.0 = bottom/right)
-        let click_ratio = if is_vertical {
-            let track_top = scrollbar_state.track_rect.origin.y;
-            let track_height = scrollbar_state.track_rect.size.height;
-            ((click_position.y - track_top) / track_height).clamp(0.0, 1.0)
-        } else {
-            let track_left = scrollbar_state.track_rect.origin.x;
-            let track_width = scrollbar_state.track_rect.size.width;
-            ((click_position.x - track_left) / track_width).clamp(0.0, 1.0)
-        };
-
-        // Calculate target scroll position
-        let container_size = if is_vertical {
-            scroll_state.container_rect.size.height
-        } else {
-            scroll_state.container_rect.size.width
-        };
-
-        let content_size = if is_vertical {
-            scroll_state.content_rect.size.height
-        } else {
-            scroll_state.content_rect.size.width
-        };
-
-        let max_scroll = (content_size - container_size).max(0.0);
-        let target_scroll = click_ratio * max_scroll;
-
-        // Calculate delta from current position
-        let current_scroll = if is_vertical {
-            scroll_state.current_offset.y
-        } else {
-            scroll_state.current_offset.x
-        };
-
-        let scroll_delta = target_scroll - current_scroll;
-
-        // Apply scroll using gpu_scroll
-        if let Err(e) = self.gpu_scroll(
-            dom_id.inner as u64,
-            node_id.index() as u64,
-            if is_vertical { 0.0 } else { scroll_delta },
-            if is_vertical { scroll_delta } else { 0.0 },
-        ) {
-            eprintln!("Track click scroll failed: {}", e);
-        }
-
-        // Request redraw
-        unsafe {
-            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
-        }
-    }
-
-    /// Handle scrollbar drag (continuous thumb movement)
-    fn handle_scrollbar_drag(&mut self, current_pos: azul_core::geom::LogicalPosition) {
-        let drag_state = match &self.scrollbar_drag_state {
-            Some(ds) => ds.clone(),
-            None => return,
-        };
-
-        use azul_core::hit_test::ScrollbarHitId;
-        let (dom_id, node_id, is_vertical) = match drag_state.hit_id {
-            ScrollbarHitId::VerticalThumb(d, n) | ScrollbarHitId::VerticalTrack(d, n) => {
-                (d, n, true)
-            }
-            ScrollbarHitId::HorizontalThumb(d, n) | ScrollbarHitId::HorizontalTrack(d, n) => {
-                (d, n, false)
-            }
-        };
-
-        let layout_window = match self.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return,
-        };
-
-        let scrollbar_state = if is_vertical {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Vertical,
-            )
-        } else {
-            layout_window.scroll_states.get_scrollbar_state(
-                dom_id,
-                node_id,
-                azul_layout::scroll::ScrollbarOrientation::Horizontal,
-            )
-        };
-
-        let scrollbar_state = match scrollbar_state {
-            Some(s) if s.visible => s,
-            _ => return,
-        };
-
-        let scroll_state = match layout_window
-            .scroll_states
-            .get_scroll_state(dom_id, node_id)
-        {
-            Some(s) => s,
-            None => return,
-        };
-
-        // Calculate mouse delta in pixels
-        let pixel_delta = if is_vertical {
-            current_pos.y - drag_state.initial_mouse_pos.y
-        } else {
-            current_pos.x - drag_state.initial_mouse_pos.x
-        };
-
-        // Convert pixel delta to scroll delta
-        let track_size = if is_vertical {
-            scrollbar_state.track_rect.size.height
-        } else {
-            scrollbar_state.track_rect.size.width
-        };
-
-        let container_size = if is_vertical {
-            scroll_state.container_rect.size.height
-        } else {
-            scroll_state.container_rect.size.width
-        };
-
-        let content_size = if is_vertical {
-            scroll_state.content_rect.size.height
-        } else {
-            scroll_state.content_rect.size.width
-        };
-
-        let max_scroll = (content_size - container_size).max(0.0);
-
-        // Account for thumb size
-        let thumb_size = scrollbar_state.thumb_size_ratio * track_size;
-        let usable_track_size = (track_size - thumb_size).max(1.0);
-
-        // Calculate scroll delta
-        let scroll_delta = if usable_track_size > 0.0 {
-            (pixel_delta / usable_track_size) * max_scroll
-        } else {
-            0.0
-        };
-
-        // Calculate target scroll position
-        let target_scroll = if is_vertical {
-            drag_state.initial_scroll_offset.y + scroll_delta
-        } else {
-            drag_state.initial_scroll_offset.x + scroll_delta
-        };
-
-        let target_scroll = target_scroll.clamp(0.0, max_scroll);
-
-        // Calculate delta from current position
-        let current_scroll = if is_vertical {
-            scroll_state.current_offset.y
-        } else {
-            scroll_state.current_offset.x
-        };
-
-        let delta_from_current = target_scroll - current_scroll;
-
-        // Apply scroll
-        if let Err(e) = self.gpu_scroll(
-            dom_id.inner as u64,
-            node_id.index() as u64,
-            if is_vertical { 0.0 } else { delta_from_current },
-            if is_vertical { delta_from_current } else { 0.0 },
-        ) {
-            eprintln!("Scrollbar drag failed: {}", e);
-        }
-
-        // Request redraw
-        unsafe {
-            (self.win32.user32.InvalidateRect)(self.hwnd, ptr::null(), 0);
-        }
-    }
+    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
+    // are now provided by the PlatformWindowV2 trait as default methods.
+    // The trait methods are cross-platform and work identically.
+    // See dll/src/desktop/shell2/common/event_v2.rs for the implementation.
+    //
+    // Windows-specific note: Mouse capture (SetCapture) is handled in WM_LBUTTONDOWN,
+    // and redraw requests (InvalidateRect) are handled by checking ProcessEventResult.
 
     /// Get raw window handle for callbacks
     pub fn get_raw_window_handle(&self) -> azul_core::window::RawWindowHandle {
@@ -1347,7 +1055,7 @@ unsafe extern "system" fn window_proc(
 
             // Handle active scrollbar drag (special case - not part of normal event system)
             if window.scrollbar_drag_state.is_some() {
-                window.handle_scrollbar_drag(logical_pos);
+                PlatformWindowV2::handle_scrollbar_drag(&mut *window, logical_pos);
                 return 0;
             }
 
@@ -1357,6 +1065,10 @@ unsafe extern "system" fn window_proc(
             // Update mouse state
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
+            
+            // Record input sample for gesture detection (movement during button press)
+            let button_state = if window.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 };
+            window.record_input_sample(logical_pos, button_state, false, false);
 
             // Update hit test
             if let Some(ref layout_window) = window.layout_window {
@@ -1453,8 +1165,8 @@ unsafe extern "system" fn window_proc(
             );
 
             // Check for scrollbar hit FIRST (before state changes)
-            if let Some(scrollbar_hit_id) = window.perform_scrollbar_hit_test(logical_pos) {
-                window.handle_scrollbar_click(scrollbar_hit_id, logical_pos);
+            if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(&*window, logical_pos) {
+                PlatformWindowV2::handle_scrollbar_click(&mut *window, scrollbar_hit_id, logical_pos);
                 return 0;
             }
 
@@ -1465,6 +1177,9 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
             window.current_window_state.mouse_state.left_down = true;
+            
+            // Record input sample for gesture detection (button down starts new session)
+            window.record_input_sample(logical_pos, 0x01, true, false);
 
             // Update hit test
             if let Some(ref layout_window) = window.layout_window {
@@ -1526,6 +1241,9 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
             window.current_window_state.mouse_state.left_down = false;
+            
+            // Record input sample for gesture detection (button up ends session)
+            window.record_input_sample(logical_pos, 0x00, false, true);
 
             // Update hit test
             if let Some(ref layout_window) = window.layout_window {
@@ -1975,19 +1693,99 @@ unsafe extern "system" fn window_proc(
             // Menu command
             let command_id = (wparam & 0xFFFF) as u16;
 
-            // Look up menu callback and invoke it via LayoutWindow
-            if let Some(menu_bar) = &window.menu_bar {
-                if let Some(ref mut layout_window) = window.layout_window {
-                    // TODO: Menu callbacks are invoked via layout_window.invoke_menu_callback()
-                    // This requires access to app data and other context
-                    // For now, just mark that a menu was selected
+            eprintln!("[WndProc] WM_COMMAND received, command_id: {}", command_id);
 
-                    // TODO: In a full implementation, this would call:
-                    // layout_window.invoke_menu_callback(command_id, ...)
+            // Look up menu callback and invoke it
+            let callback_opt = if let Some(menu_bar) = &window.menu_bar {
+                menu_bar.callbacks.get(&command_id).cloned()
+            } else if let Some(context_menu) = &window.context_menu {
+                context_menu.get(&command_id).cloned()
+            } else {
+                None
+            };
 
-                    // Request redraw
-                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+            if let Some(callback) = callback_opt {
+                eprintln!("[WndProc] Found menu callback for command_id: {}", command_id);
+
+                // Convert CoreMenuCallback to layout MenuCallback
+                use azul_layout::callbacks::{Callback, MenuCallback};
+
+                let layout_callback = Callback::from_core(callback.callback);
+                let mut menu_callback = MenuCallback {
+                    callback: layout_callback,
+                    data: callback.data,
+                };
+
+                // Get layout window
+                if let Some(layout_window) = window.layout_window.as_mut() {
+                    use azul_core::window::RawWindowHandle;
+                    
+                    let raw_handle = RawWindowHandle::Windows(
+                        azul_core::window::WindowsHandle {
+                            hwnd: hwnd as *mut _,
+                            hinstance: ptr::null_mut(), // Not needed for menu callbacks
+                        }
+                    );
+
+                    // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
+                    let mut fc_cache_clone = (*window.fc_cache).clone();
+
+                    // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
+                    let callback_result = layout_window.invoke_single_callback(
+                        &mut menu_callback.callback,
+                        &mut menu_callback.data,
+                        &raw_handle,
+                        &window.gl_context_ptr,
+                        &mut window.image_cache,
+                        &mut fc_cache_clone,
+                        window.system_style.clone(),
+                        &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                        &window.previous_window_state,
+                        &window.current_window_state,
+                        &window.renderer_resources,
+                    );
+
+                    // Extract the Update result from CallCallbacksResult
+                    let update = callback_result.callbacks_update_screen;
+
+                    // Apply any window state changes
+                    if let Some(modified_state) = callback_result.modified_window_state {
+                        window.current_window_state.title = modified_state.title;
+                        window.current_window_state.theme = modified_state.theme;
+                        window.current_window_state.size = modified_state.size;
+                        window.current_window_state.position = modified_state.position;
+                        window.current_window_state.flags = modified_state.flags;
+                        window.current_window_state.debug_state = modified_state.debug_state;
+                        window.current_window_state.keyboard_state = modified_state.keyboard_state;
+                        window.current_window_state.mouse_state = modified_state.mouse_state;
+                        window.current_window_state.touch_state = modified_state.touch_state;
+                        window.current_window_state.ime_position = modified_state.ime_position;
+                        window.current_window_state.monitor = modified_state.monitor;
+                        window.current_window_state.platform_specific_options = modified_state.platform_specific_options;
+                        window.current_window_state.renderer_options = modified_state.renderer_options;
+                        window.current_window_state.background_color = modified_state.background_color;
+                        window.current_window_state.layout_callback = modified_state.layout_callback;
+                        window.current_window_state.close_callback = modified_state.close_callback;
+                    }
+
+                    // Process the result
+                    use azul_core::callbacks::Update;
+                    match update {
+                        Update::RefreshDom | Update::RefreshDomAllWindows => {
+                            // Mark that we need to regenerate layout
+                            window.frame_needs_regeneration = true;
+                            // Request redraw to trigger regenerate_layout
+                            (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                        }
+                        Update::DoNothing => {
+                            // No action needed
+                        }
+                    }
+                } else {
+                    eprintln!("[WndProc] No layout window available for menu callback");
                 }
+            } else {
+                eprintln!("[WndProc] No callback found for command_id: {}", command_id);
             }
 
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)

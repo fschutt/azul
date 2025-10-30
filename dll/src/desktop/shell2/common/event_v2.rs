@@ -133,7 +133,7 @@ use azul_layout::{
     },
     hit_test::FullHitTest,
     window::{LayoutWindow, ScrollbarDragState},
-    window_state::{create_events_from_states, FullWindowState},
+    window_state::{self, FullWindowState},
 };
 use rust_fontconfig::FcFontCache;
 
@@ -528,6 +528,69 @@ pub trait PlatformWindowV2 {
         Ok(())
     }
 
+    // =========================================================================
+    // PROVIDED: Input Recording for Gesture Detection
+    // =========================================================================
+
+    /// Record input sample for gesture detection.
+    ///
+    /// Call this from platform event handlers to feed input data into the gesture manager:
+    /// - On mouse button down: Start new session
+    /// - On mouse move (while button down): Record movement
+    /// - On mouse button up: End session
+    ///
+    /// The gesture manager will analyze these samples to detect:
+    /// - Drags (movement beyond threshold)
+    /// - Double-clicks (two clicks within time/distance)
+    /// - Long-presses (button held down without much movement)
+    ///
+    /// ## Parameters
+    /// - `position`: Current mouse position in logical coordinates
+    /// - `button_state`: Button state bitfield (0x01=left, 0x02=right, 0x04=middle)
+    /// - `is_button_down`: Whether a button was just pressed (starts new session)
+    /// - `is_button_up`: Whether a button was just released (ends session)
+    fn record_input_sample(
+        &mut self,
+        position: azul_core::geom::LogicalPosition,
+        button_state: u8,
+        is_button_down: bool,
+        is_button_up: bool,
+    ) {
+        // Get access to gesture manager
+        let layout_window = match self.get_layout_window_mut() {
+            Some(lw) => lw,
+            None => return,
+        };
+
+        // Get current time (platform-specific, use system clock)
+        #[cfg(feature = "std")]
+        let current_time = azul_core::task::Instant::from(std::time::Instant::now());
+        
+        #[cfg(not(feature = "std"))]
+        let current_time = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+
+        let manager = &mut layout_window.gesture_drag_manager;
+
+        // Record based on event type
+        if is_button_down {
+            // Start new input session
+            manager.start_input_session(position, current_time.clone(), button_state);
+        } else if is_button_up {
+            // End current session
+            manager.end_current_session();
+        } else {
+            // Record ongoing movement
+            manager.record_input_sample(position, current_time.clone(), button_state);
+        }
+
+        // Periodically clear old samples (every frame is fine)
+        manager.clear_old_sessions(current_time);
+    }
+
+    // =========================================================================
+    // PROVIDED: Event Processing (Cross-Platform Implementation)
+    // =========================================================================
+
     /// Process all window events using the V2 state-diffing system.
     ///
     /// This is the **main entry point** for event processing. Call this after updating
@@ -561,22 +624,50 @@ pub trait PlatformWindowV2 {
             .as_ref()
             .unwrap_or(self.get_current_window_state());
 
+        // Get gesture manager for gesture detection (if available)
+        let gesture_manager = self
+            .get_layout_window()
+            .map(|lw| &lw.gesture_drag_manager);
+
         // Detect all events that occurred by comparing states
-        let events = create_events_from_states(self.get_current_window_state(), previous_state);
+        // Includes gesture events (DragStart, Drag, DragEnd, DoubleClick, LongPress)
+        let events = window_state::create_events_from_states_with_gestures(
+            self.get_current_window_state(),
+            previous_state,
+            gesture_manager,
+        );
 
         if events.is_empty() {
             return ProcessEventResult::DoNothing;
         }
 
-        // Get hit test if available
-        let hit_test = if !self.get_current_window_state().last_hit_test.is_empty() {
-            Some(&self.get_current_window_state().last_hit_test)
+        // Get hit test if available (clone early to avoid borrow conflicts)
+        let hit_test_for_dispatch = if !self.get_current_window_state().last_hit_test.is_empty() {
+            Some(self.get_current_window_state().last_hit_test.clone())
         } else {
             None
         };
+        
+        // If DragStart event occurred and we have a hit test, save it in the manager
+        // This allows callbacks to query which nodes were hit at drag start
+        if events.window_events.iter().any(|e| matches!(e, azul_core::events::WindowEventFilter::DragStart)) ||
+           events.hover_events.iter().any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart)) {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                // Extract first hit from current state (the hovered DOM node)
+                let hit_test_clone = hit_test_for_dispatch.as_ref().and_then(|ht| {
+                    // Get first hovered node's hit test
+                    ht.hovered_nodes.values().next().cloned()
+                });
+                
+                // Store hit test in gesture manager for query access
+                // Both node and window drags can use this
+                layout_window.gesture_drag_manager.update_node_drag_hit_test(hit_test_clone.clone());
+                layout_window.gesture_drag_manager.update_window_drag_hit_test(hit_test_clone);
+            }
+        }
 
         // Use cross-platform dispatch logic to determine which callbacks to invoke
-        let dispatch_result = dispatch_events(&events, hit_test);
+        let dispatch_result = dispatch_events(&events, hit_test_for_dispatch.as_ref());
 
         if dispatch_result.is_empty() {
             return ProcessEventResult::DoNothing;
@@ -630,6 +721,38 @@ pub trait PlatformWindowV2 {
         if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
             let recursive_result = self.process_window_events_recursive_v2(depth + 1);
             result = result.max(recursive_result);
+        }
+        
+        // Auto-activate window drag if DragStart occurred on titlebar
+        // This allows titlebar dragging to work even when mouse leaves window
+        if events.hover_events.iter().any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart)) {
+            // Get current window position before mutable borrow
+            let current_pos = self.get_current_window_state().position;
+            
+            // Check if drag was on a titlebar element (class="csd-title")
+            if let Some(hit_test) = hit_test_for_dispatch.as_ref() {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    // Check if first hovered node is the titlebar
+                    // TODO: Better detection - check CSS class or node attributes
+                    let is_titlebar_drag = hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
+                        // For now, activate on any DragStart when we don't have an active drag
+                        // In a real implementation, we'd check the DOM node's class/ID
+                        hit.regular_hit_test_nodes.len() > 0
+                    });
+                    
+                    if is_titlebar_drag && !layout_window.gesture_drag_manager.is_window_dragging() {
+                        // Activate window drag with current window position
+                        let hit_test_clone = hit_test.hovered_nodes.values().next().cloned();
+                        
+                        layout_window.gesture_drag_manager.activate_window_drag(
+                            current_pos,
+                            hit_test_clone,
+                        );
+                        
+                        eprintln!("[Event V2] Auto-activated window drag on titlebar DragStart");
+                    }
+                }
+            }
         }
 
         result

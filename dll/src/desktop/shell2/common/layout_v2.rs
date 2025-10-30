@@ -2,11 +2,18 @@
 //!
 //! This module contains the unified layout regeneration workflow that is shared across all
 //! platforms. Previously, this logic was duplicated in every platform's window implementation.
+//!
+//! The regenerate_layout function takes direct field references instead of using trait methods
+//! to avoid borrow checker issues (similar to invoke_callbacks pattern).
 
-use alloc::sync::Arc;
+use std::cell::RefCell;
+use std::sync::Arc;
 
 use azul_core::{
-    callbacks::LayoutCallbackInfo,
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    gl::OptionGlContextPtr,
+    hit_test::DocumentId,
+    refany::RefAny,
     resources::{ImageCache, RendererResources},
 };
 use azul_layout::{
@@ -15,9 +22,10 @@ use azul_layout::{
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
+use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
-use super::event_v2::PlatformWindowV2;
 use crate::desktop::{csd, wr_translate2};
+use azul_css::system::SystemStyle;
 
 /// Regenerate layout after DOM changes.
 ///
@@ -28,106 +36,126 @@ use crate::desktop::{csd, wr_translate2};
 /// 4. Calculate scrollbar states
 /// 5. Rebuild WebRender display list
 /// 6. Synchronize scrollbar opacity with GPU cache
-/// 7. Mark frame for regeneration
 ///
 /// This workflow is identical across all platforms (macOS, Windows, X11, Wayland).
-pub fn regenerate_layout<W: PlatformWindowV2>(
-    window: &mut W,
-    render_api: &mut webrender::RenderApi,
-    document_id: webrender::api::DocumentId,
+///
+/// ## Parameters
+///
+/// Takes direct references to window fields to avoid borrow checker issues.
+/// This is the same pattern used in `invoke_single_callback`.
+///
+/// ## Return Value
+///
+/// Returns `Ok(())` on success, or an error message on failure.
+pub fn regenerate_layout(
+    layout_window: &mut LayoutWindow,
+    app_data: &Arc<RefCell<RefAny>>,
+    current_window_state: &FullWindowState,
+    renderer_resources: &mut RendererResources,
+    render_api: &mut WrRenderApi,
+    image_cache: &ImageCache,
+    gl_context_ptr: &OptionGlContextPtr,
+    fc_cache: &Arc<FcFontCache>,
+    system_style: &Arc<SystemStyle>,
+    document_id: DocumentId,
 ) -> Result<(), String> {
-    let layout_window = match window.get_layout_window_mut() {
-        Some(lw) => lw,
-        None => return Err("No layout window".into()),
-    };
+    use std::io::Write;
+
+    eprintln!("[regenerate_layout] START");
+
+    // Update layout_window's fc_cache with the shared one
+    layout_window.font_manager.fc_cache = fc_cache.clone();
 
     // 1. Call user's layout callback to get new DOM
-    let layout_callback = window.get_current_window_state().layout_callback.clone();
-    let image_cache = window.get_image_cache_mut();
-    let renderer_resources = window.get_renderer_resources_mut();
-    
+    eprintln!("[regenerate_layout] Calling layout_callback");
+    let _ = std::io::stderr().flush();
+
     let mut callback_info = LayoutCallbackInfo::new(
-        window.get_current_window_state().size,
-        window.get_current_window_state().theme,
+        current_window_state.size.clone(),
+        current_window_state.theme,
         image_cache,
-        window.get_gl_context_ptr(),
-        &*window.get_fc_cache(),
-        window.get_system_style().clone(),
+        gl_context_ptr,
+        &*fc_cache,
+        system_style.clone(),
     );
 
-    let user_dom = match &layout_callback {
-        azul_core::callbacks::LayoutCallback::Raw(inner) => {
-            (inner.cb)(&mut window.get_app_data().borrow_mut(), &mut callback_info)
-        }
-        azul_core::callbacks::LayoutCallback::Marshaled(marshaled) => {
-            (marshaled.cb.cb)(
-                &mut marshaled.marshal_data.clone(),
-                &mut window.get_app_data().borrow_mut(),
-                &mut callback_info,
-            )
-        }
+    let mut app_data_borrowed = app_data.borrow_mut();
+
+    let user_styled_dom = match &current_window_state.layout_callback {
+        LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
+        LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
+            &mut marshaled.marshal_data.clone(),
+            &mut *app_data_borrowed,
+            &mut callback_info,
+        ),
     };
+
+    drop(app_data_borrowed); // Release borrow
 
     // 2. Conditionally inject Client-Side Decorations (CSD)
-    let current_state = window.get_current_window_state();
-    let should_inject_csd = csd::should_inject_csd(
-        current_state.flags.has_decorations,
-        current_state.flags.decorations,
-    );
-    let has_minimize = true;
-    let has_maximize = true;
-
-    let final_dom = if should_inject_csd {
+    let styled_dom = if csd::should_inject_csd(
+        current_window_state.flags.has_decorations,
+        current_window_state.flags.decorations,
+    ) {
+        eprintln!("[regenerate_layout] Injecting CSD decorations");
         csd::wrap_user_dom_with_decorations(
-            user_dom,
-            &current_state.title.as_str(),
-            should_inject_csd,
-            has_minimize,
-            has_maximize,
-            window.get_system_style(),
+            user_styled_dom,
+            &current_window_state.title,
+            true,         // inject titlebar
+            true,         // has minimize
+            true,         // has maximize
+            system_style, // pass SystemStyle for native look
         )
     } else {
-        user_dom
+        user_styled_dom
     };
 
-    // Get renderer_resources again (borrow checker)
-    let renderer_resources = window.get_renderer_resources_mut();
+    eprintln!(
+        "[regenerate_layout] StyledDom received: {} nodes",
+        styled_dom.styled_nodes.len()
+    );
+    eprintln!(
+        "[regenerate_layout] StyledDom hierarchy length: {}",
+        styled_dom.node_hierarchy.len()
+    );
+    let _ = std::io::stderr().flush();
 
-    // 3. Perform layout with LayoutWindow
+    // 3. Perform layout with solver3
+    eprintln!("[regenerate_layout] Calling layout_and_generate_display_list");
     layout_window
         .layout_and_generate_display_list(
-            final_dom,
-            window.get_current_window_state(),
+            styled_dom,
+            current_window_state,
             renderer_resources,
             &ExternalSystemCallbacks::rust_internal(),
-            &mut None, // debug_messages
+            &mut None, // No debug messages for now
         )
-        .map_err(|e| format!("Layout failed: {:?}", e))?;
+        .map_err(|e| format!("Layout error: {:?}", e))?;
+
+    eprintln!(
+        "[regenerate_layout] Layout completed, {} DOMs",
+        layout_window.layout_results.len()
+    );
 
     // 4. Calculate scrollbar states based on new layout
+    // This updates scrollbar geometry (thumb position/size ratios, visibility)
     layout_window.scroll_states.calculate_scrollbar_states();
 
     // 5. Rebuild display list and send to WebRender
-    let dpi_factor = window.get_current_window_state().size.get_hidpi_factor();
-    let mut txn = webrender::Transaction::new();
-    
-    let image_cache = window.get_image_cache_mut();
-    let renderer_resources = window.get_renderer_resources_mut();
-    
+    let dpi_factor = current_window_state.size.get_hidpi_factor();
+    let mut txn = WrTransaction::new();
     wr_translate2::rebuild_display_list(
         &mut txn,
         layout_window,
         render_api,
         image_cache,
-        alloc::vec::Vec::new(),
+        Vec::new(),
         renderer_resources,
         dpi_factor,
     );
 
-    // Send transaction
-    render_api.send_transaction(document_id, txn);
-
-    // 6. Synchronize scrollbar opacity with GPU cache
+    // 6. Synchronize scrollbar opacity with GPU cache AFTER display list submission
+    // This enables smooth fade-in/fade-out without display list rebuild
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     for (dom_id, layout_result) in &layout_window.layout_results {
         LayoutWindow::synchronize_scrollbar_opacity(
@@ -141,8 +169,22 @@ pub fn regenerate_layout<W: PlatformWindowV2>(
         );
     }
 
-    // 7. Mark frame needs regeneration
-    window.mark_frame_needs_regeneration();
+    eprintln!("[regenerate_layout] COMPLETE");
 
     Ok(())
+}
+
+/// Helper function to generate WebRender frame
+///
+/// This should be called after regenerate_layout to submit the frame to WebRender.
+/// Usually called once at the end of event processing.
+pub fn generate_frame(
+    layout_window: &mut LayoutWindow,
+    render_api: &mut WrRenderApi,
+    document_id: DocumentId,
+) {
+    let mut txn = WrTransaction::new();
+    wr_translate2::generate_frame(&mut txn, layout_window, render_api, true); // Display list was rebuilt
+
+    render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }

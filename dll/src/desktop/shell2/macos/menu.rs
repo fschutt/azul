@@ -96,8 +96,8 @@ pub struct MenuState {
     current_hash: u64,
     /// The NSMenu instance
     ns_menu: Option<Retained<NSMenu>>,
-    /// Command ID to callback mapping
-    command_map: HashMap<i64, usize>, // tag -> callback_index
+    /// Command ID to callback mapping (tag -> CoreMenuCallback)
+    command_map: HashMap<i64, azul_core::menu::CoreMenuCallback>,
 }
 
 impl MenuState {
@@ -131,13 +131,16 @@ impl MenuState {
     }
 
     /// Look up callback for a command tag
-    pub fn get_callback_for_tag(&self, tag: i64) -> Option<usize> {
-        self.command_map.get(&tag).copied()
+    pub fn get_callback_for_tag(&self, tag: i64) -> Option<&azul_core::menu::CoreMenuCallback> {
+        self.command_map.get(&tag)
     }
 }
 
 /// Create an NSMenu from Azul Menu structure
-fn create_nsmenu(menu: &Menu, mtm: MainThreadMarker) -> (Retained<NSMenu>, HashMap<i64, usize>) {
+fn create_nsmenu(
+    menu: &Menu,
+    mtm: MainThreadMarker,
+) -> (Retained<NSMenu>, HashMap<i64, azul_core::menu::CoreMenuCallback>) {
     let ns_menu = NSMenu::new(mtm);
     let mut command_map = HashMap::new();
     let mut next_tag = 1i64;
@@ -152,7 +155,7 @@ fn create_nsmenu(menu: &Menu, mtm: MainThreadMarker) -> (Retained<NSMenu>, HashM
 fn build_menu_items(
     items: &azul_core::menu::MenuItemVec,
     parent_menu: &NSMenu,
-    command_map: &mut HashMap<i64, usize>,
+    command_map: &mut HashMap<i64, azul_core::menu::CoreMenuCallback>,
     next_tag: &mut i64,
     mtm: MainThreadMarker,
 ) {
@@ -167,12 +170,12 @@ fn build_menu_items(
                     menu_item.setTitle(&title);
 
                     // If has callback, assign tag and connect to target
-                    if string_item.callback.is_some() {
+                    if let Some(callback) = string_item.callback.as_option() {
                         let tag = *next_tag;
                         *next_tag += 1;
 
                         menu_item.setTag(tag as isize);
-                        command_map.insert(tag, index);
+                        command_map.insert(tag, callback.clone());
 
                         // Set action and target for callback dispatch
                         let target = AzulMenuTarget::shared_instance(mtm);

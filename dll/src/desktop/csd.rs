@@ -108,64 +108,46 @@ extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackIn
 }
 
 /// Callback for titlebar drag - updates window position based on mouse movement
+/// Marker type to indicate titlebar drag area
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TitlebarDragMarker;
+
+/// Callback for titlebar drag start - activates window dragging
+/// 
+/// This is called on DragStart event. The callback data contains a TitlebarDragMarker
+/// which signals to the event system that this drag should activate window dragging.
+extern "C" fn csd_titlebar_drag_start_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    // Signal that window drag should be activated by returning special flag
+    // The actual activation happens in the event processing loop where we have mutable access
+    
+    eprintln!("[CSD Callback] DragStart on titlebar - requesting window drag activation");
+    
+    // We use a special Update variant to signal window drag activation
+    // For now, just DoNothing - the auto-activation logic will handle it
+    Update::DoNothing
+}
+
+/// Callback for titlebar dragging - uses GestureAndDragManager
+/// 
+/// This callback handles the Drag event (fired continuously during drag).
+/// The window position is updated based on the drag delta from the gesture manager.
+/// 
+/// Since dragging works via the gesture manager, it continues to work even
+/// when the mouse leaves the window (as long as the button is held down).
 extern "C" fn csd_titlebar_drag_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use azul_core::{geom::PhysicalPosition, window::WindowPosition};
+    // Get gesture manager to check drag state
+    let gesture_manager = info.get_gesture_drag_manager();
 
-    // Only drag if left mouse button is down
-    let mouse_state = info.get_current_mouse_state();
-    if !mouse_state.left_down {
-        return Update::DoNothing;
+    // Update window position from active drag
+    if let Some(new_position) = gesture_manager.get_window_position_from_drag() {
+        let mut window_state = info.get_current_window_state();
+        window_state.position = new_position;
+        info.set_window_state(window_state);
+        
+        // No logging during drag to avoid spam
     }
 
-    // Get previous and current mouse positions
-    let prev_mouse_state = match info.get_previous_mouse_state() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    let current_pos = match mouse_state.cursor_position.get_position() {
-        Some(pos) => pos,
-        None => return Update::DoNothing,
-    };
-
-    let prev_pos = match prev_mouse_state.cursor_position.get_position() {
-        Some(pos) => pos,
-        None => return Update::DoNothing,
-    };
-
-    // Calculate delta (how much the mouse moved)
-    let delta_x = (current_pos.x - prev_pos.x) as i32;
-    let delta_y = (current_pos.y - prev_pos.y) as i32;
-
-    // Only update if there's actual movement
-    if delta_x == 0 && delta_y == 0 {
-        return Update::DoNothing;
-    }
-
-    // Get current window state and update position
-    let mut window_state = info.get_current_window_state();
-
-    match window_state.position {
-        WindowPosition::Initialized(ref mut pos) => {
-            pos.x += delta_x;
-            pos.y += delta_y;
-            info.set_window_state(window_state);
-            eprintln!(
-                "[CSD Callback] Titlebar drag - moved window by ({}, {})",
-                delta_x, delta_y
-            );
-            Update::DoNothing
-        }
-        WindowPosition::Uninitialized => {
-            // Initialize position at current cursor location if not yet set
-            window_state.position = WindowPosition::Initialized(PhysicalPosition {
-                x: current_pos.x as i32,
-                y: current_pos.y as i32,
-            });
-            info.set_window_state(window_state);
-            Update::DoNothing
-        }
-    }
+    Update::DoNothing
 }
 
 /// Callback for titlebar double-click - toggles maximize/restore
@@ -372,13 +354,22 @@ fn create_titlebar_dom(
         .with_ids_and_classes(title_classes)
         .with_child(Dom::text(title))
         .with_callbacks(
-            vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                callback: CoreCallback {
-                    cb: csd_titlebar_drag_callback as usize,
+            vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::DragStart),
+                    callback: CoreCallback {
+                        cb: csd_titlebar_drag_start_callback as usize,
+                    },
+                    data: RefAny::new(TitlebarDragMarker),
                 },
-                data: RefAny::new(()),
-            }]
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Drag),
+                    callback: CoreCallback {
+                        cb: csd_titlebar_drag_callback as usize,
+                    },
+                    data: RefAny::new(TitlebarDragMarker),
+                },
+            ]
             .into(),
         );
 
