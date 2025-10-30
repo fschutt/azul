@@ -51,7 +51,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.80.0 # Pinning version for consistency
+          toolchain: 1.85.0 # Pinning version for consistency
 
       - name: Check crates
         run: |
@@ -90,7 +90,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.80.0
+          toolchain: 1.85.0
 
       - name: Install Miri
         run: |
