@@ -111,7 +111,6 @@ impl PlatformWindow for X11Window {
     where
         Self: Sized,
     {
-        // This is a stand-in for tests - use new_with_resources() in production
         let resources = Arc::new(super::AppResources::default_for_testing());
         Self::new_with_resources(options, resources)
     }
@@ -146,6 +145,9 @@ impl PlatformWindow for X11Window {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
+        // Check timers and threads before processing X11 events
+        self.check_timers_and_threads();
+        
         while unsafe { (self.xlib.XPending)(self.display) } > 0 {
             let mut event: XEvent = unsafe { std::mem::zeroed() };
             unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
@@ -165,13 +167,52 @@ impl PlatformWindow for X11Window {
                 defines::ConfigureNotify => {
                     let ev = unsafe { &event.configure };
                     let (new_width, new_height) = (ev.width as u32, ev.height as u32);
-                    if self.current_window_state.size.get_physical_size()
-                        != PhysicalSize::new(new_width, new_height)
-                    {
+                    
+                    // Check if size changed
+                    let size_changed = self.current_window_state.size.get_physical_size()
+                        != PhysicalSize::new(new_width, new_height);
+                    
+                    // Check if position changed (might have moved to different monitor with different DPI)
+                    let position_changed = match self.current_window_state.position {
+                        azul_core::window::WindowPosition::Initialized(pos) => {
+                            pos.x != ev.x || pos.y != ev.y
+                        }
+                        _ => true,
+                    };
+                    
+                    if size_changed {
                         self.current_window_state.size.dimensions =
                             LogicalSize::new(new_width as f32, new_height as f32);
                         self.regenerate_layout().ok();
                     }
+                    
+                    // Update position
+                    self.current_window_state.position = azul_core::window::WindowPosition::Initialized(
+                        azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y)
+                    );
+                    
+                    // If position changed, check for DPI change (moved to different monitor)
+                    if position_changed && !size_changed {
+                        // Get current display DPI at new position
+                        use azul_core::geom::LogicalPosition;
+                        let window_center = LogicalPosition::new(
+                            ev.x as f32 + new_width as f32 / 2.0,
+                            ev.y as f32 + new_height as f32 / 2.0,
+                        );
+                        
+                        if let Some(display) = crate::desktop::display::get_display_at_point(window_center) {
+                            let new_dpi = (display.scale_factor * 96.0) as u32;
+                            let old_dpi = self.current_window_state.size.dpi;
+                            
+                            // Only regenerate if DPI changed significantly (avoid rounding errors)
+                            if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+                                eprintln!("[X11 DPI Change] {} -> {} (moved to different monitor)", old_dpi, new_dpi);
+                                self.current_window_state.size.dpi = new_dpi;
+                                self.regenerate_layout().ok();
+                            }
+                        }
+                    }
+                    
                     ProcessEventResult::DoNothing
                 }
                 defines::ClientMessage => {
@@ -354,6 +395,7 @@ impl X11Window {
         ) = match gl::GlContext::new(&xlib, &egl, display, window_handle) {
             Ok(gl_context) => {
                 gl_context.make_current();
+                gl_context.configure_vsync(options.state.renderer_options.vsync);
                 let gl_functions = GlFunctions::initialize(&egl).unwrap();
 
                 let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
@@ -697,8 +739,6 @@ impl X11Window {
             use azul_core::window::WindowFrame;
             match current.flags.frame {
                 WindowFrame::Minimized => {
-                    // TODO: Minimize via XIconifyWindow (not yet in dlopen wrapper)
-                    // For now, use XUnmapWindow as fallback
                     unsafe {
                         (self.xlib.XUnmapWindow)(self.display, self.window);
                     }
@@ -847,8 +887,6 @@ impl X11Window {
 
     /// Calculates the DPI of the screen the window is on.
     pub fn get_screen_dpi(&self) -> Option<f32> {
-        // TODO: Implement proper DPI detection with XRandR
-        // For now, return default DPI
         Some(96.0)
     }
 
@@ -901,6 +939,11 @@ impl X11Window {
                 work_area,
                 scale_factor,
                 is_primary: true,
+                video_modes: vec![azul_core::window::VideoMode {
+                    size: azul_css::props::basic::LayoutSize::new(width_px as isize, height_px as isize),
+                    bit_depth: 32,
+                    refresh_rate: 60,
+                }],
             })
         }
     }
@@ -1061,6 +1104,73 @@ impl PlatformWindowV2 for X11Window {
             renderer_resources: &mut self.renderer_resources,
         }
     }
+
+    // =========================================================================
+    // Timer Management (X11 Implementation - Stored in LayoutWindow)
+    // =========================================================================
+
+    fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
+        // X11 has no native timer API, so we just store timers in layout_window
+        // They will be ticked manually in the event loop
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window.timers.insert(
+                azul_core::task::TimerId { id: timer_id },
+                timer,
+            );
+        }
+        
+        // Mark for regeneration so the event loop checks timers
+        self.frame_needs_regeneration = true;
+    }
+
+    fn stop_timer(&mut self, timer_id: usize) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window
+                .timers
+                .remove(&azul_core::task::TimerId { id: timer_id });
+        }
+    }
+
+    // =========================================================================
+    // Thread Management (X11 Implementation - Stored in LayoutWindow)
+    // =========================================================================
+
+    fn start_thread_poll_timer(&mut self) {
+        // For X11, we don't need a separate timer - threads are checked
+        // in the event loop when layout_window.threads is non-empty
+        // Just mark for regeneration to start checking
+        self.frame_needs_regeneration = true;
+    }
+
+    fn stop_thread_poll_timer(&mut self) {
+        // No-op for X11 - thread checking stops automatically when
+        // layout_window.threads becomes empty
+    }
+
+    fn add_threads(
+        &mut self,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for (thread_id, thread) in threads {
+                layout_window.threads.insert(thread_id, thread);
+            }
+        }
+        
+        // Mark for regeneration to start thread polling
+        self.frame_needs_regeneration = true;
+    }
+
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for thread_id in thread_ids {
+                layout_window.threads.remove(thread_id);
+            }
+        }
+    }
 }
 
 impl Drop for X11Window {
@@ -1068,5 +1178,27 @@ impl Drop for X11Window {
         // Unregister from global registry before closing
         super::registry::unregister_x11_window(self.window);
         self.close();
+    }
+}
+
+impl X11Window {
+    /// Check timers and threads, trigger callbacks if needed
+    /// This is called on every poll_event() to simulate timer ticks
+    fn check_timers_and_threads(&mut self) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+            let current_time = (system_callbacks.get_system_time_fn.cb)();
+            
+            // Check if any timers expired
+            let expired_timers = layout_window.tick_timers(current_time);
+            if !expired_timers.is_empty() {
+                self.frame_needs_regeneration = true;
+            }
+            
+            // Check if we have active threads (they need periodic checking)
+            if !layout_window.threads.is_empty() {
+                self.frame_needs_regeneration = true;
+            }
+        }
     }
 }

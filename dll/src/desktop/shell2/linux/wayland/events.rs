@@ -129,6 +129,18 @@ pub(super) extern "C" fn wl_surface_enter_handler(
     if !window.current_outputs.contains(&output) {
         window.current_outputs.push(output);
     }
+    
+    // Check if scale factor changed (entered monitor with different DPI)
+    let new_scale = window.calculate_current_scale_factor();
+    let old_dpi = window.current_window_state.size.dpi;
+    let new_dpi = (new_scale * 96.0) as u32;
+    
+    // Only regenerate if DPI changed significantly
+    if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+        eprintln!("[Wayland DPI Change] {} -> {} (entered new monitor)", old_dpi, new_dpi);
+        window.current_window_state.size.dpi = new_dpi;
+        window.frame_needs_regeneration = true;
+    }
 }
 
 pub(super) extern "C" fn wl_surface_leave_handler(
@@ -140,6 +152,18 @@ pub(super) extern "C" fn wl_surface_leave_handler(
     
     // Remove this output from current_outputs
     window.current_outputs.retain(|&o| o != output);
+    
+    // Check if scale factor changed (left monitor, now on different monitor)
+    let new_scale = window.calculate_current_scale_factor();
+    let old_dpi = window.current_window_state.size.dpi;
+    let new_dpi = (new_scale * 96.0) as u32;
+    
+    // Only regenerate if DPI changed significantly
+    if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+        eprintln!("[Wayland DPI Change] {} -> {} (left monitor)", old_dpi, new_dpi);
+        window.current_window_state.size.dpi = new_dpi;
+        window.frame_needs_regeneration = true;
+    }
 }
 
 extern "C" fn xdg_wm_base_ping_handler(data: *mut c_void, shell: *mut xdg_wm_base, serial: u32) {

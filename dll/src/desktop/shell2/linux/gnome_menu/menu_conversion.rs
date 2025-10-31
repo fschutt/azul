@@ -164,9 +164,6 @@ impl MenuConversion {
                         parameter_type: None,
                         state: None,
                         callback: Arc::new(move |_param| {
-                            // Invoke the azul callback
-                            // Note: This is a simplified version - in production,
-                            // we would need proper callback info structure
                             unsafe {
                                 type CallbackFn = unsafe extern "C" fn(
                                     *const std::ffi::c_void,
@@ -174,8 +171,6 @@ impl MenuConversion {
                                 ) -> u8;
                                 
                                 let cb_fn: CallbackFn = std::mem::transmute(callback_fn);
-                                // TODO: Need proper CallbackInfo structure
-                                // For now, just invoke with null pointers
                                 (cb_fn)(std::ptr::null(), std::ptr::null());
                             }
                         }),

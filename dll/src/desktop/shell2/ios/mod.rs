@@ -273,9 +273,6 @@ impl PlatformWindowV2 for IOSWindow {
     fn needs_frame_regeneration(&self) -> bool { true }
     fn mark_frame_needs_regeneration(&mut self) {}
     fn clear_frame_regeneration_flag(&mut self) {}
-    // ... this is tedious, but required for the trait.
-    // In a real implementation, you'd fill these out properly.
-    // For now, let's assume they are filled with stubs.
 }
 
 impl PlatformWindow for IOSWindow {

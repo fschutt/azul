@@ -5,7 +5,7 @@
 
 use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    window::{Monitor, MonitorId, MonitorVec, VideoModeVec},
+    window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec},
 };
 use azul_css::{
     AzString, OptionAzString,
@@ -25,6 +25,8 @@ pub struct DisplayInfo {
     pub scale_factor: f32,
     /// Whether this is the primary display
     pub is_primary: bool,
+    /// Available video modes (resolution, refresh rate, bit depth)
+    pub video_modes: Vec<VideoMode>,
 }
 
 /// Get all available displays
@@ -118,7 +120,7 @@ impl DisplayInfo {
                     self.work_area.size.height as isize
                 ),
             ),
-            video_modes: VideoModeVec::from_const_slice(&[]),
+            video_modes: self.video_modes.clone().into(),
             is_primary_monitor: self.is_primary,
         }
     }
@@ -205,6 +207,46 @@ mod windows {
     type HDC = *mut std::ffi::c_void;
     type HWND = *mut std::ffi::c_void;
     
+    #[repr(C)]
+    struct DEVMODEW {
+        dm_device_name: [u16; 32],
+        dm_spec_version: u16,
+        dm_driver_version: u16,
+        dm_size: u16,
+        dm_driver_extra: u16,
+        dm_fields: u32,
+        dm_position_x: i32,
+        dm_position_y: i32,
+        dm_display_orientation: u32,
+        dm_display_fixed_output: u32,
+        dm_color: i16,
+        dm_duplex: i16,
+        dm_y_resolution: i16,
+        dm_tt_option: i16,
+        dm_collate: i16,
+        dm_form_name: [u16; 32],
+        dm_log_pixels: u16,
+        dm_bits_per_pel: u32,
+        dm_pels_width: u32,
+        dm_pels_height: u32,
+        dm_display_flags: u32,
+        dm_display_frequency: u32,
+        dm_icm_method: u32,
+        dm_icm_intent: u32,
+        dm_media_type: u32,
+        dm_dither_type: u32,
+        dm_reserved1: u32,
+        dm_reserved2: u32,
+        dm_panning_width: u32,
+        dm_panning_height: u32,
+    }
+    
+    const DM_BITSPERPEL: u32 = 0x00040000;
+    const DM_PELSWIDTH: u32 = 0x00080000;
+    const DM_PELSHEIGHT: u32 = 0x00100000;
+    const DM_DISPLAYFREQUENCY: u32 = 0x00400000;
+    const ENUM_CURRENT_SETTINGS: u32 = 0xFFFFFFFF;
+    
     #[link(name = "user32")]
     extern "system" {
         fn EnumDisplayMonitors(
@@ -224,6 +266,12 @@ mod windows {
             dpi_type: u32,
             dpi_x: *mut u32,
             dpi_y: *mut u32,
+        ) -> i32;
+        
+        fn EnumDisplaySettingsW(
+            lpsz_device_name: *const u16,
+            i_mode_num: u32,
+            lp_dev_mode: *mut DEVMODEW,
         ) -> i32;
     }
     
@@ -288,6 +336,54 @@ mod windows {
                 .trim_end_matches('\0')
                 .to_string();
             
+            // Get current display settings (resolution, refresh rate, bit depth)
+            let mut dev_mode: DEVMODEW = std::mem::zeroed();
+            dev_mode.dm_size = std::mem::size_of::<DEVMODEW>() as u16;
+            
+            let video_modes = if !monitor_info.sz_device.is_empty() 
+                && EnumDisplaySettingsW(
+                    monitor_info.sz_device.as_ptr(),
+                    ENUM_CURRENT_SETTINGS,
+                    &mut dev_mode,
+                ) != 0
+            {
+                // Check which fields are valid
+                let has_refresh = (dev_mode.dm_fields & DM_DISPLAYFREQUENCY) != 0;
+                let has_bits = (dev_mode.dm_fields & DM_BITSPERPEL) != 0;
+                let has_resolution = (dev_mode.dm_fields & (DM_PELSWIDTH | DM_PELSHEIGHT)) == (DM_PELSWIDTH | DM_PELSHEIGHT);
+                
+                if has_resolution {
+                    vec![VideoMode {
+                        size: LayoutSize::new(
+                            dev_mode.dm_pels_width as isize,
+                            dev_mode.dm_pels_height as isize,
+                        ),
+                        bit_depth: if has_bits { dev_mode.dm_bits_per_pel as u16 } else { 32 },
+                        refresh_rate: if has_refresh { dev_mode.dm_display_frequency as u16 } else { 60 },
+                    }]
+                } else {
+                    // Fallback: use monitor bounds for resolution
+                    vec![VideoMode {
+                        size: LayoutSize::new(
+                            (rc_monitor.right - rc_monitor.left) as isize,
+                            (rc_monitor.bottom - rc_monitor.top) as isize,
+                        ),
+                        bit_depth: 32,
+                        refresh_rate: 60,
+                    }]
+                }
+            } else {
+                // Fallback: use monitor bounds for resolution
+                vec![VideoMode {
+                    size: LayoutSize::new(
+                        (rc_monitor.right - rc_monitor.left) as isize,
+                        (rc_monitor.bottom - rc_monitor.top) as isize,
+                    ),
+                    bit_depth: 32,
+                    refresh_rate: 60,
+                }]
+            };
+            
             context.displays.push(DisplayInfo {
                 name: if name.is_empty() {
                     format!("Monitor {}", context.monitor_id)
@@ -298,6 +394,7 @@ mod windows {
                 work_area,
                 scale_factor,
                 is_primary,
+                video_modes,
             });
             
             context.monitor_id += 1;
@@ -333,6 +430,11 @@ mod windows {
                     ),
                     scale_factor: 1.0,
                     is_primary: true,
+                    video_modes: vec![VideoMode {
+                        size: LayoutSize::new(1920, 1080),
+                        bit_depth: 32,
+                        refresh_rate: 60,
+                    }],
                 }]
             } else {
                 context.displays
@@ -345,6 +447,7 @@ mod windows {
 mod macos {
     use objc2_app_kit::NSScreen;
     use objc2_foundation::MainThreadMarker;
+    use objc2::msg_send;
 
     use super::*;
 
@@ -374,12 +477,27 @@ mod macos {
                 ),
             );
 
+            // Get refresh rate from NSScreen (macOS 10.15+)
+            // maximumFramesPerSecond returns refresh rate in Hz
+            let refresh_rate = unsafe {
+                let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
+                if fps > 0.0 { fps as u16 } else { 60 }
+            };
+
             displays.push(DisplayInfo {
                 name: screen.localizedName().to_string(),
                 bounds,
                 work_area,
                 scale_factor: scale as f32,
                 is_primary: i == 0, // First screen is primary on macOS
+                video_modes: vec![VideoMode {
+                    size: LayoutSize::new(
+                        bounds.size.width as isize,
+                        bounds.size.height as isize,
+                    ),
+                    bit_depth: 32, // macOS doesn't expose bit depth, assume 32-bit
+                    refresh_rate,
+                }],
             });
         }
 
@@ -417,6 +535,24 @@ mod linux {
 
         // XRandR structures
         #[repr(C)]
+        struct XRRModeInfo {
+            id: u64,
+            width: u32,
+            height: u32,
+            dot_clock: u64,
+            h_sync_start: u32,
+            h_sync_end: u32,
+            h_total: u32,
+            h_skew: u32,
+            v_sync_start: u32,
+            v_sync_end: u32,
+            v_total: u32,
+            name: *mut i8,
+            name_length: u32,
+            mode_flags: u64,
+        }
+
+        #[repr(C)]
         struct XRRScreenResourcesStruct {
             timestamp: Time,
             config_timestamp: Time,
@@ -425,7 +561,7 @@ mod linux {
             noutput: i32,
             outputs: *mut RROutput,
             nmode: i32,
-            modes: *mut c_void, // XRRModeInfo, but we don't need it
+            modes: *mut XRRModeInfo,
         }
 
         #[repr(C)]
@@ -538,6 +674,31 @@ mod linux {
                             (crtc_info.height.saturating_sub(24)) as f32,
                         ),
                     );
+                    
+                    // Get refresh rate from mode info
+                    let refresh_rate = if crtc_info.mode != 0 {
+                        // Find the mode in resources
+                        let modes = std::slice::from_raw_parts(
+                            resources.modes,
+                            resources.nmode as usize,
+                        );
+                        modes.iter()
+                            .find(|mode| mode.id == crtc_info.mode)
+                            .map(|mode| {
+                                // Calculate refresh rate: (dotClock / (hTotal * vTotal))
+                                let h_total = mode.h_total as u64;
+                                let v_total = mode.v_total as u64;
+                                if h_total > 0 && v_total > 0 {
+                                    let refresh = (mode.dot_clock as u64 * 1000) / (h_total * v_total);
+                                    refresh as u16
+                                } else {
+                                    60
+                                }
+                            })
+                            .unwrap_or(60)
+                    } else {
+                        60
+                    };
 
                     displays.push(DisplayInfo {
                         name: format!("CRTC-{}", i),
@@ -545,6 +706,14 @@ mod linux {
                         work_area,
                         scale_factor: base_scale,
                         is_primary: i == 0, // First CRTC is typically primary
+                        video_modes: vec![VideoMode {
+                            size: LayoutSize::new(
+                                crtc_info.width as isize,
+                                crtc_info.height as isize,
+                            ),
+                            bit_depth: 32, // X11 doesn't easily expose this, assume 32-bit
+                            refresh_rate,
+                        }],
                     });
 
                     free_crtc_info(crtc_info_ptr);
@@ -620,6 +789,11 @@ mod linux {
                     work_area,
                     scale_factor,
                     is_primary: true,
+                    video_modes: vec![VideoMode {
+                        size: LayoutSize::new(width_px as isize, height_px as isize),
+                        bit_depth: 32,
+                        refresh_rate: 60, // Default to 60Hz when we can't detect
+                    }],
                 }]
             }
         }
@@ -639,6 +813,11 @@ mod linux {
                 work_area,
                 scale_factor: 1.0,
                 is_primary: true,
+                video_modes: vec![VideoMode {
+                    size: LayoutSize::new(1920, 1080),
+                    bit_depth: 32,
+                    refresh_rate: 60,
+                }],
             }]
         }
     }
@@ -699,6 +878,11 @@ mod linux {
                 work_area,
                 scale_factor: 1.0,
                 is_primary: true,
+                video_modes: vec![VideoMode {
+                    size: LayoutSize::new(width as isize, height as isize),
+                    bit_depth: 32,
+                    refresh_rate: 60,
+                }],
             }]
         }
 
@@ -749,7 +933,7 @@ mod linux {
                     .into_iter()
                     .filter(|o| o.active)
                     .map(|o| DisplayInfo {
-                        name: o.name,
+                        name: o.name.clone(),
                         bounds: LogicalRect::new(
                             LogicalPosition::new(o.rect.x, o.rect.y),
                             LogicalSize::new(o.rect.width, o.rect.height),
@@ -760,6 +944,11 @@ mod linux {
                         ),
                         scale_factor: o.scale,
                         is_primary: o.primary,
+                        video_modes: vec![VideoMode {
+                            size: LayoutSize::new(o.rect.width as isize, o.rect.height as isize),
+                            bit_depth: 32,
+                            refresh_rate: 60,
+                        }],
                     })
                     .collect();
 
@@ -815,7 +1004,7 @@ mod linux {
                 let mut displays: Vec<DisplayInfo> = outputs
                     .into_iter()
                     .map(|o| DisplayInfo {
-                        name: o.name,
+                        name: o.name.clone(),
                         bounds: LogicalRect::new(
                             LogicalPosition::new(o.x, o.y),
                             LogicalSize::new(o.width, o.height),
@@ -826,6 +1015,11 @@ mod linux {
                         ),
                         scale_factor: o.scale,
                         is_primary: o.focused,
+                        video_modes: vec![VideoMode {
+                            size: LayoutSize::new(o.width as isize, o.height as isize),
+                            bit_depth: 32,
+                            refresh_rate: 60,
+                        }],
                     })
                     .collect();
 
@@ -894,7 +1088,7 @@ mod linux {
                     .into_iter()
                     .filter(|o| o.enabled)
                     .map(|o| DisplayInfo {
-                        name: o.name,
+                        name: o.name.clone(),
                         bounds: LogicalRect::new(
                             LogicalPosition::new(o.geometry.x, o.geometry.y),
                             LogicalSize::new(o.geometry.width, o.geometry.height),
@@ -905,6 +1099,11 @@ mod linux {
                         ),
                         scale_factor: o.scale,
                         is_primary: o.primary,
+                        video_modes: vec![VideoMode {
+                            size: LayoutSize::new(o.geometry.width as isize, o.geometry.height as isize),
+                            bit_depth: 32,
+                            refresh_rate: 60,
+                        }],
                     })
                     .collect();
 
@@ -1015,6 +1214,11 @@ mod linux {
                                 ),
                                 scale_factor: scale,
                                 is_primary: is_focused || (x == 0.0 && y == 0.0),
+                                video_modes: vec![VideoMode {
+                                    size: LayoutSize::new(width as isize, height as isize),
+                                    bit_depth: 32,
+                                    refresh_rate: 60, // Wayland doesn't easily expose this via wlr-randr
+                                }],
                             });
                         }
                     }

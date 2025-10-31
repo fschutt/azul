@@ -146,6 +146,23 @@ impl GlContext {
         })
     }
 
+    /// Configure VSync using eglSwapInterval
+    pub fn configure_vsync(&self, vsync: azul_core::window::Vsync) {
+        use azul_core::window::Vsync;
+        
+        let interval = match vsync {
+            Vsync::Enabled => 1,
+            Vsync::Disabled => 0,
+            Vsync::DontCare => 1,
+        };
+
+        if let (Some(egl), Some(display)) = (self.egl.as_ref(), self.egl_display) {
+            unsafe {
+                (egl.eglSwapInterval)(display, interval);
+            }
+        }
+    }
+
     pub fn make_current(&self) {
         if let (Some(egl), Some(display), Some(surface), Some(context)) = (
             self.egl.as_ref(),

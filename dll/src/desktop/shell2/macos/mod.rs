@@ -849,6 +849,19 @@ define_class!(
             // No need to update state here, just for consistency
         }
 
+        #[unsafe(method(windowDidChangeBackingProperties:))]
+        fn window_did_change_backing_properties(&self, _notification: &NSNotification) {
+            // DPI/scale factor changed (e.g., moved to different display)
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let window = &mut *(window_ptr as *mut MacOSWindow);
+                    if let Err(e) = window.handle_dpi_change() {
+                        eprintln!("[macOS] DPI change error: {}", e);
+                    }
+                }
+            }
+        }
+
         #[unsafe(method_id(init))]
         fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
             let this = this.set_ivars(WindowDelegateIvars {
@@ -1137,6 +1150,115 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
             renderer_resources: &mut self.renderer_resources,
         }
     }
+
+    // =========================================================================
+    // Timer Management (macOS/NSTimer Implementation)
+    // =========================================================================
+
+    fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
+        use block2::RcBlock;
+        
+        let interval: f64 = timer.tick_millis() as f64 / 1000.0;
+        
+        // Store the timer in layout_window first
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window.timers.insert(
+                azul_core::task::TimerId { id: timer_id },
+                timer,
+            );
+        }
+        
+        // Create NSTimer that marks frame for regeneration when fired
+        let ns_window = self.window.clone();
+        let timer_obj: Retained<NSTimer> = unsafe {
+            msg_send_id![
+                NSTimer::class(),
+                scheduledTimerWithTimeInterval: interval,
+                repeats: true,
+                block: &*RcBlock::new(move || {
+                    // Timer fired - request redraw to process timer callbacks
+                    let _: () = msg_send![&*ns_window, setViewsNeedDisplay: true];
+                })
+            ]
+        };
+        
+        self.timers.insert(timer_id, timer_obj);
+    }
+
+    fn stop_timer(&mut self, timer_id: usize) {
+        // Invalidate NSTimer
+        if let Some(timer) = self.timers.remove(&timer_id) {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+        
+        // Remove from layout_window
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window
+                .timers
+                .remove(&azul_core::task::TimerId { id: timer_id });
+        }
+    }
+
+    // =========================================================================
+    // Thread Management (macOS/NSTimer Implementation)
+    // =========================================================================
+
+    fn start_thread_poll_timer(&mut self) {
+        use block2::RcBlock;
+        
+        if self.thread_timer_running.is_some() {
+            return; // Already running
+        }
+        
+        // Create a timer that fires every 16ms (~60 FPS) to poll threads
+        let ns_window = self.window.clone();
+        let timer: Retained<NSTimer> = unsafe {
+            let interval: f64 = 0.016; // 16ms
+            msg_send_id![
+                NSTimer::class(),
+                scheduledTimerWithTimeInterval: interval,
+                repeats: true,
+                block: &*RcBlock::new(move || {
+                    // Thread polling - request redraw to check threads
+                    let _: () = msg_send![&*ns_window, setViewsNeedDisplay: true];
+                })
+            ]
+        };
+
+        self.thread_timer_running = Some(timer);
+    }
+
+    fn stop_thread_poll_timer(&mut self) {
+        if let Some(timer) = self.thread_timer_running.take() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+    }
+
+    fn add_threads(
+        &mut self,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for (thread_id, thread) in threads {
+                layout_window.threads.insert(thread_id, thread);
+            }
+        }
+    }
+
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for thread_id in thread_ids {
+                layout_window.threads.remove(thread_id);
+            }
+        }
+    }
 }
 
 impl MacOSWindow {
@@ -1216,6 +1338,22 @@ impl MacOSWindow {
         view.expect("Failed to create CPUView")
     }
 
+    /// Configure VSync on an OpenGL context
+    fn configure_vsync(gl_context: &NSOpenGLContext, vsync: azul_core::window::Vsync) {
+        use azul_core::window::Vsync;
+        
+        let swap_interval: i32 = match vsync {
+            Vsync::Enabled => 1,
+            Vsync::Disabled => 0,
+            Vsync::DontCare => 1,
+        };
+
+        unsafe {
+            gl_context.makeCurrentContext();
+            let _: () = msg_send![gl_context, setValues:&swap_interval forParameter:222];
+        }
+    }
+
     /// Create a new macOS window with given options and shared font cache.
     pub fn new_with_fc_cache(
         options: WindowCreateOptions,
@@ -1266,13 +1404,17 @@ impl MacOSWindow {
         // Create content view based on backend
         let (backend, gl_view, gl_context, gl_functions, cpu_view) = match requested_backend {
             RenderBackend::OpenGL => match Self::create_gl_view(content_rect, mtm) {
-                Ok((view, ctx, funcs)) => (
-                    RenderBackend::OpenGL,
-                    Some(view),
-                    Some(ctx),
-                    Some(funcs),
-                    None,
-                ),
+                Ok((view, ctx, funcs)) => {
+                    let vsync = options.state.renderer_options.vsync;
+                    Self::configure_vsync(&ctx, vsync);
+                    (
+                        RenderBackend::OpenGL,
+                        Some(view),
+                        Some(ctx),
+                        Some(funcs),
+                        None,
+                    )
+                }
                 Err(e) => {
                     eprintln!("OpenGL initialization failed: {}, falling back to CPU", e);
                     let view = Self::create_cpu_view(content_rect, mtm);
@@ -2302,39 +2444,23 @@ impl MacOSWindow {
             &self.renderer_resources,
         );
 
-        // Extract the Update result from CallCallbacksResult
-        let update = callback_result.callbacks_update_screen;
+        // Process callback result using the V2 unified system
+        // This handles timers, threads, window state changes, and Update
+        use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+        let event_result = self.process_callback_result_v2(&callback_result);
 
-        // Apply any window state changes
-        if let Some(modified_state) = callback_result.modified_window_state {
-            self.current_window_state.title = modified_state.title;
-            self.current_window_state.theme = modified_state.theme;
-            self.current_window_state.size = modified_state.size;
-            self.current_window_state.position = modified_state.position;
-            self.current_window_state.flags = modified_state.flags;
-            self.current_window_state.debug_state = modified_state.debug_state;
-            self.current_window_state.keyboard_state = modified_state.keyboard_state;
-            self.current_window_state.mouse_state = modified_state.mouse_state;
-            self.current_window_state.touch_state = modified_state.touch_state;
-            self.current_window_state.ime_position = modified_state.ime_position;
-            self.current_window_state.monitor = modified_state.monitor;
-            self.current_window_state.platform_specific_options = modified_state.platform_specific_options;
-            self.current_window_state.renderer_options = modified_state.renderer_options;
-            self.current_window_state.background_color = modified_state.background_color;
-            self.current_window_state.layout_callback = modified_state.layout_callback;
-            self.current_window_state.close_callback = modified_state.close_callback;
-        }
-
-        // Process the result
-        use azul_core::callbacks::Update;
-        match update {
-            Update::RefreshDom | Update::RefreshDomAllWindows => {
-                // Mark that we need to regenerate layout
+        // Handle the event result
+        use azul_core::events::ProcessEventResult;
+        match event_result {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows
+            | ProcessEventResult::ShouldReRenderCurrentWindow
+            | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.frame_needs_regeneration = true;
-                // Request redraw to trigger regenerate_layout
                 self.request_redraw();
             }
-            Update::DoNothing => {
+            ProcessEventResult::DoNothing => {
                 // No action needed
             }
         }
@@ -3074,12 +3200,27 @@ impl MacOSWindow {
             ),
         );
 
+        // Get refresh rate from NSScreen (macOS 10.15+)
+        let refresh_rate = unsafe {
+            use objc2::msg_send;
+            let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
+            if fps > 0.0 { fps as u16 } else { 60 }
+        };
+
         Some(crate::desktop::display::DisplayInfo {
             name: screen.localizedName().to_string(),
             bounds,
             work_area,
             scale_factor: scale as f32,
             is_primary: false, // Would need to check if this is the main screen
+            video_modes: vec![azul_core::window::VideoMode {
+                size: azul_css::props::basic::LayoutSize::new(
+                    bounds.size.width as isize,
+                    bounds.size.height as isize,
+                ),
+                bit_depth: 32,
+                refresh_rate,
+            }],
         })
     }
 }

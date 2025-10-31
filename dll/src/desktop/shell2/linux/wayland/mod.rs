@@ -483,6 +483,9 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
+        // Check timers and threads before processing Wayland events
+        self.check_timers_and_threads();
+        
         if unsafe {
             (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue)
         } > 0
@@ -696,6 +699,73 @@ impl PlatformWindowV2 for WaylandWindow {
             renderer_resources: &mut self.renderer_resources,
         }
     }
+
+    // =========================================================================
+    // Timer Management (Wayland Implementation - Stored in LayoutWindow)
+    // =========================================================================
+
+    fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
+        // Wayland has no native timer API, so we just store timers in layout_window
+        // They will be ticked manually in the event loop (similar to X11)
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window.timers.insert(
+                azul_core::task::TimerId { id: timer_id },
+                timer,
+            );
+        }
+        
+        // Mark for regeneration so the event loop checks timers
+        self.frame_needs_regeneration = true;
+    }
+
+    fn stop_timer(&mut self, timer_id: usize) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window
+                .timers
+                .remove(&azul_core::task::TimerId { id: timer_id });
+        }
+    }
+
+    // =========================================================================
+    // Thread Management (Wayland Implementation - Stored in LayoutWindow)
+    // =========================================================================
+
+    fn start_thread_poll_timer(&mut self) {
+        // For Wayland, we don't need a separate timer - threads are checked
+        // in the event loop when layout_window.threads is non-empty
+        // Just mark for regeneration to start checking
+        self.frame_needs_regeneration = true;
+    }
+
+    fn stop_thread_poll_timer(&mut self) {
+        // No-op for Wayland - thread checking stops automatically when
+        // layout_window.threads becomes empty
+    }
+
+    fn add_threads(
+        &mut self,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for (thread_id, thread) in threads {
+                layout_window.threads.insert(thread_id, thread);
+            }
+        }
+        
+        // Mark for regeneration to start thread polling
+        self.frame_needs_regeneration = true;
+    }
+
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for thread_id in thread_ids {
+                layout_window.threads.remove(thread_id);
+            }
+        }
+    }
 }
 
 impl WaylandWindow {
@@ -847,6 +917,7 @@ impl WaylandWindow {
         let render_mode = match gl::GlContext::new(&wayland, display, window.surface, width, height)
         {
             Ok(mut gl_context) => {
+                gl_context.configure_vsync(options.state.renderer_options.vsync);
                 let gl_functions =
                     GlFunctions::initialize(gl_context.egl.as_ref().unwrap()).unwrap();
                 RenderMode::Gpu(gl_context, gl_functions)
@@ -1725,6 +1796,26 @@ impl Drop for CpuFallbackState {
 
 // Helper methods for WaylandWindow to get display information
 impl WaylandWindow {
+    /// Check timers and threads, trigger callbacks if needed
+    /// This is called on every poll_event() to simulate timer ticks
+    fn check_timers_and_threads(&mut self) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+            let current_time = (system_callbacks.get_system_time_fn.cb)();
+            
+            // Check if any timers expired
+            let expired_timers = layout_window.tick_timers(current_time);
+            if !expired_timers.is_empty() {
+                self.frame_needs_regeneration = true;
+            }
+            
+            // Check if we have active threads (they need periodic checking)
+            if !layout_window.threads.is_empty() {
+                self.frame_needs_regeneration = true;
+            }
+        }
+    }
+
     /// Returns the logical size of the window's surface.
     pub fn get_window_size_logical(&self) -> (i32, i32) {
         let size = self.current_window_state.size.get_logical_size();
@@ -1744,6 +1835,23 @@ impl WaylandWindow {
             .get_hidpi_factor()
             .inner
             .get()
+    }
+
+    /// Calculate the current scale factor based on active outputs
+    /// Returns the highest scale factor among all outputs the window is on
+    pub fn calculate_current_scale_factor(&self) -> f32 {
+        if self.current_outputs.is_empty() {
+            return 1.0;
+        }
+
+        let mut max_scale = 1.0f32;
+        for output_ptr in &self.current_outputs {
+            if let Some(monitor_state) = self.known_outputs.iter().find(|m| m.proxy == *output_ptr) {
+                max_scale = max_scale.max(monitor_state.scale as f32);
+            }
+        }
+
+        max_scale
     }
 
     /// Get display information for Wayland
@@ -1795,6 +1903,11 @@ impl WaylandWindow {
             work_area,
             scale_factor,
             is_primary: true,
+            video_modes: vec![azul_core::window::VideoMode {
+                size: azul_css::props::basic::LayoutSize::new(width as isize, height as isize),
+                bit_depth: 32,
+                refresh_rate: 60,
+            }],
         })
     }
 

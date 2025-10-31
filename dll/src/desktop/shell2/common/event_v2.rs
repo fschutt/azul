@@ -341,6 +341,90 @@ pub trait PlatformWindowV2 {
     fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows;
 
     // =========================================================================
+    // REQUIRED: Timer Management (Platform-Specific Implementation)
+    // =========================================================================
+
+    /// Start a timer with the given ID and interval.
+    ///
+    /// When the timer fires, the platform should tick timers in the layout window
+    /// and trigger event processing to invoke timer callbacks.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **Windows**: Use `SetTimer(hwnd, timer_id, interval_ms, NULL)`
+    /// - **macOS**: Use `NSTimer::scheduledTimerWithTimeInterval` with userInfo containing timer_id
+    /// - **X11**: Add timer to internal manager, use select() timeout to check expiration
+    /// - **Wayland**: Create timerfd with timerfd_create(), add to event loop poll
+    ///
+    /// ## Parameters
+    /// * `timer_id` - Unique timer identifier (from TimerId.id)
+    /// * `timer` - Timer configuration with interval and callback info
+    fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer);
+
+    /// Stop a timer with the given ID.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **Windows**: Use `KillTimer(hwnd, timer_id)`
+    /// - **macOS**: Call `[timer invalidate]` on stored NSTimer
+    /// - **X11**: Remove timer from internal manager
+    /// - **Wayland**: Close timerfd with close(fd)
+    ///
+    /// ## Parameters
+    /// * `timer_id` - Timer identifier to stop
+    fn stop_timer(&mut self, timer_id: usize);
+
+    // =========================================================================
+    // REQUIRED: Thread Management (Platform-Specific Implementation)
+    // =========================================================================
+
+    /// Start the thread polling timer (typically 16ms interval).
+    ///
+    /// This timer should check all active threads for completed work and trigger
+    /// event processing if any threads have finished.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **Windows**: Use `SetTimer(hwnd, 0xFFFF, 16, NULL)` with reserved ID 0xFFFF
+    /// - **macOS**: Use `NSTimer::scheduledTimerWithTimeInterval` with 0.016 interval
+    /// - **X11**: Add 16ms timeout to select() when threads exist
+    /// - **Wayland**: Create 16ms timerfd for thread polling
+    fn start_thread_poll_timer(&mut self);
+
+    /// Stop the thread polling timer.
+    ///
+    /// Called when the last thread is removed from the thread pool.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **Windows**: Use `KillTimer(hwnd, 0xFFFF)`
+    /// - **macOS**: Call `[timer invalidate]` on thread_timer_running
+    /// - **X11**: Stop using 16ms timeout in select()
+    /// - **Wayland**: Close thread polling timerfd
+    fn stop_thread_poll_timer(&mut self);
+
+    /// Add threads to the thread pool.
+    ///
+    /// Threads are stored in `layout_window.threads` and polled periodically by
+    /// the thread polling timer to check for completion.
+    ///
+    /// ## Parameters
+    /// * `threads` - Threads to add to the pool (BTreeMap from CallCallbacksResult)
+    fn add_threads(
+        &mut self,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
+    );
+
+    /// Remove threads from the thread pool.
+    ///
+    /// ## Parameters  
+    /// * `thread_ids` - Thread IDs to remove
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    );
+
+    // =========================================================================
     // PROVIDED: Callback Invocation (Cross-Platform Implementation)
     // =========================================================================
 
@@ -732,11 +816,7 @@ pub trait PlatformWindowV2 {
             // Check if drag was on a titlebar element (class="csd-title")
             if let Some(hit_test) = hit_test_for_dispatch.as_ref() {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    // Check if first hovered node is the titlebar
-                    // TODO: Better detection - check CSS class or node attributes
                     let is_titlebar_drag = hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
-                        // For now, activate on any DragStart when we don't have an active drag
-                        // In a real implementation, we'd check the DOM node's class/ID
                         hit.regular_hit_test_nodes.len() > 0
                     });
                     
@@ -811,35 +891,59 @@ pub trait PlatformWindowV2 {
             || result.threads.is_some()
             || result.threads_removed.is_some()
         {
-            // Process timers and threads through the layout_window
-            if let Some(layout_window) = self.get_layout_window_mut() {
-                // Add new timers
-                if let Some(timers) = &result.timers {
-                    for (timer_id, timer) in timers {
-                        layout_window.timers.insert(*timer_id, timer.clone());
-                    }
+            // Process timers - call platform-specific start/stop methods
+            if let Some(timers) = &result.timers {
+                for (timer_id, timer) in timers {
+                    self.start_timer(timer_id.id, timer.clone());
                 }
+            }
 
-                // Remove old timers
-                if let Some(timers_removed) = &result.timers_removed {
-                    for timer_id in timers_removed {
-                        layout_window.timers.remove(timer_id);
-                    }
+            if let Some(timers_removed) = &result.timers_removed {
+                for timer_id in timers_removed {
+                    self.stop_timer(timer_id.id);
                 }
+            }
 
-                // Add new threads
-                if let Some(threads) = &result.threads {
-                    for (thread_id, thread) in threads {
-                        layout_window.threads.insert(*thread_id, thread.clone());
-                    }
-                }
+            // Process threads - add/remove from layout_window and manage polling timer
+            let should_start_thread_timer;
+            let should_stop_thread_timer;
 
-                // Remove old threads
-                if let Some(threads_removed) = &result.threads_removed {
-                    for thread_id in threads_removed {
-                        layout_window.threads.remove(thread_id);
-                    }
-                }
+            // First, check if we had threads before
+            let had_threads = if let Some(layout_window) = self.get_layout_window() {
+                !layout_window.threads.is_empty()
+            } else {
+                false
+            };
+
+            // Add new threads
+            if let Some(threads) = result.threads.clone() {
+                self.add_threads(threads);
+            }
+
+            // Remove old threads
+            if let Some(threads_removed) = &result.threads_removed {
+                self.remove_threads(threads_removed);
+            }
+
+            // Now check if we have threads after modifications
+            let has_threads = if let Some(layout_window) = self.get_layout_window() {
+                !layout_window.threads.is_empty()
+            } else {
+                false
+            };
+
+            // Determine if we need to start/stop the thread polling timer
+            should_start_thread_timer = !had_threads && has_threads;
+            should_stop_thread_timer = had_threads && !has_threads;
+
+            // Start thread polling timer if we now have threads
+            if should_start_thread_timer {
+                self.start_thread_poll_timer();
+            }
+
+            // Stop thread polling timer if we no longer have threads
+            if should_stop_thread_timer {
+                self.stop_thread_poll_timer();
             }
 
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);

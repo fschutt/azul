@@ -440,6 +440,7 @@ pub type eglCreateWindowSurface =
 pub type eglMakeCurrent =
     unsafe extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> u32;
 pub type eglSwapBuffers = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
+pub type eglSwapInterval = unsafe extern "C" fn(EGLDisplay, i32) -> u32;
 pub type eglGetError = unsafe extern "C" fn() -> u32;
 pub type eglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_void;
 pub type eglDestroySurface = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;

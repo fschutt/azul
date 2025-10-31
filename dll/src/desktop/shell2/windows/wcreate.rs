@@ -117,15 +117,14 @@ pub fn create_gl_context(
     hwnd: HWND,
     hinstance: HINSTANCE,
     win32: &Win32Libraries,
+    vsync: azul_core::window::Vsync,
 ) -> Result<HGLRC, WindowError> {
     use super::gl::ExtraWglFunctions;
 
-    // Load WGL extension functions first
     let extra_wgl = ExtraWglFunctions::load().map_err(|e| {
         WindowError::PlatformError(format!("Failed to load WGL extensions: {:?}", e))
     })?;
 
-    // Get device context
     let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
     if hdc.is_null() {
         return Err(WindowError::PlatformError("GetDC failed".into()));
@@ -229,7 +228,22 @@ pub fn create_gl_context(
         hglrc as HGLRC
     };
 
-    // Release DC (keep context)
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use winapi::um::wingdi::wglMakeCurrent;
+        wglMakeCurrent(hdc as winapi::shared::windef::HDC, hglrc as winapi::shared::windef::HGLRC);
+    }
+    
+    if let Some(swap_interval_fn) = extra_wgl.wglSwapIntervalEXT {
+        use azul_core::window::Vsync;
+        let interval = match vsync {
+            Vsync::Enabled => 1,
+            Vsync::Disabled => 0,
+            Vsync::DontCare => 1,
+        };
+        unsafe { swap_interval_fn(interval) };
+    }
+
     unsafe {
         (win32.user32.ReleaseDC)(hwnd, hdc);
     }

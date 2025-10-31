@@ -47,8 +47,6 @@ impl PlatformWindow for LinuxWindow {
     where
         Self: Sized,
     {
-        // Create default resources - this is a fallback for tests
-        // In production, use new_with_resources() from run()
         let resources = Arc::new(AppResources::default_for_testing());
         Self::new_with_resources(options, resources)
     }
@@ -111,10 +109,9 @@ impl PlatformWindow for LinuxWindow {
 }
 
 impl LinuxWindow {
-    /// Create a new Linux window with shared resources
+    /// Create a new Linux window with shared resources.
     ///
-    /// This is the preferred way to create windows in production,
-    /// as it allows sharing font cache, app data, and system styling.
+    /// Allows sharing font cache, app data, and system styling across windows.
     pub fn new_with_resources(
         options: WindowCreateOptions,
         resources: Arc<AppResources>,

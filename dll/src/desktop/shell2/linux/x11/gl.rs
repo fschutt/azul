@@ -124,6 +124,21 @@ impl GlContext {
         })
     }
 
+    /// Configure VSync using eglSwapInterval
+    pub fn configure_vsync(&self, vsync: azul_core::window::Vsync) {
+        use azul_core::window::Vsync;
+        
+        let interval = match vsync {
+            Vsync::Enabled => 1,
+            Vsync::Disabled => 0,
+            Vsync::DontCare => 1,
+        };
+
+        unsafe {
+            (self.egl.eglSwapInterval)(self.egl_display, interval);
+        }
+    }
+
     /// Makes the OpenGL context current on the calling thread.
     pub fn make_current(&self) {
         unsafe {

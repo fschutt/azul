@@ -18,7 +18,6 @@ mod dpi;
 pub mod event;
 mod gl;
 pub mod menu;
-mod process;
 pub mod registry;
 mod wcreate;
 
@@ -217,11 +216,10 @@ impl Win32Window {
         };
 
         if should_use_hardware {
-            // Try to create OpenGL context
-            match wcreate::create_gl_context(hwnd, hinstance, &win32) {
+            let vsync = options.state.renderer_options.vsync;
+            match wcreate::create_gl_context(hwnd, hinstance, &win32, vsync) {
                 Ok(hglrc) => {
                     gl_context = Some(hglrc);
-                    // Make context current and load GL functions
                     let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
                     if !hdc.is_null() {
                         #[cfg(target_os = "windows")]
@@ -1807,14 +1805,16 @@ unsafe extern "system" fn window_proc(
             let timer_id = wparam;
 
             if timer_id == 0xFFFF {
-                // Thread polling timer
-                // Poll thread messages via LayoutWindow
-                // TODO: This would normally call process::process_threads()
-                // but that requires access to higher-level state (fc_cache, etc.)
-                // For now, just acknowledge the timer
+                // Thread polling timer - threads are managed by LayoutWindow
+                // Thread results will be processed during regenerate_layout
+                if let Some(ref layout_window) = window.layout_window {
+                    if !layout_window.threads.is_empty() {
+                        window.frame_needs_regeneration = true;
+                        (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                    }
+                }
             } else {
-                // User timer from LayoutWindow
-                // Tick timers in the layout window
+                // User timer from LayoutWindow - tick timers and mark for callback processing
                 if let Some(ref mut layout_window) = window.layout_window {
                     let system_callbacks =
                         azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
@@ -1822,11 +1822,9 @@ unsafe extern "system" fn window_proc(
 
                     let expired_timers = layout_window.tick_timers(current_time);
 
-                    // TODO: Timer callbacks would be invoked via process::process_timer()
-                    // which requires higher-level context (fc_cache, image_cache, etc.)
-                    // Mark that we need to process these timers
+                    // Timer callbacks will be invoked during regenerate_layout
                     if !expired_timers.is_empty() {
-                        // Request redraw to process callbacks
+                        window.frame_needs_regeneration = true;
                         (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                     }
                 }
@@ -1891,42 +1889,26 @@ unsafe extern "system" fn window_proc(
                         &window.renderer_resources,
                     );
 
-                    // Extract the Update result from CallCallbacksResult
-                    let update = callback_result.callbacks_update_screen;
+                    // Process callback result using the V2 unified system
+                    // This handles timers, threads, window state changes, and Update
+                    use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+                    let event_result = window.process_callback_result_v2(&callback_result);
 
-                    // Apply any window state changes
-                    if let Some(modified_state) = callback_result.modified_window_state {
-                        window.current_window_state.title = modified_state.title;
-                        window.current_window_state.theme = modified_state.theme;
-                        window.current_window_state.size = modified_state.size;
-                        window.current_window_state.position = modified_state.position;
-                        window.current_window_state.flags = modified_state.flags;
-                        window.current_window_state.debug_state = modified_state.debug_state;
-                        window.current_window_state.keyboard_state = modified_state.keyboard_state;
-                        window.current_window_state.mouse_state = modified_state.mouse_state;
-                        window.current_window_state.touch_state = modified_state.touch_state;
-                        window.current_window_state.ime_position = modified_state.ime_position;
-                        window.current_window_state.monitor = modified_state.monitor;
-                        window.current_window_state.platform_specific_options = modified_state.platform_specific_options;
-                        window.current_window_state.renderer_options = modified_state.renderer_options;
-                        window.current_window_state.background_color = modified_state.background_color;
-                        window.current_window_state.layout_callback = modified_state.layout_callback;
-                        window.current_window_state.close_callback = modified_state.close_callback;
+                    // Sync window state changes to Win32 (title, position, size, etc.)
+                    window.sync_window_state();
 
-                        // Synchronize window state changes with OS
-                        window.sync_window_state();
-                    }
-
-                    // Process the result
-                    use azul_core::callbacks::Update;
-                    match update {
-                        Update::RefreshDom | Update::RefreshDomAllWindows => {
-                            // Mark that we need to regenerate layout
+                    // Handle the event result
+                    use azul_core::events::ProcessEventResult;
+                    match event_result {
+                        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                        | ProcessEventResult::ShouldRegenerateDomAllWindows
+                        | ProcessEventResult::ShouldReRenderCurrentWindow
+                        | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                             window.frame_needs_regeneration = true;
-                            // Request redraw to trigger regenerate_layout
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
-                        Update::DoNothing => {
+                        ProcessEventResult::DoNothing => {
                             // No action needed
                         }
                     }
@@ -2322,7 +2304,15 @@ impl Win32Window {
             bounds,
             work_area,
             scale_factor,
-            is_primary: false, // Would need additional check
+            is_primary: false,
+            video_modes: vec![azul_core::window::VideoMode {
+                size: azul_css::props::basic::LayoutSize::new(
+                    bounds.size.width as isize,
+                    bounds.size.height as isize
+                ),
+                bit_depth: 32,
+                refresh_rate: 60,
+            }],
         })
     }
 }
@@ -2472,6 +2462,94 @@ impl PlatformWindowV2 for Win32Window {
             previous_window_state: &self.previous_window_state,
             current_window_state: &self.current_window_state,
             renderer_resources: &mut self.renderer_resources,
+        }
+    }
+
+    // =========================================================================
+    // Timer Management (Win32 Implementation)
+    // =========================================================================
+
+    fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
+        let interval_ms = timer.tick_millis().min(u32::MAX as u64) as u32;
+        
+        // Start Win32 timer
+        let win32_timer_id = unsafe {
+            (self.win32.user32.SetTimer)(self.hwnd, timer_id, interval_ms, ptr::null())
+        };
+        
+        self.timers.insert(timer_id, win32_timer_id);
+        
+        // Also store in layout_window for tick_timers() to work
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window.timers.insert(
+                azul_core::task::TimerId { id: timer_id },
+                timer,
+            );
+        }
+    }
+
+    fn stop_timer(&mut self, timer_id: usize) {
+        // Stop Win32 timer
+        if let Some(win32_timer_id) = self.timers.remove(&timer_id) {
+            unsafe {
+                (self.win32.user32.KillTimer)(self.hwnd, win32_timer_id);
+            };
+        }
+        
+        // Remove from layout_window
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window
+                .timers
+                .remove(&azul_core::task::TimerId { id: timer_id });
+        }
+    }
+
+    // =========================================================================
+    // Thread Management (Win32 Implementation)
+    // =========================================================================
+
+    fn start_thread_poll_timer(&mut self) {
+        if self.thread_timer_running.is_none() {
+            // Start thread polling timer (16ms = ~60 FPS)
+            let timer_id = unsafe {
+                (self.win32.user32.SetTimer)(
+                    self.hwnd,
+                    0xFFFF, // Special ID for thread timer
+                    16,
+                    ptr::null(),
+                )
+            };
+            self.thread_timer_running = Some(timer_id);
+        }
+    }
+
+    fn stop_thread_poll_timer(&mut self) {
+        if let Some(timer_id) = self.thread_timer_running.take() {
+            unsafe {
+                (self.win32.user32.KillTimer)(self.hwnd, timer_id);
+            };
+        }
+    }
+
+    fn add_threads(
+        &mut self,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for (thread_id, thread) in threads {
+                layout_window.threads.insert(thread_id, thread);
+            }
+        }
+    }
+
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    ) {
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            for thread_id in thread_ids {
+                layout_window.threads.remove(thread_id);
+            }
         }
     }
 }
