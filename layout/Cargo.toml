@@ -31,7 +31,7 @@ resvg                   = { version = "0.45.0",   default-features = false, opti
 tiny-skia               = { version = "0.11.4",    default-features = false, optional = true, features = ["std", "simd", "png-format"] }
 geo-booleanop           = { version = "0.3.2", default-features = false, optional = true }
 geo                     = { version = "0.31.0", default-features = false, optional = true }
-roxmltree               = { version = "0.20.0",   default-features = false, optional = true }
+roxmltree               = { version = "0.21.1",   default-features = false, optional = true }
 xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }
 xmlparser               = { version = "0.13.6",   default-features = false, optional = true }
 gl-context-loader       = { version = "0.1.8", default-features = false, optional = true }
