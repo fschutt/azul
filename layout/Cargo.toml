@@ -23,6 +23,7 @@ azul-css                = { version = "0.0.5", path = "../css", default-features
 azul-core               = { version = "0.0.5", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false }
 rust-fontconfig         = { version = "1.0.3", features = ["parsing", "std"], default-features = false }
+accesskit               = { version = "0.17", default-features = false, optional = true }
 
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
@@ -47,10 +48,11 @@ lru = { version = "0.16.1", default-features = false }
 taffy = { version = "0.9.1", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
 
 [features]
-default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender"]
+default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender", "accessibility"]
 std = ["azul-core/std"]
 cpurender = ["tiny-skia", "allsorts"]
 text_layout = ["unicode-normalization", "allsorts", "tinyvec", "unicode-segmentation", "unicode-bidi", "hyphenation"]
+accessibility = ["accesskit"]
 pdf = ["text_layout"]
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]

@@ -182,6 +182,8 @@ pub struct LayoutWindow {
     pub iframe_manager: IFrameManager,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
+    /// Accessibility manager for screen reader support
+    pub a11y_manager: crate::managers::a11y::A11yManager,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -246,6 +248,7 @@ impl LayoutWindow {
                 default_duration_500ms(),
                 default_duration_200ms(),
             ),
+            a11y_manager: crate::managers::a11y::A11yManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -267,6 +270,7 @@ impl LayoutWindow {
     /// - Text shaping and line breaking
     /// - IFrame callback invocation and recursive layout
     /// - Display list generation for rendering
+    /// - Accessibility tree synchronization
     ///
     /// # Arguments
     /// - `styled_dom`: The styled DOM to layout
@@ -288,13 +292,28 @@ impl LayoutWindow {
         self.layout_results.clear();
 
         // Start recursive layout from the root DOM
-        self.layout_dom_recursive(
+        let result = self.layout_dom_recursive(
             root_dom,
             window_state,
             renderer_resources,
             system_callbacks,
             debug_messages,
-        )
+        );
+
+        // After successful layout, update the accessibility tree
+        #[cfg(feature = "accessibility")]
+        if result.is_ok() {
+            let _tree_update = crate::managers::a11y::A11yManager::update_tree(
+                self.a11y_manager.root_id,
+                &self.layout_results,
+                &self.current_window_state.title,
+                self.current_window_state.size.dimensions,
+            );
+            // TODO: Pass tree_update to platform adapter
+            // The adapter will submit it to the OS accessibility API
+        }
+
+        result
     }
 
     fn layout_dom_recursive(

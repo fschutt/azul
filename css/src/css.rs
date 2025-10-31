@@ -342,28 +342,53 @@ pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum NodeTypeTag {
+    // Document structure
+    Html,
+    Head,
     Body,
+
+    // Block-level elements
     Div,
     P,
+    Article,
+    Section,
+    Nav,
+    Aside,
+    Header,
+    Footer,
+    Main,
+    Figure,
+    FigCaption,
+
+    // Headings
     H1,
     H2,
     H3,
     H4,
     H5,
     H6,
+
+    // Inline text
     Br,
     Hr,
     Pre,
     BlockQuote,
     Address,
+    Details,
+    Summary,
+    Dialog,
 
+    // Lists
     Ul,
     Ol,
     Li,
     Dl,
     Dt,
     Dd,
+    Menu,
+    MenuItem,
 
+    // Tables
     Table,
     Caption,
     THead,
@@ -375,6 +400,7 @@ pub enum NodeTypeTag {
     ColGroup,
     Col,
 
+    // Forms
     Form,
     FieldSet,
     Legend,
@@ -385,26 +411,60 @@ pub enum NodeTypeTag {
     OptGroup,
     SelectOption,
     TextArea,
+    Output,
+    Progress,
+    Meter,
+    DataList,
 
+    // Inline elements
     Span,
     A,
     Em,
     Strong,
     B,
     I,
+    U,
+    S,
+    Mark,
+    Del,
+    Ins,
     Code,
     Samp,
     Kbd,
     Var,
     Cite,
+    Dfn,
     Abbr,
     Acronym,
     Q,
+    Time,
     Sub,
     Sup,
     Small,
     Big,
+    Bdo,
 
+    // Embedded content
+    Canvas,
+    Object,
+    Param,
+    Embed,
+    Audio,
+    Video,
+    Source,
+    Track,
+    Map,
+    Area,
+
+    // Metadata
+    Title,
+    Meta,
+    Link,
+    Script,
+    Style,
+    Base,
+
+    // Special
     Text,
     Img,
     IFrame,
@@ -466,21 +526,41 @@ impl NodeTypeTag {
 impl fmt::Display for NodeTypeTag {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            // Block elements
+            // Document structure
+            NodeTypeTag::Html => write!(f, "html"),
+            NodeTypeTag::Head => write!(f, "head"),
             NodeTypeTag::Body => write!(f, "body"),
+
+            // Block elements
             NodeTypeTag::Div => write!(f, "div"),
             NodeTypeTag::P => write!(f, "p"),
+            NodeTypeTag::Article => write!(f, "article"),
+            NodeTypeTag::Section => write!(f, "section"),
+            NodeTypeTag::Nav => write!(f, "nav"),
+            NodeTypeTag::Aside => write!(f, "aside"),
+            NodeTypeTag::Header => write!(f, "header"),
+            NodeTypeTag::Footer => write!(f, "footer"),
+            NodeTypeTag::Main => write!(f, "main"),
+            NodeTypeTag::Figure => write!(f, "figure"),
+            NodeTypeTag::FigCaption => write!(f, "figcaption"),
+
+            // Headings
             NodeTypeTag::H1 => write!(f, "h1"),
             NodeTypeTag::H2 => write!(f, "h2"),
             NodeTypeTag::H3 => write!(f, "h3"),
             NodeTypeTag::H4 => write!(f, "h4"),
             NodeTypeTag::H5 => write!(f, "h5"),
             NodeTypeTag::H6 => write!(f, "h6"),
+
+            // Text formatting
             NodeTypeTag::Br => write!(f, "br"),
             NodeTypeTag::Hr => write!(f, "hr"),
             NodeTypeTag::Pre => write!(f, "pre"),
             NodeTypeTag::BlockQuote => write!(f, "blockquote"),
             NodeTypeTag::Address => write!(f, "address"),
+            NodeTypeTag::Details => write!(f, "details"),
+            NodeTypeTag::Summary => write!(f, "summary"),
+            NodeTypeTag::Dialog => write!(f, "dialog"),
 
             // List elements
             NodeTypeTag::Ul => write!(f, "ul"),
@@ -489,6 +569,8 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Dl => write!(f, "dl"),
             NodeTypeTag::Dt => write!(f, "dt"),
             NodeTypeTag::Dd => write!(f, "dd"),
+            NodeTypeTag::Menu => write!(f, "menu"),
+            NodeTypeTag::MenuItem => write!(f, "menuitem"),
 
             // Table elements
             NodeTypeTag::Table => write!(f, "table"),
@@ -513,6 +595,10 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::OptGroup => write!(f, "optgroup"),
             NodeTypeTag::SelectOption => write!(f, "option"),
             NodeTypeTag::TextArea => write!(f, "textarea"),
+            NodeTypeTag::Output => write!(f, "output"),
+            NodeTypeTag::Progress => write!(f, "progress"),
+            NodeTypeTag::Meter => write!(f, "meter"),
+            NodeTypeTag::DataList => write!(f, "datalist"),
 
             // Inline elements
             NodeTypeTag::Span => write!(f, "span"),
@@ -521,18 +607,46 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Strong => write!(f, "strong"),
             NodeTypeTag::B => write!(f, "b"),
             NodeTypeTag::I => write!(f, "i"),
+            NodeTypeTag::U => write!(f, "u"),
+            NodeTypeTag::S => write!(f, "s"),
+            NodeTypeTag::Mark => write!(f, "mark"),
+            NodeTypeTag::Del => write!(f, "del"),
+            NodeTypeTag::Ins => write!(f, "ins"),
             NodeTypeTag::Code => write!(f, "code"),
             NodeTypeTag::Samp => write!(f, "samp"),
             NodeTypeTag::Kbd => write!(f, "kbd"),
             NodeTypeTag::Var => write!(f, "var"),
             NodeTypeTag::Cite => write!(f, "cite"),
+            NodeTypeTag::Dfn => write!(f, "dfn"),
             NodeTypeTag::Abbr => write!(f, "abbr"),
             NodeTypeTag::Acronym => write!(f, "acronym"),
             NodeTypeTag::Q => write!(f, "q"),
+            NodeTypeTag::Time => write!(f, "time"),
             NodeTypeTag::Sub => write!(f, "sub"),
             NodeTypeTag::Sup => write!(f, "sup"),
             NodeTypeTag::Small => write!(f, "small"),
             NodeTypeTag::Big => write!(f, "big"),
+            NodeTypeTag::Bdo => write!(f, "bdo"),
+
+            // Embedded content
+            NodeTypeTag::Canvas => write!(f, "canvas"),
+            NodeTypeTag::Object => write!(f, "object"),
+            NodeTypeTag::Param => write!(f, "param"),
+            NodeTypeTag::Embed => write!(f, "embed"),
+            NodeTypeTag::Audio => write!(f, "audio"),
+            NodeTypeTag::Video => write!(f, "video"),
+            NodeTypeTag::Source => write!(f, "source"),
+            NodeTypeTag::Track => write!(f, "track"),
+            NodeTypeTag::Map => write!(f, "map"),
+            NodeTypeTag::Area => write!(f, "area"),
+
+            // Metadata
+            NodeTypeTag::Title => write!(f, "title"),
+            NodeTypeTag::Meta => write!(f, "meta"),
+            NodeTypeTag::Link => write!(f, "link"),
+            NodeTypeTag::Script => write!(f, "script"),
+            NodeTypeTag::Style => write!(f, "style"),
+            NodeTypeTag::Base => write!(f, "base"),
 
             // Content elements
             NodeTypeTag::Text => write!(f, "text"),
@@ -853,21 +967,41 @@ pub fn css_to_rust_code(css: &Css) -> String {
 
 pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
-        // Block elements
+        // Document structure
+        NodeTypeTag::Html => "NodeTypeTag::Html",
+        NodeTypeTag::Head => "NodeTypeTag::Head",
         NodeTypeTag::Body => "NodeTypeTag::Body",
+
+        // Block elements
         NodeTypeTag::Div => "NodeTypeTag::Div",
         NodeTypeTag::P => "NodeTypeTag::P",
+        NodeTypeTag::Article => "NodeTypeTag::Article",
+        NodeTypeTag::Section => "NodeTypeTag::Section",
+        NodeTypeTag::Nav => "NodeTypeTag::Nav",
+        NodeTypeTag::Aside => "NodeTypeTag::Aside",
+        NodeTypeTag::Header => "NodeTypeTag::Header",
+        NodeTypeTag::Footer => "NodeTypeTag::Footer",
+        NodeTypeTag::Main => "NodeTypeTag::Main",
+        NodeTypeTag::Figure => "NodeTypeTag::Figure",
+        NodeTypeTag::FigCaption => "NodeTypeTag::FigCaption",
+
+        // Headings
         NodeTypeTag::H1 => "NodeTypeTag::H1",
         NodeTypeTag::H2 => "NodeTypeTag::H2",
         NodeTypeTag::H3 => "NodeTypeTag::H3",
         NodeTypeTag::H4 => "NodeTypeTag::H4",
         NodeTypeTag::H5 => "NodeTypeTag::H5",
         NodeTypeTag::H6 => "NodeTypeTag::H6",
+
+        // Text formatting
         NodeTypeTag::Br => "NodeTypeTag::Br",
         NodeTypeTag::Hr => "NodeTypeTag::Hr",
         NodeTypeTag::Pre => "NodeTypeTag::Pre",
         NodeTypeTag::BlockQuote => "NodeTypeTag::BlockQuote",
         NodeTypeTag::Address => "NodeTypeTag::Address",
+        NodeTypeTag::Details => "NodeTypeTag::Details",
+        NodeTypeTag::Summary => "NodeTypeTag::Summary",
+        NodeTypeTag::Dialog => "NodeTypeTag::Dialog",
 
         // List elements
         NodeTypeTag::Ul => "NodeTypeTag::Ul",
@@ -876,6 +1010,8 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Dl => "NodeTypeTag::Dl",
         NodeTypeTag::Dt => "NodeTypeTag::Dt",
         NodeTypeTag::Dd => "NodeTypeTag::Dd",
+        NodeTypeTag::Menu => "NodeTypeTag::Menu",
+        NodeTypeTag::MenuItem => "NodeTypeTag::MenuItem",
 
         // Table elements
         NodeTypeTag::Table => "NodeTypeTag::Table",
@@ -900,6 +1036,10 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::OptGroup => "NodeTypeTag::OptGroup",
         NodeTypeTag::SelectOption => "NodeTypeTag::SelectOption",
         NodeTypeTag::TextArea => "NodeTypeTag::TextArea",
+        NodeTypeTag::Output => "NodeTypeTag::Output",
+        NodeTypeTag::Progress => "NodeTypeTag::Progress",
+        NodeTypeTag::Meter => "NodeTypeTag::Meter",
+        NodeTypeTag::DataList => "NodeTypeTag::DataList",
 
         // Inline elements
         NodeTypeTag::Span => "NodeTypeTag::Span",
@@ -908,18 +1048,46 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Strong => "NodeTypeTag::Strong",
         NodeTypeTag::B => "NodeTypeTag::B",
         NodeTypeTag::I => "NodeTypeTag::I",
+        NodeTypeTag::U => "NodeTypeTag::U",
+        NodeTypeTag::S => "NodeTypeTag::S",
+        NodeTypeTag::Mark => "NodeTypeTag::Mark",
+        NodeTypeTag::Del => "NodeTypeTag::Del",
+        NodeTypeTag::Ins => "NodeTypeTag::Ins",
         NodeTypeTag::Code => "NodeTypeTag::Code",
         NodeTypeTag::Samp => "NodeTypeTag::Samp",
         NodeTypeTag::Kbd => "NodeTypeTag::Kbd",
         NodeTypeTag::Var => "NodeTypeTag::Var",
         NodeTypeTag::Cite => "NodeTypeTag::Cite",
+        NodeTypeTag::Dfn => "NodeTypeTag::Dfn",
         NodeTypeTag::Abbr => "NodeTypeTag::Abbr",
         NodeTypeTag::Acronym => "NodeTypeTag::Acronym",
         NodeTypeTag::Q => "NodeTypeTag::Q",
+        NodeTypeTag::Time => "NodeTypeTag::Time",
         NodeTypeTag::Sub => "NodeTypeTag::Sub",
         NodeTypeTag::Sup => "NodeTypeTag::Sup",
         NodeTypeTag::Small => "NodeTypeTag::Small",
         NodeTypeTag::Big => "NodeTypeTag::Big",
+        NodeTypeTag::Bdo => "NodeTypeTag::Bdo",
+
+        // Embedded content
+        NodeTypeTag::Canvas => "NodeTypeTag::Canvas",
+        NodeTypeTag::Object => "NodeTypeTag::Object",
+        NodeTypeTag::Param => "NodeTypeTag::Param",
+        NodeTypeTag::Embed => "NodeTypeTag::Embed",
+        NodeTypeTag::Audio => "NodeTypeTag::Audio",
+        NodeTypeTag::Video => "NodeTypeTag::Video",
+        NodeTypeTag::Source => "NodeTypeTag::Source",
+        NodeTypeTag::Track => "NodeTypeTag::Track",
+        NodeTypeTag::Map => "NodeTypeTag::Map",
+        NodeTypeTag::Area => "NodeTypeTag::Area",
+
+        // Metadata
+        NodeTypeTag::Title => "NodeTypeTag::Title",
+        NodeTypeTag::Meta => "NodeTypeTag::Meta",
+        NodeTypeTag::Link => "NodeTypeTag::Link",
+        NodeTypeTag::Script => "NodeTypeTag::Script",
+        NodeTypeTag::Style => "NodeTypeTag::Style",
+        NodeTypeTag::Base => "NodeTypeTag::Base",
 
         // Content elements
         NodeTypeTag::Text => "NodeTypeTag::Text",

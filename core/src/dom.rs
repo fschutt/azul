@@ -53,6 +53,89 @@ use crate::{
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
+/// Strongly-typed input element types for HTML `<input>` elements.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum InputType {
+    /// Text input (default)
+    Text,
+    /// Button
+    Button,
+    /// Checkbox
+    Checkbox,
+    /// Color picker
+    Color,
+    /// Date picker
+    Date,
+    /// Date and time picker
+    Datetime,
+    /// Date and time picker (local)
+    DatetimeLocal,
+    /// Email address input
+    Email,
+    /// File upload
+    File,
+    /// Hidden input
+    Hidden,
+    /// Image button
+    Image,
+    /// Month picker
+    Month,
+    /// Number input
+    Number,
+    /// Password input
+    Password,
+    /// Radio button
+    Radio,
+    /// Range slider
+    Range,
+    /// Reset button
+    Reset,
+    /// Search input
+    Search,
+    /// Submit button
+    Submit,
+    /// Telephone number input
+    Tel,
+    /// Time picker
+    Time,
+    /// URL input
+    Url,
+    /// Week picker
+    Week,
+}
+
+impl InputType {
+    /// Returns the HTML attribute value for this input type
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            InputType::Text => "text",
+            InputType::Button => "button",
+            InputType::Checkbox => "checkbox",
+            InputType::Color => "color",
+            InputType::Date => "date",
+            InputType::Datetime => "datetime",
+            InputType::DatetimeLocal => "datetime-local",
+            InputType::Email => "email",
+            InputType::File => "file",
+            InputType::Hidden => "hidden",
+            InputType::Image => "image",
+            InputType::Month => "month",
+            InputType::Number => "number",
+            InputType::Password => "password",
+            InputType::Radio => "radio",
+            InputType::Range => "range",
+            InputType::Reset => "reset",
+            InputType::Search => "search",
+            InputType::Submit => "submit",
+            InputType::Tel => "tel",
+            InputType::Time => "time",
+            InputType::Url => "url",
+            InputType::Week => "week",
+        }
+    }
+}
+
 /// Unique tag that is used to annotate which rectangles are relevant for hit-testing.
 /// These tags are generated per-frame to identify interactable areas.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -133,12 +216,34 @@ impl ::core::fmt::Debug for DomNodeHash {
 #[repr(C, u8)]
 pub enum NodeType {
     // Root and container elements
-    /// Root element of the document.
+    /// Root HTML element.
+    Html,
+    /// Document head (metadata container).
+    Head,
+    /// Root element of the document body.
     Body,
     /// Generic block-level container.
     Div,
     /// Paragraph.
     P,
+    /// Article content.
+    Article,
+    /// Section of a document.
+    Section,
+    /// Navigation links.
+    Nav,
+    /// Sidebar/tangential content.
+    Aside,
+    /// Header section.
+    Header,
+    /// Footer section.
+    Footer,
+    /// Main content.
+    Main,
+    /// Figure with optional caption.
+    Figure,
+    /// Caption for figure element.
+    FigCaption,
     /// Headings.
     H1,
     H2,
@@ -156,6 +261,12 @@ pub enum NodeType {
     BlockQuote,
     /// Address.
     Address,
+    /// Details disclosure widget.
+    Details,
+    /// Summary for details element.
+    Summary,
+    /// Dialog box or window.
+    Dialog,
 
     // List elements
     /// Unordered list.
@@ -170,6 +281,10 @@ pub enum NodeType {
     Dt,
     /// Definition description.
     Dd,
+    /// Menu list.
+    Menu,
+    /// Menu item.
+    MenuItem,
 
     // Table elements
     /// Table container.
@@ -214,6 +329,14 @@ pub enum NodeType {
     SelectOption,
     /// Multiline text input.
     TextArea,
+    /// Form output element.
+    Output,
+    /// Progress indicator.
+    Progress,
+    /// Scalar measurement within a known range.
+    Meter,
+    /// List of predefined options for input.
+    DataList,
 
     // Inline elements
     /// Generic inline container.
@@ -224,10 +347,20 @@ pub enum NodeType {
     Em,
     /// Strongly emphasized text.
     Strong,
-    /// Bold text.
+    /// Bold text (deprecated - use `Dom::strong()` for semantic importance).
     B,
-    /// Italic text.
+    /// Italic text (deprecated - use `Dom::em()` for emphasis or `Dom::cite()` for citations).
     I,
+    /// Underline text.
+    U,
+    /// Strikethrough text.
+    S,
+    /// Marked/highlighted text.
+    Mark,
+    /// Deleted text.
+    Del,
+    /// Inserted text.
+    Ins,
     /// Code.
     Code,
     /// Sample output.
@@ -238,20 +371,62 @@ pub enum NodeType {
     Var,
     /// Citation.
     Cite,
+    /// Defining instance of a term.
+    Dfn,
     /// Abbreviation.
     Abbr,
     /// Acronym.
     Acronym,
-    /// Quotation.
+    /// Inline quotation.
     Q,
+    /// Date/time.
+    Time,
     /// Subscript.
     Sub,
     /// Superscript.
     Sup,
-    /// Small text.
+    /// Small text (deprecated - use CSS `font-size` instead).
     Small,
-    /// Big text.
+    /// Big text (deprecated - use CSS `font-size` instead).
     Big,
+    /// Bi-directional override.
+    Bdo,
+
+    // Embedded content
+    /// Canvas for graphics.
+    Canvas,
+    /// Embedded object.
+    Object,
+    /// Embedded object parameter.
+    Param,
+    /// External resource embed.
+    Embed,
+    /// Audio content.
+    Audio,
+    /// Video content.
+    Video,
+    /// Media source.
+    Source,
+    /// Text track for media.
+    Track,
+    /// Image map.
+    Map,
+    /// Image map area.
+    Area,
+
+    // Metadata elements
+    /// Document title.
+    Title,
+    /// Metadata.
+    Meta,
+    /// External resource link.
+    Link,
+    /// Embedded or referenced script.
+    Script,
+    /// Style information.
+    Style,
+    /// Base URL for relative URLs.
+    Base,
 
     // Pseudo-elements (transformed into real elements)
     /// ::before pseudo-element.
@@ -277,9 +452,19 @@ impl NodeType {
     pub fn get_default_display(&self) -> LayoutDisplay {
         match self {
             // Block-level elements
-            NodeType::Body
+            NodeType::Html
+            | NodeType::Body
             | NodeType::Div
             | NodeType::P
+            | NodeType::Article
+            | NodeType::Section
+            | NodeType::Nav
+            | NodeType::Aside
+            | NodeType::Header
+            | NodeType::Footer
+            | NodeType::Main
+            | NodeType::Figure
+            | NodeType::FigCaption
             | NodeType::H1
             | NodeType::H2
             | NodeType::H3
@@ -290,15 +475,27 @@ impl NodeType {
             | NodeType::BlockQuote
             | NodeType::Address
             | NodeType::Hr
+            | NodeType::Details
+            | NodeType::Summary
+            | NodeType::Dialog
             | NodeType::Ul
             | NodeType::Ol
             | NodeType::Li
             | NodeType::Dl
             | NodeType::Dt
             | NodeType::Dd
+            | NodeType::Menu
             | NodeType::Form
             | NodeType::FieldSet
-            | NodeType::Legend => LayoutDisplay::Block,
+            | NodeType::Legend
+            | NodeType::Output
+            | NodeType::Progress
+            | NodeType::Meter
+            | NodeType::DataList
+            | NodeType::Canvas
+            | NodeType::Audio
+            | NodeType::Video
+            | NodeType::Head => LayoutDisplay::Block,
 
             // Table elements
             NodeType::Table => LayoutDisplay::Table,
@@ -319,25 +516,47 @@ impl NodeType {
             | NodeType::Strong
             | NodeType::B
             | NodeType::I
+            | NodeType::U
+            | NodeType::S
+            | NodeType::Mark
+            | NodeType::Del
+            | NodeType::Ins
             | NodeType::Code
             | NodeType::Samp
             | NodeType::Kbd
             | NodeType::Var
             | NodeType::Cite
+            | NodeType::Dfn
             | NodeType::Abbr
             | NodeType::Acronym
             | NodeType::Q
+            | NodeType::Time
             | NodeType::Sub
             | NodeType::Sup
             | NodeType::Small
             | NodeType::Big
+            | NodeType::Bdo
             | NodeType::Label
             | NodeType::Input
             | NodeType::Button
             | NodeType::Select
             | NodeType::OptGroup
             | NodeType::SelectOption
-            | NodeType::TextArea => LayoutDisplay::Inline,
+            | NodeType::TextArea
+            | NodeType::MenuItem
+            | NodeType::Object
+            | NodeType::Param
+            | NodeType::Embed
+            | NodeType::Source
+            | NodeType::Track
+            | NodeType::Map
+            | NodeType::Area
+            | NodeType::Title
+            | NodeType::Meta
+            | NodeType::Link
+            | NodeType::Script
+            | NodeType::Style
+            | NodeType::Base => LayoutDisplay::Inline,
 
             // Special cases
             NodeType::IFrame(_) => LayoutDisplay::Block,
@@ -352,9 +571,20 @@ impl NodeType {
     fn into_library_owned_nodetype(&self) -> Self {
         use self::NodeType::*;
         match self {
+            Html => Html,
+            Head => Head,
             Body => Body,
             Div => Div,
             P => P,
+            Article => Article,
+            Section => Section,
+            Nav => Nav,
+            Aside => Aside,
+            Header => Header,
+            Footer => Footer,
+            Main => Main,
+            Figure => Figure,
+            FigCaption => FigCaption,
             H1 => H1,
             H2 => H2,
             H3 => H3,
@@ -366,12 +596,17 @@ impl NodeType {
             Pre => Pre,
             BlockQuote => BlockQuote,
             Address => Address,
+            Details => Details,
+            Summary => Summary,
+            Dialog => Dialog,
             Ul => Ul,
             Ol => Ol,
             Li => Li,
             Dl => Dl,
             Dt => Dt,
             Dd => Dd,
+            Menu => Menu,
+            MenuItem => MenuItem,
             Table => Table,
             Caption => Caption,
             THead => THead,
@@ -392,24 +627,52 @@ impl NodeType {
             OptGroup => OptGroup,
             SelectOption => SelectOption,
             TextArea => TextArea,
+            Output => Output,
+            Progress => Progress,
+            Meter => Meter,
+            DataList => DataList,
             Span => Span,
             A => A,
             Em => Em,
             Strong => Strong,
             B => B,
             I => I,
+            U => U,
+            S => S,
+            Mark => Mark,
+            Del => Del,
+            Ins => Ins,
             Code => Code,
             Samp => Samp,
             Kbd => Kbd,
             Var => Var,
             Cite => Cite,
+            Dfn => Dfn,
             Abbr => Abbr,
             Acronym => Acronym,
             Q => Q,
+            Time => Time,
             Sub => Sub,
             Sup => Sup,
             Small => Small,
             Big => Big,
+            Bdo => Bdo,
+            Canvas => Canvas,
+            Object => Object,
+            Param => Param,
+            Embed => Embed,
+            Audio => Audio,
+            Video => Video,
+            Source => Source,
+            Track => Track,
+            Map => Map,
+            Area => Area,
+            Title => Title,
+            Meta => Meta,
+            Link => Link,
+            Script => Script,
+            Style => Style,
+            Base => Base,
             Before => Before,
             After => After,
             Marker => Marker,
@@ -437,9 +700,20 @@ impl NodeType {
     /// Returns the NodeTypeTag for CSS selector matching.
     pub fn get_path(&self) -> NodeTypeTag {
         match self {
+            Self::Html => NodeTypeTag::Html,
+            Self::Head => NodeTypeTag::Head,
             Self::Body => NodeTypeTag::Body,
             Self::Div => NodeTypeTag::Div,
             Self::P => NodeTypeTag::P,
+            Self::Article => NodeTypeTag::Article,
+            Self::Section => NodeTypeTag::Section,
+            Self::Nav => NodeTypeTag::Nav,
+            Self::Aside => NodeTypeTag::Aside,
+            Self::Header => NodeTypeTag::Header,
+            Self::Footer => NodeTypeTag::Footer,
+            Self::Main => NodeTypeTag::Main,
+            Self::Figure => NodeTypeTag::Figure,
+            Self::FigCaption => NodeTypeTag::FigCaption,
             Self::H1 => NodeTypeTag::H1,
             Self::H2 => NodeTypeTag::H2,
             Self::H3 => NodeTypeTag::H3,
@@ -451,12 +725,17 @@ impl NodeType {
             Self::Pre => NodeTypeTag::Pre,
             Self::BlockQuote => NodeTypeTag::BlockQuote,
             Self::Address => NodeTypeTag::Address,
+            Self::Details => NodeTypeTag::Details,
+            Self::Summary => NodeTypeTag::Summary,
+            Self::Dialog => NodeTypeTag::Dialog,
             Self::Ul => NodeTypeTag::Ul,
             Self::Ol => NodeTypeTag::Ol,
             Self::Li => NodeTypeTag::Li,
             Self::Dl => NodeTypeTag::Dl,
             Self::Dt => NodeTypeTag::Dt,
             Self::Dd => NodeTypeTag::Dd,
+            Self::Menu => NodeTypeTag::Menu,
+            Self::MenuItem => NodeTypeTag::MenuItem,
             Self::Table => NodeTypeTag::Table,
             Self::Caption => NodeTypeTag::Caption,
             Self::THead => NodeTypeTag::THead,
@@ -477,24 +756,52 @@ impl NodeType {
             Self::OptGroup => NodeTypeTag::OptGroup,
             Self::SelectOption => NodeTypeTag::SelectOption,
             Self::TextArea => NodeTypeTag::TextArea,
+            Self::Output => NodeTypeTag::Output,
+            Self::Progress => NodeTypeTag::Progress,
+            Self::Meter => NodeTypeTag::Meter,
+            Self::DataList => NodeTypeTag::DataList,
             Self::Span => NodeTypeTag::Span,
             Self::A => NodeTypeTag::A,
             Self::Em => NodeTypeTag::Em,
             Self::Strong => NodeTypeTag::Strong,
             Self::B => NodeTypeTag::B,
             Self::I => NodeTypeTag::I,
+            Self::U => NodeTypeTag::U,
+            Self::S => NodeTypeTag::S,
+            Self::Mark => NodeTypeTag::Mark,
+            Self::Del => NodeTypeTag::Del,
+            Self::Ins => NodeTypeTag::Ins,
             Self::Code => NodeTypeTag::Code,
             Self::Samp => NodeTypeTag::Samp,
             Self::Kbd => NodeTypeTag::Kbd,
             Self::Var => NodeTypeTag::Var,
             Self::Cite => NodeTypeTag::Cite,
+            Self::Dfn => NodeTypeTag::Dfn,
             Self::Abbr => NodeTypeTag::Abbr,
             Self::Acronym => NodeTypeTag::Acronym,
             Self::Q => NodeTypeTag::Q,
+            Self::Time => NodeTypeTag::Time,
             Self::Sub => NodeTypeTag::Sub,
             Self::Sup => NodeTypeTag::Sup,
             Self::Small => NodeTypeTag::Small,
             Self::Big => NodeTypeTag::Big,
+            Self::Bdo => NodeTypeTag::Bdo,
+            Self::Canvas => NodeTypeTag::Canvas,
+            Self::Object => NodeTypeTag::Object,
+            Self::Param => NodeTypeTag::Param,
+            Self::Embed => NodeTypeTag::Embed,
+            Self::Audio => NodeTypeTag::Audio,
+            Self::Video => NodeTypeTag::Video,
+            Self::Source => NodeTypeTag::Source,
+            Self::Track => NodeTypeTag::Track,
+            Self::Map => NodeTypeTag::Map,
+            Self::Area => NodeTypeTag::Area,
+            Self::Title => NodeTypeTag::Title,
+            Self::Meta => NodeTypeTag::Meta,
+            Self::Link => NodeTypeTag::Link,
+            Self::Script => NodeTypeTag::Script,
+            Self::Style => NodeTypeTag::Style,
+            Self::Base => NodeTypeTag::Base,
             Self::Text(_) => NodeTypeTag::Text,
             Self::Image(_) => NodeTypeTag::Img,
             Self::IFrame(_) => NodeTypeTag::IFrame,
@@ -695,6 +1002,307 @@ impl IdOrClass {
     }
 }
 
+/// Name-value pair for custom attributes (data-*, aria-*, etc.)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct AttributeNameValue {
+    pub name: AzString,
+    pub value: AzString,
+}
+
+/// Strongly-typed HTML attribute with type-safe values.
+///
+/// This enum provides a type-safe way to represent HTML attributes, ensuring that
+/// values are validated at compile-time and properly converted to their string
+/// representations at runtime.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum AttributeType {
+    /// Element ID attribute (`id="..."`)
+    Id(AzString),
+    /// CSS class attribute (`class="..."`)
+    Class(AzString),
+    /// Accessible name/label (`aria-label="..."`)
+    AriaLabel(AzString),
+    /// Element that labels this one (`aria-labelledby="..."`)
+    AriaLabelledBy(AzString),
+    /// Element that describes this one (`aria-describedby="..."`)
+    AriaDescribedBy(AzString),
+    /// Role for accessibility (`role="..."`)
+    AriaRole(AzString),
+    /// Current state of an element (`aria-checked`, `aria-selected`, etc.)
+    AriaState(AttributeNameValue),
+    /// ARIA property (`aria-*`)
+    AriaProperty(AttributeNameValue),
+
+    /// Hyperlink target URL (`href="..."`)
+    Href(AzString),
+    /// Link relationship (`rel="..."`)
+    Rel(AzString),
+    /// Link target frame (`target="..."`)
+    Target(AzString),
+
+    /// Image source URL (`src="..."`)
+    Src(AzString),
+    /// Alternative text for images (`alt="..."`)
+    Alt(AzString),
+    /// Image title (tooltip) (`title="..."`)
+    Title(AzString),
+
+    /// Form input name (`name="..."`)
+    Name(AzString),
+    /// Form input value (`value="..."`)
+    Value(AzString),
+    /// Input type (`type="text|password|email|..."`)
+    InputType(AzString),
+    /// Placeholder text (`placeholder="..."`)
+    Placeholder(AzString),
+    /// Input is required (`required`)
+    Required,
+    /// Input is disabled (`disabled`)
+    Disabled,
+    /// Input is readonly (`readonly`)
+    Readonly,
+    /// Input is checked (checkbox/radio) (`checked`)
+    Checked,
+    /// Input is selected (option) (`selected`)
+    Selected,
+    /// Maximum value for number inputs (`max="..."`)
+    Max(AzString),
+    /// Minimum value for number inputs (`min="..."`)
+    Min(AzString),
+    /// Step value for number inputs (`step="..."`)
+    Step(AzString),
+    /// Input pattern for validation (`pattern="..."`)
+    Pattern(AzString),
+    /// Minimum length (`minlength="..."`)
+    MinLength(i32),
+    /// Maximum length (`maxlength="..."`)
+    MaxLength(i32),
+    /// Autocomplete behavior (`autocomplete="on|off|..."`)
+    Autocomplete(AzString),
+
+    /// Table header scope (`scope="row|col|rowgroup|colgroup"`)
+    Scope(AzString),
+    /// Number of columns to span (`colspan="..."`)
+    ColSpan(i32),
+    /// Number of rows to span (`rowspan="..."`)
+    RowSpan(i32),
+
+    /// Tab index for keyboard navigation (`tabindex="..."`)
+    TabIndex(i32),
+    /// Element can receive focus (`tabindex="0"` equivalent)
+    Focusable,
+
+    /// Language code (`lang="..."`)
+    Lang(AzString),
+    /// Text direction (`dir="ltr|rtl|auto"`)
+    Dir(AzString),
+
+    /// Content is editable (`contenteditable="true|false"`)
+    ContentEditable(bool),
+    /// Element is draggable (`draggable="true|false"`)
+    Draggable(bool),
+    /// Element is hidden (`hidden`)
+    Hidden,
+
+    /// Generic data attribute (`data-*="..."`)
+    Data(AttributeNameValue),
+    /// Generic custom attribute (for future extensibility)
+    Custom(AttributeNameValue),
+}
+
+impl_vec!(AttributeType, AttributeVec, AttributeVecDestructor);
+impl_vec_debug!(AttributeType, AttributeVec);
+impl_vec_partialord!(AttributeType, AttributeVec);
+impl_vec_ord!(AttributeType, AttributeVec);
+impl_vec_clone!(AttributeType, AttributeVec, AttributeVecDestructor);
+impl_vec_partialeq!(AttributeType, AttributeVec);
+impl_vec_eq!(AttributeType, AttributeVec);
+impl_vec_hash!(AttributeType, AttributeVec);
+
+impl AttributeType {
+    /// Get the attribute name (e.g., "href", "aria-label", "data-foo")
+    pub fn name(&self) -> &str {
+        match self {
+            AttributeType::Id(_) => "id",
+            AttributeType::Class(_) => "class",
+            AttributeType::AriaLabel(_) => "aria-label",
+            AttributeType::AriaLabelledBy(_) => "aria-labelledby",
+            AttributeType::AriaDescribedBy(_) => "aria-describedby",
+            AttributeType::AriaRole(_) => "role",
+            AttributeType::AriaState(nv) => nv.name.as_str(),
+            AttributeType::AriaProperty(nv) => nv.name.as_str(),
+            AttributeType::Href(_) => "href",
+            AttributeType::Rel(_) => "rel",
+            AttributeType::Target(_) => "target",
+            AttributeType::Src(_) => "src",
+            AttributeType::Alt(_) => "alt",
+            AttributeType::Title(_) => "title",
+            AttributeType::Name(_) => "name",
+            AttributeType::Value(_) => "value",
+            AttributeType::InputType(_) => "type",
+            AttributeType::Placeholder(_) => "placeholder",
+            AttributeType::Required => "required",
+            AttributeType::Disabled => "disabled",
+            AttributeType::Readonly => "readonly",
+            AttributeType::Checked => "checked",
+            AttributeType::Selected => "selected",
+            AttributeType::Max(_) => "max",
+            AttributeType::Min(_) => "min",
+            AttributeType::Step(_) => "step",
+            AttributeType::Pattern(_) => "pattern",
+            AttributeType::MinLength(_) => "minlength",
+            AttributeType::MaxLength(_) => "maxlength",
+            AttributeType::Autocomplete(_) => "autocomplete",
+            AttributeType::Scope(_) => "scope",
+            AttributeType::ColSpan(_) => "colspan",
+            AttributeType::RowSpan(_) => "rowspan",
+            AttributeType::TabIndex(_) => "tabindex",
+            AttributeType::Focusable => "tabindex",
+            AttributeType::Lang(_) => "lang",
+            AttributeType::Dir(_) => "dir",
+            AttributeType::ContentEditable(_) => "contenteditable",
+            AttributeType::Draggable(_) => "draggable",
+            AttributeType::Hidden => "hidden",
+            AttributeType::Data(nv) => nv.name.as_str(),
+            AttributeType::Custom(nv) => nv.name.as_str(),
+        }
+    }
+
+    /// Get the attribute value as a string
+    pub fn value(&self) -> AzString {
+        match self {
+            AttributeType::Id(v)
+            | AttributeType::Class(v)
+            | AttributeType::AriaLabel(v)
+            | AttributeType::AriaLabelledBy(v)
+            | AttributeType::AriaDescribedBy(v)
+            | AttributeType::AriaRole(v)
+            | AttributeType::Href(v)
+            | AttributeType::Rel(v)
+            | AttributeType::Target(v)
+            | AttributeType::Src(v)
+            | AttributeType::Alt(v)
+            | AttributeType::Title(v)
+            | AttributeType::Name(v)
+            | AttributeType::Value(v)
+            | AttributeType::InputType(v)
+            | AttributeType::Placeholder(v)
+            | AttributeType::Max(v)
+            | AttributeType::Min(v)
+            | AttributeType::Step(v)
+            | AttributeType::Pattern(v)
+            | AttributeType::Autocomplete(v)
+            | AttributeType::Scope(v)
+            | AttributeType::Lang(v)
+            | AttributeType::Dir(v) => v.clone(),
+
+            AttributeType::AriaState(nv)
+            | AttributeType::AriaProperty(nv)
+            | AttributeType::Data(nv)
+            | AttributeType::Custom(nv) => nv.value.clone(),
+
+            AttributeType::MinLength(n)
+            | AttributeType::MaxLength(n)
+            | AttributeType::ColSpan(n)
+            | AttributeType::RowSpan(n)
+            | AttributeType::TabIndex(n) => n.to_string().into(),
+
+            AttributeType::Focusable => "0".into(),
+            AttributeType::ContentEditable(b) | AttributeType::Draggable(b) => {
+                if *b {
+                    "true".into()
+                } else {
+                    "false".into()
+                }
+            }
+
+            AttributeType::Required
+            | AttributeType::Disabled
+            | AttributeType::Readonly
+            | AttributeType::Checked
+            | AttributeType::Selected
+            | AttributeType::Hidden => "".into(), // Boolean attributes
+        }
+    }
+
+    /// Check if this is a boolean attribute (present = true, absent = false)
+    pub fn is_boolean(&self) -> bool {
+        matches!(
+            self,
+            AttributeType::Required
+                | AttributeType::Disabled
+                | AttributeType::Readonly
+                | AttributeType::Checked
+                | AttributeType::Selected
+                | AttributeType::Hidden
+        )
+    }
+}
+
+/// Compact accessibility information for common use cases.
+///
+/// This is a lighter-weight alternative to `AccessibilityInfo` for cases where
+/// only basic accessibility properties are needed. Developers must explicitly
+/// pass `None` if they choose not to provide accessibility information.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct SmallAriaInfo {
+    /// Accessible label/name
+    pub label: OptionAzString,
+    /// Element's role (button, link, etc.)
+    pub role: OptionAccessibilityRole,
+    /// Additional description
+    pub description: OptionAzString,
+}
+
+impl_option!(
+    SmallAriaInfo,
+    OptionSmallAriaInfo,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Hash]
+);
+
+impl SmallAriaInfo {
+    pub fn label<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            label: OptionAzString::Some(text.into()),
+            role: OptionAccessibilityRole::None,
+            description: OptionAzString::None,
+        }
+    }
+
+    pub fn with_role(mut self, role: AccessibilityRole) -> Self {
+        self.role = OptionAccessibilityRole::Some(role);
+        self
+    }
+
+    pub fn with_description<S: Into<AzString>>(mut self, desc: S) -> Self {
+        self.description = OptionAzString::Some(desc.into());
+        self
+    }
+
+    /// Convert to full `AccessibilityInfo`
+    pub fn to_full_info(&self) -> AccessibilityInfo {
+        AccessibilityInfo {
+            name: self.label.clone(),
+            value: OptionAzString::None,
+            role: match self.role {
+                OptionAccessibilityRole::Some(r) => r,
+                OptionAccessibilityRole::None => AccessibilityRole::Unknown,
+            },
+            states: Vec::new().into(),
+            accelerator: OptionVirtualKeyCodeCombo::None,
+            default_action: OptionAzString::None,
+            supported_actions: Vec::new().into(),
+            is_live_region: false,
+            labelled_by: OptionDomNodeId::None,
+            described_by: OptionDomNodeId::None,
+        }
+    }
+}
+
 // memory optimization: store all inline-normal / inline-hover / inline-* attributes
 // as one Vec instad of 4 separate Vecs
 
@@ -866,6 +1474,8 @@ pub struct NodeData {
     /// Stores all ids and classes as one vec - size optimization since
     /// most nodes don't have any classes or IDs.
     pub ids_and_classes: IdOrClassVec,
+    /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
+    pub attributes: AttributeVec,
     /// Callbacks attached to this node:
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
@@ -887,6 +1497,7 @@ impl Hash for NodeData {
         self.node_type.hash(state);
         self.dataset.hash(state);
         self.ids_and_classes.as_ref().hash(state);
+        self.attributes.as_ref().hash(state);
 
         // NOTE: callbacks are NOT hashed regularly, otherwise
         // they'd cause inconsistencies because of the scroll callback
@@ -933,7 +1544,7 @@ pub struct NodeDataExt {
 
 /// Holds information about a UI element for accessibility purposes (e.g., screen readers).
 /// This is a wrapper for platform-specific accessibility APIs like MSAA.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct AccessibilityInfo {
     /// Get the "name" of the `IAccessible`, for example the
@@ -955,7 +1566,140 @@ pub struct AccessibilityInfo {
     /// Optional "default action" description. Only used when there is at least
     /// one `ComponentEventFilter::DefaultAction` callback present on this node.
     pub default_action: OptionAzString,
+    /// A list of actions the user can perform on this element.
+    /// Maps to accesskit's Action enum.
+    pub supported_actions: AccessibilityActionVec,
+    /// For live regions that update automatically (e.g., chat messages, timers).
+    /// Maps to accesskit's `Live` property.
+    pub is_live_region: bool,
+    /// ID of another node that labels this one (for `aria-labelledby`).
+    pub labelled_by: OptionDomNodeId,
+    /// ID of another node that describes this one (for `aria-describedby`).
+    pub described_by: OptionDomNodeId,
 }
+
+// Manual trait implementations for AccessibilityInfo
+// Vec fields don't implement Ord/Hash, so we implement them manually
+impl PartialOrd for AccessibilityInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AccessibilityInfo {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare fields in order, Vec fields are compared by length then content
+        self.name
+            .cmp(&other.name)
+            .then_with(|| self.value.cmp(&other.value))
+            .then_with(|| self.role.cmp(&other.role))
+            .then_with(|| {
+                // Compare states Vec by length first, then content
+                self.states
+                    .len()
+                    .cmp(&other.states.len())
+                    .then_with(|| self.states.as_slice().cmp(other.states.as_slice()))
+            })
+            .then_with(|| self.accelerator.cmp(&other.accelerator))
+            .then_with(|| self.default_action.cmp(&other.default_action))
+            .then_with(|| {
+                // Compare supported_actions Vec by length first, then content
+                self.supported_actions
+                    .len()
+                    .cmp(&other.supported_actions.len())
+                    .then_with(|| {
+                        self.supported_actions
+                            .as_slice()
+                            .cmp(other.supported_actions.as_slice())
+                    })
+            })
+            .then_with(|| self.is_live_region.cmp(&other.is_live_region))
+            .then_with(|| self.labelled_by.cmp(&other.labelled_by))
+            .then_with(|| self.described_by.cmp(&other.described_by))
+    }
+}
+
+impl std::hash::Hash for AccessibilityInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.value.hash(state);
+        self.role.hash(state);
+        // Hash Vec fields by hashing each element
+        for item in self.states.as_slice() {
+            item.hash(state);
+        }
+        self.accelerator.hash(state);
+        self.default_action.hash(state);
+        // Hash Vec fields by hashing each element
+        for item in self.supported_actions.as_slice() {
+            item.hash(state);
+        }
+        self.is_live_region.hash(state);
+        self.labelled_by.hash(state);
+        self.described_by.hash(state);
+    }
+}
+
+/// Actions that can be performed on an accessible element.
+/// This is a simplified version of accesskit::Action to avoid direct dependency in core.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum AccessibilityAction {
+    /// The default action for the element (usually a click).
+    Default,
+    /// Set focus to this element.
+    Focus,
+    /// Scroll this element into view.
+    ScrollIntoView,
+    /// Increment a numeric value (e.g., slider, spinner).
+    Increment,
+    /// Decrement a numeric value (e.g., slider, spinner).
+    Decrement,
+    /// Show a context menu.
+    ShowContextMenu,
+    /// Scroll backward (e.g., page up).
+    ScrollBackward,
+    /// Scroll forward (e.g., page down).
+    ScrollForward,
+    /// Scroll up.
+    ScrollUp,
+    /// Scroll down.
+    ScrollDown,
+    /// Scroll left.
+    ScrollLeft,
+    /// Scroll right.
+    ScrollRight,
+}
+
+impl_vec![
+    AccessibilityAction,
+    AccessibilityActionVec,
+    AccessibilityActionVecDestructor
+];
+impl_vec_debug!(AccessibilityAction, AccessibilityActionVec);
+impl_vec_clone!(
+    AccessibilityAction,
+    AccessibilityActionVec,
+    AccessibilityActionVecDestructor
+);
+impl_vec_partialeq!(AccessibilityAction, AccessibilityActionVec);
+impl_vec_eq!(AccessibilityAction, AccessibilityActionVec);
+impl_vec_partialord!(AccessibilityAction, AccessibilityActionVec);
+impl_vec_ord!(AccessibilityAction, AccessibilityActionVec);
+impl_vec_hash!(AccessibilityAction, AccessibilityActionVec);
+
+impl_option![
+    AccessibilityAction,
+    OptionAccessibilityAction,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+];
+
+impl_option!(
+    AccessibilityInfo,
+    OptionAccessibilityInfo,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// Defines the element's purpose for accessibility APIs, informing assistive technologies
 /// like screen readers about the function of a UI element. Each variant corresponds to a
@@ -1396,7 +2140,18 @@ pub enum AccessibilityRole {
     /// - **Example**: A decorative graphical flourish that has no function or information to
     ///   convey.
     Nothing,
+
+    /// Unknown or unspecified role.
+    /// - **Purpose**: Default fallback when no specific role is assigned.
+    /// - **When to use**: As a default value or when role information is unavailable.
+    Unknown,
 }
+
+impl_option!(
+    AccessibilityRole,
+    OptionAccessibilityRole,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// Defines the current state of an element for accessibility APIs (e.g., focused, checked).
 /// These states provide dynamic information to assistive technologies about the element's
@@ -1563,6 +2318,7 @@ impl Clone for NodeData {
             },
             ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
                                                             * they are &'static */
+            attributes: self.attributes.clone(),
             inline_css_props: self.inline_css_props.clone(), /* do not clone the inline CSS props
                                                               * if they are &'static */
             callbacks: self.callbacks.clone(),
@@ -1722,6 +2478,7 @@ impl NodeData {
             node_type,
             dataset: OptionRefAny::None,
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
+            attributes: AttributeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
             tab_index: OptionTabIndex::None,
@@ -2078,6 +2835,7 @@ impl NodeData {
             },
             ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
                                                             * they are &'static */
+            attributes: self.attributes.clone(),
             inline_css_props: self.inline_css_props.clone(), /* do not clone the inline CSS props
                                                               * if they are &'static */
             callbacks: self.callbacks.clone(),
@@ -2246,17 +3004,230 @@ impl Dom {
             estimated_total_children: 0,
         }
     }
+
+    // === Document Structure Elements ===
+
+    /// Creates the root HTML element.
+    ///
+    /// **Accessibility**: The `<html>` element is the root of an HTML document and should have a
+    /// `lang` attribute.
     #[inline(always)]
-    pub fn div() -> Self {
-        Self::new(NodeType::Div)
+    pub const fn html() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Html),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
     }
+
+    /// Creates the document head element.
+    ///
+    /// **Accessibility**: The `<head>` contains metadata. Use `<title>` for page titles.
     #[inline(always)]
-    pub fn body() -> Self {
-        Self::new(NodeType::Body)
+    pub const fn head() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Head),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
     }
+
     #[inline(always)]
-    pub fn br() -> Self {
-        Self::new(NodeType::Br)
+    pub const fn body() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Body),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a generic block-level container.
+    ///
+    /// **Accessibility**: Prefer semantic elements like `<article>`, `<section>`, `<nav>` when
+    /// applicable.
+    #[inline(always)]
+    pub const fn div() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Div),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    // === Semantic Structure Elements ===
+
+    /// Creates an article element.
+    ///
+    /// **Accessibility**: Represents self-contained content that could be distributed
+    /// independently. Screen readers can navigate by articles. Consider adding aria-label for
+    /// multiple articles.
+    #[inline(always)]
+    pub const fn article() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Article),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a section element.
+    ///
+    /// **Accessibility**: Represents a thematic grouping of content with a heading.
+    /// Should typically have a heading (h1-h6) as a child. Consider aria-labelledby.
+    #[inline(always)]
+    pub const fn section() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Section),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a navigation element.
+    ///
+    /// **Accessibility**: Represents navigation links. Screen readers can jump to navigation.
+    /// Use aria-label to distinguish multiple nav elements (e.g., "Main navigation", "Footer
+    /// links").
+    #[inline(always)]
+    pub const fn nav() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Nav),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates an aside element.
+    ///
+    /// **Accessibility**: Represents content tangentially related to main content (sidebars,
+    /// callouts). Screen readers announce this as complementary content.
+    #[inline(always)]
+    pub const fn aside() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Aside),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a header element.
+    ///
+    /// **Accessibility**: Represents introductory content or navigational aids.
+    /// Can be used for page headers or section headers.
+    #[inline(always)]
+    pub const fn header() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Header),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a footer element.
+    ///
+    /// **Accessibility**: Represents footer for nearest section or page.
+    /// Typically contains copyright, author info, or related links.
+    #[inline(always)]
+    pub const fn footer() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Footer),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a main content element.
+    ///
+    /// **Accessibility**: Represents the dominant content. There should be only ONE main per page.
+    /// Screen readers can jump directly to main content. Do not nest inside
+    /// article/aside/footer/header/nav.
+    #[inline(always)]
+    pub const fn main() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Main),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a figure element.
+    ///
+    /// **Accessibility**: Represents self-contained content like diagrams, photos, code listings.
+    /// Use with `<figcaption>` to provide a caption. Screen readers associate caption with figure.
+    #[inline(always)]
+    pub const fn figure() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Figure),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a figure caption element.
+    ///
+    /// **Accessibility**: Provides a caption for `<figure>`. Screen readers announce this as the
+    /// figure description.
+    #[inline(always)]
+    pub const fn figcaption() -> Self {
+        Self {
+            root: NodeData::new(NodeType::FigCaption),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    // === Interactive Elements ===
+
+    /// Creates a details disclosure element.
+    ///
+    /// **Accessibility**: Creates a disclosure widget. Screen readers announce expanded/collapsed
+    /// state. Must contain a `<summary>` element. Keyboard accessible by default.
+    #[inline(always)]
+    pub const fn details() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Details),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a summary element for details.
+    ///
+    /// **Accessibility**: The visible heading/label for `<details>`.
+    /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
+    #[inline]
+    pub fn summary<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::Summary),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a dialog element.
+    ///
+    /// **Accessibility**: Represents a modal or non-modal dialog.
+    /// When opened as modal, focus is trapped. Use aria-label or aria-labelledby.
+    /// Escape key should close modal dialogs.
+    #[inline(always)]
+    pub const fn dialog() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Dialog),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    // === Basic Structural Elements ===
+
+    #[inline(always)]
+    pub const fn br() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Br),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
     }
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
@@ -2272,6 +3243,1220 @@ impl Dom {
             callback: IFrameCallback { cb: callback },
             data,
         }))
+    }
+
+    // === Semantic HTML Elements with Accessibility Guidance ===
+
+    /// Creates a paragraph element.
+    ///
+    /// **Accessibility**: Paragraphs provide semantic structure for screen readers.
+    #[inline(always)]
+    pub const fn p() -> Self {
+        Self {
+            root: NodeData::new(NodeType::P),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a heading level 1 element.
+    ///
+    /// **Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`
+    /// per page.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn h1<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::H1),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a heading level 2 element.
+    ///
+    /// **Accessibility**: Use `h2` for major section headings under `h1`.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn h2<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::H2),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a heading level 3 element.
+    ///
+    /// **Accessibility**: Use `h3` for subsections under `h2`.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn h3<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::H3),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a heading level 4 element.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn h4<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::H4),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a heading level 5 element.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn h5<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::H5),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a heading level 6 element.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn h6<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::H6),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a generic inline container (span).
+    ///
+    /// **Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when
+    /// applicable.
+    ///
+    /// **Parameters:**
+    /// - `text`: Span content
+    #[inline]
+    pub fn span<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::Span),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a strongly emphasized text element (strong importance).
+    ///
+    /// **Accessibility**: Use `strong` instead of `b` for semantic meaning. Screen readers can
+    /// convey the importance. Use for text that has strong importance, seriousness, or urgency.
+    ///
+    /// **Parameters:**
+    /// - `text`: Text to emphasize
+    #[inline]
+    pub fn strong<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::Strong),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates an emphasized text element (stress emphasis).
+    ///
+    /// **Accessibility**: Use `em` instead of `i` for semantic meaning. Screen readers can
+    /// convey the emphasis. Use for text that has stress emphasis.
+    ///
+    /// **Parameters:**
+    /// - `text`: Text to emphasize
+    #[inline]
+    pub fn em<S: Into<AzString>>(text: S) -> Self {
+        Self {
+            root: NodeData::new(NodeType::Em),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+        .with_child(Self::text(text))
+    }
+
+    /// Creates a code/computer code element.
+    ///
+    /// **Accessibility**: Represents a fragment of computer code. Screen readers can identify
+    /// this as code content.
+    ///
+    /// **Parameters:**
+    /// - `code`: Code content
+    #[inline]
+    pub fn code<S: Into<AzString>>(code: S) -> Self {
+        Self::new(NodeType::Code).with_child(Self::text(code))
+    }
+
+    /// Creates a preformatted text element.
+    ///
+    /// **Accessibility**: Preserves whitespace and line breaks. Useful for code blocks or
+    /// ASCII art. Screen readers will read the content as-is.
+    ///
+    /// **Parameters:**
+    /// - `text`: Preformatted content
+    #[inline]
+    pub fn pre<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Pre).with_child(Self::text(text))
+    }
+
+    /// Creates a blockquote element.
+    ///
+    /// **Accessibility**: Represents a section quoted from another source. Screen readers
+    /// can identify quoted content. Consider adding a `cite` attribute.
+    ///
+    /// **Parameters:**
+    /// - `text`: Quote content
+    #[inline]
+    pub fn blockquote<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::BlockQuote).with_child(Self::text(text))
+    }
+
+    /// Creates a citation element.
+    ///
+    /// **Accessibility**: Represents a reference to a creative work. Screen readers can
+    /// identify citations.
+    ///
+    /// **Parameters:**
+    /// - `text`: Citation text
+    #[inline]
+    pub fn cite<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Cite).with_child(Self::text(text))
+    }
+
+    /// Creates an abbreviation element.
+    ///
+    /// **Accessibility**: Represents an abbreviation or acronym. Use with a `title` attribute
+    /// to provide the full expansion for screen readers.
+    ///
+    /// **Parameters:**
+    /// - `abbr_text`: Abbreviated text
+    /// - `title`: Full expansion
+    #[inline]
+    pub fn abbr(abbr_text: AzString, title: AzString) -> Self {
+        Self::new(NodeType::Abbr)
+            .with_attribute(AttributeType::Title(title))
+            .with_child(Self::text(abbr_text))
+    }
+
+    /// Creates a keyboard input element.
+    ///
+    /// **Accessibility**: Represents keyboard input or key combinations. Screen readers can
+    /// identify keyboard instructions.
+    ///
+    /// **Parameters:**
+    /// - `text`: Keyboard instruction
+    #[inline]
+    pub fn kbd<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Kbd).with_child(Self::text(text))
+    }
+
+    /// Creates a sample output element.
+    ///
+    /// **Accessibility**: Represents sample output from a program or computing system.
+    ///
+    /// **Parameters:**
+    /// - `text`: Sample text
+    #[inline]
+    pub fn samp<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Samp).with_child(Self::text(text))
+    }
+
+    /// Creates a variable element.
+    ///
+    /// **Accessibility**: Represents a variable in mathematical expressions or programming.
+    ///
+    /// **Parameters:**
+    /// - `text`: Variable name
+    #[inline]
+    pub fn var<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Var).with_child(Self::text(text))
+    }
+
+    /// Creates a subscript element.
+    ///
+    /// **Accessibility**: Screen readers may announce subscript formatting.
+    ///
+    /// **Parameters:**
+    /// - `text`: Subscript content
+    #[inline]
+    pub fn sub<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Sub).with_child(Self::text(text))
+    }
+
+    /// Creates a superscript element.
+    ///
+    /// **Accessibility**: Screen readers may announce superscript formatting.
+    ///
+    /// **Parameters:**
+    /// - `text`: Superscript content
+    #[inline]
+    pub fn sup<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Sup).with_child(Self::text(text))
+    }
+
+    /// Creates an underline text element.
+    ///
+    /// **Accessibility**: Screen readers typically don't announce underline formatting.
+    /// Use semantic elements when possible (e.g., `<em>` for emphasis).
+    #[inline]
+    pub fn u<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::U).with_child(Self::text(text))
+    }
+
+    /// Creates a strikethrough text element.
+    ///
+    /// **Accessibility**: Represents text that is no longer accurate or relevant.
+    /// Consider using `<del>` for deleted content with datetime attribute.
+    #[inline]
+    pub fn s<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::S).with_child(Self::text(text))
+    }
+
+    /// Creates a marked/highlighted text element.
+    ///
+    /// **Accessibility**: Represents text marked for reference or notation purposes.
+    /// Screen readers may announce this as "highlighted".
+    #[inline]
+    pub fn mark<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Mark).with_child(Self::text(text))
+    }
+
+    /// Creates a deleted text element.
+    ///
+    /// **Accessibility**: Represents deleted content in document edits.
+    /// Use with `datetime` and `cite` attributes for edit tracking.
+    #[inline]
+    pub fn del<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Del).with_child(Self::text(text))
+    }
+
+    /// Creates an inserted text element.
+    ///
+    /// **Accessibility**: Represents inserted content in document edits.
+    /// Use with `datetime` and `cite` attributes for edit tracking.
+    #[inline]
+    pub fn ins<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Ins).with_child(Self::text(text))
+    }
+
+    /// Creates a definition element.
+    ///
+    /// **Accessibility**: Represents the defining instance of a term.
+    /// Often used within a definition list or with `<abbr>`.
+    #[inline]
+    pub fn dfn<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Dfn).with_child(Self::text(text))
+    }
+
+    /// Creates a time element.
+    ///
+    /// **Accessibility**: Represents a specific time or date.
+    /// Use `datetime` attribute for machine-readable format.
+    ///
+    /// **Parameters:**
+    /// - `text`: Human-readable time/date
+    /// - `datetime`: Optional machine-readable datetime
+    #[inline]
+    pub fn time(text: AzString, datetime: OptionAzString) -> Self {
+        let mut element = Self::new(NodeType::Time).with_child(Self::text(text));
+        if let OptionAzString::Some(dt) = datetime {
+            element = element.with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "datetime".into(),
+                value: dt,
+            }));
+        }
+        element
+    }
+
+    /// Creates a bi-directional override element.
+    ///
+    /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
+    #[inline]
+    pub fn bdo<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Bdo).with_child(Self::text(text))
+    }
+
+    /// Creates an anchor/hyperlink element.
+    ///
+    /// **Accessibility**: Always provide meaningful link text. Avoid "click here" or "read more".
+    /// Screen readers often navigate by links, so descriptive text is crucial.
+    ///
+    /// **Parameters:**
+    /// - `href`: Link destination URL
+    /// - `label`: Link text (pass `None` for image-only links with alt text)
+    #[inline]
+    pub fn a(href: AzString, label: OptionAzString) -> Self {
+        let mut link = Self::new(NodeType::A).with_attribute(AttributeType::Href(href));
+        if let OptionAzString::Some(text) = label {
+            link = link.with_child(Self::text(text));
+        }
+        link
+    }
+
+    /// Creates a button element.
+    ///
+    /// **Accessibility**: Buttons are keyboard accessible by default. Always provide clear
+    /// button text or an `aria-label` for icon-only buttons.
+    ///
+    /// **Parameters:**
+    /// - `text`: Button label text
+    #[inline]
+    pub fn button(text: AzString) -> Self {
+        Self::new(NodeType::Button).with_child(Self::text(text))
+    }
+
+    /// Creates a label element for form controls.
+    ///
+    /// **Accessibility**: Always associate labels with form controls using `for` attribute
+    /// or by wrapping the control. This is critical for screen reader users.
+    ///
+    /// **Parameters:**
+    /// - `for_id`: ID of the associated form control
+    /// - `text`: Label text
+    #[inline]
+    pub fn label(for_id: AzString, text: AzString) -> Self {
+        Self::new(NodeType::Label)
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "for".into(),
+                value: for_id,
+            }))
+            .with_child(Self::text(text))
+    }
+
+    /// Creates an input element.
+    ///
+    /// **Accessibility**: Always provide a label or `aria-label`. Set appropriate `type`
+    /// and `aria-` attributes for the input's purpose.
+    ///
+    /// **Parameters:**
+    /// - `input_type`: Input type (text, password, email, etc.)
+    /// - `name`: Form field name
+    /// - `label`: Accessibility label (required)
+    #[inline]
+    pub fn input(input_type: AzString, name: AzString, label: AzString) -> Self {
+        Self::new(NodeType::Input)
+            .with_attribute(AttributeType::InputType(input_type))
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates a textarea element.
+    ///
+    /// **Accessibility**: Always provide a label or `aria-label`. Consider `aria-describedby`
+    /// for additional instructions.
+    ///
+    /// **Parameters:**
+    /// - `name`: Form field name
+    /// - `label`: Accessibility label (required)
+    #[inline]
+    pub fn textarea(name: AzString, label: AzString) -> Self {
+        Self::new(NodeType::TextArea)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates a select dropdown element.
+    ///
+    /// **Accessibility**: Always provide a label. Group related options with `optgroup`.
+    ///
+    /// **Parameters:**
+    /// - `name`: Form field name
+    /// - `label`: Accessibility label (required)
+    #[inline]
+    pub fn select(name: AzString, label: AzString) -> Self {
+        Self::new(NodeType::Select)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates an option element for select dropdowns.
+    ///
+    /// **Parameters:**
+    /// - `value`: Option value
+    /// - `text`: Display text
+    #[inline]
+    pub fn option(value: AzString, text: AzString) -> Self {
+        Self::new(NodeType::SelectOption)
+            .with_attribute(AttributeType::Value(value))
+            .with_child(Self::text(text))
+    }
+
+    /// Creates an unordered list element.
+    ///
+    /// **Accessibility**: Screen readers announce lists and item counts, helping users
+    /// understand content structure.
+    #[inline(always)]
+    pub fn ul() -> Self {
+        Self::new(NodeType::Ul)
+    }
+
+    /// Creates an ordered list element.
+    ///
+    /// **Accessibility**: Screen readers announce lists and item counts, helping users
+    /// understand content structure and numbering.
+    #[inline(always)]
+    pub fn ol() -> Self {
+        Self::new(NodeType::Ol)
+    }
+
+    /// Creates a list item element.
+    ///
+    /// **Accessibility**: Must be a child of `ul`, `ol`, or `menu`. Screen readers announce
+    /// list item position (e.g., "2 of 5").
+    #[inline(always)]
+    pub fn li() -> Self {
+        Self::new(NodeType::Li)
+    }
+
+    /// Creates a table element.
+    ///
+    /// **Accessibility**: Use proper table structure with `thead`, `tbody`, `th`, and `td`.
+    /// Provide a `caption` for table purpose. Use `scope` attribute on header cells.
+    #[inline(always)]
+    pub fn table() -> Self {
+        Self::new(NodeType::Table)
+    }
+
+    /// Creates a table caption element.
+    ///
+    /// **Accessibility**: Describes the purpose of the table. Screen readers announce this first.
+    #[inline(always)]
+    pub fn caption() -> Self {
+        Self::new(NodeType::Caption)
+    }
+
+    /// Creates a table header element.
+    ///
+    /// **Accessibility**: Groups header rows. Screen readers can navigate table structure.
+    #[inline(always)]
+    pub fn thead() -> Self {
+        Self::new(NodeType::THead)
+    }
+
+    /// Creates a table body element.
+    ///
+    /// **Accessibility**: Groups body rows. Screen readers can navigate table structure.
+    #[inline(always)]
+    pub fn tbody() -> Self {
+        Self::new(NodeType::TBody)
+    }
+
+    /// Creates a table footer element.
+    ///
+    /// **Accessibility**: Groups footer rows. Screen readers can navigate table structure.
+    #[inline(always)]
+    pub fn tfoot() -> Self {
+        Self::new(NodeType::TFoot)
+    }
+
+    /// Creates a table row element.
+    #[inline(always)]
+    pub fn tr() -> Self {
+        Self::new(NodeType::Tr)
+    }
+
+    /// Creates a table header cell element.
+    ///
+    /// **Accessibility**: Use `scope` attribute ("col" or "row") to associate headers with
+    /// data cells. Screen readers use this to announce cell context.
+    #[inline(always)]
+    pub fn th() -> Self {
+        Self::new(NodeType::Th)
+    }
+
+    /// Creates a table data cell element.
+    #[inline(always)]
+    pub fn td() -> Self {
+        Self::new(NodeType::Td)
+    }
+
+    /// Creates a form element.
+    ///
+    /// **Accessibility**: Group related form controls with `fieldset` and `legend`.
+    /// Provide clear labels for all inputs. Consider `aria-describedby` for instructions.
+    #[inline(always)]
+    pub fn form() -> Self {
+        Self::new(NodeType::Form)
+    }
+
+    /// Creates a fieldset element for grouping form controls.
+    ///
+    /// **Accessibility**: Groups related form controls. Always include a `legend` as the
+    /// first child to describe the group. Screen readers announce the legend when entering
+    /// the fieldset.
+    #[inline(always)]
+    pub fn fieldset() -> Self {
+        Self::new(NodeType::FieldSet)
+    }
+
+    /// Creates a legend element for fieldsets.
+    ///
+    /// **Accessibility**: Describes the purpose of a fieldset. Must be the first child of
+    /// a fieldset. Screen readers announce this when entering the fieldset.
+    #[inline(always)]
+    pub fn legend() -> Self {
+        Self::new(NodeType::Legend)
+    }
+
+    /// Creates a horizontal rule element.
+    ///
+    /// **Accessibility**: Represents a thematic break. Screen readers may announce this as
+    /// a separator. Consider using CSS borders for purely decorative lines.
+    #[inline(always)]
+    pub fn hr() -> Self {
+        Self::new(NodeType::Hr)
+    }
+
+    // === Additional Element Constructors ===
+
+    /// Creates an address element.
+    ///
+    /// **Accessibility**: Represents contact information. Screen readers identify this
+    /// as address content.
+    #[inline(always)]
+    pub const fn address() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Address),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a definition list element.
+    ///
+    /// **Accessibility**: Screen readers announce definition lists and their structure.
+    #[inline(always)]
+    pub const fn dl() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Dl),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a definition term element.
+    ///
+    /// **Accessibility**: Must be a child of `dl`. Represents the term being defined.
+    #[inline(always)]
+    pub const fn dt() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Dt),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a definition description element.
+    ///
+    /// **Accessibility**: Must be a child of `dl`. Provides the definition for the term.
+    #[inline(always)]
+    pub const fn dd() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Dd),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a table column group element.
+    #[inline(always)]
+    pub const fn colgroup() -> Self {
+        Self {
+            root: NodeData::new(NodeType::ColGroup),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a table column element.
+    #[inline]
+    pub fn col(span: i32) -> Self {
+        Self::new(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
+    }
+
+    /// Creates an optgroup element for grouping select options.
+    ///
+    /// **Parameters:**
+    /// - `label`: Label for the option group
+    #[inline]
+    pub fn optgroup(label: AzString) -> Self {
+        Self::new(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates a quotation element.
+    ///
+    /// **Accessibility**: Represents an inline quotation.
+    #[inline(always)]
+    pub const fn q() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Q),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates an acronym element.
+    ///
+    /// **Note**: Deprecated in HTML5. Consider using `abbr()` instead.
+    #[inline(always)]
+    pub const fn acronym() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Acronym),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a menu element.
+    ///
+    /// **Accessibility**: Represents a list of commands. Similar to `<ul>` but semantic for
+    /// toolbars/menus.
+    #[inline(always)]
+    pub const fn menu() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Menu),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a menu item element.
+    ///
+    /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
+    /// attributes.
+    #[inline(always)]
+    pub const fn menuitem() -> Self {
+        Self {
+            root: NodeData::new(NodeType::MenuItem),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates an output element.
+    ///
+    /// **Accessibility**: Represents the result of a calculation or user action.
+    /// Use `for` attribute to associate with input elements. Screen readers announce updates.
+    #[inline(always)]
+    pub const fn output() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Output),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a progress indicator element.
+    ///
+    /// **Accessibility**: Represents task progress. Use `value` and `max` attributes.
+    /// Screen readers announce progress percentage. Use aria-label to describe the task.
+    #[inline]
+    pub fn progress(value: f32, max: f32) -> Self {
+        Self::new(NodeType::Progress)
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "value".into(),
+                value: value.to_string().into(),
+            }))
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "max".into(),
+                value: max.to_string().into(),
+            }))
+    }
+
+    /// Creates a meter gauge element.
+    ///
+    /// **Accessibility**: Represents a scalar measurement within a known range.
+    /// Use `value`, `min`, `max`, `low`, `high`, `optimum` attributes.
+    /// Screen readers announce the measurement. Provide aria-label for context.
+    #[inline]
+    pub fn meter(value: f32, min: f32, max: f32) -> Self {
+        Self::new(NodeType::Meter)
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "value".into(),
+                value: value.to_string().into(),
+            }))
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "min".into(),
+                value: min.to_string().into(),
+            }))
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "max".into(),
+                value: max.to_string().into(),
+            }))
+    }
+
+    /// Creates a datalist element for input suggestions.
+    ///
+    /// **Accessibility**: Provides autocomplete options for inputs.
+    /// Associate with input using `list` attribute. Screen readers announce available options.
+    #[inline(always)]
+    pub const fn datalist() -> Self {
+        Self {
+            root: NodeData::new(NodeType::DataList),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    // === Embedded Content Elements ===
+
+    /// Creates a canvas element for graphics.
+    ///
+    /// **Accessibility**: Canvas content is not accessible by default.
+    /// Always provide fallback content as children and/or detailed aria-label.
+    /// Consider using SVG for accessible graphics when possible.
+    #[inline(always)]
+    pub const fn canvas() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Canvas),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates an object element for embedded content.
+    ///
+    /// **Accessibility**: Provide fallback content as children. Use aria-label to describe content.
+    #[inline(always)]
+    pub const fn object() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Object),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a param element for object parameters.
+    ///
+    /// **Parameters:**
+    /// - `name`: Parameter name
+    /// - `value`: Parameter value
+    #[inline]
+    pub fn param(name: AzString, value: AzString) -> Self {
+        Self::new(NodeType::Param)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::Value(value))
+    }
+
+    /// Creates an embed element.
+    ///
+    /// **Accessibility**: Provide alternative content or link. Use aria-label to describe embedded
+    /// content.
+    #[inline(always)]
+    pub const fn embed() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Embed),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates an audio element.
+    ///
+    /// **Accessibility**: Always provide controls. Use `<track>` for captions/subtitles.
+    /// Provide fallback text for unsupported browsers.
+    #[inline(always)]
+    pub const fn audio() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Audio),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a video element.
+    ///
+    /// **Accessibility**: Always provide controls. Use `<track>` for
+    /// captions/subtitles/descriptions. Provide fallback text. Consider providing transcript.
+    #[inline(always)]
+    pub const fn video() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Video),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a source element for media.
+    ///
+    /// **Parameters:**
+    /// - `src`: Media source URL
+    /// - `media_type`: MIME type (e.g., "video/mp4", "audio/ogg")
+    #[inline]
+    pub fn source(src: AzString, media_type: AzString) -> Self {
+        Self::new(NodeType::Source)
+            .with_attribute(AttributeType::Src(src))
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "type".into(),
+                value: media_type,
+            }))
+    }
+
+    /// Creates a track element for media captions/subtitles.
+    ///
+    /// **Accessibility**: Essential for deaf/hard-of-hearing users and non-native speakers.
+    /// Use `kind` (subtitles/captions/descriptions), `srclang`, and `label` attributes.
+    ///
+    /// **Parameters:**
+    /// - `src`: Track file URL (WebVTT format)
+    /// - `kind`: Track kind ("subtitles", "captions", "descriptions", "chapters", "metadata")
+    #[inline]
+    pub fn track(src: AzString, kind: AzString) -> Self {
+        Self::new(NodeType::Track)
+            .with_attribute(AttributeType::Src(src))
+            .with_attribute(AttributeType::Custom(AttributeNameValue {
+                name: "kind".into(),
+                value: kind,
+            }))
+    }
+
+    /// Creates a map element for image maps.
+    ///
+    /// **Accessibility**: Provide text alternatives. Ensure all areas have alt text.
+    #[inline(always)]
+    pub const fn map() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Map),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates an area element for image map regions.
+    ///
+    /// **Accessibility**: Always provide `alt` text describing the region/link purpose.
+    /// Keyboard users should be able to navigate areas.
+    #[inline(always)]
+    pub const fn area() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Area),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    // === Metadata Elements ===
+
+    /// Creates a title element for document title.
+    ///
+    /// **Accessibility**: Required for all pages. Screen readers announce this first.
+    /// Should be unique and descriptive. Keep under 60 characters.
+    #[inline]
+    pub fn title<S: Into<AzString>>(text: S) -> Self {
+        Self::new(NodeType::Title).with_child(Self::text(text))
+    }
+
+    /// Creates a meta element.
+    ///
+    /// **Accessibility**: Use for charset, viewport, description. Crucial for proper text display.
+    #[inline(always)]
+    pub const fn meta() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Meta),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a link element for external resources.
+    ///
+    /// **Accessibility**: Use for stylesheets, icons, alternate versions.
+    /// Provide meaningful `title` attribute for alternate stylesheets.
+    #[inline(always)]
+    pub const fn link() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Link),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a script element.
+    ///
+    /// **Accessibility**: Ensure scripted content is accessible.
+    /// Provide noscript fallbacks for critical functionality.
+    #[inline(always)]
+    pub const fn script() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Script),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a style element for embedded CSS.
+    ///
+    /// **Note**: In Azul, use the `.style()` method instead for styling.
+    /// This creates a `<style>` HTML element for embedded stylesheets.
+    #[inline(always)]
+    pub const fn style_element() -> Self {
+        Self {
+            root: NodeData::new(NodeType::Style),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a base element for document base URL.
+    ///
+    /// **Parameters:**
+    /// - `href`: Base URL for relative URLs in the document
+    #[inline]
+    pub fn base(href: AzString) -> Self {
+        Self::new(NodeType::Base).with_attribute(AttributeType::Href(href))
+    }
+
+    // === Advanced Constructors with Parameters ===
+
+    /// Creates a table header cell with scope.
+    ///
+    /// **Parameters:**
+    /// - `scope`: "col", "row", "colgroup", or "rowgroup"
+    /// - `text`: Header text
+    ///
+    /// **Accessibility**: The scope attribute is crucial for associating headers with data cells.
+    #[inline]
+    pub fn th_with_scope(scope: AzString, text: AzString) -> Self {
+        Self::new(NodeType::Th)
+            .with_attribute(AttributeType::Scope(scope))
+            .with_child(Self::text(text))
+    }
+
+    /// Creates a table data cell with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Cell content
+    #[inline]
+    pub fn td_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::td().with_child(Self::text(text))
+    }
+
+    /// Creates a table header cell with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Header text
+    #[inline]
+    pub fn th_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::th().with_child(Self::text(text))
+    }
+
+    /// Creates a list item with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: List item content
+    #[inline]
+    pub fn li_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::li().with_child(Self::text(text))
+    }
+
+    /// Creates a paragraph with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Paragraph content
+    #[inline]
+    pub fn p_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::p().with_child(Self::text(text))
+    }
+
+    /// Creates a heading level 1 with text.
+    // ===== Accessibility-Aware Constructors =====
+    // These constructors require explicit accessibility information.
+
+    /// Creates a button with text content and accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `text`: The visible button text
+    /// - `aria`: Accessibility information (role, description, etc.)
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::button_with_aria("Submit", SmallAriaInfo::label("Submit form"))
+    /// ```
+    #[inline]
+    pub fn button_with_aria<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
+        let mut btn = Self::button(text.into());
+        btn.root.set_accessibility_info(aria.to_full_info());
+        btn
+    }
+
+    /// Creates a link (anchor) with href, text, and accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `href`: The link destination
+    /// - `text`: The visible link text
+    /// - `aria`: Accessibility information (expanded description, etc.)
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::link_with_aria(
+    ///     "/home",
+    ///     "Home",
+    ///     SmallAriaInfo::label("Navigate to home page"),
+    /// )
+    /// ```
+    #[inline]
+    pub fn link_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+        href: S1,
+        text: S2,
+        aria: SmallAriaInfo,
+    ) -> Self {
+        let mut link = Self::a(href.into(), OptionAzString::Some(text.into()));
+        link.root.set_accessibility_info(aria.to_full_info());
+        link
+    }
+
+    /// Creates an input element with type, name, and accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `input_type`: The input type (text, password, email, etc.)
+    /// - `name`: The form field name
+    /// - `label`: Base accessibility label
+    /// - `aria`: Additional accessibility information (description, etc.)
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::input_with_aria(
+    ///     "email",
+    ///     "user_email",
+    ///     "Email address",
+    ///     SmallAriaInfo::label("Email address").with_description("Enter your email"),
+    /// )
+    /// ```
+    #[inline]
+    pub fn input_with_aria<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
+        input_type: S1,
+        name: S2,
+        label: S3,
+        aria: SmallAriaInfo,
+    ) -> Self {
+        let mut input = Self::input(input_type.into(), name.into(), label.into());
+        input.root.set_accessibility_info(aria.to_full_info());
+        input
+    }
+
+    /// Creates a textarea with name and accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `name`: The form field name
+    /// - `label`: Base accessibility label
+    /// - `aria`: Additional accessibility information (description, etc.)
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::textarea_with_aria(
+    ///     "comment",
+    ///     "Comment",
+    ///     SmallAriaInfo::label("Comment").with_description("Enter your feedback"),
+    /// )
+    /// ```
+    #[inline]
+    pub fn textarea_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+        name: S1,
+        label: S2,
+        aria: SmallAriaInfo,
+    ) -> Self {
+        let mut textarea = Self::textarea(name.into(), label.into());
+        textarea.root.set_accessibility_info(aria.to_full_info());
+        textarea
+    }
+
+    /// Creates a select dropdown with name and accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `name`: The form field name
+    /// - `label`: Base accessibility label
+    /// - `aria`: Additional accessibility information (description, etc.)
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::select_with_aria(
+    ///     "country",
+    ///     "Country",
+    ///     SmallAriaInfo::label("Country").with_description("Select your country"),
+    /// )
+    /// ```
+    #[inline]
+    pub fn select_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+        name: S1,
+        label: S2,
+        aria: SmallAriaInfo,
+    ) -> Self {
+        let mut select = Self::select(name.into(), label.into());
+        select.root.set_accessibility_info(aria.to_full_info());
+        select
+    }
+
+    /// Creates a table with caption and accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `caption`: Table caption (visible title)
+    /// - `aria`: Accessibility information describing table purpose
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::table_with_aria(
+    ///     "Employee Directory",
+    ///     SmallAriaInfo::label("Employee directory table")
+    ///         .with_description("Contains employee names, emails, and departments"),
+    /// )
+    /// ```
+    #[inline]
+    pub fn table_with_aria<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
+        let mut table = Self::table().with_child(Self::caption().with_child(Self::text(caption)));
+        table.root.set_accessibility_info(aria.to_full_info());
+        table
+    }
+
+    /// Creates a label for a form control with additional accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `for_id`: The ID of the associated form control
+    /// - `text`: The visible label text
+    /// - `aria`: Additional accessibility information (description, etc.)
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::label_with_aria(
+    ///     "email-input",
+    ///     "Email Address:",
+    ///     SmallAriaInfo::label("Email input").with_description("Required field"),
+    /// )
+    /// ```
+    #[inline]
+    pub fn label_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+        for_id: S1,
+        text: S2,
+        aria: SmallAriaInfo,
+    ) -> Self {
+        let mut label = Self::label(for_id.into(), text.into());
+        label.root.set_accessibility_info(aria.to_full_info());
+        label
     }
 
     /// Parse XML/XHTML string into a DOM
@@ -2370,6 +4555,31 @@ impl Dom {
         self.root.ids_and_classes = ids_and_classes;
         self
     }
+
+    /// Adds an attribute to this DOM element.
+    ///
+    /// **Example:**
+    /// ```
+    /// Dom::div()
+    ///     .with_attribute(AttributeType::Id("main".into()))
+    ///     .with_attribute(AttributeType::AriaLabel("Main content".into()))
+    /// ```
+    #[inline(always)]
+    pub fn with_attribute(mut self, attr: AttributeType) -> Self {
+        let mut attrs = self.root.attributes.clone();
+        let mut v = attrs.into_library_owned_vec();
+        v.push(attr);
+        self.root.attributes = v.into();
+        self
+    }
+
+    /// Adds multiple attributes to this DOM element.
+    #[inline(always)]
+    pub fn with_attributes(mut self, attributes: AttributeVec) -> Self {
+        self.root.attributes = attributes;
+        self
+    }
+
     #[inline(always)]
     pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
         self.root.callbacks = callbacks;

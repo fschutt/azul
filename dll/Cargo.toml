@@ -38,10 +38,12 @@ cfg-if = "1.0"
 regex = { version = "1", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
+accesskit = { version = "0.17", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 dbus = { version = "0.9", optional = true }
+accesskit_unix = { version = "0.12", optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
 objc = "0.2"
@@ -59,12 +61,14 @@ winapi = { version = "0.3.9", default-features = false, features = [
     "wingdi", 
     "commdlg"
 ] }
+accesskit_windows = { version = "0.23", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cgl = "0.3.2"
 dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"] }
 objc2 = "0.6.0"
 block2 = "0.6.0"
+accesskit_macos = { version = "0.18", optional = true }
 objc2-core-foundation = { version = "0.3.0", default-features = true, features = [
     "std",
     "CFBase",
@@ -88,7 +92,7 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 ] }
 
 [features]
-default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "all_img_formats", "link-static"]
+default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "all_img_formats", "link-static", "accessibility"]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
 # this will be fixed in the future
@@ -99,6 +103,7 @@ use_fern_logger = ["logging"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
+accessibility = ["accesskit", "azul-layout/accessibility", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
 desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]

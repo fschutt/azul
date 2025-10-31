@@ -60,6 +60,10 @@ path = "svg.rs"
 name = "xhtml"
 path = "xhtml.rs"
 
+[[example]]
+name = "a11y_helpers_demo"
+path = "a11y_helpers_demo.rs"
+
 # [[example]]
 # name = "table"
 # path = "table.rs"

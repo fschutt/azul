@@ -1,3 +1,4 @@
+pub mod a11y;
 pub mod drag_drop;
 pub mod file_drop;
 pub mod focus_cursor;
