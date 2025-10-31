@@ -8,8 +8,8 @@ use azul_core::{
     window::{Monitor, MonitorId, MonitorVec, VideoMode, VideoModeVec},
 };
 use azul_css::{
+    props::basic::{LayoutPoint, LayoutRect, LayoutSize},
     AzString, OptionAzString,
-    props::basic::{LayoutPoint, LayoutSize, LayoutRect},
 };
 
 /// Information about a display/monitor
@@ -64,11 +64,9 @@ pub fn get_displays() -> Vec<DisplayInfo> {
 /// ```no_run
 /// let monitors = get_monitors();
 /// for monitor in monitors.as_ref() {
-///     println!("Monitor {}: {}x{} @ {:?}", 
-///         monitor.id.id,
-///         monitor.size.width,
-///         monitor.size.height,
-///         monitor.position
+///     println!(
+///         "Monitor {}: {}x{} @ {:?}",
+///         monitor.id.id, monitor.size.width, monitor.size.height, monitor.position
 ///     );
 /// }
 /// ```
@@ -88,10 +86,7 @@ impl DisplayInfo {
         let monitor_id = MonitorId::from_properties(
             index,
             &self.name,
-            LayoutPoint::new(
-                self.bounds.origin.x as isize,
-                self.bounds.origin.y as isize,
-            ),
+            LayoutPoint::new(self.bounds.origin.x as isize, self.bounds.origin.y as isize),
             LayoutSize::new(
                 self.bounds.size.width as isize,
                 self.bounds.size.height as isize,
@@ -102,22 +97,22 @@ impl DisplayInfo {
             id: monitor_id,
             name: OptionAzString::Some(self.name.as_str().into()),
             size: LayoutSize::new(
-                self.bounds.size.width as isize, 
-                self.bounds.size.height as isize
+                self.bounds.size.width as isize,
+                self.bounds.size.height as isize,
             ),
             position: LayoutPoint::new(
-                self.bounds.origin.x as isize, 
-                self.bounds.origin.y as isize
+                self.bounds.origin.x as isize,
+                self.bounds.origin.y as isize,
             ),
             scale_factor: self.scale_factor as f64,
             work_area: LayoutRect::new(
                 LayoutPoint::new(
-                    self.work_area.origin.x as isize, 
-                    self.work_area.origin.y as isize
+                    self.work_area.origin.x as isize,
+                    self.work_area.origin.y as isize,
                 ),
                 LayoutSize::new(
-                    self.work_area.size.width as isize, 
-                    self.work_area.size.height as isize
+                    self.work_area.size.width as isize,
+                    self.work_area.size.height as isize,
                 ),
             ),
             video_modes: self.video_modes.clone().into(),
@@ -155,13 +150,16 @@ pub fn get_display_index_at_point(point: LogicalPosition) -> usize {
 /// - **Windows**: Uses MonitorFromWindow API
 /// - **macOS**: Uses NSScreen.screens and window frame
 /// - **X11/Wayland**: Uses window position to find containing display
-pub fn get_window_display(window_position: LogicalPosition, window_size: LogicalSize) -> Option<DisplayInfo> {
+pub fn get_window_display(
+    window_position: LogicalPosition,
+    window_size: LogicalSize,
+) -> Option<DisplayInfo> {
     // Calculate window center
     let center = LogicalPosition::new(
         window_position.x + window_size.width / 2.0,
         window_position.y + window_size.height / 2.0,
     );
-    
+
     get_display_at_point(center)
 }
 
@@ -174,9 +172,10 @@ pub fn get_primary_display() -> Option<DisplayInfo> {
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use super::*;
     use std::ptr;
-    
+
+    use super::*;
+
     // Windows API structures and functions
     #[repr(C)]
     struct RECT {
@@ -185,13 +184,13 @@ mod windows {
         right: i32,
         bottom: i32,
     }
-    
+
     #[repr(C)]
     struct MONITORINFOEXW {
         monitor_info: MONITORINFO,
         sz_device: [u16; 32], // CCHDEVICENAME = 32
     }
-    
+
     #[repr(C)]
     struct MONITORINFO {
         cb_size: u32,
@@ -199,14 +198,14 @@ mod windows {
         rc_work: RECT,
         dw_flags: u32,
     }
-    
+
     const MONITORINFOF_PRIMARY: u32 = 0x00000001;
     const MONITOR_DEFAULTTONEAREST: u32 = 0x00000002;
-    
+
     type HMONITOR = *mut std::ffi::c_void;
     type HDC = *mut std::ffi::c_void;
     type HWND = *mut std::ffi::c_void;
-    
+
     #[repr(C)]
     struct DEVMODEW {
         dm_device_name: [u16; 32],
@@ -240,13 +239,13 @@ mod windows {
         dm_panning_width: u32,
         dm_panning_height: u32,
     }
-    
+
     const DM_BITSPERPEL: u32 = 0x00040000;
     const DM_PELSWIDTH: u32 = 0x00080000;
     const DM_PELSHEIGHT: u32 = 0x00100000;
     const DM_DISPLAYFREQUENCY: u32 = 0x00400000;
     const ENUM_CURRENT_SETTINGS: u32 = 0xFFFFFFFF;
-    
+
     #[link(name = "user32")]
     extern "system" {
         fn EnumDisplayMonitors(
@@ -255,32 +254,29 @@ mod windows {
             lpfn_enum: extern "system" fn(HMONITOR, HDC, *mut RECT, isize) -> i32,
             dw_data: isize,
         ) -> i32;
-        
-        fn GetMonitorInfoW(
-            hmonitor: HMONITOR,
-            lpmi: *mut MONITORINFO,
-        ) -> i32;
-        
+
+        fn GetMonitorInfoW(hmonitor: HMONITOR, lpmi: *mut MONITORINFO) -> i32;
+
         fn GetDpiForMonitor(
             hmonitor: HMONITOR,
             dpi_type: u32,
             dpi_x: *mut u32,
             dpi_y: *mut u32,
         ) -> i32;
-        
+
         fn EnumDisplaySettingsW(
             lpsz_device_name: *const u16,
             i_mode_num: u32,
             lp_dev_mode: *mut DEVMODEW,
         ) -> i32;
     }
-    
+
     // Callback context for EnumDisplayMonitors
     struct EnumContext {
         displays: Vec<DisplayInfo>,
         monitor_id: usize,
     }
-    
+
     extern "system" fn monitor_enum_proc(
         hmonitor: HMONITOR,
         _hdc: HDC,
@@ -289,18 +285,15 @@ mod windows {
     ) -> i32 {
         unsafe {
             let context = &mut *(dw_data as *mut EnumContext);
-            
+
             // Get monitor info
             let mut monitor_info: MONITORINFOEXW = std::mem::zeroed();
             monitor_info.monitor_info.cb_size = std::mem::size_of::<MONITORINFOEXW>() as u32;
-            
-            if GetMonitorInfoW(
-                hmonitor,
-                &mut monitor_info.monitor_info as *mut MONITORINFO,
-            ) == 0 {
+
+            if GetMonitorInfoW(hmonitor, &mut monitor_info.monitor_info as *mut MONITORINFO) == 0 {
                 return 1; // Continue enumeration
             }
-            
+
             // Extract monitor bounds
             let rc_monitor = &monitor_info.monitor_info.rc_monitor;
             let bounds = LogicalRect::new(
@@ -310,7 +303,7 @@ mod windows {
                     (rc_monitor.bottom - rc_monitor.top) as f32,
                 ),
             );
-            
+
             // Extract work area (bounds minus taskbar)
             let rc_work = &monitor_info.monitor_info.rc_work;
             let work_area = LogicalRect::new(
@@ -320,27 +313,27 @@ mod windows {
                     (rc_work.bottom - rc_work.top) as f32,
                 ),
             );
-            
+
             // Get DPI (Windows 8.1+)
             let mut dpi_x: u32 = 96;
             let mut dpi_y: u32 = 96;
             let _ = GetDpiForMonitor(hmonitor, 0, &mut dpi_x, &mut dpi_y); // MDT_EFFECTIVE_DPI = 0
-            
+
             let scale_factor = (dpi_x as f32) / 96.0;
-            
+
             // Check if primary monitor
             let is_primary = (monitor_info.monitor_info.dw_flags & MONITORINFOF_PRIMARY) != 0;
-            
+
             // Convert device name from UTF-16
             let name = String::from_utf16_lossy(&monitor_info.sz_device)
                 .trim_end_matches('\0')
                 .to_string();
-            
+
             // Get current display settings (resolution, refresh rate, bit depth)
             let mut dev_mode: DEVMODEW = std::mem::zeroed();
             dev_mode.dm_size = std::mem::size_of::<DEVMODEW>() as u16;
-            
-            let video_modes = if !monitor_info.sz_device.is_empty() 
+
+            let video_modes = if !monitor_info.sz_device.is_empty()
                 && EnumDisplaySettingsW(
                     monitor_info.sz_device.as_ptr(),
                     ENUM_CURRENT_SETTINGS,
@@ -350,16 +343,25 @@ mod windows {
                 // Check which fields are valid
                 let has_refresh = (dev_mode.dm_fields & DM_DISPLAYFREQUENCY) != 0;
                 let has_bits = (dev_mode.dm_fields & DM_BITSPERPEL) != 0;
-                let has_resolution = (dev_mode.dm_fields & (DM_PELSWIDTH | DM_PELSHEIGHT)) == (DM_PELSWIDTH | DM_PELSHEIGHT);
-                
+                let has_resolution = (dev_mode.dm_fields & (DM_PELSWIDTH | DM_PELSHEIGHT))
+                    == (DM_PELSWIDTH | DM_PELSHEIGHT);
+
                 if has_resolution {
                     vec![VideoMode {
                         size: LayoutSize::new(
                             dev_mode.dm_pels_width as isize,
                             dev_mode.dm_pels_height as isize,
                         ),
-                        bit_depth: if has_bits { dev_mode.dm_bits_per_pel as u16 } else { 32 },
-                        refresh_rate: if has_refresh { dev_mode.dm_display_frequency as u16 } else { 60 },
+                        bit_depth: if has_bits {
+                            dev_mode.dm_bits_per_pel as u16
+                        } else {
+                            32
+                        },
+                        refresh_rate: if has_refresh {
+                            dev_mode.dm_display_frequency as u16
+                        } else {
+                            60
+                        },
                     }]
                 } else {
                     // Fallback: use monitor bounds for resolution
@@ -383,7 +385,7 @@ mod windows {
                     refresh_rate: 60,
                 }]
             };
-            
+
             context.displays.push(DisplayInfo {
                 name: if name.is_empty() {
                     format!("Monitor {}", context.monitor_id)
@@ -396,7 +398,7 @@ mod windows {
                 is_primary,
                 video_modes,
             });
-            
+
             context.monitor_id += 1;
             1 // Continue enumeration
         }
@@ -408,14 +410,14 @@ mod windows {
                 displays: Vec::new(),
                 monitor_id: 0,
             };
-            
+
             EnumDisplayMonitors(
                 ptr::null_mut(),
                 ptr::null(),
                 monitor_enum_proc,
                 &mut context as *mut EnumContext as isize,
             );
-            
+
             // If enumeration failed or found no monitors, return fallback
             if context.displays.is_empty() {
                 vec![DisplayInfo {
@@ -445,9 +447,9 @@ mod windows {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use objc2::msg_send;
     use objc2_app_kit::NSScreen;
     use objc2_foundation::MainThreadMarker;
-    use objc2::msg_send;
 
     use super::*;
 
@@ -481,7 +483,11 @@ mod macos {
             // maximumFramesPerSecond returns refresh rate in Hz
             let refresh_rate = unsafe {
                 let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
-                if fps > 0.0 { fps as u16 } else { 60 }
+                if fps > 0.0 {
+                    fps as u16
+                } else {
+                    60
+                }
             };
 
             displays.push(DisplayInfo {
@@ -491,10 +497,7 @@ mod macos {
                 scale_factor: scale as f32,
                 is_primary: i == 0, // First screen is primary on macOS
                 video_modes: vec![VideoMode {
-                    size: LayoutSize::new(
-                        bounds.size.width as isize,
-                        bounds.size.height as isize,
-                    ),
+                    size: LayoutSize::new(bounds.size.width as isize, bounds.size.height as isize),
                     bit_depth: 32, // macOS doesn't expose bit depth, assume 32-bit
                     refresh_rate,
                 }],
@@ -519,9 +522,10 @@ mod linux {
     }
 
     mod x11 {
+        use std::ptr;
+
         use super::*;
         use crate::desktop::shell2::linux::x11::dlopen::Xlib;
-        use std::ptr;
 
         // XRandR types (opaque pointers)
         type XRRScreenResources = *mut c_void;
@@ -530,7 +534,7 @@ mod linux {
         type RROutput = u64;
         type Rotation = u16;
         type Time = u64;
-        
+
         use std::ffi::c_void;
 
         // XRandR structures
@@ -581,9 +585,11 @@ mod linux {
         }
 
         // XRandR function pointers
-        type XRRGetScreenResourcesCurrentFn = unsafe extern "C" fn(*mut c_void, u64) -> XRRScreenResources;
+        type XRRGetScreenResourcesCurrentFn =
+            unsafe extern "C" fn(*mut c_void, u64) -> XRRScreenResources;
         type XRRFreeScreenResourcesFn = unsafe extern "C" fn(XRRScreenResources);
-        type XRRGetCrtcInfoFn = unsafe extern "C" fn(*mut c_void, XRRScreenResources, RRCrtc) -> XRRCrtcInfo;
+        type XRRGetCrtcInfoFn =
+            unsafe extern "C" fn(*mut c_void, XRRScreenResources, RRCrtc) -> XRRCrtcInfo;
         type XRRFreeCrtcInfoFn = unsafe extern "C" fn(XRRCrtcInfo);
 
         pub fn get_displays() -> Vec<DisplayInfo> {
@@ -595,8 +601,10 @@ mod linux {
         }
 
         fn try_xrandr_displays() -> Result<Vec<DisplayInfo>, ()> {
-            use crate::desktop::shell2::common::{dlopen::load_first_available, DynamicLibrary};
-            use crate::desktop::shell2::linux::x11::dlopen::Library;
+            use crate::desktop::shell2::{
+                common::{dlopen::load_first_available, DynamicLibrary},
+                linux::x11::dlopen::Library,
+            };
 
             unsafe {
                 // Load Xlib
@@ -607,19 +615,20 @@ mod linux {
                 }
 
                 // Try to load XRandR library
-                let xrandr_lib = load_first_available::<Library>(&[
-                    "libXrandr.so.2",
-                    "libXrandr.so",
-                ]).map_err(|_| ())?;
+                let xrandr_lib =
+                    load_first_available::<Library>(&["libXrandr.so.2", "libXrandr.so"])
+                        .map_err(|_| ())?;
 
                 // Load XRandR functions
-                let get_screen_resources: XRRGetScreenResourcesCurrentFn = 
-                    xrandr_lib.get_symbol("XRRGetScreenResourcesCurrent").map_err(|_| ())?;
-                let free_screen_resources: XRRFreeScreenResourcesFn = 
-                    xrandr_lib.get_symbol("XRRFreeScreenResources").map_err(|_| ())?;
-                let get_crtc_info: XRRGetCrtcInfoFn = 
+                let get_screen_resources: XRRGetScreenResourcesCurrentFn = xrandr_lib
+                    .get_symbol("XRRGetScreenResourcesCurrent")
+                    .map_err(|_| ())?;
+                let free_screen_resources: XRRFreeScreenResourcesFn = xrandr_lib
+                    .get_symbol("XRRFreeScreenResources")
+                    .map_err(|_| ())?;
+                let get_crtc_info: XRRGetCrtcInfoFn =
                     xrandr_lib.get_symbol("XRRGetCrtcInfo").map_err(|_| ())?;
-                let free_crtc_info: XRRFreeCrtcInfoFn = 
+                let free_crtc_info: XRRFreeCrtcInfoFn =
                     xrandr_lib.get_symbol("XRRFreeCrtcInfo").map_err(|_| ())?;
 
                 let screen = (xlib.XDefaultScreen)(display);
@@ -639,7 +648,8 @@ mod linux {
                 let width_mm = (xlib.XDisplayWidthMM)(display, screen);
                 let height_mm = (xlib.XDisplayHeightMM)(display, screen);
                 let base_scale = if width_mm > 0 {
-                    let screen_dpi = ((xlib.XDisplayWidth)(display, screen) as f32 / width_mm as f32) * 25.4;
+                    let screen_dpi =
+                        ((xlib.XDisplayWidth)(display, screen) as f32 / width_mm as f32) * 25.4;
                     screen_dpi / 96.0
                 } else {
                     1.0
@@ -674,22 +684,22 @@ mod linux {
                             (crtc_info.height.saturating_sub(24)) as f32,
                         ),
                     );
-                    
+
                     // Get refresh rate from mode info
                     let refresh_rate = if crtc_info.mode != 0 {
                         // Find the mode in resources
-                        let modes = std::slice::from_raw_parts(
-                            resources.modes,
-                            resources.nmode as usize,
-                        );
-                        modes.iter()
+                        let modes =
+                            std::slice::from_raw_parts(resources.modes, resources.nmode as usize);
+                        modes
+                            .iter()
                             .find(|mode| mode.id == crtc_info.mode)
                             .map(|mode| {
                                 // Calculate refresh rate: (dotClock / (hTotal * vTotal))
                                 let h_total = mode.h_total as u64;
                                 let v_total = mode.v_total as u64;
                                 if h_total > 0 && v_total > 0 {
-                                    let refresh = (mode.dot_clock as u64 * 1000) / (h_total * v_total);
+                                    let refresh =
+                                        (mode.dot_clock as u64 * 1000) / (h_total * v_total);
                                     refresh as u16
                                 } else {
                                     60
@@ -823,18 +833,15 @@ mod linux {
     }
 
     mod wayland {
-        use super::*;
         use std::process::Command;
+
+        use super::*;
 
         type DisplayProvider = fn() -> Result<Vec<DisplayInfo>, ()>;
 
         // Chain of detection methods, ordered from most specific to most generic
-        const DETECTION_CHAIN: &[DisplayProvider] = &[
-            try_swaymsg,
-            try_hyprctl,
-            try_kscreen_doctor,
-            try_wlr_randr,
-        ];
+        const DETECTION_CHAIN: &[DisplayProvider] =
+            &[try_swaymsg, try_hyprctl, try_kscreen_doctor, try_wlr_randr];
 
         pub fn get_displays() -> Vec<DisplayInfo> {
             // Try each detection method in order
@@ -850,8 +857,10 @@ mod linux {
         }
 
         fn fallback_display() -> Vec<DisplayInfo> {
-            eprintln!("[display] All Wayland detection methods failed. Falling back to default display.");
-            
+            eprintln!(
+                "[display] All Wayland detection methods failed. Falling back to default display."
+            );
+
             // Try to get actual dimensions from environment or reasonable defaults
             let (width, height) = if let (Ok(w), Ok(h)) = (
                 std::env::var("WAYLAND_DISPLAY_WIDTH"),
@@ -928,7 +937,7 @@ mod linux {
                 }
 
                 let outputs: Vec<SwayOutput> = serde_json::from_str(&stdout).map_err(|_| ())?;
-                
+
                 let mut displays: Vec<DisplayInfo> = outputs
                     .into_iter()
                     .filter(|o| o.active)
@@ -960,7 +969,10 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    eprintln!("[display] Detected {} display(s) using swaymsg", displays.len());
+                    eprintln!(
+                        "[display] Detected {} display(s) using swaymsg",
+                        displays.len()
+                    );
                     Ok(displays)
                 }
             }
@@ -1000,7 +1012,7 @@ mod linux {
                 }
 
                 let outputs: Vec<HyprlandOutput> = serde_json::from_str(&stdout).map_err(|_| ())?;
-                
+
                 let mut displays: Vec<DisplayInfo> = outputs
                     .into_iter()
                     .map(|o| DisplayInfo {
@@ -1031,7 +1043,10 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    eprintln!("[display] Detected {} display(s) using hyprctl", displays.len());
+                    eprintln!(
+                        "[display] Detected {} display(s) using hyprctl",
+                        displays.len()
+                    );
                     Ok(displays)
                 }
             }
@@ -1082,7 +1097,7 @@ mod linux {
                 }
 
                 let output_list: KdeOutputList = serde_json::from_str(&stdout).map_err(|_| ())?;
-                
+
                 let mut displays: Vec<DisplayInfo> = output_list
                     .outputs
                     .into_iter()
@@ -1100,7 +1115,10 @@ mod linux {
                         scale_factor: o.scale,
                         is_primary: o.primary,
                         video_modes: vec![VideoMode {
-                            size: LayoutSize::new(o.geometry.width as isize, o.geometry.height as isize),
+                            size: LayoutSize::new(
+                                o.geometry.width as isize,
+                                o.geometry.height as isize,
+                            ),
                             bit_depth: 32,
                             refresh_rate: 60,
                         }],
@@ -1115,7 +1133,10 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    eprintln!("[display] Detected {} display(s) using kscreen-doctor", displays.len());
+                    eprintln!(
+                        "[display] Detected {} display(s) using kscreen-doctor",
+                        displays.len()
+                    );
                     Ok(displays)
                 }
             }
@@ -1126,9 +1147,7 @@ mod linux {
 
         // --- wlroots/wlr-randr Implementation ---
         fn try_wlr_randr() -> Result<Vec<DisplayInfo>, ()> {
-            let output = Command::new("wlr-randr")
-                .output()
-                .map_err(|_| ())?;
+            let output = Command::new("wlr-randr").output().map_err(|_| ())?;
 
             if !output.status.success() {
                 return Err(());
@@ -1139,21 +1158,15 @@ mod linux {
             #[cfg(feature = "desktop")]
             {
                 // Parse wlr-randr text output using regex
-                let re = regex::Regex::new(
-                    r#"(?m)^(\S+)\s+"[^"]*"\s+\(focused\)|(?m)^(\S+)\s+"[^"]*""#
-                ).unwrap();
+                let re =
+                    regex::Regex::new(r#"(?m)^(\S+)\s+"[^"]*"\s+\(focused\)|(?m)^(\S+)\s+"[^"]*""#)
+                        .unwrap();
 
-                let pos_re = regex::Regex::new(
-                    r"Position:\s*(\d+),(\d+)"
-                ).unwrap();
+                let pos_re = regex::Regex::new(r"Position:\s*(\d+),(\d+)").unwrap();
 
-                let size_re = regex::Regex::new(
-                    r"current\s+(\d+)x(\d+)\s+px"
-                ).unwrap();
+                let size_re = regex::Regex::new(r"current\s+(\d+)x(\d+)\s+px").unwrap();
 
-                let scale_re = regex::Regex::new(
-                    r"Scale:\s*([\d.]+)"
-                ).unwrap();
+                let scale_re = regex::Regex::new(r"Scale:\s*([\d.]+)").unwrap();
 
                 let mut displays = Vec::new();
                 let lines: Vec<&str> = stdout.lines().collect();
@@ -1161,46 +1174,62 @@ mod linux {
 
                 while i < lines.len() {
                     let line = lines[i];
-                    
+
                     // Check if this is an output header
                     if let Some(cap) = re.captures(line) {
-                        let name = cap.get(1)
+                        let name = cap
+                            .get(1)
                             .or_else(|| cap.get(2))
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        
+
                         let is_focused = line.contains("(focused)");
-                        
+
                         // Look for properties in the next few lines
                         let mut x = 0.0;
                         let mut y = 0.0;
                         let mut width = 0.0;
                         let mut height = 0.0;
                         let mut scale = 1.0;
-                        
+
                         for j in (i + 1)..((i + 10).min(lines.len())) {
                             let prop_line = lines[j];
-                            
+
                             // Stop if we hit another output
                             if !prop_line.starts_with(' ') && !prop_line.is_empty() {
                                 break;
                             }
-                            
+
                             if let Some(cap) = pos_re.captures(prop_line) {
-                                x = cap.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-                                y = cap.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
+                                x = cap
+                                    .get(1)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0.0);
+                                y = cap
+                                    .get(2)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0.0);
                             }
-                            
+
                             if let Some(cap) = size_re.captures(prop_line) {
-                                width = cap.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-                                height = cap.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
+                                width = cap
+                                    .get(1)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0.0);
+                                height = cap
+                                    .get(2)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0.0);
                             }
-                            
+
                             if let Some(cap) = scale_re.captures(prop_line) {
-                                scale = cap.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(1.0);
+                                scale = cap
+                                    .get(1)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(1.0);
                             }
                         }
-                        
+
                         if width > 0.0 && height > 0.0 {
                             displays.push(DisplayInfo {
                                 name,
@@ -1217,12 +1246,13 @@ mod linux {
                                 video_modes: vec![VideoMode {
                                     size: LayoutSize::new(width as isize, height as isize),
                                     bit_depth: 32,
-                                    refresh_rate: 60, // Wayland doesn't easily expose this via wlr-randr
+                                    refresh_rate: 60, /* Wayland doesn't easily expose this via
+                                                       * wlr-randr */
                                 }],
                             });
                         }
                     }
-                    
+
                     i += 1;
                 }
 
@@ -1234,7 +1264,10 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    eprintln!("[display] Detected {} display(s) using wlr-randr", displays.len());
+                    eprintln!(
+                        "[display] Detected {} display(s) using wlr-randr",
+                        displays.len()
+                    );
                     Ok(displays)
                 }
             }

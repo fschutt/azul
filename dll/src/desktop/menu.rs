@@ -474,21 +474,23 @@ pub fn show_menu(
 }
 
 /// Convenience function to spawn a menu from a callback
-/// 
+///
 /// This is the recommended way to spawn menus from callbacks. It automatically
 /// extracts the necessary information from CallbackInfo.
-/// 
+///
 /// # Example
 /// ```no_run
-/// use azul_core::menu::{Menu, MenuPopupPosition};
-/// use azul_core::callbacks::Update;
+/// use azul_core::{
+///     callbacks::Update,
+///     menu::{Menu, MenuPopupPosition},
+/// };
 /// use azul_dll::desktop::menu::spawn_menu_from_callback;
-/// 
+///
 /// extern "C" fn my_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 ///     let menu = Menu::new("Context Menu")
 ///         .with_item("Copy", copy_callback)
 ///         .with_item("Paste", paste_callback);
-///     
+///
 ///     spawn_menu_from_callback(info, menu, MenuPopupPosition::AutoCursor);
 ///     Update::DoNothing
 /// }
@@ -498,12 +500,11 @@ pub fn spawn_menu_from_callback(
     menu: Menu,
     _position: MenuPopupPosition,
 ) {
-    use azul_core::geom::LogicalPosition;
-    use azul_core::window::WindowPosition;
-    
+    use azul_core::{geom::LogicalPosition, window::WindowPosition};
+
     // Get parent window position in logical coordinates
     let full_window_state = info.get_full_window_state();
-    
+
     // Convert window position to logical coordinates
     let parent_window_pos = match full_window_state.position {
         WindowPosition::Initialized(phys_pos) => {
@@ -515,11 +516,11 @@ pub fn spawn_menu_from_callback(
         }
         WindowPosition::Uninitialized => LogicalPosition::new(0.0, 0.0),
     };
-    
+
     // Get trigger rect and cursor position
     let trigger_rect = info.get_hit_node_layout_rect();
     let cursor_pos = info.get_cursor_position();
-    
+
     // Create menu window
     let menu_window = show_menu(
         menu,
@@ -529,7 +530,7 @@ pub fn spawn_menu_from_callback(
         cursor_pos,
         None, // parent_menu_id
     );
-    
+
     // Spawn the window
     info.create_window(menu_window);
 }

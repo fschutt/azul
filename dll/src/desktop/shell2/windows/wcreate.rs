@@ -231,9 +231,12 @@ pub fn create_gl_context(
     #[cfg(target_os = "windows")]
     unsafe {
         use winapi::um::wingdi::wglMakeCurrent;
-        wglMakeCurrent(hdc as winapi::shared::windef::HDC, hglrc as winapi::shared::windef::HGLRC);
+        wglMakeCurrent(
+            hdc as winapi::shared::windef::HDC,
+            hglrc as winapi::shared::windef::HGLRC,
+        );
     }
-    
+
     if let Some(swap_interval_fn) = extra_wgl.wglSwapIntervalEXT {
         use azul_core::window::Vsync;
         let interval = match vsync {

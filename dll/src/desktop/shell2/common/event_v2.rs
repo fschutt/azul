@@ -573,7 +573,7 @@ pub trait PlatformWindowV2 {
             events::{EasingFunction, EventSource},
             geom::LogicalPosition,
         };
-        use azul_layout::scroll::ScrollEvent;
+        use azul_layout::managers::scroll_state::ScrollEvent;
 
         let layout_window = self.get_layout_window_mut().ok_or("No layout window")?;
 
@@ -649,7 +649,7 @@ pub trait PlatformWindowV2 {
         // Get current time (platform-specific, use system clock)
         #[cfg(feature = "std")]
         let current_time = azul_core::task::Instant::from(std::time::Instant::now());
-        
+
         #[cfg(not(feature = "std"))]
         let current_time = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
 
@@ -709,44 +709,83 @@ pub trait PlatformWindowV2 {
             .unwrap_or(self.get_current_window_state());
 
         // Get gesture manager for gesture detection (if available)
-        let gesture_manager = self
-            .get_layout_window()
-            .map(|lw| &lw.gesture_drag_manager);
+        let gesture_manager = self.get_layout_window().map(|lw| &lw.gesture_drag_manager);
 
         // Detect all events that occurred by comparing states
         // Includes gesture events (DragStart, Drag, DragEnd, DoubleClick, LongPress)
-        let events = window_state::create_events_from_states_with_gestures(
-            self.get_current_window_state(),
-            previous_state,
-            gesture_manager,
-        );
+
+        // Get managers for event detection
+        let focus_manager = self.get_layout_window().map(|w| &w.focus_manager);
+        let previous_focus = self.get_layout_window().map(|w| &w.focus_manager); // FIXME: Should be previous frame's focus manager
+        let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
+        let previous_file_drop = self.get_layout_window().map(|w| &w.file_drop_manager); // FIXME: Should be previous frame's file_drop manager
+        let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
+
+        let events = if let (Some(fm), Some(fdm), Some(hm)) =
+            (focus_manager, file_drop_manager, hover_manager)
+        {
+            window_state::create_events_from_states_with_gestures(
+                self.get_current_window_state(),
+                previous_state,
+                fm,
+                previous_focus,
+                fdm,
+                previous_file_drop,
+                hm,
+                gesture_manager,
+            )
+        } else {
+            // Fallback: create empty events if managers not available
+            azul_core::events::Events {
+                window_events: Vec::new(),
+                hover_events: Vec::new(),
+                focus_events: Vec::new(),
+                old_hit_node_ids: alloc::collections::BTreeMap::new(),
+                old_focus_node: None,
+                current_window_state_mouse_is_down: false,
+                previous_window_state_mouse_is_down: false,
+                event_was_mouse_down: false,
+                event_was_mouse_leave: false,
+                event_was_mouse_release: false,
+            }
+        };
 
         if events.is_empty() {
             return ProcessEventResult::DoNothing;
         }
 
         // Get hit test if available (clone early to avoid borrow conflicts)
-        let hit_test_for_dispatch = if !self.get_current_window_state().last_hit_test.is_empty() {
-            Some(self.get_current_window_state().last_hit_test.clone())
-        } else {
-            None
-        };
-        
+        let hit_test_for_dispatch = self
+            .get_layout_window()
+            .and_then(|lw| lw.hover_manager.get_current())
+            .cloned();
+
         // If DragStart event occurred and we have a hit test, save it in the manager
         // This allows callbacks to query which nodes were hit at drag start
-        if events.window_events.iter().any(|e| matches!(e, azul_core::events::WindowEventFilter::DragStart)) ||
-           events.hover_events.iter().any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart)) {
+        if events
+            .window_events
+            .iter()
+            .any(|e| matches!(e, azul_core::events::WindowEventFilter::DragStart))
+            || events
+                .hover_events
+                .iter()
+                .any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart))
+        {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 // Extract first hit from current state (the hovered DOM node)
                 let hit_test_clone = hit_test_for_dispatch.as_ref().and_then(|ht| {
                     // Get first hovered node's hit test
                     ht.hovered_nodes.values().next().cloned()
                 });
-                
+
                 // Store hit test in gesture manager for query access
                 // Both node and window drags can use this
-                layout_window.gesture_drag_manager.update_node_drag_hit_test(hit_test_clone.clone());
-                layout_window.gesture_drag_manager.update_window_drag_hit_test(hit_test_clone);
+                layout_window
+                    .gesture_drag_manager
+                    .update_node_drag_hit_test(hit_test_clone.clone());
+                layout_window
+                    .gesture_drag_manager
+                    .update_window_drag_hit_test(hit_test_clone);
             }
         }
 
@@ -761,6 +800,7 @@ pub trait PlatformWindowV2 {
         let mut result = ProcessEventResult::DoNothing;
         let mut should_stop_propagation = false;
         let mut should_recurse = false;
+        let mut focus_changed = false;
 
         for callback_to_invoke in &dispatch_result.callbacks {
             if should_stop_propagation {
@@ -781,8 +821,22 @@ pub trait PlatformWindowV2 {
                 self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
 
             for callback_result in callback_results {
+                // Capture old focus state before processing callback result
+                let old_focus = self
+                    .get_layout_window()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
                 let event_result = self.process_callback_result_v2(&callback_result);
                 result = result.max(event_result);
+
+                // Check if focus changed after callback
+                let new_focus = self
+                    .get_layout_window()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
+                if old_focus != new_focus {
+                    focus_changed = true;
+                }
 
                 // Check if we should stop propagation
                 if callback_result.stop_propagation {
@@ -801,34 +855,52 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        // Recurse if needed
+        // Handle focus changes: generate synthetic FocusIn/FocusOut events
+        if focus_changed && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+            // Clear selections when focus changes (standard UI behavior)
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                layout_window.selection_manager.clear_all();
+            }
+
+            // Recurse to process synthetic focus events
+            // This will trigger FocusIn/FocusOut callbacks, which may request another focus change
+            let focus_result = self.process_window_events_recursive_v2(depth + 1);
+            result = result.max(focus_result);
+        }
+
+        // Recurse if needed (DOM regeneration)
         if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
             let recursive_result = self.process_window_events_recursive_v2(depth + 1);
             result = result.max(recursive_result);
         }
-        
+
         // Auto-activate window drag if DragStart occurred on titlebar
         // This allows titlebar dragging to work even when mouse leaves window
-        if events.hover_events.iter().any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart)) {
+        if events
+            .hover_events
+            .iter()
+            .any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart))
+        {
             // Get current window position before mutable borrow
             let current_pos = self.get_current_window_state().position;
-            
+
             // Check if drag was on a titlebar element (class="csd-title")
             if let Some(hit_test) = hit_test_for_dispatch.as_ref() {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let is_titlebar_drag = hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
-                        hit.regular_hit_test_nodes.len() > 0
-                    });
-                    
-                    if is_titlebar_drag && !layout_window.gesture_drag_manager.is_window_dragging() {
+                    let is_titlebar_drag = hit_test
+                        .hovered_nodes
+                        .iter()
+                        .any(|(dom_id, hit)| hit.regular_hit_test_nodes.len() > 0);
+
+                    if is_titlebar_drag && !layout_window.gesture_drag_manager.is_window_dragging()
+                    {
                         // Activate window drag with current window position
                         let hit_test_clone = hit_test.hovered_nodes.values().next().cloned();
-                        
-                        layout_window.gesture_drag_manager.activate_window_drag(
-                            current_pos,
-                            hit_test_clone,
-                        );
-                        
+
+                        layout_window
+                            .gesture_drag_manager
+                            .activate_window_drag(current_pos, hit_test_clone);
+
                         eprintln!("[Event V2] Auto-activated window drag on titlebar DragStart");
                     }
                 }
@@ -874,9 +946,27 @@ pub trait PlatformWindowV2 {
         }
 
         // Handle focus changes
-        if let Some(new_focus) = result.update_focused_node {
-            self.get_current_window_state_mut().focused_node = new_focus;
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        use azul_layout::callbacks::FocusUpdateRequest;
+        match result.update_focused_node {
+            FocusUpdateRequest::FocusNode(new_focus) => {
+                // Update focus in the FocusManager (in LayoutWindow)
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    layout_window
+                        .focus_manager
+                        .set_focused_node(Some(new_focus));
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+            FocusUpdateRequest::ClearFocus => {
+                // Clear focus in the FocusManager (in LayoutWindow)
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    layout_window.focus_manager.set_focused_node(None);
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+            FocusUpdateRequest::NoChange => {
+                // No focus change requested
+            }
         }
 
         // Handle image updates
@@ -1058,7 +1148,7 @@ pub trait PlatformWindowV2 {
         click_position: azul_core::geom::LogicalPosition,
         is_vertical: bool,
     ) -> ProcessEventResult {
-        use azul_layout::scroll::ScrollbarOrientation;
+        use azul_layout::managers::scroll_state::ScrollbarOrientation;
 
         // Get scrollbar state to calculate target position
         let layout_window = match self.get_layout_window() {
@@ -1151,7 +1241,7 @@ pub trait PlatformWindowV2 {
         current_pos: azul_core::geom::LogicalPosition,
     ) -> ProcessEventResult {
         use azul_core::hit_test::ScrollbarHitId;
-        use azul_layout::scroll::ScrollbarOrientation;
+        use azul_layout::managers::scroll_state::ScrollbarOrientation;
 
         let drag_state = match self.get_scrollbar_drag_state() {
             Some(ds) => ds.clone(),

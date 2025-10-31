@@ -189,9 +189,27 @@ impl X11Window {
         }
 
         // Handle focus changes
-        if let Some(new_focus) = result.update_focused_node {
-            self.current_window_state.focused_node = new_focus;
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        use azul_layout::callbacks::FocusUpdateRequest;
+        match result.update_focused_node {
+            FocusUpdateRequest::FocusNode(new_focus) => {
+                // Update focus in the FocusManager (in LayoutWindow)
+                if let Some(layout_window) = self.layout_window.as_mut() {
+                    layout_window
+                        .focus_manager
+                        .set_focused_node(Some(new_focus));
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+            FocusUpdateRequest::ClearFocus => {
+                // Clear focus in the FocusManager (in LayoutWindow)
+                if let Some(layout_window) = self.layout_window.as_mut() {
+                    layout_window.focus_manager.set_focused_node(None);
+                }
+                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+            FocusUpdateRequest::NoChange => {
+                // No focus change requested
+            }
         }
 
         // Handle image updates
@@ -258,7 +276,9 @@ impl X11Window {
 
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
-            if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position) {
+            if let Some(scrollbar_hit_id) =
+                PlatformWindowV2::perform_scrollbar_hit_test(self, position)
+            {
                 return PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
             }
         } else {
@@ -282,7 +302,7 @@ impl X11Window {
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = is_down,
             _ => {}
         }
-        
+
         // Record input sample for gesture detection
         let button_state = match button {
             MouseButton::Left => 0x01,
@@ -322,12 +342,21 @@ impl X11Window {
 
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
-        
+
         // Record input sample for gesture detection (movement during button press)
-        let button_state = 
-            if self.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 } |
-            if self.current_window_state.mouse_state.right_down { 0x02 } else { 0x00 } |
-            if self.current_window_state.mouse_state.middle_down { 0x04 } else { 0x00 };
+        let button_state = if self.current_window_state.mouse_state.left_down {
+            0x01
+        } else {
+            0x00
+        } | if self.current_window_state.mouse_state.right_down {
+            0x02
+        } else {
+            0x00
+        } | if self.current_window_state.mouse_state.middle_down {
+            0x04
+        } else {
+            0x00
+        };
         self.record_input_sample(position, button_state, false, false);
 
         // Update hit test
@@ -353,7 +382,11 @@ impl X11Window {
             self.current_window_state.mouse_state.cursor_position =
                 CursorPosition::OutOfWindow(position);
             // Clear hit test since mouse is out
-            self.current_window_state.last_hit_test = FullHitTest::empty(None);
+            if let Some(ref mut layout_window) = self.layout_window {
+                layout_window
+                    .hover_manager
+                    .push_hit_test(FullHitTest::empty(None));
+            }
         }
 
         // V2 system will detect MouseEnter/MouseLeave from state diff
@@ -496,24 +529,28 @@ impl X11Window {
 
     /// Update hit test at given position and store in current_window_state
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.layout_window.as_mut() {
             let cursor_position = CursorPosition::InWindow(position);
+            // Get focused node from FocusManager
+            let focused_node = layout_window.focus_manager.get_focused_node().copied();
             let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
                 &*self.hit_tester.as_mut().unwrap().resolve(),
                 self.document_id.unwrap(),
-                self.current_window_state.focused_node,
+                focused_node,
                 &layout_window.layout_results,
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
-            self.current_window_state.last_hit_test = hit_test;
+            layout_window.hover_manager.push_hit_test(hit_test);
         }
     }
 
     /// Get the first hovered node from current hit test
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.current_window_state
-            .last_hit_test
+        self.layout_window
+            .as_ref()?
+            .hover_manager
+            .get_current()?
             .hovered_nodes
             .iter()
             .flat_map(|(dom_id, ht)| {

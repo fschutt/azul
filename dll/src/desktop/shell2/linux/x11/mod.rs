@@ -23,8 +23,8 @@ use azul_core::{
     refany::RefAny,
     resources::{AppConfig, DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
     window::{
-        HwAcceleration, KeyboardState, MouseCursorType, MouseState, RawWindowHandle, RendererType,
-        WindowDecorations, XlibHandle,
+        HwAcceleration, KeyboardState, Monitor, MouseCursorType, MouseState, RawWindowHandle,
+        RendererType, WindowDecorations, XlibHandle,
     },
 };
 use azul_layout::{
@@ -132,7 +132,8 @@ impl PlatformWindow for X11Window {
             background_color: self.current_window_state.background_color,
             layout_callback: self.current_window_state.layout_callback.clone(),
             close_callback: self.current_window_state.close_callback.clone(),
-            monitor: self.current_window_state.monitor.clone(),
+            monitor: Monitor::default(), /* Monitor info needs to be looked up from platform via
+                                          * monitor_id */
         }
     }
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
@@ -147,7 +148,7 @@ impl PlatformWindow for X11Window {
     fn poll_event(&mut self) -> Option<Self::EventType> {
         // Check timers and threads before processing X11 events
         self.check_timers_and_threads();
-        
+
         while unsafe { (self.xlib.XPending)(self.display) } > 0 {
             let mut event: XEvent = unsafe { std::mem::zeroed() };
             unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
@@ -167,30 +168,32 @@ impl PlatformWindow for X11Window {
                 defines::ConfigureNotify => {
                     let ev = unsafe { &event.configure };
                     let (new_width, new_height) = (ev.width as u32, ev.height as u32);
-                    
+
                     // Check if size changed
                     let size_changed = self.current_window_state.size.get_physical_size()
                         != PhysicalSize::new(new_width, new_height);
-                    
-                    // Check if position changed (might have moved to different monitor with different DPI)
+
+                    // Check if position changed (might have moved to different monitor with
+                    // different DPI)
                     let position_changed = match self.current_window_state.position {
                         azul_core::window::WindowPosition::Initialized(pos) => {
                             pos.x != ev.x || pos.y != ev.y
                         }
                         _ => true,
                     };
-                    
+
                     if size_changed {
                         self.current_window_state.size.dimensions =
                             LogicalSize::new(new_width as f32, new_height as f32);
                         self.regenerate_layout().ok();
                     }
-                    
+
                     // Update position
-                    self.current_window_state.position = azul_core::window::WindowPosition::Initialized(
-                        azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y)
-                    );
-                    
+                    self.current_window_state.position =
+                        azul_core::window::WindowPosition::Initialized(
+                            azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
+                        );
+
                     // If position changed, check for DPI change (moved to different monitor)
                     if position_changed && !size_changed {
                         // Get current display DPI at new position
@@ -199,20 +202,25 @@ impl PlatformWindow for X11Window {
                             ev.x as f32 + new_width as f32 / 2.0,
                             ev.y as f32 + new_height as f32 / 2.0,
                         );
-                        
-                        if let Some(display) = crate::desktop::display::get_display_at_point(window_center) {
+
+                        if let Some(display) =
+                            crate::desktop::display::get_display_at_point(window_center)
+                        {
                             let new_dpi = (display.scale_factor * 96.0) as u32;
                             let old_dpi = self.current_window_state.size.dpi;
-                            
+
                             // Only regenerate if DPI changed significantly (avoid rounding errors)
                             if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-                                eprintln!("[X11 DPI Change] {} -> {} (moved to different monitor)", old_dpi, new_dpi);
+                                eprintln!(
+                                    "[X11 DPI Change] {} -> {} (moved to different monitor)",
+                                    old_dpi, new_dpi
+                                );
                                 self.current_window_state.size.dpi = new_dpi;
                                 self.regenerate_layout().ok();
                             }
                         }
                     }
-                    
+
                     ProcessEventResult::DoNothing
                 }
                 defines::ClientMessage => {
@@ -354,8 +362,10 @@ impl X11Window {
 
         let size = options.state.size;
         let position = options.state.position;
-        let monitor_id = options.state.monitor.id;
-        
+        // Monitor ID is now stored in FullWindowState.monitor_id, not in WindowState
+        // For now, we default to monitor 0
+        let monitor_id = 0; // TODO: Get from options or detect primary monitor
+
         let window_handle = unsafe {
             (xlib.XCreateSimpleWindow)(
                 display,
@@ -478,12 +488,7 @@ impl X11Window {
                 background_color: options.state.background_color,
                 layout_callback: options.state.layout_callback,
                 close_callback: options.state.close_callback.clone(),
-                monitor: options.state.monitor,
-                hovered_file: None,
-                dropped_file: None,
-                focused_node: None,
-                last_hit_test: azul_layout::hit_test::FullHitTest::empty(None),
-                selections: Default::default(),
+                monitor_id: None, // Monitor ID will be detected from platform
                 window_focused: true,
             },
             previous_window_state: None,
@@ -509,7 +514,12 @@ impl X11Window {
         unsafe { (window.xlib.XFlush)(display) };
 
         // Position window on requested monitor (or center on primary)
-        window.position_window_on_monitor(monitor_id, position, size);
+        // Convert u32 to MonitorId
+        let monitor_id_typed = azul_core::window::MonitorId {
+            index: monitor_id as usize,
+            hash: 0,
+        };
+        window.position_window_on_monitor(monitor_id_typed, position, size);
 
         // Initialize GNOME native menus if enabled
         #[cfg(feature = "gnome-menus")]
@@ -521,14 +531,15 @@ impl X11Window {
                     match menu_manager.set_window_properties(window.window, display as *mut _) {
                         Ok(_) => {
                             super::gnome_menu::debug_log(&format!(
-                                "GNOME menu integration enabled for window: {}", 
+                                "GNOME menu integration enabled for window: {}",
                                 app_name
                             ));
                             window.gnome_menu = Some(menu_manager);
                         }
                         Err(e) => {
                             super::gnome_menu::debug_log(&format!(
-                                "Failed to set GNOME window properties: {} - falling back to CSD menus",
+                                "Failed to set GNOME window properties: {} - falling back to CSD \
+                                 menus",
                                 e
                             ));
                             // Continue without GNOME menus - will use CSD fallback
@@ -536,9 +547,7 @@ impl X11Window {
                     }
                 }
                 None => {
-                    super::gnome_menu::debug_log(
-                        "GNOME menus not available - using CSD fallback"
-                    );
+                    super::gnome_menu::debug_log("GNOME menus not available - using CSD fallback");
                     // Continue without GNOME menus - will use CSD fallback
                 }
             }
@@ -553,22 +562,35 @@ impl X11Window {
     }
 
     /// Position window on requested monitor, or center on primary monitor
-    fn position_window_on_monitor(&mut self, monitor_id: azul_core::window::MonitorId, position: azul_core::window::WindowPosition, size: azul_core::window::WindowSize) {
+    fn position_window_on_monitor(
+        &mut self,
+        monitor_id: azul_core::window::MonitorId,
+        position: azul_core::window::WindowPosition,
+        size: azul_core::window::WindowSize,
+    ) {
         use azul_core::window::WindowPosition;
+
         use crate::desktop::display::get_monitors;
-        
+
         // Get all available monitors
         let monitors = get_monitors();
         if monitors.len() == 0 {
             return; // No monitors available, let window manager decide
         }
-        
+
         // Determine target monitor
-        let target_monitor = monitors.as_slice().iter()
+        let target_monitor = monitors
+            .as_slice()
+            .iter()
             .find(|m| m.id.index == monitor_id.index)
-            .or_else(|| monitors.as_slice().iter().find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0))
+            .or_else(|| {
+                monitors
+                    .as_slice()
+                    .iter()
+                    .find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0)
+            })
             .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
-        
+
         // Calculate window position
         let (x, y) = match position {
             WindowPosition::Initialized(pos) => {
@@ -582,14 +604,16 @@ impl X11Window {
                 // No explicit position - center on target monitor
                 let window_width = size.dimensions.width as isize;
                 let window_height = size.dimensions.height as isize;
-                
-                let center_x = target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
-                let center_y = target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
-                
+
+                let center_x =
+                    target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
+                let center_y =
+                    target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
+
                 (center_x as i32, center_y as i32)
             }
         };
-        
+
         // Move window to calculated position
         unsafe {
             (self.xlib.XMoveWindow)(self.display, self.window, x, y);
@@ -673,9 +697,11 @@ impl X11Window {
             return;
         }
 
-        if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) =
-            (self.layout_window.as_mut(), self.render_api.as_mut(), self.document_id)
-        {
+        if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
+            self.layout_window.as_mut(),
+            self.render_api.as_mut(),
+            self.document_id,
+        ) {
             crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
                 render_api,
@@ -738,11 +764,9 @@ impl X11Window {
         if previous.flags.frame != current.flags.frame {
             use azul_core::window::WindowFrame;
             match current.flags.frame {
-                WindowFrame::Minimized => {
-                    unsafe {
-                        (self.xlib.XUnmapWindow)(self.display, self.window);
-                    }
-                }
+                WindowFrame::Minimized => unsafe {
+                    (self.xlib.XUnmapWindow)(self.display, self.window);
+                },
                 WindowFrame::Maximized => {
                     // Maximize via _NET_WM_STATE
                     unsafe {
@@ -824,8 +848,10 @@ impl X11Window {
 
         // Mouse cursor synchronization - compute from current hit test
         if let Some(layout_window) = self.layout_window.as_ref() {
-            let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
-            self.set_cursor(cursor_test.cursor_icon);
+            if let Some(hit_test) = layout_window.hover_manager.get_current() {
+                let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
+                self.set_cursor(cursor_test.cursor_icon);
+            }
         }
 
         // Flush X11 commands
@@ -940,7 +966,10 @@ impl X11Window {
                 scale_factor,
                 is_primary: true,
                 video_modes: vec![azul_core::window::VideoMode {
-                    size: azul_css::props::basic::LayoutSize::new(width_px as isize, height_px as isize),
+                    size: azul_css::props::basic::LayoutSize::new(
+                        width_px as isize,
+                        height_px as isize,
+                    ),
                     bit_depth: 32,
                     refresh_rate: 60,
                 }],
@@ -1113,12 +1142,11 @@ impl PlatformWindowV2 for X11Window {
         // X11 has no native timer API, so we just store timers in layout_window
         // They will be ticked manually in the event loop
         if let Some(layout_window) = self.layout_window.as_mut() {
-            layout_window.timers.insert(
-                azul_core::task::TimerId { id: timer_id },
-                timer,
-            );
+            layout_window
+                .timers
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
-        
+
         // Mark for regeneration so the event loop checks timers
         self.frame_needs_regeneration = true;
     }
@@ -1156,7 +1184,7 @@ impl PlatformWindowV2 for X11Window {
                 layout_window.threads.insert(thread_id, thread);
             }
         }
-        
+
         // Mark for regeneration to start thread polling
         self.frame_needs_regeneration = true;
     }
@@ -1188,13 +1216,13 @@ impl X11Window {
         if let Some(layout_window) = self.layout_window.as_mut() {
             let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
             let current_time = (system_callbacks.get_system_time_fn.cb)();
-            
+
             // Check if any timers expired
             let expired_timers = layout_window.tick_timers(current_time);
             if !expired_timers.is_empty() {
                 self.frame_needs_regeneration = true;
             }
-            
+
             // Check if we have active threads (they need periodic checking)
             if !layout_window.threads.is_empty() {
                 self.frame_needs_regeneration = true;

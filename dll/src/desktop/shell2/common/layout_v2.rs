@@ -6,8 +6,7 @@
 //! The regenerate_layout function takes direct field references instead of using trait methods
 //! to avoid borrow checker issues (similar to invoke_callbacks pattern).
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
@@ -16,16 +15,14 @@ use azul_core::{
     refany::RefAny,
     resources::{ImageCache, RendererResources},
 };
+use azul_css::system::SystemStyle;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks,
-    window::LayoutWindow,
-    window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
 use crate::desktop::{csd, wr_translate2};
-use azul_css::system::SystemStyle;
 
 /// Regenerate layout after DOM changes.
 ///
@@ -164,8 +161,8 @@ pub fn regenerate_layout(
             *dom_id,
             &layout_result.layout_tree,
             &system_callbacks,
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)), // fade_delay
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)), // fade_duration
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)), /* fade_delay */
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)), /* fade_duration */
         );
     }
 

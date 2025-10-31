@@ -655,13 +655,13 @@ impl_option!(
 );
 
 /// Identifies a specific monitor/display
-/// 
+///
 /// Contains both an index (for fast current-session lookup) and a stable hash
 /// (for persistence across app restarts and monitor reconfigurations).
-/// 
+///
 /// - `index`: Runtime index (0-based), may change if monitors are added/removed
 /// - `hash`: Stable identifier based on monitor properties (name, size, position)
-/// 
+///
 /// Applications can serialize `hash` to remember which monitor a window was on,
 /// then search for matching hash on next launch, falling back to index or PRIMARY.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -676,28 +676,33 @@ pub struct MonitorId {
 impl MonitorId {
     /// Primary/default monitor (index 0, hash 0)
     pub const PRIMARY: MonitorId = MonitorId { index: 0, hash: 0 };
-    
+
     /// Create a MonitorId from index only (hash will be 0)
     pub const fn new(index: usize) -> Self {
         Self { index, hash: 0 }
     }
-    
+
     /// Create a MonitorId from index and hash
     pub const fn from_index_and_hash(index: usize, hash: u64) -> Self {
         Self { index, hash }
     }
-    
+
     /// Create a stable monitor ID from monitor properties
-    /// 
+    ///
     /// Uses FNV-1a hash of: name + position + size
     /// This ensures the hash is stable across app restarts as long as
     /// the monitor configuration doesn't change significantly
-    pub fn from_properties(index: usize, name: &str, position: LayoutPoint, size: LayoutSize) -> Self {
+    pub fn from_properties(
+        index: usize,
+        name: &str,
+        position: LayoutPoint,
+        size: LayoutSize,
+    ) -> Self {
         use core::hash::{Hash, Hasher};
-        
+
         // FNV-1a hash (simple, fast, good distribution)
         struct FnvHasher(u64);
-        
+
         impl Hasher for FnvHasher {
             fn write(&mut self, bytes: &[u8]) {
                 const FNV_PRIME: u64 = 0x100000001b3;
@@ -706,25 +711,25 @@ impl MonitorId {
                     self.0 = self.0.wrapping_mul(FNV_PRIME);
                 }
             }
-            
+
             fn finish(&self) -> u64 {
                 self.0
             }
         }
-        
+
         const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
         let mut hasher = FnvHasher(FNV_OFFSET_BASIS);
-        
+
         // Hash the monitor properties
         name.hash(&mut hasher);
         (position.x as i64).hash(&mut hasher);
         (position.y as i64).hash(&mut hasher);
         (size.width as i64).hash(&mut hasher);
         (size.height as i64).hash(&mut hasher);
-        
+
         Self {
             index,
-            hash: hasher.finish()
+            hash: hasher.finish(),
         }
     }
 }

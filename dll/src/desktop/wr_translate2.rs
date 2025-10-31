@@ -289,9 +289,71 @@ pub fn translate_world_point(
 
 /// Translate WebRender hit test to azul-core FullHitTest
 /// This converts the raw hit-test result from WebRender to our internal representation
-pub fn translate_hit_test_result<T>(_wr_result: T) -> azul_core::hit_test::FullHitTest {
-    // For now, return an empty hit test result
-    // A full implementation would convert WebRender's hit test items to our format
+///
+/// NOTE: This is a partial implementation that handles basic hit testing.
+/// Full implementation would need to:
+/// - Convert WebRender item tags to (DomId, NodeId) pairs
+/// - Handle IFrame hits
+/// - Extract scrollable nodes from hit results
+/// - Properly calculate point_relative_to_item coordinates
+pub fn translate_hit_test_result(
+    wr_result: webrender::api::HitTestResult,
+    _focused_node: Option<azul_core::dom::DomNodeId>,
+) -> azul_core::hit_test::FullHitTest {
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{DomId, NodeId},
+        geom::LogicalPosition,
+        hit_test::{FullHitTest, HitTest, HitTestItem},
+    };
+
+    let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
+
+    for item in wr_result.items {
+        // Extract DomId and NodeId from tag
+        // Tag encoding: (tag_value, tag_type)
+        // For DOM nodes, we encode: (dom_id << 32) | node_id
+        let (tag_value, _tag_type) = item.tag;
+
+        // Decode DomId and NodeId from tag
+        let dom_id_value = ((tag_value >> 32) & 0xFFFFFFFF) as usize;
+        let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
+
+        let dom_id = DomId {
+            inner: dom_id_value,
+        };
+        let node_id = NodeId::new(node_id_value);
+
+        // WebRender changed: point_in_viewport is now point_relative_to_item
+        let point_in_viewport =
+            LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
+
+        let point_relative_to_item =
+            LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
+
+        let hit_test_item = HitTestItem {
+            point_in_viewport,
+            point_relative_to_item,
+            is_focusable: false, // TODO: Determine from node data
+            is_iframe_hit: None, // TODO: Re-enable iframe support when needed
+        };
+
+        hovered_nodes
+            .entry(dom_id)
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(node_id, hit_test_item);
+    }
+
+    FullHitTest {
+        hovered_nodes,
+        focused_node: _focused_node.and_then(|f| f.node.into_crate_internal().map(|n| (f.dom, n))),
+    }
+}
+
+/// Legacy version that still returns empty for backwards compatibility
+pub fn translate_hit_test_result_empty<T>(_wr_result: T) -> azul_core::hit_test::FullHitTest {
     azul_core::hit_test::FullHitTest::empty(None)
 }
 
@@ -1324,10 +1386,16 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
 
 /// Synchronize GPU-animated values (transforms, opacities) to WebRender
 pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
-    // TODO: Implement transform synchronization
-    // This would iterate through GPU value cache and update property values
+    use webrender::api::{DynamicProperties, PropertyBinding, PropertyValue};
 
-    // For now, just synchronize scrollbar opacities as an example
+    // Collect all dynamic properties to update
+    let mut properties = DynamicProperties {
+        transforms: Vec::new(),
+        floats: Vec::new(),
+        colors: Vec::new(),
+    };
+
+    // Synchronize opacity values from GPU cache
     for (dom_id, _layout_result) in &layout_window.layout_results {
         let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(*dom_id);
 
@@ -1337,18 +1405,21 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 continue;
             }
 
-            let opacity_key = match gpu_cache.scrollbar_v_opacity_keys.get(&(*dom_id, *node_id)) {
-                Some(&key) => key,
-                None => continue,
-            };
+            if let Some(&opacity_key) = gpu_cache.scrollbar_v_opacity_keys.get(&(*dom_id, *node_id))
+            {
+                // Add opacity property update
+                // Convert OpacityKey to PropertyBindingKey<f32> using its id field (usize -> u64)
+                properties.floats.push(PropertyValue {
+                    key: webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
+                    value: opacity,
+                });
 
-            // TODO: Actually send opacity update to WebRender
-            // This would require a property animation API in WebRender
-            // For now, this is a placeholder
-            eprintln!(
-                "[synchronize_gpu_values] Would set opacity for {:?}:{:?} to {}",
-                dom_id, node_id, opacity
-            );
+                eprintln!(
+                    "[synchronize_gpu_values] Set vertical scrollbar opacity for {:?}:{:?} to {} \
+                     (key={:?})",
+                    dom_id, node_id, opacity, opacity_key
+                );
+            }
         }
 
         // Synchronize horizontal scrollbar opacities
@@ -1357,17 +1428,52 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 continue;
             }
 
-            let opacity_key = match gpu_cache.scrollbar_h_opacity_keys.get(&(*dom_id, *node_id)) {
-                Some(&key) => key,
-                None => continue,
-            };
+            if let Some(&opacity_key) = gpu_cache.scrollbar_h_opacity_keys.get(&(*dom_id, *node_id))
+            {
+                // Add opacity property update
+                // Convert OpacityKey to PropertyBindingKey<f32> using its id field (usize -> u64)
+                properties.floats.push(PropertyValue {
+                    key: webrender::api::PropertyBindingKey::new(opacity_key.id as u64),
+                    value: opacity,
+                });
 
-            // TODO: Actually send opacity update to WebRender
-            eprintln!(
-                "[synchronize_gpu_values] Would set opacity for {:?}:{:?} to {}",
-                dom_id, node_id, opacity
-            );
+                eprintln!(
+                    "[synchronize_gpu_values] Set horizontal scrollbar opacity for {:?}:{:?} to \
+                     {} (key={:?})",
+                    dom_id, node_id, opacity, opacity_key
+                );
+            }
         }
+
+        // TODO: Synchronize transform values
+        // This would work similarly:
+        // for ((cache_dom_id, node_id), &transform) in &gpu_cache.transform_values {
+        //     if let Some(&transform_key) = gpu_cache.transform_keys.get(&(*dom_id, *node_id)) {
+        //         properties.transforms.push(PropertyValue {
+        //             key: transform_key,
+        //             value: wr_translate_transform(transform),
+        //         });
+        //     }
+        // }
+    }
+
+    // Apply all property updates to the transaction
+    if !properties.floats.is_empty()
+        || !properties.transforms.is_empty()
+        || !properties.colors.is_empty()
+    {
+        // Store lengths before moving properties
+        let float_count = properties.floats.len();
+        let transform_count = properties.transforms.len();
+        let color_count = properties.colors.len();
+
+        // WebRender renamed update_dynamic_properties to append_dynamic_properties
+        txn.append_dynamic_properties(properties);
+
+        eprintln!(
+            "[synchronize_gpu_values] Updated {} float properties, {} transforms, {} colors",
+            float_count, transform_count, color_count
+        );
     }
 }
 

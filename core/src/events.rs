@@ -1358,6 +1358,16 @@ pub enum HoverEventFilter {
     TouchMove,
     TouchEnd,
     TouchCancel,
+    /// Pen/stylus made contact with surface
+    PenDown,
+    /// Pen/stylus moved while in contact
+    PenMove,
+    /// Pen/stylus lifted from surface
+    PenUp,
+    /// Pen/stylus entered proximity (hovering without contact)
+    PenEnter,
+    /// Pen/stylus left proximity
+    PenLeave,
     /// Drag started (mouse moved beyond threshold while button down)
     DragStart,
     /// Drag in progress (mouse moved during drag)
@@ -1368,6 +1378,17 @@ pub enum HoverEventFilter {
     DoubleClick,
     /// Long press detected (button held down for extended time)
     LongPress,
+    /// Swipe gesture detected (fast directional movement)
+    SwipeLeft,
+    SwipeRight,
+    SwipeUp,
+    SwipeDown,
+    /// Pinch gesture (two-finger zoom)
+    PinchIn,
+    PinchOut,
+    /// Rotation gesture (two-finger rotate)
+    RotateClockwise,
+    RotateCounterClockwise,
 }
 
 impl HoverEventFilter {
@@ -1397,11 +1418,26 @@ impl HoverEventFilter {
             HoverEventFilter::TouchMove => None,
             HoverEventFilter::TouchEnd => None,
             HoverEventFilter::TouchCancel => None,
+            HoverEventFilter::PenDown => Some(FocusEventFilter::PenDown),
+            HoverEventFilter::PenMove => Some(FocusEventFilter::PenMove),
+            HoverEventFilter::PenUp => Some(FocusEventFilter::PenUp),
+            HoverEventFilter::PenEnter => None,
+            HoverEventFilter::PenLeave => None,
             HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
             HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
             HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
             HoverEventFilter::DoubleClick => Some(FocusEventFilter::DoubleClick),
             HoverEventFilter::LongPress => Some(FocusEventFilter::LongPress),
+            HoverEventFilter::SwipeLeft => Some(FocusEventFilter::SwipeLeft),
+            HoverEventFilter::SwipeRight => Some(FocusEventFilter::SwipeRight),
+            HoverEventFilter::SwipeUp => Some(FocusEventFilter::SwipeUp),
+            HoverEventFilter::SwipeDown => Some(FocusEventFilter::SwipeDown),
+            HoverEventFilter::PinchIn => Some(FocusEventFilter::PinchIn),
+            HoverEventFilter::PinchOut => Some(FocusEventFilter::PinchOut),
+            HoverEventFilter::RotateClockwise => Some(FocusEventFilter::RotateClockwise),
+            HoverEventFilter::RotateCounterClockwise => {
+                Some(FocusEventFilter::RotateCounterClockwise)
+            }
         }
     }
 }
@@ -1432,6 +1468,10 @@ pub enum FocusEventFilter {
     VirtualKeyUp,
     FocusReceived,
     FocusLost,
+    /// Pen events on focused element
+    PenDown,
+    PenMove,
+    PenUp,
     /// Drag started on focused element
     DragStart,
     /// Drag in progress on focused element
@@ -1442,6 +1482,17 @@ pub enum FocusEventFilter {
     DoubleClick,
     /// Long press on focused element
     LongPress,
+    /// Swipe gestures on focused element
+    SwipeLeft,
+    SwipeRight,
+    SwipeUp,
+    SwipeDown,
+    /// Pinch gesture on focused element
+    PinchIn,
+    PinchOut,
+    /// Rotation gesture on focused element
+    RotateClockwise,
+    RotateCounterClockwise,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -1481,6 +1532,12 @@ pub enum WindowEventFilter {
     ThemeChanged,
     WindowFocusReceived,
     WindowFocusLost,
+    /// Pen events anywhere in window
+    PenDown,
+    PenMove,
+    PenUp,
+    PenEnter,
+    PenLeave,
     /// Drag started anywhere in window
     DragStart,
     /// Drag in progress anywhere in window
@@ -1491,6 +1548,17 @@ pub enum WindowEventFilter {
     DoubleClick,
     /// Long press anywhere in window
     LongPress,
+    /// Swipe gestures anywhere in window
+    SwipeLeft,
+    SwipeRight,
+    SwipeUp,
+    SwipeDown,
+    /// Pinch gesture anywhere in window
+    PinchIn,
+    PinchOut,
+    /// Rotation gesture anywhere in window
+    RotateClockwise,
+    RotateCounterClockwise,
 }
 
 impl WindowEventFilter {
@@ -1530,11 +1598,26 @@ impl WindowEventFilter {
             WindowEventFilter::ThemeChanged => None,
             WindowEventFilter::WindowFocusReceived => None, // specific to window!
             WindowEventFilter::WindowFocusLost => None,     // specific to window!
+            WindowEventFilter::PenDown => Some(HoverEventFilter::PenDown),
+            WindowEventFilter::PenMove => Some(HoverEventFilter::PenMove),
+            WindowEventFilter::PenUp => Some(HoverEventFilter::PenUp),
+            WindowEventFilter::PenEnter => Some(HoverEventFilter::PenEnter),
+            WindowEventFilter::PenLeave => Some(HoverEventFilter::PenLeave),
             WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
             WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
             WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),
             WindowEventFilter::DoubleClick => Some(HoverEventFilter::DoubleClick),
             WindowEventFilter::LongPress => Some(HoverEventFilter::LongPress),
+            WindowEventFilter::SwipeLeft => Some(HoverEventFilter::SwipeLeft),
+            WindowEventFilter::SwipeRight => Some(HoverEventFilter::SwipeRight),
+            WindowEventFilter::SwipeUp => Some(HoverEventFilter::SwipeUp),
+            WindowEventFilter::SwipeDown => Some(HoverEventFilter::SwipeDown),
+            WindowEventFilter::PinchIn => Some(HoverEventFilter::PinchIn),
+            WindowEventFilter::PinchOut => Some(HoverEventFilter::PinchOut),
+            WindowEventFilter::RotateClockwise => Some(HoverEventFilter::RotateClockwise),
+            WindowEventFilter::RotateCounterClockwise => {
+                Some(HoverEventFilter::RotateCounterClockwise)
+            }
         }
     }
 }

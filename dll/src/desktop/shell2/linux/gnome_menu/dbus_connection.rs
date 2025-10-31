@@ -3,10 +3,11 @@
 //! Handles connection to the DBus session bus and service registration.
 
 use std::sync::{Arc, Mutex};
-use super::{GnomeMenuError, debug_log};
 
 #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
 use dbus::blocking::Connection;
+
+use super::{debug_log, GnomeMenuError};
 
 /// DBus connection wrapper
 pub struct DbusConnection {
@@ -41,7 +42,7 @@ impl DbusConnection {
         #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
         {
             use std::time::Duration;
-            
+
             let conn = Connection::new_session()
                 .map_err(|e| GnomeMenuError::DbusConnectionFailed(e.to_string()))?;
 
@@ -58,7 +59,7 @@ impl DbusConnection {
                 connection: Arc::new(Mutex::new(conn)),
             })
         }
-        
+
         #[cfg(not(all(target_os = "linux", feature = "gnome-menus")))]
         Err(GnomeMenuError::NotImplemented)
     }
@@ -82,7 +83,7 @@ impl DbusConnection {
     pub fn get_menubar_path(&self) -> String {
         format!("{}/menus/MenuBar", self.object_path)
     }
-    
+
     /// Get the DBus connection
     #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
     pub fn get_connection(&self) -> Arc<Mutex<Connection>> {
@@ -92,7 +93,10 @@ impl DbusConnection {
 
 impl Drop for DbusConnection {
     fn drop(&mut self) {
-        debug_log(&format!("Cleaning up DBus connection for: {}", self.app_name));
+        debug_log(&format!(
+            "Cleaning up DBus connection for: {}",
+            self.app_name
+        ));
         // TODO: Cleanup when dbus crate is added
     }
 }
@@ -106,7 +110,7 @@ mod tests {
         // This will fail with NotImplemented, but we can test the logic
         let result = DbusConnection::new("My.Test-App 123");
         assert!(result.is_err());
-        
+
         // When implemented, should create:
         // bus_name: "org.gtk.My_Test_App_123"
         // object_path: "/org/gtk/My/Test/App/123"

@@ -119,7 +119,7 @@ pub struct Wayland {
     // wl_output functions
     pub wl_output_add_listener:
         unsafe extern "C" fn(*mut wl_output, *const wl_output_listener, *mut c_void) -> i32,
-    
+
     // wl_surface listener functions
     pub wl_surface_add_listener:
         unsafe extern "C" fn(*mut wl_surface, *const wl_surface_listener, *mut c_void) -> i32,

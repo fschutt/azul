@@ -13,7 +13,7 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::CallbackInfo,
-    scroll::{ScrollbarComponent, ScrollbarHit, ScrollbarOrientation},
+    managers::scroll_state::{ScrollbarComponent, ScrollbarHit, ScrollbarOrientation},
     solver3::display_list::DisplayList,
     window::LayoutWindow,
     window_state::WindowState,
@@ -93,7 +93,8 @@ impl MacOSWindow {
 
         // Check for scrollbar hit FIRST (before state changes)
         // Use trait method from PlatformWindowV2
-        if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position) {
+        if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position)
+        {
             let result = PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
             return Self::convert_process_result(result);
         }
@@ -111,7 +112,7 @@ impl MacOSWindow {
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = true,
             _ => {}
         }
-        
+
         // Record input sample for gesture detection (button down starts new session)
         let button_state = match button {
             MouseButton::Left => 0x01,
@@ -155,7 +156,7 @@ impl MacOSWindow {
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = false,
             _ => {}
         }
-        
+
         // Record input sample for gesture detection (button up ends session)
         let button_state = match button {
             MouseButton::Left => 0x01,
@@ -220,12 +221,21 @@ impl MacOSWindow {
 
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
-        
+
         // Record input sample for gesture detection (movement during button press)
-        let button_state = 
-            if self.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 } |
-            if self.current_window_state.mouse_state.right_down { 0x02 } else { 0x00 } |
-            if self.current_window_state.mouse_state.middle_down { 0x04 } else { 0x00 };
+        let button_state = if self.current_window_state.mouse_state.left_down {
+            0x01
+        } else {
+            0x00
+        } | if self.current_window_state.mouse_state.right_down {
+            0x02
+        } else {
+            0x00
+        } | if self.current_window_state.mouse_state.middle_down {
+            0x04
+        } else {
+            0x00
+        };
         self.record_input_sample(position, button_state, false, false);
 
         // Update hit test
@@ -304,7 +314,11 @@ impl MacOSWindow {
             CursorPosition::OutOfWindow(position);
 
         // Clear last hit test since mouse is out
-        self.current_window_state.last_hit_test = FullHitTest::empty(None);
+        if let Some(ref mut layout_window) = self.layout_window {
+            layout_window
+                .hover_manager
+                .push_hit_test(FullHitTest::empty(None));
+        }
 
         // V2 system will detect MouseLeave events from state diff
         let result = self.process_window_events_recursive_v2(0);
@@ -589,9 +603,13 @@ impl MacOSWindow {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
-        // Update state with dropped file
+        // Update cursor manager with dropped file
         if let Some(first_path) = paths.first() {
-            self.current_window_state.dropped_file = Some(first_path.clone().into());
+            if let Some(layout_window) = self.layout_window.as_mut() {
+                layout_window
+                    .file_drop_manager
+                    .set_dropped_file(Some(first_path.clone().into()));
+            }
         }
 
         // Update hit test at current cursor position
@@ -603,8 +621,10 @@ impl MacOSWindow {
         // V2 system will detect FileDrop event from state diff
         let result = self.process_window_events_recursive_v2(0);
 
-        // Clear dropped file after processing
-        self.current_window_state.dropped_file = None;
+        // Clear dropped file after processing (one-shot event)
+        if let Some(layout_window) = self.layout_window.as_mut() {
+            layout_window.file_drop_manager.set_dropped_file(None);
+        }
 
         match result {
             azul_core::events::ProcessEventResult::DoNothing => EventProcessResult::DoNothing,
@@ -639,11 +659,14 @@ impl MacOSWindow {
 
         let cursor_position = CursorPosition::InWindow(position);
 
+        // Get focused node from FocusManager
+        let focused_node = layout_window.focus_manager.get_focused_node().copied();
+
         // Use layout_results directly (BTreeMap)
         let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
             &*self.hit_tester.resolve(),
             self.document_id,
-            self.current_window_state.focused_node,
+            focused_node,
             &layout_window.layout_results,
             &cursor_position,
             self.current_window_state.size.get_hidpi_factor(),
@@ -901,8 +924,8 @@ impl MacOSWindow {
         position: LogicalPosition,
         event: &NSEvent,
     ) {
-        use objc2_app_kit::NSMenu;
-        use objc2_foundation::{MainThreadMarker, NSPoint};
+        use objc2_app_kit::{NSMenu, NSMenuItem};
+        use objc2_foundation::{MainThreadMarker, NSPoint, NSString};
 
         let mtm = match MainThreadMarker::new() {
             Some(m) => m,
@@ -914,22 +937,10 @@ impl MacOSWindow {
 
         let ns_menu = NSMenu::new(mtm);
 
-        for item in menu.items.as_slice() {
-            match item {
-                azul_core::menu::MenuItem::String(string_item) => {
-                    let menu_item = objc2_app_kit::NSMenuItem::new(mtm);
-                    let title = objc2_foundation::NSString::from_str(&string_item.label);
-                    menu_item.setTitle(&title);
-                    ns_menu.addItem(&menu_item);
-                }
-                azul_core::menu::MenuItem::Separator => {
-                    let separator = unsafe { objc2_app_kit::NSMenuItem::separatorItem(mtm) };
-                    ns_menu.addItem(&separator);
-                }
-                _ => {}
-            }
-        }
+        // Build menu items recursively from Azul menu structure
+        Self::recursive_build_nsmenu(&ns_menu, menu.items.as_slice(), &mtm);
 
+        // Show the menu at the specified position
         let view_point = NSPoint {
             x: position.x as f64,
             y: position.y as f64,
@@ -945,7 +956,7 @@ impl MacOSWindow {
 
         if let Some(view) = view {
             eprintln!(
-                "[Context Menu] Showing menu at position ({}, {}) with {} items",
+                "[Context Menu] Showing native menu at position ({}, {}) with {} items",
                 position.x,
                 position.y,
                 menu.items.as_slice().len()
@@ -968,7 +979,7 @@ impl MacOSWindow {
     ///
     /// This uses the same unified menu system as regular menus (crate::desktop::menu::show_menu)
     /// but spawns at cursor position instead of below a trigger rect.
-    /// 
+    ///
     /// The menu window creation is queued and will be processed in Phase 3 of the event loop.
     fn show_window_based_context_menu(
         &mut self,
@@ -1001,8 +1012,93 @@ impl MacOSWindow {
              event loop Phase 3",
             position.x, position.y
         );
-        
+
         self.pending_window_creates.push(menu_options);
+    }
+
+    /// Recursively builds an NSMenu from Azul MenuItem array
+    ///
+    /// This mirrors the Win32 recursive_construct_menu() logic:
+    /// - Leaf items (no children) -> addItem with callback
+    /// - Items with children -> create submenu and recurse
+    /// - Separators -> add separator item
+    fn recursive_build_nsmenu(
+        menu: &objc2_app_kit::NSMenu,
+        items: &[azul_core::menu::MenuItem],
+        mtm: &objc2::MainThreadMarker,
+    ) {
+        use objc2_app_kit::{NSMenu, NSMenuItem};
+        use objc2_foundation::NSString;
+
+        for item in items {
+            match item {
+                azul_core::menu::MenuItem::String(string_item) => {
+                    let menu_item = NSMenuItem::new(*mtm);
+                    let title = NSString::from_str(&string_item.label);
+                    menu_item.setTitle(&title);
+
+                    // Set enabled/disabled state based on MenuItemState
+                    let enabled = match string_item.state {
+                        azul_core::menu::MenuItemState::Normal => true,
+                        azul_core::menu::MenuItemState::Disabled => false,
+                        azul_core::menu::MenuItemState::Greyed => false,
+                    };
+                    menu_item.setEnabled(enabled);
+
+                    // Check if this item has children (submenu)
+                    if !string_item.children.as_ref().is_empty() {
+                        // Create submenu and recurse
+                        let submenu = NSMenu::new(*mtm);
+                        let submenu_title = NSString::from_str(&string_item.label);
+                        submenu.setTitle(&submenu_title);
+
+                        // Recursively build submenu items
+                        Self::recursive_build_nsmenu(&submenu, string_item.children.as_ref(), mtm);
+
+                        // Attach submenu to menu item
+                        menu_item.setSubmenu(Some(&submenu));
+
+                        eprintln!(
+                            "[Context Menu] Created submenu '{}' with {} items",
+                            string_item.label,
+                            string_item.children.as_ref().len()
+                        );
+                    } else {
+                        // Leaf item - set up keyboard shortcut if present
+                        if let Some(ref _shortcut) = string_item.accelerator.into_option() {
+                            // TODO: Parse accelerator combo and set key equivalent
+                            // let key = NSString::from_str(&shortcut);
+                            // menu_item.setKeyEquivalent(&key);
+                        }
+
+                        // TODO: Set up callback mechanism for leaf items
+                        // Native NSMenuItem callbacks require setting a target and action selector
+                        // This needs a delegate object that can bridge to Azul's callback system
+                        //
+                        // Implementation plan:
+                        // 1. Create an NSObject-based delegate class
+                        // 2. Store callback info (callback_ptr, data_ptr) in the delegate
+                        // 3. Set menu_item.setTarget(&delegate)
+                        // 4. Set menu_item.setAction(sel!(menuItemClicked:))
+                        // 5. In menuItemClicked:, extract callback and invoke it
+                    }
+
+                    menu.addItem(&menu_item);
+                }
+
+                azul_core::menu::MenuItem::Separator => {
+                    let separator = unsafe { NSMenuItem::separatorItem(*mtm) };
+                    menu.addItem(&separator);
+                }
+
+                azul_core::menu::MenuItem::BreakLine => {
+                    // BreakLine is for horizontal menu layouts, not supported in NSMenu
+                    // Just add a separator as a visual indication
+                    let separator = unsafe { NSMenuItem::separatorItem(*mtm) };
+                    menu.addItem(&separator);
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -1011,24 +1107,28 @@ impl MacOSWindow {
 
     /// Update hit test at given position and store in current_window_state.
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.layout_window.as_mut() {
             let cursor_position = CursorPosition::InWindow(position);
+            // Get focused node from FocusManager
+            let focused_node = layout_window.focus_manager.get_focused_node().copied();
             let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
                 &*self.hit_tester.resolve(),
                 self.document_id,
-                self.current_window_state.focused_node,
+                focused_node,
                 &layout_window.layout_results,
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
-            self.current_window_state.last_hit_test = hit_test;
+            layout_window.hover_manager.push_hit_test(hit_test);
         }
     }
 
     /// Get the first hovered node from current hit test.
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.current_window_state
-            .last_hit_test
+        self.layout_window
+            .as_ref()?
+            .hover_manager
+            .get_current()?
             .hovered_nodes
             .iter()
             .flat_map(|(dom_id, ht)| {

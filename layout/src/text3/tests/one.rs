@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use azul_css::props::basic::{ColorU, FontRef};
+use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
 use rust_fontconfig::{FcWeight, FontId};
 
@@ -22,6 +22,12 @@ struct MockFont {
     metrics: LayoutFontMetrics,
     glyphs: HashMap<char, (u16, f32)>, // char -> (glyph_id, advance)
     ligatures: HashMap<String, (u16, f32)>, // ligature string -> (glyph_id, advance)
+}
+
+impl crate::text3::cache::ShallowClone for MockFont {
+    fn shallow_clone(&self) -> Self {
+        self.clone()
+    }
 }
 
 impl ParsedFontTrait for MockFont {
@@ -46,7 +52,7 @@ impl ParsedFontTrait for MockFont {
                     result_glyphs.push(Glyph {
                         glyph_id: *glyph_id,
                         codepoint: lig_str.chars().next().unwrap(),
-                        font: Arc::new(self.clone()),
+                        font: self.clone(),
                         style: Arc::new(style.clone()),
                         source: GlyphSource::Char,
                         logical_byte_index: byte_index,
@@ -82,7 +88,7 @@ impl ParsedFontTrait for MockFont {
             result_glyphs.push(Glyph {
                 glyph_id,
                 codepoint: char,
-                font: Arc::new(self.clone()),
+                font: self.clone(),
                 style: Arc::new(style.clone()),
                 source: GlyphSource::Char,
                 logical_byte_index: byte_index,
@@ -157,21 +163,17 @@ struct MockFontLoader {
 }
 
 impl FontLoaderTrait<MockFont> for MockFontLoader {
-    fn load_font(
-        &self,
-        _font_bytes: &[u8],
-        _font_index: usize,
-    ) -> Result<Arc<MockFont>, LayoutError> {
+    fn load_font(&self, _font_bytes: &[u8], _font_index: usize) -> Result<MockFont, LayoutError> {
         // In a real mock, you'd probably identify the font by bytes,
         // but for tests we can just return a default font.
-        Ok(self.fonts.get("mock").unwrap().clone())
+        Ok((**self.fonts.get("mock").unwrap()).clone())
     }
 }
 
 // A mock FontManager that doesn't use fontconfig
 struct MockFontManager {
     loader: Arc<MockFontLoader>,
-    cache: Mutex<HashMap<FontRef, Arc<MockFont>>>,
+    cache: Mutex<HashMap<FontSelector, Arc<MockFont>>>,
 }
 
 impl MockFontManager {
@@ -184,10 +186,10 @@ impl MockFontManager {
 }
 
 impl FontProviderTrait<MockFont> for MockFontManager {
-    fn load_font(&self, font_ref: &FontRef) -> Result<Arc<MockFont>, LayoutError> {
+    fn load_font(&self, font_ref: &FontSelector) -> Result<MockFont, LayoutError> {
         let mut cache = self.cache.lock().unwrap();
         if let Some(font) = cache.get(font_ref) {
-            return Ok(font.clone());
+            return Ok((**font).clone());
         }
         let font = self
             .loader
@@ -195,7 +197,7 @@ impl FontProviderTrait<MockFont> for MockFontManager {
             .get(&font_ref.family)
             .ok_or_else(|| LayoutError::FontNotFound(font_ref.clone()))?;
         cache.insert(font_ref.clone(), font.clone());
-        Ok(font.clone())
+        Ok((**font).clone())
     }
 }
 
@@ -256,9 +258,9 @@ fn create_mock_font_manager() -> MockFontManager {
 
 fn default_style() -> Arc<StyleProperties> {
     Arc::new(StyleProperties {
-        font_ref: FontRef {
+        font_selector: FontSelector {
             family: "mock".into(),
-            ..FontRef::invalid()
+            ..FontSelector::default()
         },
         font_size_px: 10.0,
         color: ColorU {

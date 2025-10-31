@@ -30,7 +30,7 @@ use azul_core::{
     refany::RefAny,
     resources::{AppConfig, Au, DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
     window::{
-        CursorPosition, HwAcceleration, KeyboardState, MouseCursorType, MouseState,
+        CursorPosition, HwAcceleration, KeyboardState, Monitor, MouseCursorType, MouseState,
         RawWindowHandle, RendererType, WaylandHandle, WindowDecorations,
     },
 };
@@ -91,7 +91,7 @@ impl MonitorState {
     /// Generate a stable MonitorId from this monitor's properties
     pub fn get_monitor_id(&self, index: usize) -> azul_core::window::MonitorId {
         use azul_css::props::basic::{LayoutPoint, LayoutSize};
-        
+
         // Use make + model + name for more stable hash
         // This handles cases where position changes but physical monitor doesn't
         let stable_name = if !self.make.is_empty() && !self.model.is_empty() {
@@ -99,7 +99,7 @@ impl MonitorState {
         } else {
             self.name.clone()
         };
-        
+
         azul_core::window::MonitorId::from_properties(
             index,
             &stable_name,
@@ -469,7 +469,8 @@ impl PlatformWindow for WaylandWindow {
             background_color: self.current_window_state.background_color,
             layout_callback: self.current_window_state.layout_callback.clone(),
             close_callback: self.current_window_state.close_callback.clone(),
-            monitor: self.current_window_state.monitor.clone(),
+            monitor: Monitor::default(), /* Monitor info needs to be looked up from platform via
+                                          * monitor_id */
         }
     }
 
@@ -485,7 +486,7 @@ impl PlatformWindow for WaylandWindow {
     fn poll_event(&mut self) -> Option<Self::EventType> {
         // Check timers and threads before processing Wayland events
         self.check_timers_and_threads();
-        
+
         if unsafe {
             (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue)
         } > 0
@@ -708,12 +709,11 @@ impl PlatformWindowV2 for WaylandWindow {
         // Wayland has no native timer API, so we just store timers in layout_window
         // They will be ticked manually in the event loop (similar to X11)
         if let Some(layout_window) = self.layout_window.as_mut() {
-            layout_window.timers.insert(
-                azul_core::task::TimerId { id: timer_id },
-                timer,
-            );
+            layout_window
+                .timers
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
-        
+
         // Mark for regeneration so the event loop checks timers
         self.frame_needs_regeneration = true;
     }
@@ -751,7 +751,7 @@ impl PlatformWindowV2 for WaylandWindow {
                 layout_window.threads.insert(thread_id, thread);
             }
         }
-        
+
         // Mark for regeneration to start thread polling
         self.frame_needs_regeneration = true;
     }
@@ -827,12 +827,7 @@ impl WaylandWindow {
                 background_color: options.state.background_color,
                 layout_callback: options.state.layout_callback.clone(),
                 close_callback: options.state.close_callback.clone(),
-                monitor: options.state.monitor.clone(),
-                last_hit_test: FullHitTest::empty(None),
-                focused_node: None,
-                hovered_file: None,
-                dropped_file: None,
-                selections: Default::default(),
+                monitor_id: None, // Monitor ID will be detected from platform
                 window_focused: false,
             },
             previous_window_state: None,
@@ -877,7 +872,7 @@ impl WaylandWindow {
 
         window.surface =
             unsafe { (window.wayland.wl_compositor_create_surface)(window.compositor) };
-        
+
         // Add wl_surface listener to track which monitors the window is on
         let surface_listener = defines::wl_surface_listener {
             enter: events::wl_surface_enter_handler,
@@ -890,7 +885,7 @@ impl WaylandWindow {
                 &mut window as *mut _ as *mut _,
             )
         };
-        
+
         window.xdg_surface = unsafe {
             (window.wayland.xdg_wm_base_get_xdg_surface)(window.xdg_wm_base, window.surface)
         };
@@ -946,9 +941,9 @@ impl WaylandWindow {
 
         // TODO: Window positioning on Wayland
         // Wayland does not support programmatic window positioning - the compositor
-        // decides where windows are placed. The options.state.position and 
+        // decides where windows are placed. The options.state.position and
         // options.state.monitor fields are hints that may be ignored.
-        // 
+        //
         // For feature parity with X11/Windows/macOS, we would position the window here,
         // but Wayland protocol intentionally does not provide this capability.
         // Applications should handle windows opening on unexpected monitors gracefully
@@ -965,13 +960,13 @@ impl WaylandWindow {
         // TODO: Wayland limitation
         // Unlike X11/Windows/macOS, Wayland does not allow applications to position
         // windows programmatically. The compositor controls all window placement.
-        // 
+        //
         // This function exists for API consistency across platforms, but is a no-op
         // on Wayland. Applications should:
         // 1. Use options.state.monitor as a hint (may be ignored by compositor)
         // 2. Track actual monitor via get_current_monitor_id() after mapping
         // 3. Handle windows opening on unexpected monitors gracefully
-        // 
+        //
         // Possible future improvements:
         // - Use xdg_toplevel_set_fullscreen(output) for fullscreen windows
         // - Use layer-shell protocol for positioned overlays (requires compositor support)
@@ -1144,10 +1139,10 @@ impl WaylandWindow {
     /// Handle pointer motion event
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
-        
+
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
-        
+
         self.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
 
@@ -1162,10 +1157,19 @@ impl WaylandWindow {
         }
 
         // Record input sample for gesture detection (movement during button press)
-        let button_state = 
-            if self.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 } |
-            if self.current_window_state.mouse_state.right_down { 0x02 } else { 0x00 } |
-            if self.current_window_state.mouse_state.middle_down { 0x04 } else { 0x00 };
+        let button_state = if self.current_window_state.mouse_state.left_down {
+            0x01
+        } else {
+            0x00
+        } | if self.current_window_state.mouse_state.right_down {
+            0x02
+        } else {
+            0x00
+        } | if self.current_window_state.mouse_state.middle_down {
+            0x04
+        } else {
+            0x00
+        };
         self.record_input_sample(logical_pos, button_state, false, false);
 
         // Update hit test for hover effects
@@ -1213,8 +1217,11 @@ impl WaylandWindow {
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position) {
-                let result = PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            if let Some(scrollbar_hit_id) =
+                PlatformWindowV2::perform_scrollbar_hit_test(self, position)
+            {
+                let result =
+                    PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
                 if !matches!(result, ProcessEventResult::DoNothing) {
                     self.frame_needs_regeneration = true;
                 }
@@ -1253,7 +1260,7 @@ impl WaylandWindow {
             self.current_window_state.mouse_state.middle_down = false;
             self.pointer_state.button_down = None;
         }
-        
+
         // Record input sample for gesture detection
         let button_state = match mouse_button {
             MouseButton::Left => 0x01,
@@ -1350,7 +1357,11 @@ impl WaylandWindow {
         };
         self.current_window_state.mouse_state.cursor_position =
             CursorPosition::OutOfWindow(last_pos);
-        self.current_window_state.last_hit_test = FullHitTest::empty(None);
+        if let Some(ref mut layout_window) = self.layout_window {
+            layout_window
+                .hover_manager
+                .push_hit_test(FullHitTest::empty(None));
+        }
         self.frame_needs_regeneration = true;
     }
 
@@ -1371,16 +1382,26 @@ impl WaylandWindow {
 
             let hit_test_result =
                 hit_tester.hit_test(wr_translate2::translate_world_point(physical_pos));
-            self.current_window_state.last_hit_test =
-                wr_translate2::translate_hit_test_result(hit_test_result);
+            // Get focused node from FocusManager
+            let focused_node = self
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+            let hit_test = wr_translate2::translate_hit_test_result(hit_test_result, focused_node);
+            if let Some(ref mut layout_window) = self.layout_window {
+                layout_window.hover_manager.push_hit_test(hit_test);
+            }
         }
     }
 
     /// Try to show context menu for a node at the given position
     /// Returns true if a context menu was shown
-    fn try_show_context_menu(&mut self, node: event_v2::HitTestNode, position: LogicalPosition) -> bool {
-        use azul_core::dom::DomId;
-        use azul_core::id::NodeId;
+    fn try_show_context_menu(
+        &mut self,
+        node: event_v2::HitTestNode,
+        position: LogicalPosition,
+    ) -> bool {
+        use azul_core::{dom::DomId, id::NodeId};
 
         let layout_window = match self.layout_window.as_ref() {
             Some(lw) => lw,
@@ -1802,13 +1823,13 @@ impl WaylandWindow {
         if let Some(layout_window) = self.layout_window.as_mut() {
             let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
             let current_time = (system_callbacks.get_system_time_fn.cb)();
-            
+
             // Check if any timers expired
             let expired_timers = layout_window.tick_timers(current_time);
             if !expired_timers.is_empty() {
                 self.frame_needs_regeneration = true;
             }
-            
+
             // Check if we have active threads (they need periodic checking)
             if !layout_window.threads.is_empty() {
                 self.frame_needs_regeneration = true;
@@ -1846,7 +1867,8 @@ impl WaylandWindow {
 
         let mut max_scale = 1.0f32;
         for output_ptr in &self.current_outputs {
-            if let Some(monitor_state) = self.known_outputs.iter().find(|m| m.proxy == *output_ptr) {
+            if let Some(monitor_state) = self.known_outputs.iter().find(|m| m.proxy == *output_ptr)
+            {
                 max_scale = max_scale.max(monitor_state.scale as f32);
             }
         }
@@ -1958,9 +1980,14 @@ impl WaylandWindow {
 
         // Find the MonitorState for the first current output
         let current_output_ptr = self.current_outputs.first().copied();
-        
+
         if let Some(ptr) = current_output_ptr {
-            if let Some((index, monitor_state)) = self.known_outputs.iter().enumerate().find(|(_, m)| m.proxy == ptr) {
+            if let Some((index, monitor_state)) = self
+                .known_outputs
+                .iter()
+                .enumerate()
+                .find(|(_, m)| m.proxy == ptr)
+            {
                 return monitor_state.get_monitor_id(index);
             }
         }
@@ -2133,12 +2160,7 @@ impl WaylandPopup {
             background_color: parent.current_window_state.background_color,
             layout_callback: options.state.layout_callback.clone(),
             close_callback: options.state.close_callback.clone(),
-            monitor: parent.current_window_state.monitor.clone(),
-            last_hit_test: FullHitTest::empty(None),
-            focused_node: None,
-            hovered_file: None,
-            dropped_file: None,
-            selections: Default::default(),
+            monitor_id: parent.current_window_state.monitor_id,
             window_focused: false,
         };
 

@@ -7,9 +7,9 @@ pub mod error;
 pub mod window;
 
 // V2 unified cross-platform modules
+pub mod callback_processing;
 pub mod event_v2;
 pub mod layout_v2;
-pub mod callback_processing;
 
 // TODO: This module needs refactoring to avoid borrow checker issues
 // It requires direct field access instead of trait methods (same issue we solved in

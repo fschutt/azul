@@ -58,7 +58,7 @@ fn create_test_fc_cache() -> FcFontCache {
 
 /// Helper function to create a minimal test font manager with in-memory fonts
 fn create_test_font_manager() -> Result<
-    FontManager<crate::font::parsed::ParsedFont, crate::text3::default::PathLoader>,
+    FontManager<azul_css::props::basic::FontRef, crate::text3::default::PathLoader>,
     LayoutError,
 > {
     FontManager::new(create_test_fc_cache()).map_err(|e| LayoutError::Text(e))
@@ -540,7 +540,7 @@ extern "C" fn test_iframe_callback(
 fn test_iframe_manager_initial_dom_id_creation() {
     use azul_core::dom::{DomId, NodeId};
 
-    use crate::iframe::IFrameManager;
+    use crate::managers::iframe::IFrameManager;
 
     let mut iframe_manager = IFrameManager::new();
     let parent_dom = DomId::ROOT_ID;
@@ -563,7 +563,7 @@ fn test_iframe_manager_initial_dom_id_creation() {
 fn test_iframe_manager_multiple_iframes() {
     use azul_core::dom::{DomId, NodeId};
 
-    use crate::iframe::IFrameManager;
+    use crate::managers::iframe::IFrameManager;
 
     let mut iframe_manager = IFrameManager::new();
     let parent_dom = DomId::ROOT_ID;
@@ -587,7 +587,7 @@ fn test_iframe_manager_check_reinvoke_initial_render() {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
     };
 
-    use crate::{iframe::IFrameManager, scroll::ScrollManager};
+    use crate::managers::{iframe::IFrameManager, scroll_state::ScrollManager};
 
     let mut iframe_manager = IFrameManager::new();
     let scroll_manager = ScrollManager::new();
@@ -614,7 +614,7 @@ fn test_iframe_manager_no_reinvoke_same_bounds() {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
     };
 
-    use crate::{iframe::IFrameManager, scroll::ScrollManager};
+    use crate::managers::{iframe::IFrameManager, scroll_state::ScrollManager};
 
     let mut iframe_manager = IFrameManager::new();
     let scroll_manager = ScrollManager::new();
@@ -644,7 +644,7 @@ fn test_iframe_manager_reinvoke_on_bounds_expansion() {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
     };
 
-    use crate::{iframe::IFrameManager, scroll::ScrollManager};
+    use crate::managers::{iframe::IFrameManager, scroll_state::ScrollManager};
 
     let mut iframe_manager = IFrameManager::new();
     let scroll_manager = ScrollManager::new();
@@ -685,7 +685,7 @@ fn test_iframe_manager_no_reinvoke_on_bounds_shrink() {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
     };
 
-    use crate::{iframe::IFrameManager, scroll::ScrollManager};
+    use crate::managers::{iframe::IFrameManager, scroll_state::ScrollManager};
 
     let mut iframe_manager = IFrameManager::new();
     let scroll_manager = ScrollManager::new();
@@ -716,7 +716,7 @@ fn test_iframe_manager_update_scroll_info() {
         geom::LogicalSize,
     };
 
-    use crate::iframe::IFrameManager;
+    use crate::managers::iframe::IFrameManager;
 
     let mut iframe_manager = IFrameManager::new();
     let parent_dom = DomId::ROOT_ID;
@@ -738,7 +738,7 @@ fn test_iframe_manager_update_scroll_info() {
 fn test_iframe_manager_nested_iframes() {
     use azul_core::dom::{DomId, NodeId};
 
-    use crate::iframe::IFrameManager;
+    use crate::managers::iframe::IFrameManager;
 
     let mut iframe_manager = IFrameManager::new();
 

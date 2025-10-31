@@ -66,18 +66,18 @@ extern "C" fn wl_output_geometry_handler(
     _transform: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    
+
     // Find the MonitorState for this output
     if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
         monitor.x = x;
         monitor.y = y;
-        
+
         if !make.is_null() {
             if let Ok(make_str) = unsafe { CStr::from_ptr(make).to_str() } {
                 monitor.make = make_str.to_string();
             }
         }
-        
+
         if !model.is_null() {
             if let Ok(model_str) = unsafe { CStr::from_ptr(model).to_str() } {
                 monitor.model = model_str.to_string();
@@ -95,7 +95,7 @@ extern "C" fn wl_output_mode_handler(
     _refresh: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    
+
     // Find the MonitorState for this output and update dimensions
     if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
         monitor.width = width;
@@ -110,7 +110,7 @@ extern "C" fn wl_output_done_handler(_data: *mut c_void, _output: *mut wl_output
 
 extern "C" fn wl_output_scale_handler(data: *mut c_void, output: *mut wl_output, factor: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    
+
     // Find the MonitorState for this output and update scale
     if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
         monitor.scale = factor;
@@ -124,20 +124,23 @@ pub(super) extern "C" fn wl_surface_enter_handler(
     output: *mut wl_output,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    
+
     // Add this output to current_outputs if not already present
     if !window.current_outputs.contains(&output) {
         window.current_outputs.push(output);
     }
-    
+
     // Check if scale factor changed (entered monitor with different DPI)
     let new_scale = window.calculate_current_scale_factor();
     let old_dpi = window.current_window_state.size.dpi;
     let new_dpi = (new_scale * 96.0) as u32;
-    
+
     // Only regenerate if DPI changed significantly
     if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-        eprintln!("[Wayland DPI Change] {} -> {} (entered new monitor)", old_dpi, new_dpi);
+        eprintln!(
+            "[Wayland DPI Change] {} -> {} (entered new monitor)",
+            old_dpi, new_dpi
+        );
         window.current_window_state.size.dpi = new_dpi;
         window.frame_needs_regeneration = true;
     }
@@ -149,18 +152,21 @@ pub(super) extern "C" fn wl_surface_leave_handler(
     output: *mut wl_output,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    
+
     // Remove this output from current_outputs
     window.current_outputs.retain(|&o| o != output);
-    
+
     // Check if scale factor changed (left monitor, now on different monitor)
     let new_scale = window.calculate_current_scale_factor();
     let old_dpi = window.current_window_state.size.dpi;
     let new_dpi = (new_scale * 96.0) as u32;
-    
+
     // Only regenerate if DPI changed significantly
     if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-        eprintln!("[Wayland DPI Change] {} -> {} (left monitor)", old_dpi, new_dpi);
+        eprintln!(
+            "[Wayland DPI Change] {} -> {} (left monitor)",
+            old_dpi, new_dpi
+        );
         window.current_window_state.size.dpi = new_dpi;
         window.frame_needs_regeneration = true;
     }
@@ -244,7 +250,7 @@ pub(super) extern "C" fn registry_global_handler(
                     version.min(3),
                 ) as *mut wl_output
             };
-            
+
             // Add a new MonitorState entry
             use super::MonitorState;
             window.known_outputs.push(MonitorState {
@@ -258,7 +264,7 @@ pub(super) extern "C" fn registry_global_handler(
                 make: String::new(),
                 model: String::new(),
             });
-            
+
             let listener = wl_output_listener {
                 geometry: wl_output_geometry_handler,
                 mode: wl_output_mode_handler,

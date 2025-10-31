@@ -165,15 +165,16 @@ pub fn run(
                         for wptr in window_ptrs {
                             unsafe {
                                 let window = &mut *wptr;
-                                
+
                                 // Process pending window creates (for popup menus, dialogs, etc.)
-                                while let Some(pending_create) = window.pending_window_creates.pop() {
+                                while let Some(pending_create) = window.pending_window_creates.pop()
+                                {
                                     eprintln!(
                                         "[macOS Event Loop] Creating new window from queue (type: \
                                          {:?})",
                                         pending_create.state.flags.window_type
                                     );
-                                    
+
                                     match MacOSWindow::new_with_fc_cache(
                                         pending_create,
                                         fc_cache.clone(),
@@ -181,22 +182,24 @@ pub fn run(
                                     ) {
                                         Ok(new_window) => {
                                             // Box and leak for stable pointer
-                                            let new_window_ptr = Box::into_raw(Box::new(new_window));
-                                            let new_ns_window = (*new_window_ptr).get_ns_window_ptr();
-                                            
+                                            let new_window_ptr =
+                                                Box::into_raw(Box::new(new_window));
+                                            let new_ns_window =
+                                                (*new_window_ptr).get_ns_window_ptr();
+
                                             // Setup back-pointers for new window
                                             (*new_window_ptr).setup_gl_view_back_pointer();
                                             (*new_window_ptr).finalize_delegate_pointer();
-                                            
+
                                             // Register in global registry
                                             super::macos::registry::register_window(
                                                 new_ns_window,
                                                 new_window_ptr,
                                             );
-                                            
+
                                             // Request initial redraw
                                             (*new_window_ptr).request_redraw();
-                                            
+
                                             eprintln!(
                                                 "[macOS Event Loop] Successfully created and \
                                                  registered new window"
@@ -204,8 +207,8 @@ pub fn run(
                                         }
                                         Err(e) => {
                                             eprintln!(
-                                                "[macOS Event Loop] ERROR: Failed to create window: \
-                                                 {:?}",
+                                                "[macOS Event Loop] ERROR: Failed to create \
+                                                 window: {:?}",
                                                 e
                                             );
                                         }
@@ -314,7 +317,7 @@ pub fn run(
         // PHASE 1: Process all pending native events (non-blocking)
         // This updates current_window_state for each window
         let mut had_messages = false;
-        
+
         for hwnd in &window_handles {
             if let Some(wptr) = registry::get_window(*hwnd) {
                 unsafe {
@@ -327,13 +330,13 @@ pub fn run(
                     ) > 0
                     {
                         had_messages = true;
-                        
+
                         // Check for WM_QUIT
                         if msg.message == 0x0012 {
                             // WM_QUIT - exit event loop
                             return Ok(());
                         }
-                        
+
                         (window.win32.user32.TranslateMessage)(&msg);
                         (window.win32.user32.DispatchMessageW)(&msg);
                     }
@@ -344,24 +347,25 @@ pub fn run(
         // PHASE 2: V2 state diffing and callback dispatch
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
         // NOTE: window_proc already calls process_window_events_recursive_v2() for mouse/keyboard
-        // events, but this catches any additional state changes and processes pending window creates
+        // events, but this catches any additional state changes and processes pending window
+        // creates
         for hwnd in &window_handles {
             if let Some(window_ptr_from_registry) = registry::get_window(*hwnd) {
                 unsafe {
                     let window = &mut *window_ptr_from_registry;
-                    
+
                     // Save previous state if not already done
                     if window.previous_window_state.is_none() {
                         window.previous_window_state = Some(window.current_window_state.clone());
                     }
-                    
+
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
                         eprintln!(
                             "[Windows Event Loop] Creating new window from queue (type: {:?})",
                             pending_create.state.flags.window_type
                         );
-                        
+
                         match Win32Window::new(
                             pending_create,
                             window.fc_cache.clone(),
@@ -371,7 +375,7 @@ pub fn run(
                                 // Box and leak for stable pointer
                                 let new_window_ptr = Box::into_raw(Box::new(new_window));
                                 let new_hwnd = unsafe { (*new_window_ptr).hwnd };
-                                
+
                                 // Set window user data for window_proc
                                 use super::windows::dlopen::constants::GWLP_USERDATA;
                                 ((*new_window_ptr).win32.user32.SetWindowLongPtrW)(
@@ -379,10 +383,10 @@ pub fn run(
                                     GWLP_USERDATA,
                                     new_window_ptr as isize,
                                 );
-                                
+
                                 // Register in global registry
                                 registry::register_window(new_hwnd, new_window_ptr);
-                                
+
                                 eprintln!(
                                     "[Windows Event Loop] Successfully created and registered new \
                                      window"
@@ -405,13 +409,13 @@ pub fn run(
             if let Some(window_ptr_from_registry) = registry::get_window(*hwnd) {
                 unsafe {
                     let window = &mut *window_ptr_from_registry;
-                    
+
                     if window.frame_needs_regeneration {
                         if let Err(e) = window.regenerate_layout() {
                             eprintln!("[Windows Event Loop] Layout regeneration error: {}", e);
                         }
                         window.frame_needs_regeneration = false;
-                        
+
                         // Request WM_PAINT
                         use std::ptr;
                         (window.win32.user32.InvalidateRect)(*hwnd, ptr::null(), 0);
@@ -422,15 +426,17 @@ pub fn run(
 
         // PHASE 4: Wait for next event (blocks until event available - zero CPU when idle)
         // This replaces the old sleep(1ms) with proper blocking
-        // WaitMessage() waits for ANY message in the thread's queue (all windows share the same thread)
+        // WaitMessage() waits for ANY message in the thread's queue (all windows share the same
+        // thread)
         if !had_messages {
             unsafe {
                 // Get any window to access Win32 libraries
                 if let Some(first_hwnd) = window_handles.first() {
                     if let Some(wptr) = registry::get_window(*first_hwnd) {
                         let window = &*wptr;
-                        // WaitMessage() blocks until ANY message is available in the thread's message queue
-                        // It doesn't matter which window we call it from - all windows share the same thread
+                        // WaitMessage() blocks until ANY message is available in the thread's
+                        // message queue It doesn't matter which window we
+                        // call it from - all windows share the same thread
                         (window.win32.user32.WaitMessage)();
                     }
                 }
@@ -547,7 +553,8 @@ pub fn run(
                     LinuxWindow::X11(x11_window) => {
                         while let Some(pending_create) = x11_window.pending_window_creates.pop() {
                             eprintln!(
-                                "[Linux Event Loop] Creating new X11 window from queue (type: {:?})",
+                                "[Linux Event Loop] Creating new X11 window from queue (type: \
+                                 {:?})",
                                 pending_create.state.flags.window_type
                             );
 
@@ -577,7 +584,8 @@ pub fn run(
                                     }
 
                                     eprintln!(
-                                        "[Linux Event Loop] Successfully created and registered new X11 window (ID: {})",
+                                        "[Linux Event Loop] Successfully created and registered \
+                                         new X11 window (ID: {})",
                                         new_window_id
                                     );
 
@@ -590,7 +598,8 @@ pub fn run(
                                 }
                                 Err(e) => {
                                     eprintln!(
-                                        "[Linux Event Loop] ERROR: Failed to create X11 window: {:?}",
+                                        "[Linux Event Loop] ERROR: Failed to create X11 window: \
+                                         {:?}",
                                         e
                                     );
                                 }
@@ -598,9 +607,11 @@ pub fn run(
                         }
                     }
                     LinuxWindow::Wayland(wayland_window) => {
-                        while let Some(pending_create) = wayland_window.pending_window_creates.pop() {
+                        while let Some(pending_create) = wayland_window.pending_window_creates.pop()
+                        {
                             eprintln!(
-                                "[Linux Event Loop] Creating new Wayland window from queue (type: {:?})",
+                                "[Linux Event Loop] Creating new Wayland window from queue (type: \
+                                 {:?})",
                                 pending_create.state.flags.window_type
                             );
 
@@ -610,7 +621,8 @@ pub fn run(
                             ) {
                                 Ok(new_window) => {
                                     let new_wayland_window = LinuxWindow::Wayland(new_window);
-                                    let new_window_ptr = Box::into_raw(Box::new(new_wayland_window));
+                                    let new_window_ptr =
+                                        Box::into_raw(Box::new(new_wayland_window));
 
                                     // Get the Wayland display pointer for registration
                                     let new_window_id = unsafe {
@@ -630,7 +642,8 @@ pub fn run(
                                     }
 
                                     eprintln!(
-                                        "[Linux Event Loop] Successfully created and registered new Wayland window (ID: {})",
+                                        "[Linux Event Loop] Successfully created and registered \
+                                         new Wayland window (ID: {})",
                                         new_window_id
                                     );
 
@@ -643,7 +656,8 @@ pub fn run(
                                 }
                                 Err(e) => {
                                     eprintln!(
-                                        "[Linux Event Loop] ERROR: Failed to create Wayland window: {:?}",
+                                        "[Linux Event Loop] ERROR: Failed to create Wayland \
+                                         window: {:?}",
                                         e
                                     );
                                 }

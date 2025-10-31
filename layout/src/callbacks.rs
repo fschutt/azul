@@ -10,7 +10,7 @@ use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use azul_core::impl_callback;
 use azul_core::{
     animation::UpdateImageType,
-    callbacks::{CoreCallback, FocusTarget, Update},
+    callbacks::{CoreCallback, FocusTarget, FocusTargetPath, Update},
     dom::{DomId, DomNodeId, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
@@ -193,9 +193,9 @@ pub struct CallbackInfo {
     nodes_scrolled_in_callback:
         *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
     /// Immutable reference to the scroll manager (for querying scroll state)
-    scroll_manager: *const crate::scroll::ScrollManager,
+    scroll_manager: *const crate::managers::scroll_state::ScrollManager,
     /// Immutable reference to the gesture/drag manager (for querying gesture state)
-    gesture_drag_manager: *const crate::gesture_drag_manager::GestureAndDragManager,
+    gesture_drag_manager: *const crate::managers::gesture::GestureAndDragManager,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
@@ -278,8 +278,10 @@ impl CallbackInfo {
                 as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback
                 as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-            scroll_manager: &layout_window.scroll_states as *const crate::scroll::ScrollManager,
-            gesture_drag_manager: &layout_window.gesture_drag_manager as *const crate::gesture_drag_manager::GestureAndDragManager,
+            scroll_manager: &layout_window.scroll_states
+                as *const crate::managers::scroll_state::ScrollManager,
+            gesture_drag_manager: &layout_window.gesture_drag_manager
+                as *const crate::managers::gesture::GestureAndDragManager,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -583,7 +585,7 @@ impl CallbackInfo {
     pub fn get_current_window_state(&self) -> WindowState {
         unsafe { (*self.current_window_state).clone().into() }
     }
-    
+
     /// Get the full (immutable) current window state
     /// This includes position, size, DPI, and other read-only state
     pub fn get_full_window_state(&self) -> &FullWindowState {
@@ -687,18 +689,18 @@ impl CallbackInfo {
     pub fn get_current_window_handle(&self) -> RawWindowHandle {
         unsafe { (*self.current_window_handle).clone() }
     }
-    
+
     /// Get the system style (for menu rendering, CSD, etc.)
     /// This is useful for creating custom menus or other system-styled UI.
     pub fn get_system_style(&self) -> alloc::sync::Arc<azul_css::system::SystemStyle> {
         self.system_style.clone()
     }
-    
+
     /// Get the current cursor position in logical coordinates relative to the window
     pub fn get_cursor_position(&self) -> Option<azul_core::geom::LogicalPosition> {
         self.cursor_in_viewport.into_option()
     }
-    
+
     /// Get the layout rectangle of the currently hit node (in logical coordinates)
     pub fn get_hit_node_layout_rect(&self) -> Option<azul_core::geom::LogicalRect> {
         // Get the layout rectangle for the hit node from the layout tree
@@ -731,17 +733,17 @@ impl CallbackInfo {
         let cb = self.get_system_time_fn();
         (cb.cb)()
     }
-    
+
     // ===== Manager Access (Read-Only) =====
-    
+
     /// Get immutable reference to the scroll manager
     ///
     /// Use this to query scroll state for nodes without modifying it.
     /// To request programmatic scrolling, use `nodes_scrolled_in_callback`.
-    pub fn get_scroll_manager(&self) -> &crate::scroll::ScrollManager {
+    pub fn get_scroll_manager(&self) -> &crate::managers::scroll_state::ScrollManager {
         unsafe { &*self.scroll_manager }
     }
-    
+
     /// Get immutable reference to the gesture and drag manager
     ///
     /// Use this to query current gesture/drag state (e.g., "is this node being dragged?",
@@ -749,8 +751,338 @@ impl CallbackInfo {
     ///
     /// The manager is updated by the event loop and provides read-only query access
     /// to callbacks for gesture-aware UI behavior.
-    pub fn get_gesture_drag_manager(&self) -> &crate::gesture_drag_manager::GestureAndDragManager {
+    pub fn get_gesture_drag_manager(&self) -> &crate::managers::gesture::GestureAndDragManager {
         unsafe { &*self.gesture_drag_manager }
+    }
+
+    // ===== Pen/Stylus Query Methods =====
+
+    /// Get current pen/stylus state if a pen is active
+    pub fn get_pen_state(&self) -> Option<&crate::managers::gesture::PenState> {
+        self.get_gesture_drag_manager().get_pen_state()
+    }
+
+    /// Get current pen pressure (0.0 to 1.0)
+    /// Returns None if no pen is active, Some(0.5) for mouse
+    pub fn get_pen_pressure(&self) -> Option<f32> {
+        self.get_pen_state().map(|pen| pen.pressure)
+    }
+
+    /// Get current pen tilt angles (x_tilt, y_tilt) in degrees
+    /// Returns None if no pen is active
+    pub fn get_pen_tilt(&self) -> Option<(f32, f32)> {
+        self.get_pen_state().map(|pen| pen.tilt)
+    }
+
+    /// Check if pen is currently in contact with surface
+    pub fn is_pen_in_contact(&self) -> bool {
+        self.get_pen_state()
+            .map(|pen| pen.in_contact)
+            .unwrap_or(false)
+    }
+
+    /// Check if pen is in eraser mode
+    pub fn is_pen_eraser(&self) -> bool {
+        self.get_pen_state()
+            .map(|pen| pen.is_eraser)
+            .unwrap_or(false)
+    }
+
+    /// Check if pen barrel button is pressed
+    pub fn is_pen_barrel_button_pressed(&self) -> bool {
+        self.get_pen_state()
+            .map(|pen| pen.barrel_button_pressed)
+            .unwrap_or(false)
+    }
+
+    /// Get the last recorded input sample (for event_id and detailed input data)
+    pub fn get_last_input_sample(&self) -> Option<&crate::managers::gesture::InputSample> {
+        let manager = self.get_gesture_drag_manager();
+        manager
+            .get_current_session()
+            .and_then(|session| session.last_sample())
+    }
+
+    /// Get the event ID of the current event
+    pub fn get_current_event_id(&self) -> Option<u64> {
+        self.get_last_input_sample().map(|sample| sample.event_id)
+    }
+
+    // ===== Focus Management Methods =====
+
+    /// Set focus to a specific DOM node by ID
+    pub fn set_focus_to_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::Id(DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            }));
+        }
+    }
+
+    /// Set focus to a node matching a CSS path
+    pub fn set_focus_to_path(&mut self, dom_id: DomId, css_path: azul_css::css::CssPath) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::Path(FocusTargetPath {
+                dom: dom_id,
+                css_path,
+            }));
+        }
+    }
+
+    /// Move focus to next focusable element in tab order
+    pub fn focus_next(&mut self) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::Next);
+        }
+    }
+
+    /// Move focus to previous focusable element in tab order
+    pub fn focus_previous(&mut self) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::Previous);
+        }
+    }
+
+    /// Move focus to first focusable element
+    pub fn focus_first(&mut self) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::First);
+        }
+    }
+
+    /// Move focus to last focusable element
+    pub fn focus_last(&mut self) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::Last);
+        }
+    }
+
+    /// Remove focus from all elements
+    pub fn clear_focus(&mut self) {
+        unsafe {
+            *self.focus_target = Some(FocusTarget::NoFocus);
+        }
+    }
+
+    /// Get the current focus target (if one was set in this callback)
+    pub fn get_focus_target(&self) -> Option<&FocusTarget> {
+        unsafe { (*self.focus_target).as_ref() }
+    }
+
+    // ===== Manager Access Methods =====
+
+    /// Check if a drag gesture is currently active
+    ///
+    /// Convenience method that queries the gesture manager.
+    pub fn is_dragging(&self) -> bool {
+        self.get_gesture_drag_manager().is_dragging()
+    }
+
+    /// Get the currently focused node (if any)
+    ///
+    /// Returns None if no node has focus.
+    pub fn get_focused_node(&self) -> Option<DomNodeId> {
+        self.internal_get_layout_window()
+            .focus_manager
+            .get_focused_node()
+            .copied()
+    }
+
+    /// Check if a specific node has focus
+    pub fn has_focus(&self, node_id: DomNodeId) -> bool {
+        self.internal_get_layout_window()
+            .focus_manager
+            .has_focus(&node_id)
+    }
+
+    /// Get the currently hovered file (if drag-drop is in progress)
+    ///
+    /// Returns None if no file is being hovered over the window.
+    pub fn get_hovered_file(&self) -> Option<&azul_css::AzString> {
+        self.internal_get_layout_window()
+            .file_drop_manager
+            .get_hovered_file()
+    }
+
+    /// Get the currently dropped file (if a file was just dropped)
+    ///
+    /// This is a one-shot value that is cleared after event processing.
+    /// Returns None if no file was dropped this frame.
+    pub fn get_dropped_file(&self) -> Option<&azul_css::AzString> {
+        self.internal_get_layout_window()
+            .file_drop_manager
+            .dropped_file
+            .as_ref()
+    }
+
+    /// Get the text selection for a specific DOM
+    ///
+    /// Returns None if no selection exists for this DOM.
+    pub fn get_selection(&self, dom_id: &DomId) -> Option<&azul_core::selection::SelectionState> {
+        self.internal_get_layout_window()
+            .selection_manager
+            .get_selection(dom_id)
+    }
+
+    /// Check if any text is currently selected in any DOM
+    pub fn has_any_selection(&self) -> bool {
+        self.internal_get_layout_window()
+            .selection_manager
+            .has_any_selection()
+    }
+
+    /// Clear text selection for a specific DOM
+    ///
+    /// This is a mutable operation that modifies the selection state.
+    pub fn clear_selection(&mut self, dom_id: &DomId) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .clear_selection(dom_id);
+    }
+
+    /// Clear all text selections in all DOMs
+    pub fn clear_all_selections(&mut self) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .clear_all();
+    }
+
+    /// Check if a node or file drag is currently active
+    ///
+    /// Returns true if either a node drag or file drag is in progress.
+    pub fn is_drag_active(&self) -> bool {
+        self.internal_get_layout_window()
+            .drag_drop_manager
+            .is_dragging()
+    }
+
+    /// Check if a node drag is specifically active
+    pub fn is_node_drag_active(&self) -> bool {
+        self.internal_get_layout_window()
+            .drag_drop_manager
+            .is_dragging_node()
+    }
+
+    /// Check if a file drag is specifically active
+    pub fn is_file_drag_active(&self) -> bool {
+        self.internal_get_layout_window()
+            .drag_drop_manager
+            .is_dragging_file()
+    }
+
+    /// Get the current drag/drop state (if any)
+    ///
+    /// Returns None if no drag is active, or Some with drag details.
+    pub fn get_drag_state(&self) -> Option<&crate::managers::drag_drop::DragState> {
+        self.internal_get_layout_window()
+            .drag_drop_manager
+            .get_drag_state()
+    }
+
+    // ===== Hover Manager Access =====
+
+    /// Get immutable reference to the hover manager
+    ///
+    /// Provides access to hit test history over the last 5 frames for gesture detection.
+    pub fn get_hover_manager(&self) -> &crate::managers::hover::HoverManager {
+        &self.internal_get_layout_window().hover_manager
+    }
+
+    /// Get the current hit test result (most recent frame)
+    pub fn get_current_hit_test(&self) -> Option<&crate::hit_test::FullHitTest> {
+        self.get_hover_manager().get_current()
+    }
+
+    /// Get hit test from N frames ago (0 = current, 1 = previous, etc.)
+    pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&crate::hit_test::FullHitTest> {
+        self.get_hover_manager().get_frame(frames_ago)
+    }
+
+    /// Get the full hit test history (up to 5 frames)
+    pub fn get_hit_test_history(
+        &self,
+    ) -> &alloc::collections::VecDeque<crate::hit_test::FullHitTest> {
+        self.get_hover_manager().get_history()
+    }
+
+    /// Check if there's sufficient history for gesture detection (at least 2 frames)
+    pub fn has_sufficient_history_for_gestures(&self) -> bool {
+        self.get_hover_manager()
+            .has_sufficient_history_for_gestures()
+    }
+
+    // ===== Focus Manager Access =====
+
+    /// Get immutable reference to the focus manager
+    pub fn get_focus_manager(&self) -> &crate::managers::focus_cursor::FocusManager {
+        &self.internal_get_layout_window().focus_manager
+    }
+
+    // ===== File Drop Manager Access =====
+
+    /// Get immutable reference to the file drop manager
+    pub fn get_file_drop_manager(&self) -> &crate::managers::file_drop::FileDropManager {
+        &self.internal_get_layout_window().file_drop_manager
+    }
+
+    // ===== Selection Manager Access =====
+
+    /// Get immutable reference to the selection manager
+    pub fn get_selection_manager(&self) -> &crate::managers::selection::SelectionManager {
+        &self.internal_get_layout_window().selection_manager
+    }
+
+    /// Get all selections across all DOMs
+    pub fn get_all_selections(&self) -> &BTreeMap<DomId, azul_core::selection::SelectionState> {
+        self.get_selection_manager().get_all_selections()
+    }
+
+    // ===== Drag-Drop Manager Access =====
+
+    /// Get immutable reference to the drag-drop manager
+    pub fn get_drag_drop_manager(&self) -> &crate::managers::drag_drop::DragDropManager {
+        &self.internal_get_layout_window().drag_drop_manager
+    }
+
+    /// Get the node being dragged (if any)
+    pub fn get_dragged_node(&self) -> Option<DomNodeId> {
+        self.get_drag_drop_manager()
+            .get_drag_state()
+            .and_then(|state| {
+                if state.drag_type == crate::managers::drag_drop::DragType::Node {
+                    state.source_node
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Get the file path being dragged (if any)
+    pub fn get_dragged_file(&self) -> Option<&azul_css::AzString> {
+        self.get_drag_drop_manager()
+            .get_drag_state()
+            .and_then(|state| {
+                if state.drag_type == crate::managers::drag_drop::DragType::File {
+                    state.file_path.as_ref()
+                } else {
+                    None
+                }
+            })
+    }
+
+    // ===== GPU State Manager Access =====
+
+    /// Get immutable reference to the GPU state manager
+    pub fn get_gpu_state_manager(&self) -> &crate::managers::gpu_state::GpuStateManager {
+        &self.internal_get_layout_window().gpu_state_manager
+    }
+
+    // ===== IFrame Manager Access =====
+
+    /// Get immutable reference to the IFrame manager
+    pub fn get_iframe_manager(&self) -> &crate::managers::iframe::IFrameManager {
+        &self.internal_get_layout_window().iframe_manager
     }
 }
 
@@ -792,6 +1124,42 @@ impl ExternalSystemCallbacks {
     }
 }
 
+/// Request to change focus, returned from callbacks
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusUpdateRequest {
+    /// Focus a specific node
+    FocusNode(DomNodeId),
+    /// Clear focus (no node has focus)
+    ClearFocus,
+    /// No focus change requested
+    NoChange,
+}
+
+impl FocusUpdateRequest {
+    /// Check if this represents a focus change
+    pub fn is_change(&self) -> bool {
+        !matches!(self, FocusUpdateRequest::NoChange)
+    }
+
+    /// Convert to the new focused node (Some(node) or None for clear)
+    pub fn to_focused_node(&self) -> Option<Option<DomNodeId>> {
+        match self {
+            FocusUpdateRequest::FocusNode(node) => Some(Some(*node)),
+            FocusUpdateRequest::ClearFocus => Some(None),
+            FocusUpdateRequest::NoChange => None,
+        }
+    }
+
+    /// Create from Option<Option<DomNodeId>> (legacy format)
+    pub fn from_optional(opt: Option<Option<DomNodeId>>) -> Self {
+        match opt {
+            Some(Some(node)) => FocusUpdateRequest::FocusNode(node),
+            Some(None) => FocusUpdateRequest::ClearFocus,
+            None => FocusUpdateRequest::NoChange,
+        }
+    }
+}
+
 /// Result of calling callbacks, containing all state changes
 #[derive(Debug)]
 pub struct CallCallbacksResult {
@@ -812,8 +1180,8 @@ pub struct CallCallbacksResult {
     /// Scroll position changes from callbacks
     pub nodes_scrolled_in_callbacks:
         Option<BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>>,
-    /// Whether the focused node was changed
-    pub update_focused_node: Option<Option<DomNodeId>>,
+    /// Focus change request from callback (if any)
+    pub update_focused_node: FocusUpdateRequest,
     /// Timers added in callbacks
     pub timers: Option<FastHashMap<TimerId, Timer>>,
     /// Threads added in callbacks
@@ -843,7 +1211,7 @@ impl Default for CallCallbacksResult {
             image_masks_changed: None,
             css_properties_changed: None,
             nodes_scrolled_in_callbacks: None,
-            update_focused_node: None,
+            update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
             threads: None,
             timers_removed: None,
@@ -862,7 +1230,7 @@ impl CallCallbacksResult {
     }
 
     pub fn focus_changed(&self) -> bool {
-        self.update_focused_node.is_some()
+        self.update_focused_node.is_change()
     }
 }
 

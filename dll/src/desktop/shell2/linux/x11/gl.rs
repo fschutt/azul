@@ -127,7 +127,7 @@ impl GlContext {
     /// Configure VSync using eglSwapInterval
     pub fn configure_vsync(&self, vsync: azul_core::window::Vsync) {
         use azul_core::window::Vsync;
-        
+
         let interval = match vsync {
             Vsync::Enabled => 1,
             Vsync::Disabled => 0,

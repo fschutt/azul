@@ -301,8 +301,10 @@ pub struct wl_output_listener {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct wl_surface_listener {
-    pub enter: extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
-    pub leave: extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
+    pub enter:
+        extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
+    pub leave:
+        extern "C" fn(data: *mut c_void, wl_surface: *mut wl_surface, output: *mut wl_output),
 }
 
 // XDG Positioner Enums (from xdg-shell protocol)

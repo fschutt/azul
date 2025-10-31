@@ -31,7 +31,7 @@ pub fn perform_scrollbar_hit_test<W: PlatformWindowV2>(
     position: LogicalPosition,
 ) -> Option<(azul_core::dom::DomId, azul_core::dom::NodeId, ScrollbarAction)> {
     let layout_window = window.get_layout_window()?;
-    let hit_test = &window.get_current_window_state().last_hit_test;
+    let hit_test = layout_window.hover_manager.get_current()?;
 
     // Check if any hovered node has a scrollbar
     for (dom_id, node_hit_test) in &hit_test.hovered_nodes {

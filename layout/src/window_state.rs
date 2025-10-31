@@ -8,8 +8,7 @@ use alloc::collections::BTreeMap;
 
 use azul_core::{
     callbacks::LayoutCallback,
-    dom::{DomId, DomNodeId},
-    selection::SelectionState,
+    dom::DomId,
     window::{
         DebugState, ImePosition, KeyboardState, Monitor, MouseState, PlatformSpecificOptions,
         RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, WindowTheme,
@@ -17,7 +16,7 @@ use azul_core::{
 };
 use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString};
 
-use crate::{callbacks::OptionCallback, hit_test::FullHitTest};
+use crate::callbacks::OptionCallback;
 
 /// Window state that can be modified by callbacks
 #[derive(Debug, Clone, PartialEq)]
@@ -126,12 +125,8 @@ pub struct FullWindowState {
     pub background_color: ColorU,
     pub layout_callback: LayoutCallback,
     pub close_callback: OptionCallback,
-    pub monitor: Monitor,
-    pub hovered_file: Option<AzString>,
-    pub dropped_file: Option<AzString>,
-    pub focused_node: Option<DomNodeId>,
-    pub last_hit_test: FullHitTest,
-    pub selections: BTreeMap<DomId, SelectionState>,
+    /// Monitor ID (not the full Monitor struct - just the identifier)
+    pub monitor_id: Option<u32>,
     pub window_focused: bool,
 }
 
@@ -153,12 +148,7 @@ impl Default for FullWindowState {
             layout_callback: LayoutCallback::default(),
             close_callback: OptionCallback::None,
             renderer_options: RendererOptions::default(),
-            monitor: Monitor::default(),
-            hovered_file: None,
-            dropped_file: None,
-            focused_node: None,
-            last_hit_test: FullHitTest::empty(None),
-            selections: BTreeMap::new(),
+            monitor_id: None,
             window_focused: true,
         }
     }
@@ -184,7 +174,8 @@ impl From<FullWindowState> for WindowState {
             mouse_state: full.mouse_state,
             touch_state: full.touch_state,
             ime_position: full.ime_position,
-            monitor: full.monitor,
+            monitor: Monitor::default(), /* Monitor info needs to be looked up from platform via
+                                          * monitor_id */
             platform_specific_options: full.platform_specific_options,
             renderer_options: full.renderer_options,
             background_color: full.background_color,
@@ -197,23 +188,41 @@ impl From<FullWindowState> for WindowState {
 /// Create Events by comparing current and previous window states.
 /// This is the cross-platform event detection layer.
 ///
-/// Optionally takes a `GestureAndDragManager` to detect gesture events
-/// (DragStart, Drag, DragEnd, DoubleClick, LongPress).
+/// Requires the managers for complete event detection (focus, hover files, drag-drop, gestures).
 pub fn create_events_from_states(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
+    focus_manager: &crate::managers::focus_cursor::FocusManager,
+    previous_focus: Option<&crate::managers::focus_cursor::FocusManager>,
+    file_drop_manager: &crate::managers::file_drop::FileDropManager,
+    previous_file_drop: Option<&crate::managers::file_drop::FileDropManager>,
+    hover_manager: &crate::managers::hover::HoverManager,
 ) -> azul_core::events::Events {
-    create_events_from_states_with_gestures(current_state, previous_state, None)
+    create_events_from_states_with_gestures(
+        current_state,
+        previous_state,
+        focus_manager,
+        previous_focus,
+        file_drop_manager,
+        previous_file_drop,
+        hover_manager,
+        None,
+    )
 }
 
 /// Create Events with gesture detection support.
 ///
-/// This version takes an optional `GestureAndDragManager` to detect
+/// This version takes managers and an optional `GestureAndDragManager` to detect
 /// multi-frame gestures that can't be detected from state diffing alone.
 pub fn create_events_from_states_with_gestures(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
-    gesture_manager: Option<&crate::gesture_drag_manager::GestureAndDragManager>,
+    focus_manager: &crate::managers::focus_cursor::FocusManager,
+    previous_focus: Option<&crate::managers::focus_cursor::FocusManager>,
+    file_drop_manager: &crate::managers::file_drop::FileDropManager,
+    previous_file_drop: Option<&crate::managers::file_drop::FileDropManager>,
+    hover_manager: &crate::managers::hover::HoverManager,
+    gesture_manager: Option<&crate::managers::gesture::GestureAndDragManager>,
 ) -> azul_core::events::Events {
     use azul_core::{
         events::{Events, FocusEventFilter, HoverEventFilter, WindowEventFilter},
@@ -380,34 +389,46 @@ pub fn create_events_from_states_with_gestures(
         window_events.push(WindowEventFilter::ThemeChanged);
     }
 
-    // File hover events
-    if current_state.hovered_file.is_some() && previous_state.hovered_file.is_none() {
+    // File hover events (from FileDropManager)
+    let current_hovered = file_drop_manager.get_hovered_file();
+    let previous_hovered = previous_file_drop.and_then(|c| c.get_hovered_file());
+
+    if current_hovered.is_some() && previous_hovered.is_none() {
         window_events.push(WindowEventFilter::HoveredFile);
         hover_events.push(HoverEventFilter::HoveredFile);
     }
-    if current_state.hovered_file.is_none() && previous_state.hovered_file.is_some() {
+    if current_hovered.is_none() && previous_hovered.is_some() {
         window_events.push(WindowEventFilter::HoveredFileCancelled);
         hover_events.push(HoverEventFilter::HoveredFileCancelled);
     }
 
-    // File dropped
-    if current_state.dropped_file.is_some() && previous_state.dropped_file.is_none() {
-        window_events.push(WindowEventFilter::DroppedFile);
-        hover_events.push(HoverEventFilter::DroppedFile);
+    // File dropped (from FileDropManager - note: dropped_file is one-shot, so we only check
+    // current) Dropped file events are generated when dropped_file transitions from None to
+    // Some
+    if file_drop_manager.dropped_file.is_some() {
+        let previous_dropped = previous_file_drop.and_then(|c| c.dropped_file.as_ref());
+        if previous_dropped.is_none() {
+            window_events.push(WindowEventFilter::DroppedFile);
+            hover_events.push(HoverEventFilter::DroppedFile);
+        }
     }
 
-    // Extract old hit node IDs from previous state's hit test
-    let old_hit_node_ids = previous_state
-        .last_hit_test
-        .hovered_nodes
-        .iter()
-        .map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
-        .collect();
+    // Extract old hit node IDs from previous hover state
+    let old_hit_node_ids = hover_manager
+        .get_frame(1) // Get hit test from 1 frame ago
+        .map(|hit_test| {
+            hit_test
+                .hovered_nodes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
+                .collect()
+        })
+        .unwrap_or_else(|| BTreeMap::new());
 
     // ========================================================================
     // Gesture Detection (optional, requires GestureAndDragManager)
     // ========================================================================
-    
+
     if let Some(manager) = gesture_manager {
         // Detect DragStart (gesture detection threshold exceeded)
         if let Some(_detected_drag) = manager.detect_drag() {
@@ -419,35 +440,35 @@ pub fn create_events_from_states_with_gestures(
                 focus_events.push(FocusEventFilter::DragStart);
             }
         }
-        
+
         // Detect Drag (continuous drag movement)
         // Fire this when actively dragging (node_drag or window_drag active)
         if manager.is_dragging() && current_mouse_down {
             // Check if mouse actually moved during drag
             let current_pos = current_state.mouse_state.cursor_position.get_position();
             let previous_pos = previous_state.mouse_state.cursor_position.get_position();
-            
+
             if current_pos != previous_pos {
                 window_events.push(WindowEventFilter::Drag);
                 hover_events.push(HoverEventFilter::Drag);
                 focus_events.push(FocusEventFilter::Drag);
             }
         }
-        
+
         // Detect DragEnd (mouse button released after drag)
         if manager.is_dragging() && event_was_mouse_release {
             window_events.push(WindowEventFilter::DragEnd);
             hover_events.push(HoverEventFilter::DragEnd);
             focus_events.push(FocusEventFilter::DragEnd);
         }
-        
+
         // Detect DoubleClick
         if manager.detect_double_click() {
             window_events.push(WindowEventFilter::DoubleClick);
             hover_events.push(HoverEventFilter::DoubleClick);
             focus_events.push(FocusEventFilter::DoubleClick);
         }
-        
+
         // Detect LongPress
         if let Some(long_press) = manager.detect_long_press() {
             // Only fire once per long press session
@@ -457,14 +478,99 @@ pub fn create_events_from_states_with_gestures(
                 focus_events.push(FocusEventFilter::LongPress);
             }
         }
+
+        // Detect Swipe gestures (fast directional movement)
+        if let Some(direction) = manager.detect_swipe_direction() {
+            use crate::managers::gesture::GestureDirection;
+            match direction {
+                GestureDirection::Left => {
+                    window_events.push(WindowEventFilter::SwipeLeft);
+                    hover_events.push(HoverEventFilter::SwipeLeft);
+                    focus_events.push(FocusEventFilter::SwipeLeft);
+                }
+                GestureDirection::Right => {
+                    window_events.push(WindowEventFilter::SwipeRight);
+                    hover_events.push(HoverEventFilter::SwipeRight);
+                    focus_events.push(FocusEventFilter::SwipeRight);
+                }
+                GestureDirection::Up => {
+                    window_events.push(WindowEventFilter::SwipeUp);
+                    hover_events.push(HoverEventFilter::SwipeUp);
+                    focus_events.push(FocusEventFilter::SwipeUp);
+                }
+                GestureDirection::Down => {
+                    window_events.push(WindowEventFilter::SwipeDown);
+                    hover_events.push(HoverEventFilter::SwipeDown);
+                    focus_events.push(FocusEventFilter::SwipeDown);
+                }
+            }
+        }
+
+        // Detect Pinch gestures (two-finger zoom)
+        if let Some(pinch) = manager.detect_pinch() {
+            if pinch.scale < 1.0 {
+                // Pinch In (zoom out)
+                window_events.push(WindowEventFilter::PinchIn);
+                hover_events.push(HoverEventFilter::PinchIn);
+                focus_events.push(FocusEventFilter::PinchIn);
+            } else {
+                // Pinch Out (zoom in)
+                window_events.push(WindowEventFilter::PinchOut);
+                hover_events.push(HoverEventFilter::PinchOut);
+                focus_events.push(FocusEventFilter::PinchOut);
+            }
+        }
+
+        // Detect Rotation gestures (two-finger rotate)
+        if let Some(rotation) = manager.detect_rotation() {
+            if rotation.angle_radians > 0.0 {
+                // Clockwise rotation
+                window_events.push(WindowEventFilter::RotateClockwise);
+                hover_events.push(HoverEventFilter::RotateClockwise);
+                focus_events.push(FocusEventFilter::RotateClockwise);
+            } else {
+                // Counterclockwise rotation
+                window_events.push(WindowEventFilter::RotateCounterClockwise);
+                hover_events.push(HoverEventFilter::RotateCounterClockwise);
+                focus_events.push(FocusEventFilter::RotateCounterClockwise);
+            }
+        }
+
+        // Detect Pen events (stylus/pen input)
+        if let Some(pen_state) = manager.get_pen_state() {
+            // Pen contact state changed
+            if pen_state.in_contact {
+                // Check against previous state to see if this is a new contact
+                // For now, we'll fire PenDown when pen is in contact
+                // TODO: Track previous pen state to only fire on state change
+                // window_events.push(WindowEventFilter::PenDown);
+                // hover_events.push(HoverEventFilter::PenDown);
+                // focus_events.push(FocusEventFilter::PenDown);
+            }
+
+            // Pen movement (only when in contact)
+            if pen_state.in_contact {
+                let current_pos = current_state.mouse_state.cursor_position.get_position();
+                let previous_pos = previous_state.mouse_state.cursor_position.get_position();
+
+                if current_pos != previous_pos {
+                    window_events.push(WindowEventFilter::PenMove);
+                    hover_events.push(HoverEventFilter::PenMove);
+                    focus_events.push(FocusEventFilter::PenMove);
+                }
+            }
+        }
     }
+
+    // Get old focus node from FocusManager
+    let old_focus_node = previous_focus.and_then(|f| f.get_focused_node().copied());
 
     Events {
         window_events,
         hover_events,
         focus_events,
         old_hit_node_ids,
-        old_focus_node: previous_state.focused_node,
+        old_focus_node,
         current_window_state_mouse_is_down: current_mouse_down,
         previous_window_state_mouse_is_down: previous_mouse_down,
         event_was_mouse_down,

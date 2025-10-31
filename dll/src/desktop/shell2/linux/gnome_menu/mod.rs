@@ -31,21 +31,24 @@
 //!         └── Menu → DBus format
 //! ```
 
-mod dbus_connection;
-mod menu_protocol;
 mod actions_protocol;
+mod dbus_connection;
 mod menu_conversion;
+mod menu_protocol;
 mod x11_properties;
 
 use std::{
     env,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
-pub use dbus_connection::DbusConnection;
-pub use menu_protocol::MenuProtocol;
 pub use actions_protocol::ActionsProtocol;
+pub use dbus_connection::DbusConnection;
 pub use menu_conversion::MenuConversion;
+pub use menu_protocol::MenuProtocol;
 pub use x11_properties::X11Properties;
 
 /// Check if GNOME native menus should be used
@@ -64,7 +67,10 @@ pub fn should_use_gnome_menus() -> bool {
     // Check if running on GNOME
     let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
     if !desktop.to_lowercase().contains("gnome") {
-        debug_log(&format!("Not running on GNOME desktop: XDG_CURRENT_DESKTOP={}", desktop));
+        debug_log(&format!(
+            "Not running on GNOME desktop: XDG_CURRENT_DESKTOP={}",
+            desktop
+        ));
         return false;
     }
 
@@ -106,7 +112,10 @@ impl GnomeMenuManager {
             return None;
         }
 
-        debug_log(&format!("Creating GNOME menu manager for app: {}", app_name));
+        debug_log(&format!(
+            "Creating GNOME menu manager for app: {}",
+            app_name
+        ));
 
         // Try to establish DBus connection
         let dbus_connection = match DbusConnection::new(app_name) {
@@ -115,7 +124,10 @@ impl GnomeMenuManager {
                 Some(conn)
             }
             Err(e) => {
-                debug_log(&format!("Failed to establish DBus connection: {} - falling back to CSD", e));
+                debug_log(&format!(
+                    "Failed to establish DBus connection: {} - falling back to CSD",
+                    e
+                ));
                 return None;
             }
         };
@@ -151,7 +163,7 @@ impl GnomeMenuManager {
                 conn.get_bus_name(),
                 conn.get_object_path(),
             )?;
-            
+
             debug_log("X11 window properties set successfully");
             Ok(())
         } else {
@@ -171,7 +183,7 @@ impl GnomeMenuManager {
 
         // Convert menu to DBus format
         let dbus_menu = MenuConversion::convert_menu(menu)?;
-        
+
         // Update menu protocol
         if let Some(ref protocol) = self.menu_protocol {
             protocol.update_menu(dbus_menu)?;
@@ -192,7 +204,7 @@ impl GnomeMenuManager {
         if self.is_active.load(Ordering::Relaxed) {
             debug_log("Shutting down GNOME menu manager");
             self.is_active.store(false, Ordering::Relaxed);
-            
+
             // Cleanup is handled by Drop implementations in submodules
         }
     }

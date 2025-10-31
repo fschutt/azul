@@ -140,7 +140,10 @@ impl MenuState {
 fn create_nsmenu(
     menu: &Menu,
     mtm: MainThreadMarker,
-) -> (Retained<NSMenu>, HashMap<i64, azul_core::menu::CoreMenuCallback>) {
+) -> (
+    Retained<NSMenu>,
+    HashMap<i64, azul_core::menu::CoreMenuCallback>,
+) {
     let ns_menu = NSMenu::new(mtm);
     let mut command_map = HashMap::new();
     let mut next_tag = 1i64;

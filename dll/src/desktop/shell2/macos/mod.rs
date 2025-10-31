@@ -1157,17 +1157,16 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         use block2::RcBlock;
-        
+
         let interval: f64 = timer.tick_millis() as f64 / 1000.0;
-        
+
         // Store the timer in layout_window first
         if let Some(layout_window) = self.layout_window.as_mut() {
-            layout_window.timers.insert(
-                azul_core::task::TimerId { id: timer_id },
-                timer,
-            );
+            layout_window
+                .timers
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
-        
+
         // Create NSTimer that marks frame for regeneration when fired
         let ns_window = self.window.clone();
         let timer_obj: Retained<NSTimer> = unsafe {
@@ -1181,7 +1180,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
                 })
             ]
         };
-        
+
         self.timers.insert(timer_id, timer_obj);
     }
 
@@ -1192,7 +1191,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
                 timer.invalidate();
             }
         }
-        
+
         // Remove from layout_window
         if let Some(layout_window) = self.layout_window.as_mut() {
             layout_window
@@ -1207,11 +1206,11 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
 
     fn start_thread_poll_timer(&mut self) {
         use block2::RcBlock;
-        
+
         if self.thread_timer_running.is_some() {
             return; // Already running
         }
-        
+
         // Create a timer that fires every 16ms (~60 FPS) to poll threads
         let ns_window = self.window.clone();
         let timer: Retained<NSTimer> = unsafe {
@@ -1341,7 +1340,7 @@ impl MacOSWindow {
     /// Configure VSync on an OpenGL context
     fn configure_vsync(gl_context: &NSOpenGLContext, vsync: azul_core::window::Vsync) {
         use azul_core::window::Vsync;
-        
+
         let swap_interval: i32 = match vsync {
             Vsync::Enabled => 1,
             Vsync::Disabled => 0,
@@ -1472,7 +1471,13 @@ impl MacOSWindow {
         // is ready to prevent white flash
         unsafe {
             // Position window on requested monitor (or center on primary)
-            position_window_on_monitor(&window, options.state.monitor.id, options.state.position, options.state.size, mtm);
+            position_window_on_monitor(
+                &window,
+                options.state.monitor.id,
+                options.state.position,
+                options.state.size,
+                mtm,
+            );
             // REMOVED: makeKeyAndOrderFront - will be called after first frame is ready
         }
 
@@ -1614,12 +1619,7 @@ impl MacOSWindow {
             background_color: options.state.background_color,
             layout_callback: options.state.layout_callback,
             close_callback: options.state.close_callback.clone(),
-            monitor: options.state.monitor,
-            hovered_file: None,
-            dropped_file: None,
-            focused_node: None,
-            last_hit_test: FullHitTest::empty(None),
-            selections: Default::default(),
+            monitor_id: None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
         };
 
@@ -1853,7 +1853,7 @@ impl MacOSWindow {
             events::{EasingFunction, EventSource},
             geom::LogicalPosition,
         };
-        use azul_layout::scroll::ScrollEvent;
+        use azul_layout::managers::scroll_state::ScrollEvent;
 
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
@@ -1986,9 +1986,11 @@ impl MacOSWindow {
 
         // Mouse cursor synchronization - compute from current hit test
         if let Some(layout_window) = self.layout_window.as_ref() {
-            let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
-            let cursor_name = self.map_cursor_type_to_macos(cursor_test.cursor_icon);
-            self.set_cursor(cursor_name);
+            if let Some(hit_test) = layout_window.hover_manager.get_current() {
+                let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
+                let cursor_name = self.map_cursor_type_to_macos(cursor_test.cursor_icon);
+                self.set_cursor(cursor_name);
+            }
         }
     }
 
@@ -2054,7 +2056,9 @@ impl MacOSWindow {
         self.current_window_state.background_color = new_state.background_color;
         self.current_window_state.layout_callback = new_state.layout_callback;
         self.current_window_state.close_callback = new_state.close_callback;
-        self.current_window_state.monitor = new_state.monitor;
+        // Note: monitor is now monitor_id in FullWindowState, and Monitor info from WindowState
+        // is looked up from platform. For now, we don't sync monitor_id directly.
+        // TODO: Implement proper monitor tracking via monitor_id
 
         // Synchronize with OS
         self.sync_window_state();
@@ -2188,7 +2192,7 @@ impl MacOSWindow {
         // Unregister from global window registry before closing
         let ns_window = self.get_ns_window_ptr();
         registry::unregister_window(ns_window);
-        
+
         unsafe {
             self.window.close();
         }
@@ -2201,7 +2205,7 @@ impl MacOSWindow {
     }
 
     /// Get the NSWindow pointer for registry identification
-    /// 
+    ///
     /// Returns a raw pointer to the NSWindow object, which is used as a unique
     /// identifier in the window registry for multi-window support.
     pub fn get_ns_window_ptr(&self) -> *mut objc2::runtime::AnyObject {
@@ -2416,15 +2420,14 @@ impl MacOSWindow {
             }
         };
 
-        use azul_core::window::RawWindowHandle;
         use std::ptr;
-        
-        let raw_handle = RawWindowHandle::MacOS(
-            azul_core::window::MacOSHandle {
-                ns_window: Retained::as_ptr(&self.window) as *mut _,
-                ns_view: ptr::null_mut(), // Not needed for menu callbacks
-            }
-        );
+
+        use azul_core::window::RawWindowHandle;
+
+        let raw_handle = RawWindowHandle::MacOS(azul_core::window::MacOSHandle {
+            ns_window: Retained::as_ptr(&self.window) as *mut _,
+            ns_view: ptr::null_mut(), // Not needed for menu callbacks
+        });
 
         // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
         let mut fc_cache_clone = (*self.fc_cache).clone();
@@ -3204,7 +3207,11 @@ impl MacOSWindow {
         let refresh_rate = unsafe {
             use objc2::msg_send;
             let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
-            if fps > 0.0 { fps as u16 } else { 60 }
+            if fps > 0.0 {
+                fps as u16
+            } else {
+                60
+            }
         };
 
         Some(crate::desktop::display::DisplayInfo {
@@ -3234,42 +3241,57 @@ fn position_window_on_monitor(
     mtm: MainThreadMarker,
 ) {
     use azul_core::window::WindowPosition;
-    use crate::desktop::display::get_monitors;
     use objc2_app_kit::NSScreen;
-    
+
+    use crate::desktop::display::get_monitors;
+
     // Get all available monitors
     let monitors = get_monitors();
     if monitors.len() == 0 {
-        unsafe { window.center(); }
+        unsafe {
+            window.center();
+        }
         return; // No monitors available, use default centering
     }
-    
+
     // Get all NSScreens
     let screens = unsafe { NSScreen::screens(mtm) };
     if screens.len() == 0 {
-        unsafe { window.center(); }
+        unsafe {
+            window.center();
+        }
         return;
     }
-    
+
     // Determine target monitor
-    let target_monitor = monitors.as_slice().iter()
+    let target_monitor = monitors
+        .as_slice()
+        .iter()
         .find(|m| m.id.index == monitor_id.index)
-        .or_else(|| monitors.as_slice().iter().find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0))
+        .or_else(|| {
+            monitors
+                .as_slice()
+                .iter()
+                .find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0)
+        })
         .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
-    
+
     // Find matching NSScreen by bounds
     let target_screen = unsafe {
-        screens.iter().find(|screen| {
-            let frame = screen.frame();
-            (frame.origin.x as isize - target_monitor.position.x).abs() < 10 &&
-            (frame.origin.y as isize - target_monitor.position.y).abs() < 10
-        }).unwrap_or_else(|| screens.objectAtIndex(0))
+        screens
+            .iter()
+            .find(|screen| {
+                let frame = screen.frame();
+                (frame.origin.x as isize - target_monitor.position.x).abs() < 10
+                    && (frame.origin.y as isize - target_monitor.position.y).abs() < 10
+            })
+            .unwrap_or_else(|| screens.objectAtIndex(0))
     };
-    
+
     // Calculate window position
     let screen_frame = unsafe { target_screen.frame() };
     let window_frame = unsafe { window.frame() };
-    
+
     let (x, y) = match position {
         WindowPosition::Initialized(pos) => {
             // Explicit position requested - use it relative to monitor
@@ -3281,19 +3303,21 @@ fn position_window_on_monitor(
         }
         WindowPosition::Uninitialized => {
             // No explicit position - center on target monitor
-            let center_x = screen_frame.origin.x + (screen_frame.size.width - window_frame.size.width) / 2.0;
-            let center_y = screen_frame.origin.y + (screen_frame.size.height - window_frame.size.height) / 2.0;
+            let center_x =
+                screen_frame.origin.x + (screen_frame.size.width - window_frame.size.width) / 2.0;
+            let center_y =
+                screen_frame.origin.y + (screen_frame.size.height - window_frame.size.height) / 2.0;
             (center_x, center_y)
         }
     };
-    
+
     // Set window frame with new position
     use objc2_foundation::NSRect;
     let new_frame = NSRect {
         origin: objc2_foundation::NSPoint { x, y },
         size: window_frame.size,
     };
-    
+
     unsafe {
         window.setFrame_display(new_frame, false);
     }

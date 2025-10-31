@@ -10,14 +10,12 @@
 //! - Process Update screen commands
 //! - Return appropriate ProcessEventResult
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
 use azul_core::{callbacks::Update, events::ProcessEventResult};
 use azul_layout::{
-    callbacks::CallCallbacksResult,
-    timer::Timer,
-    thread::Thread,
-    window_state::WindowState,
+    callbacks::CallCallbacksResult, thread::Thread, timer::Timer, window_state::WindowState,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Result of processing callback results
 pub struct CallbackProcessingResult {
@@ -69,7 +67,8 @@ pub fn process_callback_results(
         current_window_state.touch_state = modified_state.touch_state.clone();
         current_window_state.ime_position = modified_state.ime_position;
         current_window_state.monitor = modified_state.monitor.clone();
-        current_window_state.platform_specific_options = modified_state.platform_specific_options.clone();
+        current_window_state.platform_specific_options =
+            modified_state.platform_specific_options.clone();
         current_window_state.renderer_options = modified_state.renderer_options;
         current_window_state.background_color = modified_state.background_color;
         current_window_state.layout_callback = modified_state.layout_callback.clone();
@@ -81,17 +80,23 @@ pub fn process_callback_results(
             return result;
         }
 
-        result.event_result = result.event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        result.event_result = result
+            .event_result
+            .max(ProcessEventResult::ShouldReRenderCurrentWindow);
     }
 
     // Handle focus changes
-    if callback_result.update_focused_node.is_some() {
-        result.event_result = result.event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+    if callback_result.update_focused_node.is_change() {
+        result.event_result = result
+            .event_result
+            .max(ProcessEventResult::ShouldReRenderCurrentWindow);
     }
 
     // Handle image updates
     if callback_result.images_changed.is_some() || callback_result.image_masks_changed.is_some() {
-        result.event_result = result.event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+        result.event_result = result
+            .event_result
+            .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
     }
 
     // Extract timers added/removed
@@ -103,10 +108,7 @@ pub fn process_callback_results(
     }
 
     if let Some(ref timers_removed) = callback_result.timers_removed {
-        result.timers_removed = timers_removed
-            .iter()
-            .map(|id| id.id)
-            .collect();
+        result.timers_removed = timers_removed.iter().map(|id| id.id).collect();
     }
 
     // Extract threads added/removed
@@ -121,10 +123,14 @@ pub fn process_callback_results(
     // Process Update screen command
     match callback_result.callbacks_update_screen {
         Update::RefreshDom => {
-            result.event_result = result.event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            result.event_result = result
+                .event_result
+                .max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
         Update::RefreshDomAllWindows => {
-            result.event_result = result.event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+            result.event_result = result
+                .event_result
+                .max(ProcessEventResult::ShouldRegenerateDomAllWindows);
         }
         Update::DoNothing => {}
     }

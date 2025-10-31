@@ -113,25 +113,28 @@ extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackIn
 struct TitlebarDragMarker;
 
 /// Callback for titlebar drag start - activates window dragging
-/// 
+///
 /// This is called on DragStart event. The callback data contains a TitlebarDragMarker
 /// which signals to the event system that this drag should activate window dragging.
-extern "C" fn csd_titlebar_drag_start_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn csd_titlebar_drag_start_callback(
+    _data: &mut RefAny,
+    info: &mut CallbackInfo,
+) -> Update {
     // Signal that window drag should be activated by returning special flag
     // The actual activation happens in the event processing loop where we have mutable access
-    
+
     eprintln!("[CSD Callback] DragStart on titlebar - requesting window drag activation");
-    
+
     // We use a special Update variant to signal window drag activation
     // For now, just DoNothing - the auto-activation logic will handle it
     Update::DoNothing
 }
 
 /// Callback for titlebar dragging - uses GestureAndDragManager
-/// 
+///
 /// This callback handles the Drag event (fired continuously during drag).
 /// The window position is updated based on the drag delta from the gesture manager.
-/// 
+///
 /// Since dragging works via the gesture manager, it continues to work even
 /// when the mouse leaves the window (as long as the button is held down).
 extern "C" fn csd_titlebar_drag_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
@@ -143,7 +146,7 @@ extern "C" fn csd_titlebar_drag_callback(_data: &mut RefAny, info: &mut Callback
         let mut window_state = info.get_current_window_state();
         window_state.position = new_position;
         info.set_window_state(window_state);
-        
+
         // No logging during drag to avoid spam
     }
 

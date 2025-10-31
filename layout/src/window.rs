@@ -33,10 +33,14 @@ use azul_css::{parser2::CssApiWrapper, props::basic::FontRef, LayoutDebugMessage
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    callbacks::{CallCallbacksResult, Callback, ExternalSystemCallbacks, MenuCallback},
-    gpu::GpuStateManager,
-    iframe::IFrameManager,
-    scroll::{ScrollManager, ScrollStates},
+    callbacks::{
+        CallCallbacksResult, Callback, ExternalSystemCallbacks, FocusUpdateRequest, MenuCallback,
+    },
+    managers::{
+        gpu_state::GpuStateManager,
+        iframe::IFrameManager,
+        scroll_state::{ScrollManager, ScrollStates},
+    },
     solver3::{
         self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
         layout_tree::LayoutTree,
@@ -162,15 +166,22 @@ pub struct LayoutWindow {
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
     pub scroll_states: ScrollManager,
-    /// Gesture and drag manager for multi-frame interactions
-    pub gesture_drag_manager: crate::gesture_drag_manager::GestureAndDragManager,
+    /// Gesture and drag manager for multi-frame interactions (moved from FullWindowState)
+    pub gesture_drag_manager: crate::managers::gesture::GestureAndDragManager,
+    /// Focus manager for keyboard focus and tab navigation
+    pub focus_manager: crate::managers::focus_cursor::FocusManager,
+    /// File drop manager for cursor state and file drag-drop
+    pub file_drop_manager: crate::managers::file_drop::FileDropManager,
+    /// Selection manager for text selections across all DOMs
+    pub selection_manager: crate::managers::selection::SelectionManager,
+    /// Drag-drop manager for node and file dragging operations
+    pub drag_drop_manager: crate::managers::drag_drop::DragDropManager,
+    /// Hover manager for tracking hit test history over multiple frames
+    pub hover_manager: crate::managers::hover::HoverManager,
     /// IFrame manager for all nodes across all DOMs
     pub iframe_manager: IFrameManager,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
-    /// Selection states for all DOMs
-    /// Maps DomId -> SelectionState
-    pub selections: BTreeMap<DomId, SelectionState>,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -224,13 +235,17 @@ impl LayoutWindow {
             image_cache: ImageCache::default(),
             layout_results: BTreeMap::new(),
             scroll_states: ScrollManager::new(),
-            gesture_drag_manager: crate::gesture_drag_manager::GestureAndDragManager::new(),
+            gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
+            focus_manager: crate::managers::focus_cursor::FocusManager::new(),
+            file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
+            selection_manager: crate::managers::selection::SelectionManager::new(),
+            drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
+            hover_manager: crate::managers::hover::HoverManager::new(),
             iframe_manager: IFrameManager::new(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
             ),
-            selections: BTreeMap::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -311,7 +326,7 @@ impl LayoutWindow {
             viewport,
             &self.font_manager,
             &scroll_offsets,
-            &self.selections,
+            &self.selection_manager.selections,
             debug_messages,
             Some(&gpu_cache),
             dom_id,
@@ -450,7 +465,7 @@ impl LayoutWindow {
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
         self.scroll_states = ScrollManager::new();
-        self.selections.clear();
+        self.selection_manager.clear_all();
     }
 
     /// Set scroll position for a node
@@ -480,12 +495,12 @@ impl LayoutWindow {
 
     /// Set selection state for a DOM
     pub fn set_selection(&mut self, dom_id: DomId, selection: SelectionState) {
-        self.selections.insert(dom_id, selection);
+        self.selection_manager.set_selection(dom_id, selection);
     }
 
     /// Get selection state for a DOM
     pub fn get_selection(&self, dom_id: DomId) -> Option<&SelectionState> {
-        self.selections.get(&dom_id)
+        self.selection_manager.get_selection(&dom_id)
     }
 
     /// Invoke an IFrame callback and perform layout on the returned DOM.
@@ -1200,40 +1215,47 @@ impl LayoutWindow {
 
         (scroll_ids, scroll_id_to_node_id)
     }
-    
+
     /// Get the layout rectangle for a specific DOM node in logical coordinates
-    /// 
+    ///
     /// This is useful in callbacks to get the position and size of the hit node
     /// for positioning menus, tooltips, or other overlays.
-    /// 
+    ///
     /// Returns None if the node is not currently laid out (e.g., display:none)
     pub fn get_node_layout_rect(
         &self,
         node_id: azul_core::dom::DomNodeId,
     ) -> Option<azul_core::geom::LogicalRect> {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-        
+
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
-        
+
         // Find the layout node index corresponding to this DOM node
         // Convert NodeHierarchyItemId to Option<NodeId> for comparison
         let target_node_id = node_id.node.into_crate_internal();
-        let layout_idx = layout_tree.nodes.iter()
+        let layout_idx = layout_tree
+            .nodes
+            .iter()
             .position(|node| node.dom_node_id == target_node_id)?;
-        
+
         // Get the absolute position from cache
         let abs_pos = self.layout_cache.absolute_positions.get(&layout_idx)?;
-        
+
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
-        
+
         // Get the used size (the actual laid-out size)
         let used_size = layout_node.used_size?;
-        
+
         // Convert to logical coordinates
-        let hidpi_factor = self.current_window_state.size.get_hidpi_factor().inner.get();
-        
+        let hidpi_factor = self
+            .current_window_state
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+
         Some(LogicalRect::new(
             LogicalPosition::new(
                 abs_pos.x as f32 / hidpi_factor,
@@ -1297,7 +1319,7 @@ impl LayoutWindow {
             images_changed: None,
             image_masks_changed: None,
             nodes_scrolled_in_callbacks: None,
-            update_focused_node: None,
+            update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
             threads: None,
             timers_removed: None,
@@ -1416,12 +1438,15 @@ impl LayoutWindow {
         }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::focus::resolve_focus_target(
+            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
                 &ft,
                 &self.layout_results,
-                current_window_state.focused_node,
+                self.focus_manager.get_focused_node().copied(),
             ) {
-                ret.update_focused_node = Some(new_focus_node);
+                ret.update_focused_node = match new_focus_node {
+                    Some(node) => FocusUpdateRequest::FocusNode(node),
+                    None => FocusUpdateRequest::ClearFocus,
+                };
             }
         }
 
@@ -1466,7 +1491,7 @@ impl LayoutWindow {
             images_changed: None,
             image_masks_changed: None,
             nodes_scrolled_in_callbacks: None,
-            update_focused_node: None,
+            update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
             threads: None,
             timers_removed: None,
@@ -1618,12 +1643,15 @@ impl LayoutWindow {
         }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::focus::resolve_focus_target(
+            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
                 &ft,
                 &self.layout_results,
-                current_window_state.focused_node,
+                self.focus_manager.get_focused_node().copied(),
             ) {
-                ret.update_focused_node = Some(new_focus_node);
+                ret.update_focused_node = match new_focus_node {
+                    Some(node) => FocusUpdateRequest::FocusNode(node),
+                    None => FocusUpdateRequest::ClearFocus,
+                };
             }
         }
 
@@ -1663,7 +1691,7 @@ impl LayoutWindow {
             images_changed: None,
             image_masks_changed: None,
             nodes_scrolled_in_callbacks: None,
-            update_focused_node: None,
+            update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
             threads: None,
             timers_removed: None,
@@ -1756,12 +1784,15 @@ impl LayoutWindow {
         }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::focus::resolve_focus_target(
+            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
                 &ft,
                 &self.layout_results,
-                current_window_state.focused_node,
+                self.focus_manager.get_focused_node().copied(),
             ) {
-                ret.update_focused_node = Some(new_focus_node);
+                ret.update_focused_node = match new_focus_node {
+                    Some(node) => FocusUpdateRequest::FocusNode(node),
+                    None => FocusUpdateRequest::ClearFocus,
+                };
             }
         }
 
@@ -1796,7 +1827,7 @@ impl LayoutWindow {
             images_changed: None,
             image_masks_changed: None,
             nodes_scrolled_in_callbacks: None,
-            update_focused_node: None,
+            update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
             threads: None,
             timers_removed: None,
@@ -1890,12 +1921,15 @@ impl LayoutWindow {
         }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::focus::resolve_focus_target(
+            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
                 &ft,
                 &self.layout_results,
-                current_window_state.focused_node,
+                self.focus_manager.get_focused_node().copied(),
             ) {
-                ret.update_focused_node = Some(new_focus_node);
+                ret.update_focused_node = match new_focus_node {
+                    Some(node) => FocusUpdateRequest::FocusNode(node),
+                    None => FocusUpdateRequest::ClearFocus,
+                };
             }
         }
 
@@ -2072,7 +2106,7 @@ mod tests {
         let node_id = NodeId::new(0);
 
         // Create a scroll event
-        let scroll_event = crate::scroll::ScrollEvent {
+        let scroll_event = crate::managers::scroll_state::ScrollEvent {
             dom_id,
             node_id,
             delta: LogicalPosition::new(10.0, 20.0),

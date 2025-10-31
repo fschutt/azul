@@ -15,7 +15,7 @@ use azul_core::{
     hit_test::PipelineId,
 };
 
-use crate::scroll::ScrollManager;
+use crate::managers::scroll_state::ScrollManager;
 
 static NEXT_PIPELINE_ID: AtomicUsize = AtomicUsize::new(1);
 

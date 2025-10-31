@@ -38,7 +38,9 @@ use azul_core::{
     menu::CoreMenuCallback,
     refany::RefAny,
     resources::{DpiScaleFactor, IdNamespace, ImageCache, RendererResources},
-    window::{OptionMouseCursorType, RawWindowHandle, RendererType, WindowFrame, WindowsHandle},
+    window::{
+        Monitor, OptionMouseCursorType, RawWindowHandle, RendererType, WindowFrame, WindowsHandle,
+    },
 };
 use azul_layout::{
     hit_test::FullHitTest,
@@ -147,7 +149,7 @@ pub struct Win32Window {
     pub fc_cache: Arc<FcFontCache>,
     /// System style (shared across all windows)
     pub system_style: Arc<azul_css::system::SystemStyle>,
-    
+
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
@@ -322,12 +324,7 @@ impl Win32Window {
             background_color: initial_window_state.background_color,
             layout_callback: initial_window_state.layout_callback,
             close_callback: initial_window_state.close_callback.clone(),
-            monitor: initial_window_state.monitor,
-            hovered_file: None,
-            dropped_file: None,
-            focused_node: None,
-            last_hit_test: FullHitTest::empty(None),
-            selections: Default::default(),
+            monitor_id: None, // Monitor ID will be detected from platform
             window_focused: true,
         };
 
@@ -364,7 +361,14 @@ impl Win32Window {
         );
 
         // Position window on requested monitor (or center on primary)
-        position_window_on_monitor(hwnd, current_window_state.monitor.id, current_window_state.position, current_window_state.size, &win32);
+        // TODO: Use monitor_id to look up actual Monitor from global state
+        position_window_on_monitor(
+            hwnd,
+            Monitor::default().id,
+            current_window_state.position,
+            current_window_state.size,
+            &win32,
+        );
 
         // Enable drag-and-drop if shell32.dll is available
         if let Some(ref shell32) = win32.shell32 {
@@ -545,8 +549,7 @@ impl Win32Window {
     /// Applies changes from current_window_state to the OS window.
     /// Called after callbacks have potentially modified window state.
     fn sync_window_state(&mut self) {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
+        use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
         // Get copies of previous and current state to avoid borrow checker issues
         let (previous, current) = match &self.previous_window_state {
@@ -641,8 +644,10 @@ impl Win32Window {
 
         // Mouse cursor synchronization - compute from current hit test
         if let Some(layout_window) = self.layout_window.as_ref() {
-            let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
-            self.set_cursor(cursor_test.cursor_icon);
+            if let Some(hit_test) = layout_window.hover_manager.get_current() {
+                let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
+                self.set_cursor(cursor_test.cursor_icon);
+            }
         }
     }
 
@@ -660,11 +665,22 @@ impl Win32Window {
             azul_core::window::MouseCursorType::Text => IDC_IBEAM,
             azul_core::window::MouseCursorType::Wait => IDC_WAIT,
             azul_core::window::MouseCursorType::Progress => IDC_APPSTARTING,
-            azul_core::window::MouseCursorType::NotAllowed | azul_core::window::MouseCursorType::NoDrop => IDC_NO,
-            azul_core::window::MouseCursorType::EResize | azul_core::window::MouseCursorType::WResize | azul_core::window::MouseCursorType::EwResize | azul_core::window::MouseCursorType::ColResize => IDC_SIZEWE,
-            azul_core::window::MouseCursorType::NResize | azul_core::window::MouseCursorType::SResize | azul_core::window::MouseCursorType::NsResize | azul_core::window::MouseCursorType::RowResize => IDC_SIZENS,
-            azul_core::window::MouseCursorType::NeResize | azul_core::window::MouseCursorType::SwResize | azul_core::window::MouseCursorType::NeswResize => IDC_SIZENESW,
-            azul_core::window::MouseCursorType::NwResize | azul_core::window::MouseCursorType::SeResize | azul_core::window::MouseCursorType::NwseResize => IDC_SIZENWSE,
+            azul_core::window::MouseCursorType::NotAllowed
+            | azul_core::window::MouseCursorType::NoDrop => IDC_NO,
+            azul_core::window::MouseCursorType::EResize
+            | azul_core::window::MouseCursorType::WResize
+            | azul_core::window::MouseCursorType::EwResize
+            | azul_core::window::MouseCursorType::ColResize => IDC_SIZEWE,
+            azul_core::window::MouseCursorType::NResize
+            | azul_core::window::MouseCursorType::SResize
+            | azul_core::window::MouseCursorType::NsResize
+            | azul_core::window::MouseCursorType::RowResize => IDC_SIZENS,
+            azul_core::window::MouseCursorType::NeResize
+            | azul_core::window::MouseCursorType::SwResize
+            | azul_core::window::MouseCursorType::NeswResize => IDC_SIZENESW,
+            azul_core::window::MouseCursorType::NwResize
+            | azul_core::window::MouseCursorType::SeResize
+            | azul_core::window::MouseCursorType::NwseResize => IDC_SIZENWSE,
             azul_core::window::MouseCursorType::Help => IDC_HELP,
             // Fallback to arrow for unsupported cursor types
             _ => IDC_ARROW,
@@ -806,7 +822,13 @@ impl Win32Window {
     /// Returns true if a context menu was shown
     fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
         // Get the topmost hovered node from hit test
-        let hit_test = &self.current_window_state.last_hit_test.clone();
+        let hit_test = self
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.hover_manager.get_current())
+            .cloned()
+            .unwrap_or_else(|| FullHitTest::empty(None));
+
         if hit_test.is_empty() {
             return false;
         }
@@ -910,7 +932,7 @@ impl Win32Window {
     ///
     /// This uses the same unified menu system as regular menus (crate::desktop::menu::show_menu)
     /// but spawns at cursor position instead of below a trigger rect.
-    /// 
+    ///
     /// The menu window creation is queued and will be processed in Phase 3 of the event loop.
     fn show_window_based_context_menu(
         &mut self,
@@ -954,11 +976,11 @@ impl Win32Window {
         // Queue window creation request for processing in Phase 3 of the event loop
         // The event loop will create the window with Win32Window::new()
         eprintln!(
-            "[Windows] Queuing window-based context menu at screen ({}, {}) - will be created \
-             in event loop Phase 3",
+            "[Windows] Queuing window-based context menu at screen ({}, {}) - will be created in \
+             event loop Phase 3",
             pt.x, pt.y
         );
-        
+
         self.pending_window_creates.push(menu_options);
     }
 }
@@ -1209,29 +1231,32 @@ unsafe extern "system" fn window_proc(
             // Update mouse state
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            
+
             // Record input sample for gesture detection (movement during button press)
-            let button_state = if window.current_window_state.mouse_state.left_down { 0x01 } else { 0x00 };
+            let button_state = if window.current_window_state.mouse_state.left_down {
+                0x01
+            } else {
+                0x00
+            };
             window.record_input_sample(logical_pos, button_state, false, false);
 
             // Update hit test
-            if let Some(ref layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
                     window.document_id,
-                    window.current_window_state.focused_node,
+                    layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
                     hidpi_factor,
                 );
 
-                window.current_window_state.last_hit_test = hit_test;
+                layout_window.hover_manager.push_hit_test(hit_test.clone());
 
-                let cursor_type_hit_test = layout_window
-                    .compute_cursor_type_hit_test(&window.current_window_state.last_hit_test);
+                let cursor_type_hit_test = layout_window.compute_cursor_type_hit_test(&hit_test);
 
                 // Extract the cursor icon from the hit test result
                 let new_cursor_type = cursor_type_hit_test.cursor_icon;
@@ -1309,8 +1334,14 @@ unsafe extern "system" fn window_proc(
             );
 
             // Check for scrollbar hit FIRST (before state changes)
-            if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(&*window, logical_pos) {
-                PlatformWindowV2::handle_scrollbar_click(&mut *window, scrollbar_hit_id, logical_pos);
+            if let Some(scrollbar_hit_id) =
+                PlatformWindowV2::perform_scrollbar_hit_test(&*window, logical_pos)
+            {
+                PlatformWindowV2::handle_scrollbar_click(
+                    &mut *window,
+                    scrollbar_hit_id,
+                    logical_pos,
+                );
                 return 0;
             }
 
@@ -1321,25 +1352,25 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
             window.current_window_state.mouse_state.left_down = true;
-            
+
             // Record input sample for gesture detection (button down starts new session)
             window.record_input_sample(logical_pos, 0x01, true, false);
 
             // Update hit test
-            if let Some(ref layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
                     window.document_id,
-                    window.current_window_state.focused_node,
+                    layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
                     hidpi_factor,
                 );
 
-                window.current_window_state.last_hit_test = hit_test;
+                layout_window.hover_manager.push_hit_test(hit_test);
             }
 
             // Capture mouse
@@ -1385,25 +1416,25 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
             window.current_window_state.mouse_state.left_down = false;
-            
+
             // Record input sample for gesture detection (button up ends session)
             window.record_input_sample(logical_pos, 0x00, false, true);
 
             // Update hit test
-            if let Some(ref layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
                     window.document_id,
-                    window.current_window_state.focused_node,
+                    layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
                     hidpi_factor,
                 );
 
-                window.current_window_state.last_hit_test = hit_test;
+                layout_window.hover_manager.push_hit_test(hit_test);
             }
 
             // Release mouse capture
@@ -1442,20 +1473,20 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.right_down = true;
 
             // Update hit test
-            if let Some(ref layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
                     window.document_id,
-                    window.current_window_state.focused_node,
+                    layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
                     hidpi_factor,
                 );
 
-                window.current_window_state.last_hit_test = hit_test;
+                layout_window.hover_manager.push_hit_test(hit_test);
             }
 
             // V2 system will detect MouseDown event
@@ -1491,20 +1522,20 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.right_down = false;
 
             // Update hit test
-            if let Some(ref layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
                     window.document_id,
-                    window.current_window_state.focused_node,
+                    layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
                     hidpi_factor,
                 );
 
-                window.current_window_state.last_hit_test = hit_test;
+                layout_window.hover_manager.push_hit_test(hit_test);
             }
 
             // Try to show context menu first
@@ -1614,36 +1645,51 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.scroll_y =
                 OptionF32::Some(current_y + scroll_amount);
 
-            // Update hit test
-            if let Some(ref layout_window) = window.layout_window {
+            // Update hit test and get hovered node info
+            let hovered_node_for_scroll = if let Some(ref mut layout_window) = window.layout_window
+            {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
                     window.document_id,
-                    window.current_window_state.focused_node,
+                    layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
                     hidpi_factor,
                 );
 
-                // GPU scroll for hovered node (before moving hit_test)
-                if delta.abs() > 0 {
-                    if let Some(first_hovered) = hit_test.hovered_nodes.iter().next() {
-                        let (dom_id, ht) = first_hovered;
-                        if let Some(node_id) = ht.regular_hit_test_nodes.keys().next() {
-                            let _ = window.gpu_scroll(
-                                dom_id.inner as u64,
-                                node_id.index() as u64,
-                                0.0,
-                                -scroll_amount * 20.0, // Scale for pixel scrolling
-                            );
-                        }
-                    }
-                }
+                // Extract first hovered node for GPU scrolling
+                let hovered_info = if delta.abs() > 0 {
+                    hit_test
+                        .hovered_nodes
+                        .iter()
+                        .next()
+                        .and_then(|(dom_id, ht)| {
+                            ht.regular_hit_test_nodes
+                                .keys()
+                                .next()
+                                .map(|node_id| (*dom_id, *node_id))
+                        })
+                } else {
+                    None
+                };
 
-                window.current_window_state.last_hit_test = hit_test;
+                layout_window.hover_manager.push_hit_test(hit_test);
+                hovered_info
+            } else {
+                None
+            };
+
+            // GPU scroll for hovered node (after layout_window borrow is released)
+            if let Some((dom_id, node_id)) = hovered_node_for_scroll {
+                let _ = window.gpu_scroll(
+                    dom_id.inner as u64,
+                    node_id.index() as u64,
+                    0.0,
+                    -scroll_amount * 20.0, // Scale for pixel scrolling
+                );
             }
 
             // V2 system will detect Scroll event
@@ -1849,7 +1895,10 @@ unsafe extern "system" fn window_proc(
             };
 
             if let Some(callback) = callback_opt {
-                eprintln!("[WndProc] Found menu callback for command_id: {}", command_id);
+                eprintln!(
+                    "[WndProc] Found menu callback for command_id: {}",
+                    command_id
+                );
 
                 // Convert CoreMenuCallback to layout MenuCallback
                 use azul_layout::callbacks::{Callback, MenuCallback};
@@ -1863,18 +1912,17 @@ unsafe extern "system" fn window_proc(
                 // Get layout window
                 if let Some(layout_window) = window.layout_window.as_mut() {
                     use azul_core::window::RawWindowHandle;
-                    
-                    let raw_handle = RawWindowHandle::Windows(
-                        azul_core::window::WindowsHandle {
-                            hwnd: hwnd as *mut _,
-                            hinstance: ptr::null_mut(), // Not needed for menu callbacks
-                        }
-                    );
+
+                    let raw_handle = RawWindowHandle::Windows(azul_core::window::WindowsHandle {
+                        hwnd: hwnd as *mut _,
+                        hinstance: ptr::null_mut(), // Not needed for menu callbacks
+                    });
 
                     // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
                     let mut fc_cache_clone = (*window.fc_cache).clone();
 
-                    // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
+                    // Use LayoutWindow::invoke_single_callback which handles all the borrow
+                    // complexity
                     let callback_result = layout_window.invoke_single_callback(
                         &mut menu_callback.callback,
                         &mut menu_callback.data,
@@ -2010,17 +2058,22 @@ unsafe extern "system" fn window_proc(
                     if !dropped_files.is_empty() {
                         window.previous_window_state = Some(window.current_window_state.clone());
 
-                        // Store first file in dropped_file (API limitation)
-                        if let Some(first_file) = dropped_files.first() {
-                            window.current_window_state.dropped_file =
-                                Some(first_file.clone().into());
+                        // Store first file in cursor_manager (API limitation)
+                        if let Some(ref mut layout_window) = window.layout_window {
+                            if let Some(first_file) = dropped_files.first() {
+                                layout_window
+                                    .file_drop_manager
+                                    .set_dropped_file(Some(first_file.clone().into()));
+                            }
                         }
 
                         // Process window events to trigger FileDrop callbacks
                         window.process_window_events_recursive_v2(0);
 
                         // Clear dropped file after processing
-                        window.current_window_state.dropped_file = None;
+                        if let Some(ref mut layout_window) = window.layout_window {
+                            layout_window.file_drop_manager.set_dropped_file(None);
+                        }
                     }
                 }
             }
@@ -2308,7 +2361,7 @@ impl Win32Window {
             video_modes: vec![azul_core::window::VideoMode {
                 size: azul_css::props::basic::LayoutSize::new(
                     bounds.size.width as isize,
-                    bounds.size.height as isize
+                    bounds.size.height as isize,
                 ),
                 bit_depth: 32,
                 refresh_rate: 60,
@@ -2471,20 +2524,18 @@ impl PlatformWindowV2 for Win32Window {
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         let interval_ms = timer.tick_millis().min(u32::MAX as u64) as u32;
-        
+
         // Start Win32 timer
-        let win32_timer_id = unsafe {
-            (self.win32.user32.SetTimer)(self.hwnd, timer_id, interval_ms, ptr::null())
-        };
-        
+        let win32_timer_id =
+            unsafe { (self.win32.user32.SetTimer)(self.hwnd, timer_id, interval_ms, ptr::null()) };
+
         self.timers.insert(timer_id, win32_timer_id);
-        
+
         // Also store in layout_window for tick_timers() to work
         if let Some(layout_window) = self.layout_window.as_mut() {
-            layout_window.timers.insert(
-                azul_core::task::TimerId { id: timer_id },
-                timer,
-            );
+            layout_window
+                .timers
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
     }
 
@@ -2495,7 +2546,7 @@ impl PlatformWindowV2 for Win32Window {
                 (self.win32.user32.KillTimer)(self.hwnd, win32_timer_id);
             };
         }
-        
+
         // Remove from layout_window
         if let Some(layout_window) = self.layout_window.as_mut() {
             layout_window
@@ -2563,20 +2614,28 @@ fn position_window_on_monitor(
     win32: &dlopen::Win32Libraries,
 ) {
     use azul_core::window::WindowPosition;
+
     use crate::desktop::display::get_monitors;
-    
+
     // Get all available monitors
     let monitors = get_monitors();
     if monitors.len() == 0 {
         return; // No monitors available, use Windows default positioning
     }
-    
+
     // Determine target monitor
-    let target_monitor = monitors.as_slice().iter()
+    let target_monitor = monitors
+        .as_slice()
+        .iter()
         .find(|m| m.id.index == monitor_id.index)
-        .or_else(|| monitors.as_slice().iter().find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0))
+        .or_else(|| {
+            monitors
+                .as_slice()
+                .iter()
+                .find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0)
+        })
         .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
-    
+
     // Calculate window position
     let (x, y) = match position {
         WindowPosition::Initialized(pos) => {
@@ -2590,18 +2649,19 @@ fn position_window_on_monitor(
             // No explicit position - center on target monitor
             let window_width = size.dimensions.width as isize;
             let window_height = size.dimensions.height as isize;
-            
-            let center_x = target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
-            let center_y = target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
-            
+
+            let center_x =
+                target_monitor.position.x + (target_monitor.size.width - window_width) / 2;
+            let center_y =
+                target_monitor.position.y + (target_monitor.size.height - window_height) / 2;
+
             (center_x as i32, center_y as i32)
         }
     };
-    
+
     // Move window to calculated position
     unsafe {
-        use dlopen::constants::SWP_NOZORDER;
-        use dlopen::constants::SWP_NOSIZE;
+        use dlopen::constants::{SWP_NOSIZE, SWP_NOZORDER};
         (win32.user32.SetWindowPos)(
             hwnd,
             ptr::null_mut(), // No Z-order change
