@@ -407,11 +407,13 @@ impl X11Window {
         self.update_hit_test(position);
 
         // Record scroll sample using ScrollManager
+        // The ScrollManager will update its internal state, and during the next render,
+        // scroll_all_nodes() will synchronize the offsets to WebRender automatically.
         let hovered_node_for_scroll = if let Some(ref mut layout_window) = self.layout_window {
             use azul_core::task::Instant;
 
             let now = Instant::from(std::time::Instant::now());
-            let scroll_node = layout_window.scroll_manager.record_sample(
+            let _scroll_node = layout_window.scroll_manager.record_sample(
                 -delta_x * 20.0,
                 -delta_y * 20.0,
                 &layout_window.hover_manager,
@@ -419,16 +421,11 @@ impl X11Window {
                 now,
             );
 
-            if let Some((dom_id, node_id)) = scroll_node {
-                let _ = self.gpu_scroll(
-                    dom_id.inner as u64,
-                    node_id.index() as u64,
-                    -delta_x * 20.0,
-                    -delta_y * 20.0,
-                );
-            }
+            // Note: We do NOT call gpu_scroll() here - it would cause double-scrolling!
+            // The scroll state will be automatically synchronized to WebRender during
+            // the next render_and_present() call via scroll_all_nodes().
 
-            scroll_node
+            _scroll_node
         } else {
             None
         };

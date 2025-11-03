@@ -353,9 +353,19 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
-            if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                let text = ns_string.to_string();
-                eprintln!("[IME] Insert text: {}", text);
+            // Get the back-pointer to our MacOSWindow
+            let window_ptr = match self.get_window_ptr() {
+                Some(ptr) => ptr,
+                None => return,
+            };
+
+            // SAFETY: We trust that the window pointer is valid.
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                    let text = ns_string.to_string();
+                    macos_window.handle_text_input(&text);
+                }
             }
         }
 
@@ -399,6 +409,7 @@ pub struct CPUViewIvars {
     needs_redraw: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker, // Store MainThreadMarker to avoid unsafe new_unchecked
+    window_ptr: RefCell<Option<*mut std::ffi::c_void>>, // Back-pointer to MacOSWindow
 }
 
 define_class!(
@@ -549,6 +560,7 @@ define_class!(
                 needs_redraw: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
+                window_ptr: RefCell::new(None),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -650,9 +662,19 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
-            if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                let text = ns_string.to_string();
-                eprintln!("[IME] Insert text: {}", text);
+            // Get the back-pointer to our MacOSWindow
+            let window_ptr = match self.get_window_ptr() {
+                Some(ptr) => ptr,
+                None => return,
+            };
+
+            // SAFETY: We trust that the window pointer is valid.
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                if let Some(ns_string) = string.downcast_ref::<NSString>() {
+                    let text = ns_string.to_string();
+                    macos_window.handle_text_input(&text);
+                }
             }
         }
 
@@ -687,6 +709,23 @@ define_class!(
 // ============================================================================
 
 impl GLView {
+    /// Set the back-pointer to the owning MacOSWindow
+    /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
+    pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
+        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+    }
+
+    /// Get the back-pointer to the owning MacOSWindow
+    fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
+        *self.ivars().window_ptr.borrow()
+    }
+}
+
+// ============================================================================
+// CPUView Helper Methods (outside define_class!)
+// ============================================================================
+
+impl CPUView {
     /// Set the back-pointer to the owning MacOSWindow
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {

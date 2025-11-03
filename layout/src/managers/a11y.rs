@@ -114,9 +114,7 @@
 //! - Synthetic Events: Default action triggers callback
 
 #[cfg(feature = "accessibility")]
-use accesskit::{
-    Action, ActionRequest, Node, NodeBuilder, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate,
-};
+use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
 use azul_core::{
     dom::{AccessibilityAction, AccessibilityRole, DomId, DomNodeId, NodeId},
     styled_dom::NodeHierarchyItemId,
@@ -166,7 +164,7 @@ impl A11yManager {
         let mut root_children = Vec::new();
 
         // Create root window node
-        let mut root_node = NodeBuilder::new(Role::Window).build();
+        let mut root_node = Node::new(Role::Window);
 
         nodes.push((root_id, root_node));
 
@@ -299,9 +297,9 @@ impl A11yManager {
             }
         };
 
-        let node = NodeBuilder::new(role).build();
+        let node = Node::new(role);
 
-        // TODO: Set properties once we understand accesskit 0.16 API better
+        // TODO: Set properties once we understand accesskit 0.17 API better
         // For now, just return a basic node with the role
         // In a future iteration, we'll add:
         // - Name/label from AccessibilityInfo
@@ -410,7 +408,7 @@ impl A11yManager {
         use azul_core::geom::LogicalPosition;
         use azul_css::{props::basic::FloatValue, AzString};
         let action = match request.action {
-            Action::Default => AccessibilityAction::Default,
+            Action::Click => AccessibilityAction::Default,
             Action::Focus => AccessibilityAction::Focus,
             Action::Blur => AccessibilityAction::Blur,
             Action::Collapse => AccessibilityAction::Collapse,
@@ -421,8 +419,6 @@ impl A11yManager {
             Action::ShowContextMenu => AccessibilityAction::ShowContextMenu,
             Action::HideTooltip => AccessibilityAction::HideTooltip,
             Action::ShowTooltip => AccessibilityAction::ShowTooltip,
-            Action::ScrollBackward => AccessibilityAction::ScrollBackward,
-            Action::ScrollForward => AccessibilityAction::ScrollForward,
             Action::ScrollUp => AccessibilityAction::ScrollUp,
             Action::ScrollDown => AccessibilityAction::ScrollDown,
             Action::ScrollLeft => AccessibilityAction::ScrollLeft,

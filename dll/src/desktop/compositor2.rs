@@ -267,9 +267,20 @@ pub fn translate_displaylist_to_wr(
 
                 builder.push_rect(&info, rect, color_f);
 
-                // TODO: Hit-testing for scrollbars needs separate API
-                // The crates.io version 0.62.2 doesn't support hit_info field
-                // May need to use push_hit_test or similar method
+                // Add hit-test item for scrollbar interaction
+                if let Some(scrollbar_hit_id) = hit_id {
+                    let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
+                        *scrollbar_hit_id,
+                    );
+
+                    builder.push_hit_test(
+                        rect,
+                        *clip_stack.last().unwrap(),
+                        *spatial_stack.last().unwrap(),
+                        Default::default(),
+                        tag,
+                    );
+                }
             }
 
             DisplayListItem::PushClip {

@@ -1617,10 +1617,6 @@ pub enum AccessibilityAction {
     HideTooltip,
     /// Show a tooltip.
     ShowTooltip,
-    /// Scroll backward (e.g., page up).
-    ScrollBackward,
-    /// Scroll forward (e.g., page down).
-    ScrollForward,
     /// Scroll up.
     ScrollUp,
     /// Scroll down.

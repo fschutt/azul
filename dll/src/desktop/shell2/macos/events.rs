@@ -360,13 +360,15 @@ impl MacOSWindow {
         self.update_hit_test(position);
 
         // Record scroll sample using ScrollManager (if delta is significant)
+        // The ScrollManager will update its internal state, and during the next render,
+        // scroll_all_nodes() will synchronize the offsets to WebRender automatically.
         if (delta_x.abs() > 0.01 || delta_y.abs() > 0.01) {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 use azul_core::task::Instant;
                 use azul_layout::managers::InputPointId;
 
                 let now = Instant::from(std::time::Instant::now());
-                let scroll_node = layout_window.scroll_manager.record_sample(
+                let _scroll_node = layout_window.scroll_manager.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
                     -delta_y as f32,
                     &layout_window.hover_manager,
@@ -374,10 +376,9 @@ impl MacOSWindow {
                     now,
                 );
 
-                // GPU scroll for visible scrollbars if a node was scrolled
-                if let Some((dom_id, node_id)) = scroll_node {
-                    let _ = self.gpu_scroll(dom_id, node_id, -delta_x as f32, -delta_y as f32);
-                }
+                // Note: We do NOT call gpu_scroll() here - it would cause double-scrolling!
+                // The scroll state will be automatically synchronized to WebRender during
+                // the next render_and_present() call via scroll_all_nodes().
             }
         }
 
@@ -489,6 +490,26 @@ impl MacOSWindow {
                 EventProcessResult::RequestRedraw
             }
         }
+    }
+
+    /// Process text input from IME (called from insertText:replacementRange:)
+    ///
+    /// This is the proper way to handle text input on macOS, as it respects
+    /// the IME composition system for non-ASCII characters (accents, CJK, etc.)
+    pub fn handle_text_input(&mut self, text: &str) {
+        // Save previous state BEFORE making changes
+        self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Record text input - V2 system will detect TextInput event from state diff
+        if let Some(layout_window) = self.get_layout_window_mut() {
+            layout_window.record_text_input(text);
+        }
+
+        // Process V2 events
+        let _ = self.process_window_events_recursive_v2(0);
+
+        // Request redraw if needed
+        self.frame_needs_regeneration = true;
     }
 
     /// Process a flags changed event (modifier keys).

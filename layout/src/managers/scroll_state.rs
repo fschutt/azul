@@ -709,43 +709,120 @@ impl ScrollManager {
     // Scrollbar Hit-Testing
     // ========================================================================
 
-    // NOTE: This method is deprecated - WebRender hit-testing is used instead
-    // /// Perform hit-testing for scrollbars at the given global position.
-    // /// Returns the first scrollbar hit (highest z-order).
-    // pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
-    //     // Iterate in reverse order to hit top-most scrollbars first
-    //     for ((dom_id, node_id, orientation), scrollbar_state) in
-    // self.scrollbar_states.iter().rev()     {
-    //         if !scrollbar_state.visible {
-    //             continue;
-    //         }
-    //
-    //         // Check if position is inside scrollbar track
-    //         if !scrollbar_state.contains(global_pos) {
-    //             continue;
-    //         }
-    //
-    //         // Calculate local position relative to track origin
-    //         let local_pos = LogicalPosition::new(
-    //             global_pos.x - scrollbar_state.track_rect.origin.x,
-    //             global_pos.y - scrollbar_state.track_rect.origin.y,
-    //         );
-    //
-    //         // Determine which component was hit
-    //         let component = scrollbar_state.hit_test_component(local_pos);
-    //
-    //         return Some(ScrollbarHit {
-    //             dom_id: *dom_id,
-    //             node_id: *node_id,
-    //             orientation: *orientation,
-    //             component,
-    //             local_position: local_pos,
-    //             global_position: global_pos,
-    //         });
-    //     }
-    //
-    //     None
-    // }
+    /// Perform hit-testing for scrollbars at the given global position.
+    ///
+    /// This should be called AFTER WebRender hit-testing to check if the hit position
+    /// is actually inside a scrollbar overlay. If this returns Some, the event should
+    /// be handled as a scrollbar interaction (thumb drag, track click, etc.) instead
+    /// of a regular DOM event.
+    ///
+    /// Returns the first scrollbar hit (highest z-order).
+    ///
+    /// ## Usage Pattern
+    ///
+    /// ```ignore
+    /// // 1. Perform WebRender hit-test to find hovered nodes
+    /// let hit_test = fullhittest_new_webrender(...);
+    ///
+    /// // 2. Check if any hovered scrollable node has a scrollbar at this position
+    /// for (dom_id, node_test) in &hit_test.hovered_nodes {
+    ///     for (node_id, _) in &node_test.regular_hit_test_nodes {
+    ///         if let Some(scrollbar_hit) = scroll_manager.hit_test_scrollbar(
+    ///             *dom_id, *node_id, cursor_position
+    ///         ) {
+    ///             // Handle scrollbar interaction
+    ///             return handle_scrollbar_event(scrollbar_hit);
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// // 3. No scrollbar hit - handle as regular DOM event
+    /// ```
+    pub fn hit_test_scrollbar(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        global_pos: LogicalPosition,
+    ) -> Option<ScrollbarHit> {
+        // Check both vertical and horizontal scrollbars for this node
+        for orientation in [
+            ScrollbarOrientation::Vertical,
+            ScrollbarOrientation::Horizontal,
+        ] {
+            let scrollbar_state = self.scrollbar_states.get(&(dom_id, node_id, orientation))?;
+
+            if !scrollbar_state.visible {
+                continue;
+            }
+
+            // Check if position is inside scrollbar track using LogicalRect::contains
+            if !scrollbar_state.track_rect.contains(global_pos) {
+                continue;
+            }
+
+            // Calculate local position relative to track origin
+            let local_pos = LogicalPosition::new(
+                global_pos.x - scrollbar_state.track_rect.origin.x,
+                global_pos.y - scrollbar_state.track_rect.origin.y,
+            );
+
+            // Determine which component was hit
+            let component = scrollbar_state.hit_test_component(local_pos);
+
+            return Some(ScrollbarHit {
+                dom_id,
+                node_id,
+                orientation,
+                component,
+                local_position: local_pos,
+                global_position: global_pos,
+            });
+        }
+
+        None
+    }
+
+    /// Perform hit-testing for all scrollbars at the given global position.
+    ///
+    /// This iterates through all visible scrollbars in reverse z-order (top to bottom)
+    /// and returns the first hit. Use this when you don't know which node to check.
+    ///
+    /// For better performance, use `hit_test_scrollbar()` when you already have
+    /// a hit-tested node from WebRender.
+    pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
+        // Iterate in reverse order to hit top-most scrollbars first
+        for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
+        {
+            if !scrollbar_state.visible {
+                continue;
+            }
+
+            // Check if position is inside scrollbar track
+            if !scrollbar_state.track_rect.contains(global_pos) {
+                continue;
+            }
+
+            // Calculate local position relative to track origin
+            let local_pos = LogicalPosition::new(
+                global_pos.x - scrollbar_state.track_rect.origin.x,
+                global_pos.y - scrollbar_state.track_rect.origin.y,
+            );
+
+            // Determine which component was hit
+            let component = scrollbar_state.hit_test_component(local_pos);
+
+            return Some(ScrollbarHit {
+                dom_id: *dom_id,
+                node_id: *node_id,
+                orientation: *orientation,
+                component,
+                local_position: local_pos,
+                global_position: global_pos,
+            });
+        }
+
+        None
+    }
 }
 
 // ============================================================================

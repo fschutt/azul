@@ -131,8 +131,6 @@ impl MacOSAccessibilityAdapter {
                 accesskit::Action::ShowContextMenu => AccessibilityAction::ShowContextMenu,
                 accesskit::Action::HideTooltip => AccessibilityAction::HideTooltip,
                 accesskit::Action::ShowTooltip => AccessibilityAction::ShowTooltip,
-                accesskit::Action::ScrollBackward => AccessibilityAction::ScrollBackward,
-                accesskit::Action::ScrollForward => AccessibilityAction::ScrollForward,
                 accesskit::Action::ScrollUp => AccessibilityAction::ScrollUp,
                 accesskit::Action::ScrollDown => AccessibilityAction::ScrollDown,
                 accesskit::Action::ScrollLeft => AccessibilityAction::ScrollLeft,

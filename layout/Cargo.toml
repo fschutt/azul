@@ -23,7 +23,7 @@ azul-css                = { version = "0.0.5", path = "../css", default-features
 azul-core               = { version = "0.0.5", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false }
 rust-fontconfig         = { version = "1.0.3", features = ["parsing", "std"], default-features = false }
-accesskit               = { version = "0.16", default-features = false, optional = true }
+accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
 lyon                    = { version = "1.0.1",  default-features = false, optional = true }
 usvg                    = { version = "0.45.0",   default-features = false, optional = true }

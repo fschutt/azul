@@ -2778,16 +2778,16 @@ impl LayoutWindow {
                     now.into(),
                 );
             }
-            AccessibilityAction::ScrollBackward => {
-                // Scroll up by one page
+            AccessibilityAction::ScrollUp => {
+                // Scroll up by default amount (could use page size for page up)
                 if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
-                    let page_height = size.height;
+                    let scroll_amount = size.height.min(100.0); // Scroll by 100px or page height
                     self.scroll_manager.scroll_by(
                         dom_id,
                         node_id,
                         LogicalPosition {
                             x: 0.0,
-                            y: -page_height,
+                            y: -scroll_amount,
                         },
                         std::time::Duration::from_millis(300).into(),
                         azul_core::events::EasingFunction::EaseInOut,
@@ -2795,16 +2795,16 @@ impl LayoutWindow {
                     );
                 }
             }
-            AccessibilityAction::ScrollForward => {
-                // Scroll down by one page
+            AccessibilityAction::ScrollDown => {
+                // Scroll down by default amount (could use page size for page down)
                 if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
-                    let page_height = size.height;
+                    let scroll_amount = size.height.min(100.0); // Scroll by 100px or page height
                     self.scroll_manager.scroll_by(
                         dom_id,
                         node_id,
                         LogicalPosition {
                             x: 0.0,
-                            y: page_height,
+                            y: scroll_amount,
                         },
                         std::time::Duration::from_millis(300).into(),
                         azul_core::events::EasingFunction::EaseInOut,
