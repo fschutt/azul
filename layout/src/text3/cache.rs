@@ -2113,7 +2113,7 @@ pub enum ShapedItem<T: ParsedFontTrait> {
 }
 
 impl<T: ParsedFontTrait> ShapedItem<T> {
-    fn as_cluster(&self) -> Option<&ShapedCluster<T>> {
+    pub fn as_cluster(&self) -> Option<&ShapedCluster<T>> {
         match self {
             ShapedItem::Cluster(c) => Some(c),
             _ => None,
@@ -2277,44 +2277,51 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
 
     /// Takes a point relative to the layout's origin and returns the closest
     /// logical cursor position.
+    ///
+    /// This is the unified hit-testing implementation. The old `hit_test_to_cursor`
+    /// method is deprecated in favor of this one.
     pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
-        // Find the line that contains the point's Y coordinate.
-        let target_line = self
-            .items
-            .iter()
-            .filter(|item| {
-                item.position.y <= point.y && point.y < item.position.y + item.item.bounds().height
-            })
-            .min_by(|a, b| {
-                (a.position.y - point.y)
-                    .abs()
-                    .partial_cmp(&(b.position.y - point.y).abs())
-                    .unwrap_or(Ordering::Equal)
-            });
-
-        let target_line_idx = match target_line {
-            Some(item) => item.line_index,
-            None => return None, // No line at this y-coordinate
-        };
-
-        let items_on_line: Vec<_> = self
-            .items
-            .iter()
-            .filter(|i| i.line_index == target_line_idx)
-            .collect();
-        if items_on_line.is_empty() {
+        if self.items.is_empty() {
             return None;
         }
 
-        // Find the item on the line that contains the point's X coordinate
-        let target_item = items_on_line.iter().min_by(|a, b| {
-            (a.position.x - point.x)
-                .abs()
-                .partial_cmp(&(b.position.x - point.x).abs())
-                .unwrap_or(Ordering::Equal)
-        })?;
+        // Find the closest cluster vertically and horizontally
+        let mut closest_item_idx = 0;
+        let mut closest_distance = f32::MAX;
 
-        let cluster = match &target_item.item {
+        for (idx, item) in self.items.iter().enumerate() {
+            // Only consider cluster items for cursor placement
+            if !matches!(item.item, ShapedItem::Cluster(_)) {
+                continue;
+            }
+
+            let item_bounds = item.item.bounds();
+            let item_center_y = item.position.y + item_bounds.height / 2.0;
+
+            // Distance from click position to item center
+            let vertical_distance = (point.y - item_center_y).abs();
+
+            // For horizontal distance, check if we're within the cluster bounds
+            let horizontal_distance = if point.x < item.position.x {
+                item.position.x - point.x
+            } else if point.x > item.position.x + item_bounds.width {
+                point.x - (item.position.x + item_bounds.width)
+            } else {
+                0.0 // Inside the cluster horizontally
+            };
+
+            // Combined distance (prioritize vertical proximity)
+            let distance = vertical_distance * 2.0 + horizontal_distance;
+
+            if distance < closest_distance {
+                closest_distance = distance;
+                closest_item_idx = idx;
+            }
+        }
+
+        // Get the closest cluster
+        let closest_item = &self.items[closest_item_idx];
+        let cluster = match &closest_item.item {
             ShapedItem::Cluster(c) => c,
             // Objects are treated as a single cluster for selection
             ShapedItem::Object { source, .. } | ShapedItem::CombinedBlock { source, .. } => {
@@ -2324,7 +2331,7 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
                         start_byte_in_run: source.item_index,
                     },
                     affinity: if point.x
-                        < target_item.position.x + (target_item.item.bounds().width / 2.0)
+                        < closest_item.position.x + (closest_item.item.bounds().width / 2.0)
                     {
                         CursorAffinity::Leading
                     } else {
@@ -2335,31 +2342,17 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
             _ => return None,
         };
 
-        // Find the specific glyph within the cluster
-        let mut pen_x = target_item.position.x;
-        for glyph in &cluster.glyphs {
-            let glyph_end_x = pen_x + glyph.advance;
-            if point.x >= pen_x && point.x <= glyph_end_x {
-                return Some(TextCursor {
-                    cluster_id: cluster.source_cluster_id,
-                    affinity: if point.x < pen_x + (glyph.advance / 2.0) {
-                        CursorAffinity::Leading
-                    } else {
-                        CursorAffinity::Trailing
-                    },
-                });
-            }
-            pen_x = glyph_end_x;
-        }
+        // Determine affinity based on which half of the cluster was clicked
+        let cluster_mid_x = closest_item.position.x + cluster.advance / 2.0;
+        let affinity = if point.x < cluster_mid_x {
+            CursorAffinity::Leading
+        } else {
+            CursorAffinity::Trailing
+        };
 
-        // If not inside any glyph, snap to the start or end of the cluster
         Some(TextCursor {
             cluster_id: cluster.source_cluster_id,
-            affinity: if point.x < target_item.position.x {
-                CursorAffinity::Leading
-            } else {
-                CursorAffinity::Trailing
-            },
+            affinity,
         })
     }
 
@@ -2532,74 +2525,6 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
             }
         }
         None
-    }
-
-    /// Hit-tests a logical position to find the nearest text cursor.
-    ///
-    /// This is used for converting mouse clicks into cursor positions.
-    /// Returns a TextCursor pointing to the cluster nearest to the given position.
-    ///
-    /// Algorithm:
-    /// 1. Find the closest cluster vertically (line-by-line)
-    /// 2. Within that line, find the closest cluster horizontally
-    /// 3. Determine Leading vs Trailing affinity based on which half of the cluster was clicked
-    pub fn hit_test_to_cursor(&self, local_pos: LogicalPosition) -> Option<TextCursor> {
-        if self.items.is_empty() {
-            return None;
-        }
-
-        // Find the closest line vertically
-        let mut closest_item_idx = 0;
-        let mut closest_distance = f32::MAX;
-
-        for (idx, item) in self.items.iter().enumerate() {
-            // Only consider cluster items for cursor placement
-            if !matches!(item.item, ShapedItem::Cluster(_)) {
-                continue;
-            }
-
-            let item_bounds = item.item.bounds();
-            let item_center_y = item.position.y + item_bounds.height / 2.0;
-
-            // Distance from click position to item center
-            let vertical_distance = (local_pos.y - item_center_y).abs();
-
-            // For horizontal distance, check if we're within the cluster bounds
-            let horizontal_distance = if local_pos.x < item.position.x {
-                item.position.x - local_pos.x
-            } else if local_pos.x > item.position.x + item_bounds.width {
-                local_pos.x - (item.position.x + item_bounds.width)
-            } else {
-                0.0 // Inside the cluster horizontally
-            };
-
-            // Combined distance (prioritize vertical proximity)
-            let distance = vertical_distance * 2.0 + horizontal_distance;
-
-            if distance < closest_distance {
-                closest_distance = distance;
-                closest_item_idx = idx;
-            }
-        }
-
-        // Get the closest cluster
-        let closest_item = &self.items[closest_item_idx];
-        let Some(cluster) = closest_item.item.as_cluster() else {
-            return None;
-        };
-
-        // Determine affinity based on which half of the cluster was clicked
-        let cluster_mid_x = closest_item.position.x + cluster.advance / 2.0;
-        let affinity = if local_pos.x < cluster_mid_x {
-            CursorAffinity::Leading
-        } else {
-            CursorAffinity::Trailing
-        };
-
-        Some(TextCursor {
-            cluster_id: cluster.source_cluster_id,
-            affinity,
-        })
     }
 
     /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
@@ -3282,6 +3207,16 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
             shaped_items: HashMap::new(),
             layouts: HashMap::new(),
         }
+    }
+
+    /// Get a layout from the cache by its ID
+    pub fn get_layout(&self, cache_id: &CacheId) -> Option<&Arc<UnifiedLayout<T>>> {
+        self.layouts.get(cache_id)
+    }
+
+    /// Get all layout cache IDs (for iteration/debugging)
+    pub fn get_all_layout_ids(&self) -> Vec<CacheId> {
+        self.layouts.keys().copied().collect()
     }
 }
 

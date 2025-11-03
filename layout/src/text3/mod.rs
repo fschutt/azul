@@ -23,6 +23,7 @@ pub mod edit;
 pub mod glyphs;
 pub mod knuth_plass;
 pub mod script;
+pub mod selection;
 
 #[cfg(test)]
 pub mod tests;

@@ -1404,44 +1404,86 @@ impl LayoutWindow {
         }
     }
 
-    /// Automatically scrolls the focused cursor into view after layout.
+    /// Scroll selection or cursor into view with distance-based acceleration.
     ///
-    /// This is called after `layout_and_generate_display_list()` to ensure that
-    /// text cursors remain visible after text input or cursor movement.
+    /// **Unified Scroll System**: This method handles both cursor (0-size selection)
+    /// and full selection scrolling with a single implementation. For drag-to-scroll,
+    /// scroll speed increases with distance from container edge.
     ///
-    /// Algorithm:
-    /// 1. Get the focused cursor rect (if any)
-    /// 2. Find the scrollable ancestor container
-    /// 3. Calculate scroll delta to bring cursor into view
-    /// 4. Apply instant scroll (no animation for text input responsiveness)
-    fn scroll_focused_cursor_into_view(&mut self) {
-        // Get the cursor rect for the currently focused node
-        let cursor_rect = match self.get_focused_cursor_rect() {
-            Some(rect) => rect,
-            None => return, // No focused cursor, nothing to scroll
+    /// ## Algorithm
+    /// 1. Get bounds to scroll (cursor rect, selection rect, or mouse position)
+    /// 2. Find scrollable ancestor container
+    /// 3. Calculate distance from bounds to container edges
+    /// 4. Compute scroll delta (instant with padding, or accelerated with zones)
+    /// 5. Apply scroll with appropriate animation
+    ///
+    /// ## Distance-Based Acceleration (ScrollMode::Accelerated)
+    /// ```
+    /// Distance from edge:  Scroll speed per frame:
+    /// 0-20px              Dead zone (no scroll)
+    /// 20-50px             Slow (2px/frame)
+    /// 50-100px            Medium (4px/frame)
+    /// 100-200px           Fast (8px/frame)
+    /// 200+px              Very fast (16px/frame)
+    /// ```
+    ///
+    /// ## Returns
+    /// `true` if scrolling was applied, `false` if already visible
+    pub fn scroll_selection_into_view(
+        &mut self,
+        scroll_type: SelectionScrollType,
+        scroll_mode: ScrollMode,
+    ) -> bool {
+        // Get bounds to scroll into view
+        let bounds = match scroll_type {
+            SelectionScrollType::Cursor => {
+                // Cursor is 0-size selection at insertion point
+                match self.get_focused_cursor_rect() {
+                    Some(rect) => rect,
+                    None => return false, // No cursor to scroll
+                }
+            }
+            SelectionScrollType::Selection => {
+                // Get selection range(s) and compute bounding rect
+                // For now, treat as cursor until we implement calculate_selection_bounding_rect
+                match self.get_focused_cursor_rect() {
+                    Some(rect) => rect,
+                    None => return false, // No selection to scroll
+                }
+                // TODO: Implement calculate_selection_bounding_rect
+                // let ranges = self.selection_manager.get_selection();
+                // if ranges.is_empty() {
+                //     return false;
+                // }
+                // self.calculate_selection_bounding_rect(ranges)?
+            }
+            SelectionScrollType::DragSelection { mouse_position } => {
+                // For drag: use mouse position to determine scroll direction/speed
+                LogicalRect::new(mouse_position, LogicalSize::zero())
+            }
         };
 
-        // Get the focused node
+        // Get the focused node (or bail if no focus)
         let focused_node = match self.focus_manager.focused_node {
             Some(node) => node,
-            None => return,
+            None => return false,
         };
 
-        // Find the scrollable ancestor
-        let scrollable_node = match self.find_scrollable_ancestor(focused_node) {
+        // Find scrollable ancestor
+        let scroll_container = match self.find_scrollable_ancestor(focused_node) {
             Some(node) => node,
-            None => return, // No scrollable ancestor, cursor is in fixed layout
+            None => return false, // No scrollable ancestor
         };
 
-        // Get the scrollable container's bounds
+        // Get container bounds and current scroll state
         let layout_tree = match self.layout_cache.tree.as_ref() {
             Some(tree) => tree,
-            None => return,
+            None => return false,
         };
 
-        let scrollable_node_internal = match scrollable_node.node.into_crate_internal() {
+        let scrollable_node_internal = match scroll_container.node.into_crate_internal() {
             Some(id) => id,
-            None => return,
+            None => return false,
         };
 
         let layout_idx = match layout_tree
@@ -1450,12 +1492,12 @@ impl LayoutWindow {
             .position(|n| n.dom_node_id == Some(scrollable_node_internal))
         {
             Some(idx) => idx,
-            None => return,
+            None => return false,
         };
 
         let scrollable_layout_node = match layout_tree.nodes.get(layout_idx) {
             Some(node) => node,
-            None => return,
+            None => return false,
         };
 
         let container_pos = self
@@ -1467,67 +1509,222 @@ impl LayoutWindow {
 
         let container_size = scrollable_layout_node.used_size.unwrap_or_default();
 
-        let visible_rect = azul_core::geom::LogicalRect {
+        let container_rect = LogicalRect {
             origin: container_pos,
             size: container_size,
         };
 
-        // Calculate scroll delta with 5px padding
-        const PADDING: f32 = 5.0;
-        let mut scroll_delta = azul_core::geom::LogicalPosition::zero();
-
-        // Horizontal scrolling
-        if cursor_rect.origin.x < visible_rect.origin.x + PADDING {
-            scroll_delta.x = cursor_rect.origin.x - visible_rect.origin.x - PADDING;
-        } else if cursor_rect.origin.x + cursor_rect.size.width
-            > visible_rect.origin.x + visible_rect.size.width - PADDING
+        // Get current scroll state
+        let scroll_state = match self
+            .scroll_manager
+            .get_scroll_state(scroll_container.dom, scrollable_node_internal)
         {
-            scroll_delta.x = (cursor_rect.origin.x + cursor_rect.size.width)
-                - (visible_rect.origin.x + visible_rect.size.width)
-                + PADDING;
-        }
+            Some(state) => state,
+            None => return false,
+        };
 
-        // Vertical scrolling
-        if cursor_rect.origin.y < visible_rect.origin.y + PADDING {
-            scroll_delta.y = cursor_rect.origin.y - visible_rect.origin.y - PADDING;
-        } else if cursor_rect.origin.y + cursor_rect.size.height
-            > visible_rect.origin.y + visible_rect.size.height - PADDING
-        {
-            scroll_delta.y = (cursor_rect.origin.y + cursor_rect.size.height)
-                - (visible_rect.origin.y + visible_rect.size.height)
-                + PADDING;
-        }
+        // Calculate visible area (container rect adjusted by scroll offset)
+        let visible_area = LogicalRect::new(
+            LogicalPosition::new(
+                container_rect.origin.x + scroll_state.current_offset.x,
+                container_rect.origin.y + scroll_state.current_offset.y,
+            ),
+            container_rect.size,
+        );
 
-        // If we need to scroll, apply it immediately (no animation for text input)
-        if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
-            // Get current scroll state
-            if let Some(scroll_state) = self
-                .scroll_manager
-                .get_scroll_state(scrollable_node.dom, scrollable_node_internal)
-            {
-                // Calculate new scroll target
-                let new_target = azul_core::geom::LogicalPosition {
-                    x: scroll_state.current_offset.x + scroll_delta.x,
-                    y: scroll_state.current_offset.y + scroll_delta.y,
-                };
-
-                // Use scroll_to with instant scrolling (0ms duration)
-                use azul_core::{
-                    events::EasingFunction,
-                    task::{Duration, Instant, SystemTimeDiff},
-                };
-
-                self.scroll_manager.scroll_to(
-                    scrollable_node.dom,
-                    scrollable_node_internal,
-                    new_target,
-                    Duration::System(SystemTimeDiff { secs: 0, nanos: 0 }), // Instant scroll
-                    EasingFunction::Linear,
-                    Instant::System(std::time::Instant::now().into()),
-                );
+        // Calculate scroll delta based on mode
+        let scroll_delta = match scroll_mode {
+            ScrollMode::Instant => {
+                // For typing/clicking: instant scroll with fixed padding
+                calculate_instant_scroll_delta(bounds, visible_area)
             }
+            ScrollMode::Accelerated => {
+                // For drag: accelerated scroll based on distance from edge
+                let distance = calculate_edge_distance(bounds, visible_area);
+                calculate_accelerated_scroll_delta(distance)
+            }
+        };
+
+        // Apply scroll if needed
+        if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
+            let duration = match scroll_mode {
+                ScrollMode::Instant => Duration::System(SystemTimeDiff { secs: 0, nanos: 0 }),
+                ScrollMode::Accelerated => Duration::System(SystemTimeDiff {
+                    secs: 0,
+                    nanos: 16_666_667,
+                }), // 60fps
+            };
+
+            let external = ExternalSystemCallbacks::rust_internal();
+            let now = (external.get_system_time_fn.cb)();
+
+            // Calculate new scroll target
+            let new_target = LogicalPosition {
+                x: scroll_state.current_offset.x + scroll_delta.x,
+                y: scroll_state.current_offset.y + scroll_delta.y,
+            };
+
+            self.scroll_manager.scroll_to(
+                scroll_container.dom,
+                scrollable_node_internal,
+                new_target,
+                duration,
+                EasingFunction::Linear,
+                now.into(),
+            );
+
+            true // Scrolled
+        } else {
+            false // Already visible
         }
     }
+
+    /// Automatically scrolls the focused cursor into view after layout.
+    ///
+    /// **DEPRECATED**: Use `scroll_selection_into_view(SelectionScrollType::Cursor,
+    /// ScrollMode::Instant)` instead. This method is kept for compatibility but redirects to
+    /// the unified scroll system.
+    ///
+    /// This is called after `layout_and_generate_display_list()` to ensure that
+    /// text cursors remain visible after text input or cursor movement.
+    ///
+    /// Algorithm:
+    /// 1. Get the focused cursor rect (if any)
+    /// 2. Find the scrollable ancestor container
+    /// 3. Calculate scroll delta to bring cursor into view
+    /// 4. Apply instant scroll (no animation for text input responsiveness)
+    fn scroll_focused_cursor_into_view(&mut self) {
+        // Redirect to unified scroll system
+        self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
+    }
+}
+
+/// Type of selection bounds to scroll into view
+#[derive(Debug, Clone, Copy)]
+pub enum SelectionScrollType {
+    /// Scroll cursor (0-size selection) into view
+    Cursor,
+    /// Scroll current selection bounds into view
+    Selection,
+    /// Scroll for drag selection (use mouse position for direction/speed)
+    DragSelection { mouse_position: LogicalPosition },
+}
+
+/// Scroll animation mode
+#[derive(Debug, Clone, Copy)]
+pub enum ScrollMode {
+    /// Instant scroll with fixed padding (for typing, arrow keys)
+    Instant,
+    /// Accelerated scroll based on distance from edge (for drag-to-scroll)
+    Accelerated,
+}
+
+/// Distance from rect edges to container edges (for acceleration calculation)
+#[derive(Debug, Clone, Copy)]
+struct EdgeDistance {
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+}
+
+/// Calculate distance from rect to container edges
+fn calculate_edge_distance(rect: LogicalRect, container: LogicalRect) -> EdgeDistance {
+    EdgeDistance {
+        // Distance from rect's left edge to container's left edge
+        left: (rect.origin.x - container.origin.x).max(0.0),
+        // Distance from container's right edge to rect's right edge
+        right: ((container.origin.x + container.size.width) - (rect.origin.x + rect.size.width))
+            .max(0.0),
+        // Distance from rect's top edge to container's top edge
+        top: (rect.origin.y - container.origin.y).max(0.0),
+        // Distance from container's bottom edge to rect's bottom edge
+        bottom: ((container.origin.y + container.size.height) - (rect.origin.y + rect.size.height))
+            .max(0.0),
+    }
+}
+
+/// Calculate scroll delta with fixed padding (instant scroll mode)
+fn calculate_instant_scroll_delta(
+    bounds: LogicalRect,
+    visible_area: LogicalRect,
+) -> LogicalPosition {
+    const PADDING: f32 = 5.0;
+    let mut delta = LogicalPosition::zero();
+
+    // Horizontal scrolling
+    if bounds.origin.x < visible_area.origin.x + PADDING {
+        delta.x = bounds.origin.x - visible_area.origin.x - PADDING;
+    } else if bounds.origin.x + bounds.size.width
+        > visible_area.origin.x + visible_area.size.width - PADDING
+    {
+        delta.x = (bounds.origin.x + bounds.size.width)
+            - (visible_area.origin.x + visible_area.size.width)
+            + PADDING;
+    }
+
+    // Vertical scrolling
+    if bounds.origin.y < visible_area.origin.y + PADDING {
+        delta.y = bounds.origin.y - visible_area.origin.y - PADDING;
+    } else if bounds.origin.y + bounds.size.height
+        > visible_area.origin.y + visible_area.size.height - PADDING
+    {
+        delta.y = (bounds.origin.y + bounds.size.height)
+            - (visible_area.origin.y + visible_area.size.height)
+            + PADDING;
+    }
+
+    delta
+}
+
+/// Calculate scroll delta with distance-based acceleration (drag-to-scroll mode)
+fn calculate_accelerated_scroll_delta(distance: EdgeDistance) -> LogicalPosition {
+    // Acceleration zones (in pixels from edge)
+    const DEAD_ZONE: f32 = 20.0;
+    const SLOW_ZONE: f32 = 50.0;
+    const MEDIUM_ZONE: f32 = 100.0;
+    const FAST_ZONE: f32 = 200.0;
+
+    // Scroll speeds (pixels per frame at 60fps)
+    const SLOW_SPEED: f32 = 2.0;
+    const MEDIUM_SPEED: f32 = 4.0;
+    const FAST_SPEED: f32 = 8.0;
+    const VERY_FAST_SPEED: f32 = 16.0;
+
+    // Helper to calculate speed for one direction
+    let speed_for_distance = |dist: f32| -> f32 {
+        if dist < DEAD_ZONE {
+            0.0
+        } else if dist < SLOW_ZONE {
+            SLOW_SPEED
+        } else if dist < MEDIUM_ZONE {
+            MEDIUM_SPEED
+        } else if dist < FAST_ZONE {
+            FAST_SPEED
+        } else {
+            VERY_FAST_SPEED
+        }
+    };
+
+    // Calculate horizontal scroll (left vs right)
+    let scroll_x = if distance.left < distance.right {
+        // Closer to left edge - scroll left
+        -speed_for_distance(distance.left)
+    } else {
+        // Closer to right edge - scroll right
+        speed_for_distance(distance.right)
+    };
+
+    // Calculate vertical scroll (top vs bottom)
+    let scroll_y = if distance.top < distance.bottom {
+        // Closer to top edge - scroll up
+        -speed_for_distance(distance.top)
+    } else {
+        // Closer to bottom edge - scroll down
+        speed_for_distance(distance.bottom)
+    };
+
+    LogicalPosition::new(scroll_x, scroll_y)
 }
 
 /// Result of a layout operation
@@ -3446,6 +3643,310 @@ impl LayoutWindow {
     ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
         // No-op when accessibility is disabled
         BTreeMap::new()
+    }
+
+    /// Process mouse click for text selection.
+    ///
+    /// This method handles:
+    /// - Single click: Place cursor at click position
+    /// - Double click: Select word at click position
+    /// - Triple click: Select paragraph (line) at click position
+    ///
+    /// ## Workflow
+    /// 1. Update ClickState to determine click count
+    /// 2. Hit-test the position to find the text node
+    /// 3. Apply appropriate selection based on click count
+    /// 4. Update SelectionManager with new selection
+    /// 5. Return affected nodes for dirty tracking
+    ///
+    /// ## Parameters
+    /// * `position` - Click position in logical coordinates
+    /// * `time_ms` - Current time in milliseconds (for multi-click detection)
+    ///
+    /// ## Returns
+    /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit
+    ///   text
+    pub fn process_mouse_click_for_selection(
+        &mut self,
+        position: azul_core::geom::LogicalPosition,
+        time_ms: u64,
+    ) -> Option<Vec<azul_core::dom::DomNodeId>> {
+        use azul_core::selection::{Selection, SelectionRange};
+
+        use crate::{
+            managers::InputPointId,
+            text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
+        };
+
+        // Get the current hit test to find which node was clicked
+        let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
+
+        // Find the first text node that was hit
+        // Text nodes have a text layout in the text cache
+        let mut hit_text_node: Option<(DomId, NodeId)> = None;
+
+        for (dom_id, hit) in &hit_test.hovered_nodes {
+            for (node_id, _hit_item) in &hit.regular_hit_test_nodes {
+                // Check if this node has text layout
+                // For now, we'll check if it's in any layout result
+                if let Some(layout_result) = self.layout_results.get(dom_id) {
+                    if layout_result
+                        .styled_dom
+                        .node_data
+                        .as_container()
+                        .get(*node_id)
+                        .is_some()
+                    {
+                        hit_text_node = Some((*dom_id, *node_id));
+                        break;
+                    }
+                }
+            }
+
+            if hit_text_node.is_some() {
+                break;
+            }
+        }
+
+        let (dom_id, node_id) = hit_text_node?;
+
+        // Create DomNodeId for click state tracking
+        let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+        let dom_node_id = azul_core::dom::DomNodeId {
+            dom: dom_id,
+            node: node_hierarchy_id,
+        };
+
+        // Update click count to determine click count
+        let click_count = self
+            .selection_manager
+            .update_click_count(dom_node_id, position, time_ms);
+
+        // Get the text layout for this node
+        // We need to iterate through all cache entries to find ones that match this node
+        let mut selection_ranges = Vec::new();
+
+        for cache_id in self.text_cache.get_all_layout_ids() {
+            let layout = match self.text_cache.get_layout(&cache_id) {
+                Some(l) => l,
+                None => continue,
+            };
+
+            // Hit-test the layout to find cursor position
+            let cursor = match layout.hittest_cursor(position) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Apply selection based on click count
+            let selection = match click_count {
+                1 => {
+                    // Single click: place cursor
+                    Some(SelectionRange {
+                        start: cursor,
+                        end: cursor,
+                    })
+                }
+                2 => {
+                    // Double click: select word
+                    select_word_at_cursor(&cursor, layout.as_ref())
+                }
+                3 => {
+                    // Triple click: select paragraph (line)
+                    select_paragraph_at_cursor(&cursor, layout.as_ref())
+                }
+                _ => None,
+            };
+
+            if let Some(sel) = selection {
+                selection_ranges.push(sel);
+            }
+        }
+
+        // Clear existing selections and set new one
+        self.selection_manager.clear_selection(&dom_id);
+
+        if !selection_ranges.is_empty() {
+            let state = azul_core::selection::SelectionState {
+                selections: selection_ranges.into_iter().map(Selection::Range).collect(),
+                node_id: dom_node_id,
+            };
+            self.selection_manager.set_selection(dom_id, state);
+        }
+
+        // Return the affected node for dirty tracking
+        Some(vec![dom_node_id])
+    }
+
+    /// Delete the currently selected text
+    ///
+    /// Handles Backspace/Delete key when a selection exists. The selection is deleted
+    /// and replaced with a single cursor at the deletion point.
+    ///
+    /// ## Arguments
+    /// * `target` - The target node (focused contenteditable element)
+    /// * `forward` - true for Delete key (forward), false for Backspace (backward)
+    ///
+    /// ## Returns
+    /// * `Some(Vec<DomNodeId>)` - Affected nodes if selection was deleted
+    /// * `None` - If no selection exists or deletion failed
+    pub fn delete_selection(
+        &mut self,
+        target: azul_core::dom::DomNodeId,
+        forward: bool,
+    ) -> Option<Vec<azul_core::dom::DomNodeId>> {
+        use azul_core::selection::SelectionRange;
+
+        let dom_id = target.dom;
+
+        // Get current selection ranges
+        let ranges = self.selection_manager.get_ranges(&dom_id);
+        if ranges.is_empty() {
+            return None; // No selection to delete
+        }
+
+        // For each selection range, delete the selected text
+        // Note: For now, we just clear the selection and place cursor at start
+        // Full implementation would need to modify the underlying text content
+        // via the changeset system
+
+        // Find the earliest cursor position from all ranges
+        let mut earliest_cursor = None;
+        for range in &ranges {
+            // Use the start position for backward deletion, end for forward
+            let cursor = if forward { range.end } else { range.start };
+
+            if earliest_cursor.is_none() {
+                earliest_cursor = Some(cursor);
+            } else if let Some(current) = earliest_cursor {
+                // Compare cursor positions using cluster_id ordering
+                // Earlier cluster_id means earlier position in text
+                if cursor < current {
+                    earliest_cursor = Some(cursor);
+                }
+            }
+        }
+
+        // Clear selection and place cursor at deletion point
+        self.selection_manager.clear_selection(&dom_id);
+
+        if let Some(cursor) = earliest_cursor {
+            // Set cursor at deletion point
+            let state = azul_core::selection::SelectionState {
+                selections: vec![azul_core::selection::Selection::Range(SelectionRange {
+                    start: cursor,
+                    end: cursor,
+                })],
+                node_id: target,
+            };
+            self.selection_manager.set_selection(dom_id, state);
+        }
+
+        // Return affected nodes for dirty tracking
+        Some(vec![target])
+    }
+
+    /// Extract clipboard content from the current selection
+    ///
+    /// This method extracts both plain text and styled text from the selection ranges.
+    /// It iterates through all selected text, extracts the actual characters, and
+    /// preserves styling information from the ShapedGlyph's StyleProperties.
+    ///
+    /// ## Arguments
+    /// * `dom_id` - The DOM to extract selection from
+    ///
+    /// ## Returns
+    /// * `Some(ClipboardContent)` - If there is a selection with text
+    /// * `None` - If no selection or no text layouts found
+    pub fn get_clipboard_content(
+        &self,
+        dom_id: &DomId,
+    ) -> Option<crate::managers::selection::ClipboardContent> {
+        use crate::{
+            managers::selection::{ClipboardContent, StyledTextRun},
+            text3::cache::ShapedItem,
+        };
+
+        // Get selection ranges for this DOM
+        let ranges = self.selection_manager.get_ranges(dom_id);
+        if ranges.is_empty() {
+            return None;
+        }
+
+        let mut plain_text = String::new();
+        let mut styled_runs = Vec::new();
+
+        // Iterate through all text layouts to find selected content
+        for cache_id in self.text_cache.get_all_layout_ids() {
+            let layout = self.text_cache.get_layout(&cache_id)?;
+
+            // Process each selection range
+            for range in &ranges {
+                // Iterate through positioned items in the layout
+                for positioned_item in &layout.items {
+                    match &positioned_item.item {
+                        ShapedItem::Cluster(cluster) => {
+                            // Check if this cluster is within the selection range
+                            let cluster_id = cluster.source_cluster_id;
+
+                            // Simple check: is this cluster between start and end?
+                            let in_range = if range.start.cluster_id <= range.end.cluster_id {
+                                cluster_id >= range.start.cluster_id
+                                    && cluster_id <= range.end.cluster_id
+                            } else {
+                                cluster_id >= range.end.cluster_id
+                                    && cluster_id <= range.start.cluster_id
+                            };
+
+                            if in_range {
+                                // Extract text from cluster
+                                plain_text.push_str(&cluster.text);
+
+                                // Extract styling from first glyph (they share styling)
+                                if let Some(first_glyph) = cluster.glyphs.first() {
+                                    let style = &first_glyph.style;
+
+                                    // Extract font family from font selector
+                                    let font_family = Some(style.font_selector.family.clone());
+
+                                    // Check if bold/italic from font selector
+                                    use rust_fontconfig::FcWeight;
+                                    let is_bold = matches!(
+                                        style.font_selector.weight,
+                                        FcWeight::Bold | FcWeight::ExtraBold | FcWeight::Black
+                                    );
+                                    let is_italic = matches!(
+                                        style.font_selector.style,
+                                        crate::text3::cache::FontStyle::Italic
+                                            | crate::text3::cache::FontStyle::Oblique
+                                    );
+
+                                    styled_runs.push(StyledTextRun {
+                                        text: cluster.text.clone(),
+                                        font_family,
+                                        font_size_px: style.font_size_px,
+                                        color: style.color,
+                                        is_bold,
+                                        is_italic,
+                                    });
+                                }
+                            }
+                        }
+                        // For now, skip non-cluster items (objects, breaks, etc.)
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        if plain_text.is_empty() {
+            None
+        } else {
+            Some(ClipboardContent {
+                plain_text,
+                styled_runs,
+            })
+        }
     }
 }
 

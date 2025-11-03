@@ -162,7 +162,8 @@ use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId},
     events::{
-        CallbackTarget as CoreCallbackTarget, EventFilter, ProcessEventResult, SyntheticEvent,
+        CallbackTarget as CoreCallbackTarget, EventFilter, PreCallbackFilterResult,
+        ProcessEventResult, SyntheticEvent,
     },
     geom::LogicalPosition,
     gl::*,
@@ -186,7 +187,77 @@ use rust_fontconfig::FcFontCache;
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 
 /// Maximum depth for recursive event processing (prevents infinite loops from callbacks)
+// ============================================================================
+// Event Processing Configuration
+// ============================================================================
+
+/// Maximum recursion depth for event processing.
+///
+/// Events can trigger callbacks that regenerate the DOM, which triggers new events.
+/// This limit prevents infinite loops.
 const MAX_EVENT_RECURSION_DEPTH: usize = 5;
+
+/// Unique timer ID for auto-scroll during drag selection.
+///
+/// This ID is reserved for the framework's auto-scroll timer and should not
+/// be used by user code. Value chosen to avoid conflicts with typical timer IDs.
+const AUTO_SCROLL_TIMER_ID: usize = 0xABCD_1234;
+
+/// Timer callback for auto-scroll during drag selection.
+///
+/// This callback fires at the monitor's refresh rate during drag-to-scroll operations.
+/// It checks if dragging is still active, calculates scroll delta based on mouse distance
+/// from container edges, and applies accelerated scrolling.
+///
+/// The callback terminates automatically when:
+/// - Mouse button is released (no longer dragging)
+/// - Mouse returns to within container bounds (no scroll needed)
+extern "C" fn auto_scroll_timer_callback(
+    _data: &mut azul_core::refany::RefAny,
+    timer_info: &mut azul_layout::timer::TimerCallbackInfo,
+) -> azul_layout::timer::TimerCallbackReturn {
+    use azul_core::task::TerminateTimer;
+    use azul_layout::window::{ScrollMode, SelectionScrollType};
+
+    // Access window state through callback_info
+    let callback_info = &timer_info.callback_info;
+
+    // Get current mouse position from window state (safe access via public getter)
+    let full_window_state = callback_info.get_full_current_window_state();
+
+    // Check if still dragging (left mouse button is down)
+    if !full_window_state.mouse_state.left_down {
+        // Mouse released - stop timer
+        return azul_layout::timer::TimerCallbackReturn::terminate_unchanged();
+    }
+
+    // Get mouse position - if mouse is outside window, terminate timer
+    let mouse_position = match full_window_state.mouse_state.cursor_position.get_position() {
+        Some(pos) => pos,
+        None => {
+            // Mouse outside window - stop auto-scroll
+            return azul_layout::timer::TimerCallbackReturn::terminate_unchanged();
+        }
+    };
+
+    // Scroll based on mouse distance from container edge
+    // Use Deref to access LayoutWindow methods directly
+    if timer_info.callback_info.scroll_selection_into_view(
+        SelectionScrollType::DragSelection { mouse_position },
+        ScrollMode::Accelerated,
+    ) {
+        // Scrolling occurred, request re-render
+        return azul_layout::timer::TimerCallbackReturn::continue_and_update();
+    }
+
+    // No scroll needed (mouse within container or no scrollable ancestor)
+    // Continue timer in case mouse moves outside again
+    azul_layout::timer::TimerCallbackReturn::continue_unchanged()
+}
+
+// ============================================================================
+// Platform-Specific Timer Management
+// ============================================================================
 
 /// Hit test node structure for event routing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -922,12 +993,116 @@ pub trait PlatformWindowV2 {
         // }
 
         // ========================================================================
+        // PRE-CALLBACK INTERNAL EVENT FILTERING
+        // ========================================================================
+        // Analyze events BEFORE user callbacks to extract internal system events
+        // (text selection, etc.) that the framework handles.
+        //
+        // Managers have already been updated with current state (hit test, clicks, etc.)
+        // Now we query them to detect multi-frame event patterns.
+
+        let current_window_state = self.get_current_window_state();
+
+        // Filter events to separate internal system events from user events
+        // Query managers for state-based analysis (no local tracking needed)
+        let pre_filter = if let Some(layout_window) = self.get_layout_window() {
+            azul_core::events::pre_callback_filter_internal_events(
+                &synthetic_events,
+                hit_test_for_dispatch.as_ref(),
+                &current_window_state.keyboard_state,
+                &current_window_state.mouse_state,
+                &layout_window.selection_manager,
+                &layout_window.focus_manager,
+            )
+        } else {
+            // No layout window - no internal events possible
+            PreCallbackFilterResult {
+                internal_events: Vec::new(),
+                user_events: synthetic_events.clone(),
+            }
+        };
+
+        // Track overall processing result
+        let mut result = ProcessEventResult::DoNothing;
+
+        // Get external callbacks for system time
+        let external = ExternalSystemCallbacks::rust_internal();
+
+        // Process internal system events (text selection) BEFORE user callbacks
+        let mut text_selection_affected_nodes = Vec::new();
+        for internal_event in &pre_filter.internal_events {
+            use azul_core::events::PreCallbackSystemEvent;
+
+            match internal_event {
+                PreCallbackSystemEvent::TextClick {
+                    target,
+                    position,
+                    click_count,
+                    timestamp,
+                } => {
+                    // Get current time using system callbacks
+                    let current_instant = (external.get_system_time_fn.cb)();
+
+                    // Calculate milliseconds since event timestamp
+                    let duration_since_event = current_instant.duration_since(timestamp);
+                    let current_time_ms = match duration_since_event {
+                        azul_core::task::Duration::System(d) => {
+                            #[cfg(feature = "std")]
+                            {
+                                let std_duration: std::time::Duration = d.into();
+                                std_duration.as_millis() as u64
+                            }
+                            #[cfg(not(feature = "std"))]
+                            {
+                                0u64
+                            }
+                        }
+                        azul_core::task::Duration::Tick(t) => t.tick_diff as u64,
+                    };
+
+                    // Process text selection click
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        if let Some(affected_nodes) = layout_window
+                            .process_mouse_click_for_selection(*position, current_time_ms)
+                        {
+                            text_selection_affected_nodes.extend(affected_nodes);
+                        }
+                    }
+                }
+                PreCallbackSystemEvent::TextDragSelection { .. } => {
+                    // TODO: Implement drag selection handling
+                }
+                PreCallbackSystemEvent::ArrowKeyNavigation { .. } => {
+                    // TODO: Implement arrow key navigation
+                }
+                PreCallbackSystemEvent::KeyboardShortcut { .. } => {
+                    // TODO: Implement keyboard shortcuts
+                }
+                PreCallbackSystemEvent::DeleteSelection { target, forward } => {
+                    // Handle Backspace/Delete key with selection
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        if let Some(affected_nodes) =
+                            layout_window.delete_selection(*target, *forward)
+                        {
+                            text_selection_affected_nodes.extend(affected_nodes);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If text selection changed, mark for re-render
+        if !text_selection_affected_nodes.is_empty() {
+            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // ========================================================================
         // EVENT FILTERING AND CALLBACK DISPATCH
         // ========================================================================
 
-        // Use the new dispatch_synthetic_events() to convert SyntheticEvents to callbacks
+        // Dispatch user events to callbacks (internal events already processed)
         let dispatch_result = azul_core::events::dispatch_synthetic_events(
-            &synthetic_events,
+            &pre_filter.user_events,
             hit_test_for_dispatch.as_ref(),
         );
 
@@ -935,14 +1110,37 @@ pub trait PlatformWindowV2 {
             return ProcessEventResult::DoNothing;
         }
 
-        // Invoke all callbacks and collect results
-        let mut result = ProcessEventResult::DoNothing;
+        // Filter out system internal events as a safety check
+        // (They shouldn't appear since user events shouldn't contain them,
+        //  but we filter anyway to be safe)
+        let user_callbacks: Vec<_> = dispatch_result
+            .callbacks
+            .iter()
+            .filter(|cb| {
+                if let azul_core::events::EventFilter::Hover(hover_filter) = cb.event_filter {
+                    !hover_filter.is_system_internal()
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        // ========================================================================
+        // USER CALLBACK INVOCATION
+        // ========================================================================
+
+        // Capture focus state before callbacks for post-callback filtering
+        let old_focus = self
+            .get_layout_window()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
+        // Invoke all user callbacks and collect results
         let mut should_stop_propagation = false;
         let mut should_recurse = false;
         let mut focus_changed = false;
         let mut prevent_default = false; // Track if any callback prevented default
 
-        for callback_to_invoke in &dispatch_result.callbacks {
+        for callback_to_invoke in user_callbacks {
             if should_stop_propagation {
                 break;
             }
@@ -961,22 +1159,8 @@ pub trait PlatformWindowV2 {
                 self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
 
             for callback_result in callback_results {
-                // Capture old focus state before processing callback result
-                let old_focus = self
-                    .get_layout_window()
-                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-
                 let event_result = self.process_callback_result_v2(&callback_result);
                 result = result.max(event_result);
-
-                // Check if focus changed after callback
-                let new_focus = self
-                    .get_layout_window()
-                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-
-                if old_focus != new_focus {
-                    focus_changed = true;
-                }
 
                 // Check if callback prevented default
                 if callback_result.prevent_default {
@@ -1001,6 +1185,146 @@ pub trait PlatformWindowV2 {
         }
 
         // ========================================================================
+        // POST-CALLBACK INTERNAL EVENT FILTERING
+        // ========================================================================
+        // Process callback results to determine what internal processing continues
+
+        let new_focus = self
+            .get_layout_window()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+
+        let post_filter = azul_core::events::post_callback_filter_internal_events(
+            prevent_default,
+            &pre_filter.internal_events,
+            old_focus,
+            new_focus,
+        );
+
+        // Process system events returned from post-callback filter
+        for system_event in &post_filter.system_events {
+            match system_event {
+                azul_core::events::PostCallbackSystemEvent::FocusChanged => {
+                    focus_changed = true;
+                }
+                azul_core::events::PostCallbackSystemEvent::ApplyTextInput => {
+                    // Text input will be applied below
+                }
+                azul_core::events::PostCallbackSystemEvent::ApplyTextChangeset => {
+                    // TODO: Apply text changesets from Phase 2 refactoring
+                    // This will be implemented when changesets are fully integrated
+                }
+                azul_core::events::PostCallbackSystemEvent::ScrollIntoView => {
+                    // Scroll cursor/selection into view after text change
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        use azul_layout::window::{ScrollMode, SelectionScrollType};
+
+                        // Determine what to scroll based on focus manager state
+                        let scroll_type =
+                            if let Some(focused_node) = layout_window.focus_manager.focused_node {
+                                // Check if focused node has a text cursor or selection
+                                if layout_window
+                                    .selection_manager
+                                    .get_selection(&focused_node.dom)
+                                    .is_some()
+                                {
+                                    SelectionScrollType::Selection
+                                } else {
+                                    SelectionScrollType::Cursor
+                                }
+                            } else {
+                                // No focus, nothing to scroll
+                                continue;
+                            };
+
+                        // Scroll with instant mode (user-initiated action, not auto-scroll)
+                        layout_window.scroll_selection_into_view(scroll_type, ScrollMode::Instant);
+
+                        // Mark for re-render since scrolling changed viewport
+                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    }
+                }
+                azul_core::events::PostCallbackSystemEvent::StartAutoScrollTimer => {
+                    // Start auto-scroll timer for drag-to-scroll (Phase 5)
+                    // Timer frequency matches monitor refresh rate for smooth scrolling
+
+                    if let Some(layout_window) = self.get_layout_window() {
+                        let timer_id = azul_core::task::TimerId {
+                            id: AUTO_SCROLL_TIMER_ID,
+                        };
+
+                        // Check if timer already running (avoid duplicate timers)
+                        if !layout_window.timers.contains_key(&timer_id) {
+                            use azul_core::{
+                                refany::RefAny,
+                                task::{Duration as AzulDuration, SystemTimeDiff},
+                            };
+                            use azul_layout::timer::Timer;
+
+                            // TODO: Get actual monitor refresh rate from platform
+                            // For now, default to 60Hz (16.67ms per frame)
+                            // Platform implementations should query:
+                            // - macOS: [[NSScreen mainScreen] maximumFramesPerSecond]
+                            // - Windows: DwmGetCompositionTimingInfo
+                            // - X11: XRRGetScreenInfo
+                            // - Wayland: wl_output refresh field
+                            const DEFAULT_REFRESH_RATE_HZ: u32 = 60;
+                            let frame_time_nanos = 1_000_000_000 / DEFAULT_REFRESH_RATE_HZ;
+
+                            // Get system time function for timer creation
+                            let external = ExternalSystemCallbacks::rust_internal();
+
+                            // Create timer with monitor refresh rate interval
+                            let timer = Timer::new(
+                                RefAny::new(()), // Empty data
+                                auto_scroll_timer_callback,
+                                external.get_system_time_fn,
+                            )
+                            .with_interval(AzulDuration::System(SystemTimeDiff {
+                                secs: 0,
+                                nanos: frame_time_nanos,
+                            }));
+
+                            // Add timer to layout window
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                layout_window.add_timer(timer_id, timer.clone());
+
+                                // Start platform-specific native timer
+                                // This will create NSTimer/SetTimer/timerfd depending on platform
+                                self.start_timer(AUTO_SCROLL_TIMER_ID, timer);
+
+                                result =
+                                    result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                            }
+                        }
+                    }
+                }
+                azul_core::events::PostCallbackSystemEvent::CancelAutoScrollTimer => {
+                    // Cancel auto-scroll timer (Phase 5)
+                    // This stops both the framework timer and the native platform timer
+
+                    let timer_id = azul_core::task::TimerId {
+                        id: AUTO_SCROLL_TIMER_ID,
+                    };
+
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        if layout_window.timers.contains_key(&timer_id) {
+                            // Remove from layout window timer map
+                            layout_window.remove_timer(&timer_id);
+
+                            // Stop native platform timer (NSTimer/SetTimer/timerfd)
+                            // Platform implementations handle cleanup:
+                            // - macOS: [timer invalidate]
+                            // - Windows: KillTimer(hwnd, timer_id)
+                            // - X11: Remove from internal timer manager
+                            // - Wayland: close(timerfd)
+                            self.stop_timer(AUTO_SCROLL_TIMER_ID);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ========================================================================
         // POST-CALLBACK TEXT INPUT PROCESSING
         // ========================================================================
         // Apply text changeset if preventDefault was not set.
@@ -1010,7 +1334,11 @@ pub trait PlatformWindowV2 {
         // 3. Mark dirty nodes for re-layout
         // 4. Potentially trigger another event cycle if scrolling occurred
 
-        if !prevent_default && !text_input_affected_nodes.is_empty() {
+        let should_apply_text_input = post_filter
+            .system_events
+            .contains(&azul_core::events::PostCallbackSystemEvent::ApplyTextInput);
+
+        if should_apply_text_input && !text_input_affected_nodes.is_empty() {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 // Apply text changes and get list of dirty nodes
                 let dirty_nodes = layout_window.apply_text_changeset();

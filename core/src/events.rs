@@ -1201,9 +1201,34 @@ pub enum HoverEventFilter {
     /// Rotation gesture (two-finger rotate)
     RotateClockwise,
     RotateCounterClockwise,
+
+    // ========== Internal System Events ==========
+    // These events are used internally by the framework for text selection
+    // and other system-level features. They are NOT exposed to user callbacks
+    // via the On enum and should be filtered out before callback dispatch.
+    /// Internal: Single click detected (for text cursor placement)
+    /// This is distinct from MouseDown - it fires after MouseUp on the same element
+    #[doc(hidden)]
+    SystemTextSingleClick,
+    /// Internal: Double click detected (for word selection)
+    #[doc(hidden)]
+    SystemTextDoubleClick,
+    /// Internal: Triple click detected (for paragraph/line selection)
+    #[doc(hidden)]
+    SystemTextTripleClick,
 }
 
 impl HoverEventFilter {
+    /// Check if this is an internal system event that should not be exposed to user callbacks
+    pub const fn is_system_internal(&self) -> bool {
+        matches!(
+            self,
+            HoverEventFilter::SystemTextSingleClick
+                | HoverEventFilter::SystemTextDoubleClick
+                | HoverEventFilter::SystemTextTripleClick
+        )
+    }
+
     pub fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
         match self {
             HoverEventFilter::MouseOver => Some(FocusEventFilter::MouseOver),
@@ -1250,6 +1275,10 @@ impl HoverEventFilter {
             HoverEventFilter::RotateCounterClockwise => {
                 Some(FocusEventFilter::RotateCounterClockwise)
             }
+            // System internal events - don't convert to focus events
+            HoverEventFilter::SystemTextSingleClick => None,
+            HoverEventFilter::SystemTextDoubleClick => None,
+            HoverEventFilter::SystemTextTripleClick => None,
         }
     }
 }
@@ -2370,4 +2399,512 @@ mod tests {
         // We can't test it directly without making the function public
         // but it's tested indirectly through propagate_event
     }
+}
+
+// ============================================================================
+// Internal System Event Processing
+// ============================================================================
+
+/// Internal system event generated from click detection
+#[derive(Debug, Clone, PartialEq)]
+pub struct InternalSystemEvent {
+    /// The type of system event
+    pub event_type: HoverEventFilter,
+    /// Target node that was clicked
+    pub target: DomNodeId,
+    /// Position of the click
+    pub position: LogicalPosition,
+    /// Timestamp of the event
+    pub timestamp: Instant,
+}
+
+/// Result of pre-callback internal event filtering
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreCallbackFilterResult {
+    /// Internal system events to process BEFORE user callbacks
+    pub internal_events: Vec<PreCallbackSystemEvent>,
+    /// Regular events that will be passed to user callbacks
+    pub user_events: Vec<SyntheticEvent>,
+}
+
+/// Mouse button state for drag tracking
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseButtonState {
+    pub left_down: bool,
+    pub right_down: bool,
+    pub middle_down: bool,
+}
+
+/// System event to process AFTER user callbacks
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PostCallbackSystemEvent {
+    /// Apply text input to focused contenteditable element
+    ApplyTextInput,
+    /// Focus changed during callbacks
+    FocusChanged,
+    /// Apply text changeset (separate creation from application)
+    ApplyTextChangeset,
+    /// Scroll cursor/selection into view
+    ScrollIntoView,
+    /// Start auto-scroll timer for drag-to-scroll
+    StartAutoScrollTimer,
+    /// Cancel auto-scroll timer
+    CancelAutoScrollTimer,
+}
+
+/// Internal system event for pre-callback processing
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreCallbackSystemEvent {
+    /// Single/double/triple click for text selection
+    TextClick {
+        target: DomNodeId,
+        position: LogicalPosition,
+        click_count: u8,
+        timestamp: Instant,
+    },
+    /// Mouse drag for selection extension
+    TextDragSelection {
+        target: DomNodeId,
+        start_position: LogicalPosition,
+        current_position: LogicalPosition,
+        is_dragging: bool,
+    },
+    /// Arrow key navigation with optional selection extension
+    ArrowKeyNavigation {
+        target: DomNodeId,
+        direction: ArrowDirection,
+        extend_selection: bool, // Shift key held
+        word_jump: bool,        // Ctrl key held
+    },
+    /// Keyboard shortcut (Ctrl+C/X/A)
+    KeyboardShortcut {
+        target: DomNodeId,
+        shortcut: KeyboardShortcut,
+    },
+    /// Delete currently selected text (Backspace/Delete key)
+    DeleteSelection {
+        target: DomNodeId,
+        forward: bool, // true = Delete key (forward), false = Backspace (backward)
+    },
+}
+
+/// Arrow key directions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArrowDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Keyboard shortcuts for text editing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyboardShortcut {
+    Copy,      // Ctrl+C
+    Cut,       // Ctrl+X
+    Paste,     // Ctrl+V
+    SelectAll, // Ctrl+A
+    Undo,      // Ctrl+Z
+    Redo,      // Ctrl+Y or Ctrl+Shift+Z
+}
+
+/// Result of post-callback internal event filtering  
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostCallbackFilterResult {
+    /// System events to process AFTER user callbacks
+    pub system_events: Vec<PostCallbackSystemEvent>,
+}
+
+/// Pre-callback filter: Analyze events and extract internal system events.
+///
+/// This runs BEFORE user callbacks are invoked. It:
+/// 1. Analyzes click patterns for text selection (single/double/triple click)
+/// 2. Detects mouse drag for selection extension
+/// 3. Processes arrow keys with Shift (selection) and Ctrl (word jump)
+/// 4. Detects keyboard shortcuts (Ctrl+C/X/V/A/Z)
+/// 5. Generates internal system events for framework processing
+/// 6. Filters events to separate internal from user-facing
+///
+/// ## Arguments
+/// * `events` - Input synthetic events from state diffing
+/// * `hit_test` - Current hit test for finding clicked nodes
+/// * `click_count` - Current click count from SelectionManager
+/// * `mouse_down` - Whether left mouse button is currently pressed (for drag)
+/// * `drag_start_position` - Position where drag started (if dragging)
+/// * `focused_node` - Currently focused node (for keyboard events)
+///
+/// ## Returns
+/// * `PreCallbackFilterResult` - Separated internal and user events
+/// Pre-callback filter: Extract internal system events from synthetic events.
+///
+/// This function runs AFTER managers have been updated with current state (hit test,
+/// keyboard state, mouse state, etc.) but BEFORE user callbacks. It queries the managers
+/// to detect multi-frame event patterns.
+///
+/// ## Manager State Dependencies
+/// - `selection_manager`: Already updated with click state via `update_click_count()`
+/// - `focus_manager`: Contains current `focused_node` from focus tracking
+/// - `hover_manager`: Tracks previous mouse positions for drag detection
+/// - `keyboard_state`: Current keyboard state from window
+/// - `mouse_state`: Current mouse button states from window
+///
+/// ## Arguments
+/// * `events` - Synthetic events to filter
+/// * `hit_test` - Current hit test results
+/// * `keyboard_state` - Window keyboard state (for modifier keys, virtual key codes)
+/// * `mouse_state` - Window mouse state (for button down tracking)
+/// * `selection_manager` - Selection manager (for click count, drag state)
+/// * `focus_manager` - Focus manager (for focused node)
+///
+/// ## Returns
+/// * `PreCallbackFilterResult` - Separated internal and user events
+pub fn pre_callback_filter_internal_events<SM, FM>(
+    events: &[SyntheticEvent],
+    hit_test: Option<&FullHitTest>,
+    keyboard_state: &crate::window::KeyboardState,
+    mouse_state: &crate::window::MouseState,
+    selection_manager: &SM,
+    focus_manager: &FM,
+) -> PreCallbackFilterResult
+where
+    SM: SelectionManagerQuery,
+    FM: FocusManagerQuery,
+{
+    let mut internal_events = Vec::new();
+    let mut user_events = Vec::new();
+
+    // Query managers for current state
+    let click_count = selection_manager.get_click_count();
+    let focused_node = focus_manager.get_focused_node_id();
+    let drag_start_position = selection_manager.get_drag_start_position();
+
+    for event in events {
+        match event.event_type {
+            // ========== Mouse Events ==========
+            EventType::MouseDown => {
+                // Handle click for text selection
+                if click_count > 0 && click_count <= 3 {
+                    if let Some(ht) = hit_test {
+                        if let Some((dom_id, hit_data)) = ht.hovered_nodes.iter().next() {
+                            if let Some(node_id) = hit_data.regular_hit_test_nodes.keys().next() {
+                                let position = match &event.data {
+                                    EventData::Mouse(mouse_data) => mouse_data.position,
+                                    _ => LogicalPosition::zero(),
+                                };
+
+                                internal_events.push(PreCallbackSystemEvent::TextClick {
+                                    target: DomNodeId {
+                                        dom: *dom_id,
+                                        node: NodeHierarchyItemId::from_crate_internal(Some(
+                                            *node_id,
+                                        )),
+                                    },
+                                    position,
+                                    click_count,
+                                    timestamp: event.timestamp.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                user_events.push(event.clone());
+            }
+
+            EventType::MouseOver => {
+                // Handle drag selection - analyze state instead of tracking events
+                // Drag = left mouse button down + mouse moving
+                if mouse_state.left_down {
+                    if let Some(start_pos) = drag_start_position {
+                        if let Some(ht) = hit_test {
+                            if let Some((dom_id, hit_data)) = ht.hovered_nodes.iter().next() {
+                                if let Some(node_id) = hit_data.regular_hit_test_nodes.keys().next()
+                                {
+                                    let current_position = match &event.data {
+                                        EventData::Mouse(mouse_data) => mouse_data.position,
+                                        _ => LogicalPosition::zero(),
+                                    };
+
+                                    internal_events.push(
+                                        PreCallbackSystemEvent::TextDragSelection {
+                                            target: DomNodeId {
+                                                dom: *dom_id,
+                                                node: NodeHierarchyItemId::from_crate_internal(
+                                                    Some(*node_id),
+                                                ),
+                                            },
+                                            start_position: start_pos,
+                                            current_position,
+                                            is_dragging: true,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                user_events.push(event.clone());
+            }
+
+            // ========== Keyboard Events ==========
+            EventType::KeyDown => {
+                if let Some(target) = focused_node {
+                    if let EventData::Keyboard(kbd_data) = &event.data {
+                        // Use KeyboardState instead of event modifiers for consistency
+                        let ctrl_pressed = keyboard_state.ctrl_down();
+                        let shift_pressed = keyboard_state.shift_down();
+
+                        // Check for keyboard shortcuts using VirtualKeyCode (more robust than
+                        // char_code) This works across all keyboard layouts
+                        // and input methods
+                        use crate::window::VirtualKeyCode;
+                        if ctrl_pressed {
+                            let shortcut = match keyboard_state.current_virtual_keycode.as_ref() {
+                                Some(VirtualKeyCode::C) => Some(KeyboardShortcut::Copy),
+                                Some(VirtualKeyCode::X) => Some(KeyboardShortcut::Cut),
+                                Some(VirtualKeyCode::V) => Some(KeyboardShortcut::Paste),
+                                Some(VirtualKeyCode::A) => Some(KeyboardShortcut::SelectAll),
+                                Some(VirtualKeyCode::Z) if !shift_pressed => {
+                                    Some(KeyboardShortcut::Undo)
+                                }
+                                Some(VirtualKeyCode::Z) if shift_pressed => {
+                                    Some(KeyboardShortcut::Redo)
+                                }
+                                Some(VirtualKeyCode::Y) => Some(KeyboardShortcut::Redo),
+                                _ => None,
+                            };
+
+                            if let Some(shortcut) = shortcut {
+                                internal_events.push(PreCallbackSystemEvent::KeyboardShortcut {
+                                    target,
+                                    shortcut,
+                                });
+                                // Don't pass shortcuts to user callbacks
+                                continue;
+                            }
+                        }
+
+                        // Check for arrow key navigation using VirtualKeyCode
+                        // Use keyboard_state.current_virtual_keycode for state-based detection
+                        let direction =
+                            if let Some(vk) = keyboard_state.current_virtual_keycode.as_ref() {
+                                match vk {
+                                    VirtualKeyCode::Left => Some(ArrowDirection::Left),
+                                    VirtualKeyCode::Up => Some(ArrowDirection::Up),
+                                    VirtualKeyCode::Right => Some(ArrowDirection::Right),
+                                    VirtualKeyCode::Down => Some(ArrowDirection::Down),
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
+
+                        if let Some(direction) = direction {
+                            internal_events.push(PreCallbackSystemEvent::ArrowKeyNavigation {
+                                target,
+                                direction,
+                                extend_selection: shift_pressed,
+                                word_jump: ctrl_pressed,
+                            });
+                            // Don't pass arrow keys to user callbacks when in contenteditable
+                            continue;
+                        }
+
+                        // Check for Backspace/Delete keys when selection exists
+                        if let Some(vk) = keyboard_state.current_virtual_keycode.as_ref() {
+                            let should_delete = match vk {
+                                VirtualKeyCode::Back => {
+                                    // Backspace - delete backward (selection or single char)
+                                    if selection_manager.has_selection() {
+                                        Some(false) // backward deletion
+                                    } else {
+                                        None // No selection, pass to user callbacks
+                                    }
+                                }
+                                VirtualKeyCode::Delete => {
+                                    // Delete - delete forward (selection or single char)
+                                    if selection_manager.has_selection() {
+                                        Some(true) // forward deletion
+                                    } else {
+                                        None // No selection, pass to user callbacks
+                                    }
+                                }
+                                _ => None,
+                            };
+
+                            if let Some(forward) = should_delete {
+                                internal_events.push(PreCallbackSystemEvent::DeleteSelection {
+                                    target,
+                                    forward,
+                                });
+                                // Don't pass to user callbacks - we handle it
+                                continue;
+                            }
+                        }
+                    }
+                }
+                user_events.push(event.clone());
+            }
+
+            // All other events pass through
+            _ => {
+                user_events.push(event.clone());
+            }
+        }
+    }
+
+    PreCallbackFilterResult {
+        internal_events,
+        user_events,
+    }
+}
+
+/// Trait for querying selection manager state.
+///
+/// This allows `pre_callback_filter_internal_events` to query manager state
+/// without depending on the concrete `SelectionManager` type from layout crate.
+pub trait SelectionManagerQuery {
+    /// Get the current click count (1 = single, 2 = double, 3 = triple)
+    fn get_click_count(&self) -> u8;
+
+    /// Get the drag start position if a drag is in progress
+    fn get_drag_start_position(&self) -> Option<LogicalPosition>;
+
+    /// Check if any selection exists (click selection or drag selection)
+    fn has_selection(&self) -> bool;
+}
+
+/// Trait for querying focus manager state.
+///
+/// This allows `pre_callback_filter_internal_events` to query manager state
+/// without depending on the concrete `FocusManager` type from layout crate.
+pub trait FocusManagerQuery {
+    /// Get the currently focused node ID
+    fn get_focused_node_id(&self) -> Option<DomNodeId>;
+}
+
+/// Post-callback filter: Analyze applied changes and generate system events.
+///
+/// This runs AFTER user callbacks have been invoked. It analyzes what internal
+/// events were processed and determines what system actions are needed (scrolling,
+/// timers, etc.).
+///
+/// ## Architecture
+///
+/// Pre-callback phase creates internal events (TextClick, ArrowKeyNavigation, etc.).
+/// Those events are processed, potentially creating text changes. After user callbacks
+/// run, this function analyzes the results to determine scrolling and timer needs.
+///
+/// ## Arguments
+/// * `prevent_default` - Whether any callback prevented default action
+/// * `internal_events` - Internal events that were processed (from pre-filter)
+/// * `old_focus` - Focus state before callbacks
+/// * `new_focus` - Focus state after callbacks
+///
+/// ## Returns
+/// * `PostCallbackFilterResult` - System events to process after callbacks
+pub fn post_callback_filter_internal_events(
+    prevent_default: bool,
+    internal_events: &[PreCallbackSystemEvent],
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> PostCallbackFilterResult {
+    let mut system_events = Vec::new();
+
+    // If callbacks didn't prevent default, apply text input
+    if !prevent_default {
+        system_events.push(PostCallbackSystemEvent::ApplyTextInput);
+
+        // Analyze internal events to determine scroll needs
+        for event in internal_events {
+            match event {
+                PreCallbackSystemEvent::TextClick { .. } => {
+                    // Single/double/triple click changes selection/cursor
+                    // Always scroll into view after click
+                    system_events.push(PostCallbackSystemEvent::ScrollIntoView);
+                }
+                PreCallbackSystemEvent::TextDragSelection { is_dragging, .. } => {
+                    // Drag selection in progress
+                    if *is_dragging {
+                        // Start auto-scroll timer if not already running
+                        // Timer will check mouse position and scroll continuously
+                        system_events.push(PostCallbackSystemEvent::StartAutoScrollTimer);
+                    } else {
+                        // Drag ended, cancel timer
+                        system_events.push(PostCallbackSystemEvent::CancelAutoScrollTimer);
+                    }
+                }
+                PreCallbackSystemEvent::ArrowKeyNavigation { .. } => {
+                    // Arrow keys move cursor/selection
+                    // Scroll to keep cursor visible
+                    system_events.push(PostCallbackSystemEvent::ScrollIntoView);
+                }
+                PreCallbackSystemEvent::KeyboardShortcut { shortcut, .. } => {
+                    use KeyboardShortcut::*;
+                    match shortcut {
+                        Copy => {
+                            // Copy doesn't change selection, no scroll needed
+                        }
+                        Cut | Paste => {
+                            // Cut/paste modifies text and may change cursor position
+                            system_events.push(PostCallbackSystemEvent::ScrollIntoView);
+                        }
+                        SelectAll => {
+                            // Select all changes selection but typically no scroll
+                            // (user wants to see the whole document selected)
+                        }
+                        Undo | Redo => {
+                            // Undo/redo may restore cursor to different position
+                            system_events.push(PostCallbackSystemEvent::ScrollIntoView);
+                        }
+                    }
+                }
+                PreCallbackSystemEvent::DeleteSelection { .. } => {
+                    // Delete/Backspace removes selection and places cursor
+                    // Scroll to keep cursor visible after deletion
+                    system_events.push(PostCallbackSystemEvent::ScrollIntoView);
+                }
+            }
+        }
+    }
+
+    // If focus changed, mark for processing
+    if old_focus != new_focus {
+        system_events.push(PostCallbackSystemEvent::FocusChanged);
+    }
+
+    PostCallbackFilterResult { system_events }
+}
+
+/// Deprecated: Use pre_callback_filter_internal_events instead
+#[deprecated(
+    since = "0.1.0",
+    note = "Use pre_callback_filter_internal_events instead"
+)]
+pub fn filter_internal_events(events: &[SyntheticEvent]) -> FilteredInternalEvents {
+    FilteredInternalEvents {
+        internal_events: Vec::new(),
+        user_events: events.to_vec(),
+    }
+}
+
+/// Deprecated: Use pre_callback_filter_internal_events instead
+#[deprecated(
+    since = "0.1.0",
+    note = "Use pre_callback_filter_internal_events instead"
+)]
+pub fn dispatch_internal_events(
+    _events: &FilteredInternalEvents,
+    _click_count: u8,
+    _current_hit_test: Option<&FullHitTest>,
+    _current_position: LogicalPosition,
+    _timestamp: Instant,
+) -> Vec<InternalSystemEvent> {
+    Vec::new()
+}
+
+// Deprecated type for compatibility
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilteredInternalEvents {
+    pub internal_events: Vec<InternalSystemEvent>,
+    pub user_events: Vec<SyntheticEvent>,
 }

@@ -207,6 +207,24 @@ pub struct CallbackInfo {
     cursor_in_viewport: OptionLogicalPosition,
 }
 
+impl core::ops::Deref for CallbackInfo {
+    type Target = LayoutWindow;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: layout_window is a valid mutable pointer for the lifetime of CallbackInfo
+        // The unsafe code is only to eliminate lifetimes from the callback signature
+        unsafe { &*self.layout_window }
+    }
+}
+
+impl core::ops::DerefMut for CallbackInfo {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: layout_window is a valid mutable pointer for the lifetime of CallbackInfo
+        // The unsafe code is only to eliminate lifetimes from the callback signature
+        unsafe { &mut *self.layout_window }
+    }
+}
+
 impl CallbackInfo {
     #[allow(clippy::too_many_arguments)]
     pub fn new<'a>(
@@ -433,6 +451,17 @@ impl CallbackInfo {
         self.hit_dom_node
     }
 
+    /// Get full current window state (immutable reference)
+    ///
+    /// This provides safe access to the full window state for reading
+    /// mouse position, keyboard state, size, DPI, etc. in callbacks.
+    /// Unlike `get_current_window_state()` which clones WindowState,
+    /// this returns a reference to the complete FullWindowState.
+    pub fn get_full_current_window_state(&self) -> &FullWindowState {
+        // SAFETY: current_window_state is a valid pointer for the lifetime of CallbackInfo
+        unsafe { &*self.current_window_state }
+    }
+
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.internal_get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
@@ -578,6 +607,117 @@ impl CallbackInfo {
                 .or_insert_with(BTreeMap::new)
                 .insert(node_id_internal, new_string_contents);
         }
+    }
+
+    // ===== Text Selection Management =====
+
+    /// Get the current selection state for a DOM
+    pub fn get_selection(&self, dom_id: &DomId) -> Option<&azul_core::selection::SelectionState> {
+        self.internal_get_layout_window()
+            .selection_manager
+            .get_selection(dom_id)
+    }
+
+    /// Set a single cursor position, replacing all existing selections
+    pub fn set_cursor(
+        &mut self,
+        dom_id: DomId,
+        node_id: DomNodeId,
+        cursor: azul_core::selection::TextCursor,
+    ) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .set_cursor(dom_id, node_id, cursor);
+    }
+
+    /// Set a selection range, replacing all existing selections
+    pub fn set_selection_range(
+        &mut self,
+        dom_id: DomId,
+        node_id: DomNodeId,
+        range: azul_core::selection::SelectionRange,
+    ) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .set_range(dom_id, node_id, range);
+    }
+
+    /// Add a selection (for multi-cursor support)
+    pub fn add_selection(
+        &mut self,
+        dom_id: DomId,
+        node_id: DomNodeId,
+        selection: azul_core::selection::Selection,
+    ) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .add_selection(dom_id, node_id, selection);
+    }
+
+    /// Clear selection for a specific DOM
+    pub fn clear_selection(&mut self, dom_id: &DomId) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .clear_selection(dom_id);
+    }
+
+    /// Clear all selections across all DOMs
+    pub fn clear_all_selections(&mut self) {
+        self.internal_get_layout_window_mut()
+            .selection_manager
+            .clear_all();
+    }
+
+    /// Check if a DOM has any selection
+    pub fn has_selection(&self, dom_id: &DomId) -> bool {
+        self.internal_get_layout_window()
+            .selection_manager
+            .has_selection(dom_id)
+    }
+
+    /// Get the primary cursor for a DOM (first in selection list)
+    pub fn get_primary_cursor(&self, dom_id: &DomId) -> Option<azul_core::selection::TextCursor> {
+        self.internal_get_layout_window()
+            .selection_manager
+            .get_primary_cursor(dom_id)
+    }
+
+    /// Get all selection ranges (excludes plain cursors)
+    pub fn get_selection_ranges(
+        &self,
+        dom_id: &DomId,
+    ) -> Vec<azul_core::selection::SelectionRange> {
+        self.internal_get_layout_window()
+            .selection_manager
+            .get_ranges(dom_id)
+    }
+
+    /// Get direct access to the text layout cache
+    ///
+    /// Note: This provides direct access to the text layout cache, but you need
+    /// to know the CacheId for the specific text node you want. Currently there's
+    /// no direct mapping from NodeId to CacheId exposed in the public API.
+    ///
+    /// For text selection operations, use the SelectionManager methods instead:
+    /// - `set_cursor()`, `set_selection_range()` for setting selections
+    /// - `get_selection()`, `get_primary_cursor()` for reading selections
+    ///
+    /// Future: Add NodeId -> CacheId mapping to enable node-specific layout access
+    pub fn get_text_cache(
+        &self,
+    ) -> &crate::text3::cache::LayoutCache<azul_css::props::basic::FontRef> {
+        &self.internal_get_layout_window().text_cache
+    }
+
+    /// Get mutable access to the text layout cache
+    ///
+    /// Note: Use with caution - modifying the cache directly can invalidate layout.
+    /// Prefer using higher-level methods like `set_string_contents()` which properly
+    /// invalidate affected nodes.
+    pub fn get_text_cache_mut(
+        &mut self,
+    ) -> &mut crate::text3::cache::LayoutCache<azul_css::props::basic::FontRef> {
+        &mut self.internal_get_layout_window_mut().text_cache
     }
 
     // ===== Window State Access =====
@@ -914,38 +1054,6 @@ impl CallbackInfo {
             .file_drop_manager
             .dropped_file
             .as_ref()
-    }
-
-    /// Get the text selection for a specific DOM
-    ///
-    /// Returns None if no selection exists for this DOM.
-    pub fn get_selection(&self, dom_id: &DomId) -> Option<&azul_core::selection::SelectionState> {
-        self.internal_get_layout_window()
-            .selection_manager
-            .get_selection(dom_id)
-    }
-
-    /// Check if any text is currently selected in any DOM
-    pub fn has_any_selection(&self) -> bool {
-        self.internal_get_layout_window()
-            .selection_manager
-            .has_any_selection()
-    }
-
-    /// Clear text selection for a specific DOM
-    ///
-    /// This is a mutable operation that modifies the selection state.
-    pub fn clear_selection(&mut self, dom_id: &DomId) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
-            .clear_selection(dom_id);
-    }
-
-    /// Clear all text selections in all DOMs
-    pub fn clear_all_selections(&mut self) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
-            .clear_all();
     }
 
     /// Check if a node or file drag is currently active
