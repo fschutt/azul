@@ -7,6 +7,111 @@
 //!
 //! The manager translates between Azul's internal DOM representation and
 //! the platform-agnostic `accesskit` tree format.
+//!
+//! # Accessibility Action Flow Architecture
+//!
+//! This document explains how accessibility actions from assistive technologies
+//! flow through the various managers in the Azul layout system.
+//!
+//! ## Overview
+//!
+//! ```text
+//! Assistive Technology (accesskit)
+//!           ↓
+//! Platform Adapter (macos/windows/linux)
+//!           ↓
+//! LayoutWindow::process_accessibility_action()
+//!           ↓
+//!     ┌─────┴─────┬─────────┬──────────┬────────────┐
+//!     ↓           ↓         ↓          ↓            ↓
+//! FocusManager ScrollMgr SelectionMgr CursorMgr  Event System
+//!                                                (Callbacks)
+//! ```
+//!
+//! ## Manager Responsibilities
+//!
+//! ### FocusManager
+//! - Tracks currently focused DOM node
+//! - Handles tab navigation
+//! - Clears text selections when focus changes
+//! - Triggers FocusIn/FocusOut synthetic events
+//!
+//! ### ScrollManager
+//! - Tracks scroll positions for all scrollable nodes
+//! - Animates smooth scrolling (200-300ms, EaseOut)
+//! - Handles ScrollUp/Down/Left/Right/Forward/Backward/IntoView
+//!
+//! ### SelectionManager
+//! - Tracks text selection ranges across all DOMs
+//! - Cleared automatically when focus changes
+//! - Used for text editing operations
+//!
+//! ### CursorManager (TODO)
+//! - Tracks text cursor position in focused contenteditable node
+//! - Set to None when focus is on non-editable node
+//! - Set to end of text when focus moves to editable node
+//!
+//! ### Event System (Callbacks)
+//! - Default/Increment/Decrement/Collapse/Expand → Synthetic `HoverEvent::Click`
+//! - Uses `EventSource::Synthetic` (doesn't update mouse state)
+//! - Falls back to regular click if no specific callback registered
+//!
+//! ## Text Editing Flow
+//!
+//! ```text
+//! 1. Check contenteditable="true" attribute
+//! 2. Find NodeType::Text in node or immediate children
+//! 3. Look up layouted text in LayoutWindow.text_cache
+//! 4. Get current cursor/selection from managers
+//! 5. Apply edit using text3::edit::edit_text()
+//! 6. Update DOM with new text
+//! 7. Trigger re-layout
+//! 8. Update cursor position
+//! ```
+//!
+//! ## Focus Change and Cursor Reset
+//!
+//! When focus changes:
+//! ```rust
+//! focus_manager.set_focused_node(new_node);
+//! selection_manager.clear_all(); // Automatic
+//!
+//! if node.has_contenteditable() {
+//!     let text_length = get_text_length(node);
+//!     cursor_manager.set(TextCursor::at_end(text_length));
+//! } else {
+//!     cursor_manager.clear(); // No cursor for non-editable nodes
+//! }
+//! ```
+//!
+//! ## TODO List
+//!
+//! ### High Priority
+//! - [ ] Implement CursorManager with TextCursor state per DOM
+//! - [ ] Add cursor initialization in FocusManager::set_focused_node()
+//! - [ ] Implement edit_text_node() with text_cache lookup
+//! - [ ] Add has_contenteditable() helper
+//! - [ ] Generate synthetic events for Default/Increment/Decrement/Collapse/Expand
+//!
+//! ### Medium Priority
+//! - [ ] Add cursor movement functions using text3 utilities
+//! - [ ] Implement SetTextSelection action
+//! - [ ] Add text cursor visualization in renderer
+//! - [ ] Handle multi-cursor scenarios
+//!
+//! ### Low Priority
+//! - [ ] Custom action handlers
+//! - [ ] Tooltip actions (ShowTooltip/HideTooltip)
+//! - [ ] ARIA live region announcements
+//!
+//! ## Testing Strategy
+//!
+//! Test manager interactions with fake inputs on fake LayoutWindow:
+//! - Focus → Cursor: contenteditable initializes cursor
+//! - Focus → Selection: focus change clears selections
+//! - Edit → Cursor: text edit updates cursor position
+//! - Scroll → Focus: ScrollIntoView works with focused node
+//! - Synthetic Events: Default action triggers callback
 
 #[cfg(feature = "accessibility")]
 use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
@@ -300,21 +405,84 @@ impl A11yManager {
         };
 
         // Map accesskit Action to AccessibilityAction
-        // Note: accesskit 0.17 uses different action names than the custom AccessibilityAction enum
+        use azul_css::{AzString, props::basic::FloatValue};
+        use azul_core::geom::LogicalPosition;
         let action = match request.action {
+            Action::Click => AccessibilityAction::Default,
             Action::Focus => AccessibilityAction::Focus,
+            Action::Blur => AccessibilityAction::Blur,
+            Action::Collapse => AccessibilityAction::Collapse,
+            Action::Expand => AccessibilityAction::Expand,
             Action::ScrollIntoView => AccessibilityAction::ScrollIntoView,
             Action::Increment => AccessibilityAction::Increment,
             Action::Decrement => AccessibilityAction::Decrement,
             Action::ShowContextMenu => AccessibilityAction::ShowContextMenu,
+            Action::HideTooltip => AccessibilityAction::HideTooltip,
+            Action::ShowTooltip => AccessibilityAction::ShowTooltip,
             Action::ScrollBackward => AccessibilityAction::ScrollBackward,
             Action::ScrollForward => AccessibilityAction::ScrollForward,
             Action::ScrollUp => AccessibilityAction::ScrollUp,
             Action::ScrollDown => AccessibilityAction::ScrollDown,
             Action::ScrollLeft => AccessibilityAction::ScrollLeft,
             Action::ScrollRight => AccessibilityAction::ScrollRight,
-            // For any unmapped action, treat as default action
-            _ => AccessibilityAction::Default,
+            Action::ReplaceSelectedText => {
+                if let Some(accesskit::ActionData::Value(value)) = request.data {
+                    AccessibilityAction::ReplaceSelectedText(AzString::from(value.as_ref()))
+                } else {
+                    return None; // Invalid request
+                }
+            }
+            Action::ScrollToPoint => {
+                if let Some(accesskit::ActionData::ScrollToPoint(point)) = request.data {
+                    AccessibilityAction::ScrollToPoint(LogicalPosition {
+                        x: point.x as f32,
+                        y: point.y as f32,
+                    })
+                } else {
+                    return None;
+                }
+            }
+            Action::SetScrollOffset => {
+                if let Some(accesskit::ActionData::SetScrollOffset(point)) = request.data {
+                    AccessibilityAction::SetScrollOffset(LogicalPosition {
+                        x: point.x as f32,
+                        y: point.y as f32,
+                    })
+                } else {
+                    return None;
+                }
+            }
+            Action::SetTextSelection => {
+                if let Some(accesskit::ActionData::SetTextSelection(selection)) = request.data {
+                    AccessibilityAction::SetTextSelection(azul_core::dom::TextSelectionStartEnd {
+                        start: selection.anchor.character_index,
+                        end: selection.focus.character_index,
+                    })
+                } else {
+                    return None;
+                }
+            }
+            Action::SetSequentialFocusNavigationStartingPoint => {
+                AccessibilityAction::SetSequentialFocusNavigationStartingPoint
+            }
+            Action::SetValue => {
+                match request.data {
+                    Some(accesskit::ActionData::Value(value)) => {
+                        AccessibilityAction::SetValue(AzString::from(value.as_ref()))
+                    }
+                    Some(accesskit::ActionData::NumericValue(value)) => {
+                        AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
+                    }
+                    _ => return None,
+                }
+            }
+            Action::CustomAction => {
+                if let Some(accesskit::ActionData::CustomAction(id)) = request.data {
+                    AccessibilityAction::CustomAction(id)
+                } else {
+                    return None;
+                }
+            }
         };
 
         Some((dom_node_id, action))

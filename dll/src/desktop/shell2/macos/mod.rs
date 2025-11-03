@@ -16,7 +16,7 @@ use std::{
 
 use azul_core::{
     callbacks::LayoutCallbackInfo,
-    dom::DomId,
+    dom::{DomId, NodeId},
     gl::{GlContextPtr, OptionGlContextPtr},
     hit_test::DocumentId,
     menu::Menu,
@@ -82,6 +82,7 @@ mod events;
 mod gl;
 mod menu;
 pub mod registry;
+pub mod accessibility;
 
 use events::HitTestNode;
 use gl::GlFunctions;
@@ -989,6 +990,11 @@ pub struct MacOSWindow {
     /// Synchronization for frame readiness (signals when WebRender has a new frame ready)
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
 
+    // Accessibility support
+    /// Accessibility adapter for NSAccessibility integration (macOS screen readers)
+    #[cfg(feature = "accessibility")]
+    accessibility_adapter: Option<accessibility::MacOSAccessibilityAdapter>,
+
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
@@ -1692,6 +1698,8 @@ impl MacOSWindow {
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
+            #[cfg(feature = "accessibility")]
+            accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
             timers: std::collections::HashMap::new(),
             thread_timer_running: None,
@@ -1713,6 +1721,13 @@ impl MacOSWindow {
         eprintln!("[Window Init] Performing initial layout");
         if let Err(e) = window.regenerate_layout() {
             eprintln!("[Window Init] WARNING: Initial layout failed: {}", e);
+        }
+
+        // Initialize accessibility adapter after first layout
+        #[cfg(feature = "accessibility")]
+        {
+            eprintln!("[Window Init] Initializing accessibility support");
+            window.init_accessibility();
         }
 
         // Set frame_needs_regeneration to true so drawRect will build and send transaction
@@ -1756,6 +1771,10 @@ impl MacOSWindow {
 
         // Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
+
+        // Update accessibility tree after layout
+        #[cfg(feature = "accessibility")]
+        self.update_accessibility();
 
         Ok(())
     }
@@ -1841,15 +1860,14 @@ impl MacOSWindow {
     /// Perform GPU scrolling - updates scroll transforms without full relayout
     pub fn gpu_scroll(
         &mut self,
-        dom_id: u64,
-        node_id: u64,
+        dom_id: DomId,
+        node_id: NodeId,
         delta_x: f32,
         delta_y: f32,
     ) -> Result<(), String> {
         use std::time::Duration;
 
         use azul_core::{
-            dom::{DomId, NodeId},
             events::{EasingFunction, EventSource},
             geom::LogicalPosition,
         };
@@ -1857,15 +1875,10 @@ impl MacOSWindow {
 
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        let dom_id_typed = DomId {
-            inner: dom_id as usize,
-        };
-        let node_id_typed = node_id as u32; // NodeId is u32 in scroll system
-
         // 1. Create scroll event and process it
         let scroll_event = ScrollEvent {
-            dom_id: dom_id_typed,
-            node_id: NodeId::new(node_id_typed as usize),
+            dom_id,
+            node_id,
             delta: LogicalPosition::new(delta_x, delta_y),
             source: EventSource::User,
             duration: None, // Instant scroll
@@ -1985,8 +1998,9 @@ impl MacOSWindow {
         }
 
         // Mouse cursor synchronization - compute from current hit test
+        use azul_layout::managers::InputPointId;
         if let Some(layout_window) = self.layout_window.as_ref() {
-            if let Some(hit_test) = layout_window.hover_manager.get_current() {
+            if let Some(hit_test) = layout_window.hover_manager.get_current(&InputPointId::Mouse) {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 let cursor_name = self.map_cursor_type_to_macos(cursor_test.cursor_icon);
                 self.set_cursor(cursor_name);
@@ -3147,6 +3161,90 @@ impl MacOSEvent {
 }
 
 impl MacOSWindow {
+    /// Initialize accessibility support for the window
+    ///
+    /// This should be called once after the first layout pass to set up
+    /// the accesskit adapter with the initial accessibility tree.
+    #[cfg(feature = "accessibility")]
+    fn init_accessibility(&mut self) {
+        if self.accessibility_adapter.is_some() {
+            return; // Already initialized
+        }
+
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => {
+                eprintln!("[a11y] Cannot initialize: no layout window");
+                return;
+            }
+        };
+
+        // Get the root NSView (either GL or CPU view)
+        let view_ptr = if let Some(gl_view) = self.gl_view.as_ref() {
+            Retained::<GLView>::as_ptr(gl_view) as *mut std::ffi::c_void
+        } else if let Some(cpu_view) = self.cpu_view.as_ref() {
+            Retained::<CPUView>::as_ptr(cpu_view) as *mut std::ffi::c_void
+        } else {
+            eprintln!("[a11y] Cannot initialize: no view available");
+            return;
+        };
+
+        // Create the adapter
+        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
+        self.accessibility_adapter = Some(adapter);
+
+        // Update with initial tree
+        self.update_accessibility();
+
+        eprintln!("[a11y] Accessibility adapter initialized");
+    }
+
+    /// Update accessibility tree after layout changes
+    ///
+    /// This should be called after regenerate_layout() to keep the
+    /// accessibility tree synchronized with the visual representation.
+    #[cfg(feature = "accessibility")]
+    fn update_accessibility(&mut self) {
+        let adapter = match self.accessibility_adapter.as_mut() {
+            Some(a) => a,
+            None => return, // Not initialized yet
+        };
+
+        let layout_window = match self.layout_window.as_ref() {
+            Some(lw) => lw,
+            None => return,
+        };
+
+        // Generate tree update from current layout
+        let tree_update = azul_layout::managers::a11y::A11yManager::update_tree(
+            layout_window.a11y_manager.root_id,
+            &layout_window.layout_results,
+            &self.current_window_state.title,
+            self.current_window_state.size.dimensions,
+        );
+
+        // Submit to OS
+        adapter.update_tree(tree_update);
+    }
+
+    /// Poll for accessibility action requests from assistive technologies
+    ///
+    /// This should be called in the event loop to check if screen readers
+    /// have requested any actions (focus, click, scroll, etc.)
+    #[cfg(feature = "accessibility")]
+    pub fn poll_accessibility_actions(&mut self) -> Vec<(DomId, azul_core::dom::NodeId, azul_core::dom::AccessibilityAction)> {
+        let adapter = match self.accessibility_adapter.as_ref() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+
+        let mut actions = Vec::new();
+        while let Some(action) = adapter.poll_action() {
+            actions.push(action);
+        }
+        actions
+    }
+
     /// Inject a menu bar into the window
     ///
     /// On macOS, this creates a native NSMenu hierarchy attached to the application.

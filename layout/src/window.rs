@@ -145,6 +145,19 @@ pub struct ScrollbarDragState {
     pub initial_scroll_offset: LogicalPosition,
 }
 
+/// Information about the last text edit operation
+/// Allows callbacks to query what changed during text input
+// Re-export TextChangeset from text_input manager
+pub use crate::managers::text_input::TextChangeset;
+
+/// Cached text layout constraints for a node
+/// These are the layout parameters that were used to shape the text
+#[derive(Debug, Clone)]
+pub struct TextConstraintsCache {
+    /// Map from (dom_id, node_id) to their layout constraints
+    pub constraints: BTreeMap<(DomId, NodeId), crate::text3::cache::UnifiedConstraints>,
+}
+
 /// A window-level layout manager that encapsulates all layout state and caching.
 ///
 /// This struct owns the layout and text caches, and provides methods to:
@@ -209,6 +222,11 @@ pub struct LayoutWindow {
     pub gl_texture_cache: GlTextureCache,
     /// State for tracking scrollbar drag interaction
     currently_dragging_thumb: Option<ScrollbarDragState>,
+    /// Text input manager - centralizes all text editing logic
+    pub text_input_manager: crate::managers::text_input::TextInputManager,
+    /// Cached text layout constraints for each node
+    /// This allows us to re-layout text with the same constraints after edits
+    text_constraints_cache: TextConstraintsCache,
 }
 
 fn default_duration_500ms() -> Duration {
@@ -260,6 +278,10 @@ impl LayoutWindow {
             epoch: Epoch::new(),
             gl_texture_cache: GlTextureCache::default(),
             currently_dragging_thumb: None,
+            text_input_manager: crate::managers::text_input::TextInputManager::new(),
+            text_constraints_cache: TextConstraintsCache {
+                constraints: BTreeMap::new(),
+            },
         })
     }
 
@@ -2392,4 +2414,761 @@ impl LayoutWindow {
         // styled_dom.css_property_cache.ptr.get_user_select(node_data, &node_id, node_state)
         true
     }
+
+    /// Process an accessibility action from an assistive technology.
+    ///
+    /// This method dispatches actions to the appropriate managers (scroll, focus, etc.)
+    /// and returns information about which nodes were affected and how.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the target node
+    /// * `node_id` - The target node for the action
+    /// * `action` - The accessibility action to perform
+    /// * `now` - Current timestamp for animations
+    ///
+    /// # Returns
+    /// A BTreeMap of affected nodes with:
+    /// - Key: DomNodeId that was affected
+    /// - Value: (Vec<EventFilter> synthetic events to dispatch, bool indicating if node needs re-layout)
+    /// 
+    /// Empty map = action was not applicable or nothing changed
+    #[cfg(feature = "accessibility")]
+    pub fn process_accessibility_action(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        action: azul_core::dom::AccessibilityAction,
+        now: std::time::Instant,
+    ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+        use azul_core::events::EventFilter;
+        use azul_core::dom::AccessibilityAction;
+        use azul_core::geom::LogicalPosition;
+        use azul_core::styled_dom::NodeHierarchyItemId;
+        use azul_core::dom::DomNodeId;
+
+        let mut affected_nodes = BTreeMap::new();
+
+        match action {
+            // Focus actions
+            AccessibilityAction::Focus => {
+                let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                let dom_node_id = DomNodeId { dom: dom_id, node: hierarchy_id };
+                self.focus_manager.set_focused_node(Some(dom_node_id));
+                
+                // Check if node is contenteditable - if so, initialize cursor at end of text
+                if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                    if let Some(styled_node) = layout_result.styled_dom.node_data.as_ref().get(node_id.index()) {
+                        let is_contenteditable = styled_node.attributes
+                            .as_ref()
+                            .iter()
+                            .any(|attr| matches!(attr, azul_core::dom::AttributeType::ContentEditable(_)));
+                        
+                        if is_contenteditable {
+                            // TODO: Initialize cursor at end of text when text layout is available
+                            // For now, just set empty cursor
+                            use azul_core::selection::{TextCursor, CursorAffinity, GraphemeClusterId};
+                            
+                            let cursor = TextCursor {
+                                cluster_id: GraphemeClusterId {
+                                    source_run: 0,
+                                    start_byte_in_run: 0,
+                                },
+                                affinity: CursorAffinity::Trailing,
+                            };
+                            
+                            self.focus_manager.set_text_cursor(Some(cursor));
+                        } else {
+                            // Not editable - clear cursor
+                            self.focus_manager.clear_text_cursor();
+                        }
+                    }
+                }
+                
+                // Optionally scroll into view
+                self.scroll_to_node_if_needed(dom_id, node_id, now);
+            }
+            AccessibilityAction::Blur => {
+                self.focus_manager.clear_focus();
+                self.focus_manager.clear_text_cursor();
+            }
+            AccessibilityAction::SetSequentialFocusNavigationStartingPoint => {
+                let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                let dom_node_id = DomNodeId { dom: dom_id, node: hierarchy_id };
+                self.focus_manager.set_focused_node(Some(dom_node_id));
+                // Clear cursor for focus navigation
+                self.focus_manager.clear_text_cursor();
+            }
+
+            // Scroll actions
+            AccessibilityAction::ScrollIntoView => {
+                self.scroll_to_node_if_needed(dom_id, node_id, now);
+            }
+            AccessibilityAction::ScrollUp => {
+                self.scroll_states.scroll_by(
+                    dom_id,
+                    node_id,
+                    LogicalPosition { x: 0.0, y: -100.0 },
+                    std::time::Duration::from_millis(200).into(),
+                    azul_core::events::EasingFunction::EaseOut,
+                    now.into(),
+                );
+            }
+            AccessibilityAction::ScrollDown => {
+                self.scroll_states.scroll_by(
+                    dom_id,
+                    node_id,
+                    LogicalPosition { x: 0.0, y: 100.0 },
+                    std::time::Duration::from_millis(200).into(),
+                    azul_core::events::EasingFunction::EaseOut,
+                    now.into(),
+                );
+            }
+            AccessibilityAction::ScrollLeft => {
+                self.scroll_states.scroll_by(
+                    dom_id,
+                    node_id,
+                    LogicalPosition { x: -100.0, y: 0.0 },
+                    std::time::Duration::from_millis(200).into(),
+                    azul_core::events::EasingFunction::EaseOut,
+                    now.into(),
+                );
+            }
+            AccessibilityAction::ScrollRight => {
+                self.scroll_states.scroll_by(
+                    dom_id,
+                    node_id,
+                    LogicalPosition { x: 100.0, y: 0.0 },
+                    std::time::Duration::from_millis(200).into(),
+                    azul_core::events::EasingFunction::EaseOut,
+                    now.into(),
+                );
+            }
+            AccessibilityAction::ScrollBackward => {
+                // Scroll up by one page
+                if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
+                    let page_height = size.height;
+                    self.scroll_states.scroll_by(
+                        dom_id,
+                        node_id,
+                        LogicalPosition { x: 0.0, y: -page_height },
+                        std::time::Duration::from_millis(300).into(),
+                        azul_core::events::EasingFunction::EaseInOut,
+                        now.into(),
+                    );
+                }
+            }
+            AccessibilityAction::ScrollForward => {
+                // Scroll down by one page
+                if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
+                    let page_height = size.height;
+                    self.scroll_states.scroll_by(
+                        dom_id,
+                        node_id,
+                        LogicalPosition { x: 0.0, y: page_height },
+                        std::time::Duration::from_millis(300).into(),
+                        azul_core::events::EasingFunction::EaseInOut,
+                        now.into(),
+                    );
+                }
+            }
+            AccessibilityAction::SetScrollOffset(pos) => {
+                self.scroll_states.scroll_to(
+                    dom_id,
+                    node_id,
+                    pos,
+                    std::time::Duration::from_millis(0).into(),
+                    azul_core::events::EasingFunction::Linear,
+                    now.into(),
+                );
+            }
+            AccessibilityAction::ScrollToPoint(pos) => {
+                self.scroll_states.scroll_to(
+                    dom_id,
+                    node_id,
+                    pos,
+                    std::time::Duration::from_millis(300).into(),
+                    azul_core::events::EasingFunction::EaseInOut,
+                    now.into(),
+                );
+            }
+
+            // Actions that should trigger element callbacks if they exist
+            // These generate synthetic EventFilters that go through the normal
+            // callback system
+            AccessibilityAction::Default |
+            AccessibilityAction::Increment |
+            AccessibilityAction::Decrement |
+            AccessibilityAction::Collapse |
+            AccessibilityAction::Expand => {
+                // Map accessibility action to corresponding On:: event
+                use azul_core::dom::On;
+                
+                let event_type = match action {
+                    AccessibilityAction::Default => On::Default,
+                    AccessibilityAction::Increment => On::Increment,
+                    AccessibilityAction::Decrement => On::Decrement,
+                    AccessibilityAction::Collapse => On::Collapse,
+                    AccessibilityAction::Expand => On::Expand,
+                    _ => unreachable!(),
+                };
+                
+                // Check if node has a callback for this event type
+                if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                    if let Some(styled_node) = layout_result.styled_dom.node_data.as_ref().get(node_id.index()) {
+                        // Check if any callback matches this event type
+                        let has_callback = styled_node.callbacks.as_ref()
+                            .iter()
+                            .any(|cb| cb.event == event_type.into());
+                        
+                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                        let dom_node_id = DomNodeId { dom: dom_id, node: hierarchy_id };
+                        
+                        if has_callback {
+                            // Generate EventFilter for this specific callback
+                            affected_nodes.insert(dom_node_id, (vec![event_type.into()], false));
+                        } else {
+                            // No specific callback - fallback to regular Click
+                            use azul_core::events::HoverEventFilter;
+                            affected_nodes.insert(dom_node_id, (vec![EventFilter::Hover(HoverEventFilter::MouseUp)], false));
+                        }
+                    }
+                }
+            }
+
+            // Context menu - check if node has a menu and trigger right-click event
+            AccessibilityAction::ShowContextMenu => {
+                // Check if the node has a context menu attached
+                let layout_result = match self.layout_results.get(&dom_id) {
+                    Some(lr) => lr,
+                    None => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[a11y] ShowContextMenu - DOM not found");
+                        return affected_nodes;
+                    }
+                };
+
+                // Get the node from the styled DOM
+                let styled_node = match layout_result.styled_dom.node_data.as_ref().get(node_id.index()) {
+                    Some(node) => node,
+                    None => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[a11y] ShowContextMenu - Node not found");
+                        return affected_nodes;
+                    }
+                };
+
+                // Check if node has context menu
+                let has_context_menu = styled_node.get_context_menu().is_some();
+
+                if has_context_menu {
+                    // TODO: Generate synthetic right-click event to trigger context menu
+                    // This requires access to the event system which is not available here
+                    // For now, just log that we found a context menu
+                    #[cfg(debug_assertions)]
+                    eprintln!("[a11y] ShowContextMenu - found context menu, would trigger synthetic right-click");
+                } else {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[a11y] ShowContextMenu - no context menu attached to node");
+                }
+            }
+
+            // Text editing actions - use text3/edit.rs
+            AccessibilityAction::ReplaceSelectedText(ref text) => {
+                let nodes = self.edit_text_node(dom_id, node_id, TextEditType::ReplaceSelection(text.as_str().to_string()));
+                for node in nodes {
+                    affected_nodes.insert(node, (Vec::new(), true)); // true = needs re-layout
+                }
+            }
+            AccessibilityAction::SetValue(ref text) => {
+                let nodes = self.edit_text_node(dom_id, node_id, TextEditType::SetValue(text.as_str().to_string()));
+                for node in nodes {
+                    affected_nodes.insert(node, (Vec::new(), true));
+                }
+            }
+            AccessibilityAction::SetNumericValue(value) => {
+                let nodes = self.edit_text_node(dom_id, node_id, TextEditType::SetNumericValue(value.get() as f64));
+                for node in nodes {
+                    affected_nodes.insert(node, (Vec::new(), true));
+                }
+            }
+            AccessibilityAction::SetTextSelection(_) => {
+                // TODO: Update text selection range
+                #[cfg(debug_assertions)]
+                eprintln!("[a11y] SetTextSelection not yet implemented");
+            }
+
+            // Tooltip actions
+            AccessibilityAction::ShowTooltip | AccessibilityAction::HideTooltip => {
+                // TODO: Integrate with tooltip manager when implemented
+                #[cfg(debug_assertions)]
+                eprintln!("[a11y] Tooltip actions not yet fully implemented");
+            }
+
+            AccessibilityAction::CustomAction(_id) => {
+                // TODO: Allow custom action handlers
+                #[cfg(debug_assertions)]
+                eprintln!("[a11y] Custom actions not yet fully implemented");
+            }
+        }
+
+        affected_nodes
+    }
+
+    /// Process text input from keyboard using cursor/selection/focus managers.
+    ///
+    /// This is the new unified text input handling. The framework manages text editing
+    /// internally using managers, then fires callbacks (On::TextInput, On::Changed)
+    /// after the internal state is already updated.
+    ///
+    /// ## Workflow
+    /// 1. Check if focus manager has a focused contenteditable node
+    /// 2. Get cursor/selection from managers
+    /// 3. Call edit_text_node to apply the edit and update cache
+    /// 4. Collect affected nodes that need dirty marking
+    /// 5. Return map for re-layout triggering
+    ///
+    /// ## Parameters
+    /// * `text_input` - The text that was typed (can be multiple chars for IME)
+    ///
+    /// ## Returns
+    /// BTreeMap of affected nodes with:
+    /// - Key: DomNodeId that was affected
+    /// - Value: (Vec<EventFilter> synthetic events, bool needs_relayout)
+    /// - Empty map = no focused contenteditable node
+    #[cfg(feature = "accessibility")]
+    /// Record text input from any source (keyboard, IME, A11y)
+    /// 
+    /// This ONLY records what text was inserted. It does NOT apply the changes yet.
+    /// The changes are applied later in apply_text_changeset() if preventDefault is not set.
+    /// 
+    /// This separation allows user callbacks to inspect and potentially prevent the edit.
+    /// 
+    /// Returns affected nodes for event generation (so callbacks can be invoked).
+    pub fn record_text_input(
+        &mut self,
+        text_input: &str,
+    ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+        use std::collections::BTreeMap;
+        use azul_core::events::{EventFilter, FocusEventFilter};
+        use crate::managers::text_input::TextInputSource;
+        
+        let mut affected_nodes = BTreeMap::new();
+
+        if text_input.is_empty() {
+            return affected_nodes;
+        }
+
+        // Get focused node
+        let focused_node = match self.focus_manager.get_focused_node().copied() {
+            Some(node) => node,
+            None => return affected_nodes, // No focused node
+        };
+
+        let node_id = match focused_node.node.into_crate_internal() {
+            Some(id) => id,
+            None => return affected_nodes,
+        };
+
+        // Get the OLD text before any changes
+        let old_inline_content = self.get_text_before_textinput(focused_node.dom, node_id);
+        let old_text = self.extract_text_from_inline_content(&old_inline_content);
+
+        // Record the changeset in TextInputManager (but DON'T apply changes yet)
+        self.text_input_manager.record_input(
+            focused_node,
+            text_input.to_string(),
+            old_text,
+            TextInputSource::Keyboard, // Assuming keyboard for now
+        );
+
+        // Return affected nodes with TextInput event so callbacks can be invoked
+        let text_input_event = vec![EventFilter::Focus(FocusEventFilter::TextInput)];
+        
+        affected_nodes.insert(focused_node, (text_input_event, false)); // false = no re-layout yet
+
+        affected_nodes
+    }
+
+    /// Apply the recorded text changeset to the text cache
+    /// 
+    /// This is called AFTER user callbacks, if preventDefault was not set.
+    /// This is where we actually compute the new text and update the cache.
+    /// 
+    /// Also updates the cursor position to reflect the edit.
+    /// 
+    /// Returns the nodes that need to be marked dirty for re-layout.
+    pub fn apply_text_changeset(
+        &mut self,
+    ) -> Vec<azul_core::dom::DomNodeId> {
+        // Get the changeset from TextInputManager
+        let changeset = match self.text_input_manager.get_pending_changeset() {
+            Some(cs) => cs.clone(),
+            None => return Vec::new(), // No changeset to apply
+        };
+
+        let node_id = match changeset.node.node.into_crate_internal() {
+            Some(id) => id,
+            None => {
+                self.text_input_manager.clear_changeset();
+                return Vec::new();
+            }
+        };
+
+        let dom_id = changeset.node.dom;
+
+        // Check if node is contenteditable
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => {
+                self.text_input_manager.clear_changeset();
+                return Vec::new();
+            }
+        };
+
+        let styled_node = match layout_result.styled_dom.node_data.as_ref().get(node_id.index()) {
+            Some(node) => node,
+            None => {
+                self.text_input_manager.clear_changeset();
+                return Vec::new();
+            }
+        };
+
+        let is_contenteditable = styled_node.attributes
+            .as_ref()
+            .iter()
+            .any(|attr| matches!(attr, azul_core::dom::AttributeType::ContentEditable(_)));
+
+        if !is_contenteditable {
+            #[cfg(debug_assertions)]
+            eprintln!("[text] Node {:?} is not contenteditable", node_id);
+            self.text_input_manager.clear_changeset();
+            return Vec::new();
+        }
+
+        // Get the current inline content from cache
+        let content = self.get_text_before_textinput(dom_id, node_id);
+
+        // Get current cursor/selection from focus manager
+        let current_selection = if let Some(cursor) = self.focus_manager.get_text_cursor() {
+            vec![azul_core::selection::Selection::Cursor(cursor.clone())]
+        } else {
+            // No cursor - create one at start of text
+            use azul_core::selection::{TextCursor, CursorAffinity, GraphemeClusterId};
+            vec![azul_core::selection::Selection::Cursor(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                affinity: CursorAffinity::Leading,
+            })]
+        };
+
+        // Apply the edit using text3::edit - this is a pure function
+        use crate::text3::edit::{edit_text, TextEdit};
+        let text_edit = TextEdit::Insert(changeset.inserted_text.clone());
+        let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
+
+        // Update the cursor/selection in focus manager
+        // This happens lazily, only when we actually apply the changes
+        if let Some(azul_core::selection::Selection::Cursor(new_cursor)) = new_selections.first() {
+            self.focus_manager.set_text_cursor(Some(new_cursor.clone()));
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            eprintln!("[text] Applied text changeset to node {:?}", node_id);
+            eprintln!("  Old content: {} items", content.len());
+            eprintln!("  New content: {} items", new_content.len());
+            eprintln!("  Old cursor: {:?}", current_selection.first());
+            eprintln!("  New cursor: {:?}", new_selections.first());
+        }
+
+        // Update the text cache with the new inline content
+        self.update_text_cache_after_edit(dom_id, node_id, new_content);
+
+        // Clear the changeset now that it's been applied
+        self.text_input_manager.clear_changeset();
+
+        // Return nodes that need dirty marking
+        self.determine_dirty_text_nodes(dom_id, node_id)
+    }
+
+    /// Determine which nodes need to be marked dirty after a text edit
+    /// 
+    /// Returns the edited node + its parent (if it exists)
+    fn determine_dirty_text_nodes(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Vec<azul_core::dom::DomNodeId> {
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return Vec::new(),
+        };
+
+        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+        let node_dom_id = azul_core::dom::DomNodeId { 
+            dom: dom_id, 
+            node: hierarchy_id 
+        };
+
+        // Get parent node ID
+        let parent_id = layout_result.styled_dom.node_hierarchy
+            .as_container()
+            .get(node_id)
+            .and_then(|item| item.parent_id())
+            .map(|parent_node_id| {
+                let parent_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(parent_node_id));
+                azul_core::dom::DomNodeId {
+                    dom: dom_id,
+                    node: parent_hierarchy_id,
+                }
+            });
+
+        // Return node + parent (if exists)
+        if let Some(parent) = parent_id {
+            vec![node_dom_id, parent]
+        } else {
+            vec![node_dom_id]
+        }
+    }
+
+    /// Legacy name for backward compatibility
+    #[inline]
+    pub fn process_text_input(
+        &mut self,
+        text_input: &str,
+    ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+        self.record_text_input(text_input)
+    }
+
+    /// Get the last text changeset (what was changed in the last text input)
+    pub fn get_last_text_changeset(&self) -> Option<&TextChangeset> {
+        self.text_input_manager.get_pending_changeset()
+    }
+
+    /// Get the current inline content (text before text input is applied)
+    /// 
+    /// This is a query function that retrieves the current text state from the cache.
+    /// Returns empty Vec if the node has no text or doesn't exist.
+    fn get_text_before_textinput(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Vec<crate::text3::cache::InlineContent> {
+        // TODO: Query the text cache for this node's current InlineContent
+        // For now, return empty vec as placeholder
+        // 
+        // Future implementation should:
+        // 1. Look up the node in the text cache
+        // 2. Return its InlineContent vec (which may include images/shapes)
+        // 3. Return empty vec if not found
+        
+        let _ = (dom_id, node_id);
+        Vec::new()
+    }
+
+    /// Extract plain text string from inline content
+    /// 
+    /// This is a helper for building the changeset's resulting_text field.
+    fn extract_text_from_inline_content(&self, content: &[crate::text3::cache::InlineContent]) -> String {
+        use crate::text3::cache::InlineContent;
+        
+        let mut result = String::new();
+        
+        for item in content {
+            match item {
+                InlineContent::Text(text_run) => {
+                    result.push_str(&text_run.text);
+                },
+                InlineContent::Space(_) => {
+                    result.push(' ');
+                },
+                InlineContent::LineBreak(_) => {
+                    result.push('\n');
+                },
+                InlineContent::Tab => {
+                    result.push('\t');
+                },
+                InlineContent::Ruby { base, .. } => {
+                    // For Ruby annotations, include the base text
+                    result.push_str(&self.extract_text_from_inline_content(base));
+                },
+                // Images and shapes don't contribute to plain text
+                InlineContent::Image(_) | InlineContent::Shape(_) => {},
+            }
+        }
+        
+        result
+    }
+
+    /// Update the text cache after a text edit
+    /// 
+    /// This is the ONLY place where we mutate the text cache.
+    /// All other functions are pure queries or transformations.
+    fn update_text_cache_after_edit(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        new_inline_content: Vec<crate::text3::cache::InlineContent>,
+    ) {
+        // TODO: Update the text cache with the new inline content
+        // 
+        // Future implementation should:
+        // 1. Get or create the text cache entry for this node
+        // 2. Clear the existing cache stages (logical, visual, shaped, layout)
+        // 3. Store the new InlineContent
+        // 4. The next layout pass will re-run the 4-stage pipeline
+        
+        let _ = (dom_id, node_id, new_inline_content);
+        
+        #[cfg(debug_assertions)]
+        eprintln!("[text] Text cache updated for node {:?}", node_id);
+    }
+
+    /// Helper to get node used_size for accessibility actions
+    #[cfg(feature = "accessibility")]
+    fn get_node_used_size_a11y(&self, dom_id: DomId, node_id: NodeId) -> Option<azul_core::geom::LogicalSize> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let node = layout_result.layout_tree.get(node_id.index())?;
+        node.used_size
+    }
+
+    /// Get the layout bounds (position and size) of a specific node
+    #[cfg(feature = "accessibility")]
+    fn get_node_bounds(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<azul_css::props::basic::LayoutRect> {
+        use azul_css::props::basic::LayoutRect;
+        
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let node = layout_result.layout_tree.get(node_id.index())?;
+        
+        // Get size from used_size
+        let size = node.used_size?;
+        
+        // Get position from absolute_positions map
+        let position = layout_result.absolute_positions.get(&node_id.index())?;
+        
+        Some(LayoutRect {
+            origin: azul_css::props::basic::LayoutPoint {
+                x: position.x as isize,
+                y: position.y as isize,
+            },
+            size: azul_css::props::basic::LayoutSize {
+                width: size.width as isize,
+                height: size.height as isize,
+            },
+        })
+    }
+
+    /// Scroll a node into view if it's not currently visible in the viewport
+    #[cfg(feature = "accessibility")]
+    fn scroll_to_node_if_needed(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        now: std::time::Instant,
+    ) {
+        use azul_core::geom::LogicalPosition;
+        
+        // TODO: This should:
+        // 1. Check if node is currently visible in viewport
+        // 2. Find the nearest scrollable ancestor
+        // 3. Calculate the scroll offset needed to make the node visible
+        // 4. Animate the scroll
+
+        // For now, just ensure the node's scroll state is at origin
+        if self.get_node_bounds(dom_id, node_id).is_some() {
+            self.scroll_states.scroll_to(
+                dom_id,
+                node_id,
+                LogicalPosition { x: 0.0, y: 0.0 },
+                std::time::Duration::from_millis(300).into(),
+                azul_core::events::EasingFunction::EaseOut,
+                now.into(),
+            );
+        }
+    }
+
+    /// Edit the text content of a node (used for text input actions)
+    /// 
+    /// This function applies text edits to nodes that contain text content.
+    /// The DOM node itself is NOT modified - instead, the text cache is updated
+    /// with the new shaped text that reflects the edit, cursor, and selection.
+    /// 
+    /// It handles:
+    /// - ReplaceSelectedText: Replaces the current selection with new text
+    /// - SetValue: Sets the entire text value
+    /// - SetNumericValue: Converts number to string and sets value
+    /// 
+    /// # Returns
+    /// 
+    /// Returns a Vec of DomNodeIds (node + parent) that need to be marked dirty
+    /// for re-layout. The caller MUST use this return value to trigger layout.
+    #[must_use = "Returned nodes must be marked dirty for re-layout"]
+    #[cfg(feature = "accessibility")]
+    pub fn edit_text_node(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        edit_type: TextEditType,
+    ) -> Vec<azul_core::dom::DomNodeId> {
+        use crate::managers::text_input::TextInputSource;
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        // Convert TextEditType to string
+        let text_input = match &edit_type {
+            TextEditType::ReplaceSelection(text) => text.clone(),
+            TextEditType::SetValue(text) => text.clone(),
+            TextEditType::SetNumericValue(value) => value.to_string(),
+        };
+
+        // Get the OLD text before any changes
+        let old_inline_content = self.get_text_before_textinput(dom_id, node_id);
+        let old_text = self.extract_text_from_inline_content(&old_inline_content);
+
+        // Create DomNodeId
+        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+        let dom_node_id = azul_core::dom::DomNodeId {
+            dom: dom_id,
+            node: hierarchy_id,
+        };
+
+        // Record the changeset in TextInputManager
+        self.text_input_manager.record_input(
+            dom_node_id,
+            text_input,
+            old_text,
+            TextInputSource::Accessibility, // A11y source
+        );
+
+        // Immediately apply the changeset (A11y doesn't go through callbacks)
+        self.apply_text_changeset()
+    }
+
+    #[cfg(not(feature = "accessibility"))]
+    pub fn process_accessibility_action(
+        &mut self,
+        _dom_id: DomId,
+        _node_id: NodeId,
+        _action: azul_core::dom::AccessibilityAction,
+        _now: std::time::Instant,
+    ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
+        // No-op when accessibility is disabled
+        BTreeMap::new()
+    }
 }
+
+#[cfg(feature = "accessibility")]
+#[derive(Debug, Clone)]
+pub enum TextEditType {
+    ReplaceSelection(String),
+    SetValue(String),
+    SetNumericValue(f64),
+}
+

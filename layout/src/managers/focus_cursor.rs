@@ -100,6 +100,9 @@ pub struct FocusManager {
     pub focused_node: Option<DomNodeId>,
     /// Pending focus request from callback
     pub pending_focus_request: Option<FocusTarget>,
+    /// Text cursor position (if focused node is contenteditable)
+    /// Automatically cleared when focus changes to non-editable node
+    pub text_cursor: Option<azul_core::selection::TextCursor>,
 }
 
 impl Default for FocusManager {
@@ -114,6 +117,7 @@ impl FocusManager {
         Self {
             focused_node: None,
             pending_focus_request: None,
+            text_cursor: None,
         }
     }
 
@@ -123,8 +127,30 @@ impl FocusManager {
     }
 
     /// Set the focused node directly (used by event system)
+    /// 
+    /// If the node is not contenteditable, the cursor is automatically cleared.
+    /// If the node is contenteditable, the cursor should be set separately via `set_text_cursor()`.
     pub fn set_focused_node(&mut self, node: Option<DomNodeId>) {
         self.focused_node = node;
+        // Note: Cursor clearing/initialization happens in window.rs based on contenteditable check
+    }
+
+    /// Get the current text cursor position
+    pub fn get_text_cursor(&self) -> Option<&azul_core::selection::TextCursor> {
+        self.text_cursor.as_ref()
+    }
+
+    /// Set the text cursor position
+    /// 
+    /// This should only be called when the focused node is contenteditable.
+    /// The cursor will be automatically cleared when focus changes to a non-editable node.
+    pub fn set_text_cursor(&mut self, cursor: Option<azul_core::selection::TextCursor>) {
+        self.text_cursor = cursor;
+    }
+
+    /// Clear the text cursor
+    pub fn clear_text_cursor(&mut self) {
+        self.text_cursor = None;
     }
 
     /// Request a focus change (to be processed by event system)

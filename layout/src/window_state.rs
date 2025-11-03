@@ -207,13 +207,17 @@ pub fn create_events_from_states(
         previous_file_drop,
         hover_manager,
         None,
+        None, // No scroll manager
     )
 }
 
-/// Create Events with gesture detection support.
+/// Create Events with gesture detection and scroll manager support.
 ///
 /// This version takes managers and an optional `GestureAndDragManager` to detect
 /// multi-frame gestures that can't be detected from state diffing alone.
+///
+/// The `scroll_manager` is used to detect scroll events by querying scroll deltas
+/// instead of diffing MouseState fields (which no longer contain scroll_x/scroll_y).
 pub fn create_events_from_states_with_gestures(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -223,6 +227,7 @@ pub fn create_events_from_states_with_gestures(
     previous_file_drop: Option<&crate::managers::file_drop::FileDropManager>,
     hover_manager: &crate::managers::hover::HoverManager,
     gesture_manager: Option<&crate::managers::gesture::GestureAndDragManager>,
+    scroll_manager: Option<&crate::managers::scroll_state::ScrollManager>,
 ) -> azul_core::events::Events {
     use azul_core::{
         events::{Events, FocusEventFilter, HoverEventFilter, WindowEventFilter},
@@ -301,33 +306,18 @@ pub fn create_events_from_states_with_gestures(
         window_events.push(WindowEventFilter::MouseLeave);
     }
 
-    // Scroll events
-    let current_scroll_x = current_state
-        .mouse_state
-        .scroll_x
-        .into_option()
-        .unwrap_or(0.0);
-    let current_scroll_y = current_state
-        .mouse_state
-        .scroll_y
-        .into_option()
-        .unwrap_or(0.0);
-    let previous_scroll_x = previous_state
-        .mouse_state
-        .scroll_x
-        .into_option()
-        .unwrap_or(0.0);
-    let previous_scroll_y = previous_state
-        .mouse_state
-        .scroll_y
-        .into_option()
-        .unwrap_or(0.0);
-
-    if (current_scroll_x - previous_scroll_x).abs() > 0.01
-        || (current_scroll_y - previous_scroll_y).abs() > 0.01
-    {
-        window_events.push(WindowEventFilter::Scroll);
-        hover_events.push(HoverEventFilter::Scroll);
+    // Scroll events are now detected by querying the ScrollManager
+    // The ScrollManager tracks scroll deltas per node, set by record_sample()
+    // during event processing (before this function is called)
+    if let Some(sm) = scroll_manager {
+        // Check if ANY node had scroll activity this frame
+        // This generates window-level and hover-level scroll events
+        let had_any_scroll = sm.end_frame().had_scroll_activity;
+        
+        if had_any_scroll {
+            window_events.push(WindowEventFilter::Scroll);
+            hover_events.push(HoverEventFilter::Scroll);
+        }
     }
 
     // Keyboard events (VirtualKeyDown/Up)
@@ -351,15 +341,10 @@ pub fn create_events_from_states_with_gestures(
         focus_events.push(FocusEventFilter::VirtualKeyUp);
     }
 
-    // Text input
-    let current_char = current_state.keyboard_state.current_char.into_option();
-    let previous_char = previous_state.keyboard_state.current_char.into_option();
-
-    if current_char.is_some() && current_char != previous_char {
-        window_events.push(WindowEventFilter::TextInput);
-        hover_events.push(HoverEventFilter::TextInput);
-        focus_events.push(FocusEventFilter::TextInput);
-    }
+    // TextInput events are now handled by LayoutWindow::process_text_input()
+    // which is called directly from event_v2.rs when the platform provides text input.
+    // The platform layer receives IME-composed text and calls process_text_input(text_input: &str).
+    // This approach is simpler and more compatible with complex input methods (IME, accents, etc.)
 
     // Window resize
     if current_state.size.dimensions != previous_state.size.dimensions {
@@ -413,9 +398,10 @@ pub fn create_events_from_states_with_gestures(
         }
     }
 
-    // Extract old hit node IDs from previous hover state
+    // Extract old hit node IDs from previous hover state (mouse only for now)
+    use crate::managers::InputPointId;
     let old_hit_node_ids = hover_manager
-        .get_frame(1) // Get hit test from 1 frame ago
+        .get_frame(&InputPointId::Mouse, 1) // Get mouse hit test from 1 frame ago
         .map(|hit_test| {
             hit_test
                 .hovered_nodes

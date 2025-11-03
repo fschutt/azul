@@ -300,23 +300,21 @@ pub type ScanCode = u32;
 #[derive(Default, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct KeyboardState {
-    /// Currently pressed key, already converted to a `char` - (READONLY)
-    pub current_char: OptionChar,
-    /// Same as `current_char`, but .
+    /// Currently pressed virtual keycode - **DO NOT USE THIS FOR TEXT INPUT**.
     ///
-    /// **DO NOT USE THIS FOR TEXT INPUT, USE `current_char` and `On::TextInput` instead.**
+    /// For text input, use the `text_input` parameter in callbacks.
     /// For example entering `à` will fire a `VirtualKeyCode::Grave`, then `VirtualKeyCode::A`,
-    /// so to correctly combine characters, use the `current_char` field.
+    /// so to correctly combine characters, the framework handles text composition internally.
     pub current_virtual_keycode: OptionVirtualKeyCode,
-    /// Currently pressed virtual keycodes (READONLY) - it can happen that more t
+    /// Currently pressed virtual keycodes (READONLY) - it can happen that more than one key is pressed
     ///
     /// This is essentially an "extension" of `current_scancodes` - `current_keys` stores the
     /// characters, but what if the pressed key is not a character (such as `ArrowRight` or
     /// `PgUp`)?
     ///
     /// Note that this can have an overlap, so pressing "a" on the keyboard will insert
-    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and an `"a"` as a char into
-    /// `current_keys`.
+    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and text input will be handled
+    /// by the framework automatically for contenteditable nodes.
     pub pressed_virtual_keycodes: VirtualKeyCodeVec,
     /// Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed,
     /// independent of the keyboard layout. The scancode does not change if the user adjusts the
@@ -411,12 +409,6 @@ pub struct MouseState {
     pub right_down: bool,
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
-    /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame
-    /// (READONLY)
-    pub scroll_x: OptionF32,
-    /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame
-    /// (READONLY)
-    pub scroll_y: OptionF32,
 }
 
 impl MouseState {
@@ -451,8 +443,6 @@ impl Default for MouseState {
             left_down: false,
             right_down: false,
             middle_down: false,
-            scroll_x: None.into(),
-            scroll_y: None.into(),
         }
     }
 }
@@ -488,41 +478,6 @@ impl MouseState {
     /// Returns whether any mouse button (left, right or center) is currently held down
     pub fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
-    }
-
-    pub fn get_scroll_x(&self) -> f32 {
-        self.scroll_x.as_option().copied().unwrap_or(0.0)
-    }
-
-    pub fn get_scroll_y(&self) -> f32 {
-        self.scroll_y.as_option().copied().unwrap_or(0.0)
-    }
-
-    pub fn get_scroll(&self) -> (f32, f32) {
-        (self.get_scroll_x(), self.get_scroll_y())
-    }
-
-    pub fn get_scroll_amount(&self) -> Option<(f32, f32)> {
-        const SCROLL_THRESHOLD: f32 = 0.5; // px
-
-        if self.scroll_x.is_none() && self.scroll_y.is_none() {
-            return None;
-        }
-
-        let scroll_x = self.get_scroll_x();
-        let scroll_y = self.get_scroll_y();
-
-        if libm::fabsf(scroll_x) < SCROLL_THRESHOLD && libm::fabsf(scroll_y) < SCROLL_THRESHOLD {
-            return None;
-        }
-
-        Some((scroll_x, scroll_y))
-    }
-
-    /// Function reset the `scroll_x` and `scroll_y` to `None` to clear the scroll amount
-    pub fn reset_scroll_to_zero(&mut self) {
-        self.scroll_x = OptionF32::None;
-        self.scroll_y = OptionF32::None;
     }
 }
 
@@ -630,9 +585,27 @@ fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
 #[repr(C)]
 pub struct TouchState {
-    /// TODO: not yet implemented
-    pub unimplemented: u8,
+    /// Number of active touch points
+    pub num_touches: usize,
 }
+
+/// Single touch point (finger, stylus, etc.)
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct TouchPoint {
+    /// Unique identifier for this touch point (persists across move events)
+    pub id: u64,
+    /// Current position of the touch point in logical coordinates
+    pub position: LogicalPosition,
+    /// Force/pressure of the touch (0.0 = no pressure, 1.0 = maximum pressure)
+    /// Set to 0.5 if pressure is not available
+    pub force: f32,
+}
+
+impl_vec!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
+impl_vec_debug!(TouchPoint, TouchPointVec);
+impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
+impl_vec_partialeq!(TouchPoint, TouchPointVec);
 
 /// State, size, etc of the window, for comparing to the last frame
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]

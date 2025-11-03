@@ -18,6 +18,32 @@
 //! 2. Call `process_window_events()` after updating platform state
 //! 3. Update the screen based on the returned `ProcessEventResult`
 //!
+//! ## Event Processing Flow
+//!
+//! ```text
+//! Platform Input → Update Window State → Update Hit Tests → process_window_events()
+//!                                                                      ↓
+//!                                      ┌───────────────────────────────┘
+//!                                      ↓
+//!                          PRE-EVENT-DISPATCH PROCESSING
+//!                          ============================
+//!                          1. Scroll: record_sample() on ScrollManager
+//!                          2. Text: process_text_input() on LayoutWindow
+//!                          3. A11y: record_state_changes() on A11yManager
+//!                          ↓
+//!                          EVENT FILTERING & DISPATCH
+//!                          ==========================
+//!                          4. State diffing (window_state::create_events_from_states)
+//!                          5. Event filtering (dispatch_events)
+//!                          6. Callback invocation (invoke_callbacks_v2)
+//!                          ↓
+//!                          POST-CALLBACK PROCESSING
+//!                          ========================
+//!                          7. Process callback results (update DOM, layout, etc.)
+//!                          8. Re-layout if necessary
+//!                          9. Mark dirty nodes for re-render
+//! ```
+//!
 //! ## Platform Integration Points
 //!
 //! ### macOS (dll/src/desktop/shell2/macos/events.rs)
@@ -29,8 +55,26 @@
 //!   - `handle_mouse_up()` - After clearing mouse button state
 //!   - `handle_mouse_moved()` - After updating cursor position and hit test
 //!   - `handle_key_down()` - After updating keyboard state
-//!   - `handle_scroll()` - After updating scroll delta
+//!   - `handle_scroll()` - After calling scroll_manager.record_sample()
+//!   - `handle_text_input()` - Platform should provide text_input: &str to process_text_input()
 //!   - `handle_window_resize()` - After updating size in window state
+//!
+//! **Hit-Testing Requirements:**
+//! - Call `update_hit_test()` before `process_window_events()` for mouse/touch events
+//! - Hit test updates `hover_manager.push_hit_test(InputPointId::Mouse, hit_test)`
+//! - For multi-touch: call for each touch with `InputPointId::Touch(id)`
+//!
+//! **Scroll Integration:**
+//! - Get scroll delta from NSEvent
+//! - Call `scroll_manager.record_sample(delta_x, delta_y, hover_manager, input_id, now)`
+//! - ScrollManager finds scrollable node via hit test and applies scroll
+//! - Then call `process_window_events()` which will generate scroll events
+//!
+//! **Text Input Integration:**
+//! - Get composed text from NSTextInputClient (insertText/setMarkedText)
+//! - Platform should store text_input string temporarily
+//! - `process_window_events()` will call `process_text_input(text_input)`
+//! - Framework applies edit, updates cursor, marks nodes dirty
 //!
 //! **Peculiarities:**
 //! - Uses NSEvent for native input
@@ -112,10 +156,11 @@
 
 use alloc::sync::Arc;
 use core::cell::RefCell;
+use std::collections::BTreeMap;
 
 use azul_core::{
     callbacks::LayoutCallbackInfo,
-    dom::DomId,
+    dom::{DomId, NodeId},
     events::{
         dispatch_events, CallbackTarget as CoreCallbackTarget, EventFilter, ProcessEventResult,
     },
@@ -563,13 +608,12 @@ pub trait PlatformWindowV2 {
     /// * `Err(msg)` - Error message if scroll failed
     fn gpu_scroll(
         &mut self,
-        dom_id: u64,
-        node_id: u64,
+        dom_id: DomId,
+        node_id: NodeId,
         delta_x: f32,
         delta_y: f32,
     ) -> Result<(), String> {
         use azul_core::{
-            dom::{DomId, NodeId},
             events::{EasingFunction, EventSource},
             geom::LogicalPosition,
         };
@@ -577,15 +621,10 @@ pub trait PlatformWindowV2 {
 
         let layout_window = self.get_layout_window_mut().ok_or("No layout window")?;
 
-        let dom_id_typed = DomId {
-            inner: dom_id as usize,
-        };
-        let node_id_typed = node_id as u32;
-
         // Create scroll event
         let scroll_event = ScrollEvent {
-            dom_id: dom_id_typed,
-            node_id: NodeId::new(node_id_typed as usize),
+            dom_id,
+            node_id,
             delta: LogicalPosition::new(delta_x, delta_y),
             source: EventSource::User,
             duration: None, // Instant scroll
@@ -675,7 +714,59 @@ pub trait PlatformWindowV2 {
     // PROVIDED: Event Processing (Cross-Platform Implementation)
     // =========================================================================
 
+    /// V2: Record accessibility action and return affected nodes.
+    ///
+    /// Similar to `record_input_sample()` for gestures, this method takes an incoming
+    /// accessibility action from assistive technologies (screen readers), applies
+    /// necessary state changes to managers (scroll, focus, cursor, selection), and
+    /// returns information about which nodes were affected.
+    ///
+    /// ## Workflow
+    /// 1. Apply manager state changes (focus, scroll, cursor, selection)
+    /// 2. Generate synthetic EventFilters for callback actions
+    /// 3. Return map of affected nodes with events and dirty flags
+    ///
+    /// ## Parameters
+    /// * `dom_id` - DOM containing the target node
+    /// * `node_id` - Target node for the action
+    /// * `action` - Accessibility action from screen reader
+    ///
+    /// ## Returns
+    /// * `BTreeMap<DomNodeId, (Vec<EventFilter>, bool)>` - Map of:
+    ///   - Key: Affected node
+    ///   - Value: (Synthetic events to dispatch, needs_relayout flag)
+    ///   - Empty map = action not applicable or nothing changed
+    ///
+    /// ## Usage
+    /// Call this from platform event handlers when accessibility actions arrive:
+    /// ```rust
+    /// let affected_nodes = self.record_accessibility_action(dom_id, node_id, action);
+    /// // Process affected_nodes: dispatch events and mark dirty nodes for re-layout
+    /// ```
+    #[cfg(feature = "accessibility")]
+    fn record_accessibility_action(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::dom::NodeId,
+        action: azul_core::dom::AccessibilityAction,
+    ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<EventFilter>, bool)> {
+        use std::collections::BTreeMap;
+        
+        let layout_window = match self.get_layout_window_mut() {
+            Some(lw) => lw,
+            None => return BTreeMap::new(),
+        };
+
+        let now = std::time::Instant::now();
+        
+        // Delegate to LayoutWindow's process_accessibility_action
+        // This has direct mutable access to all managers and returns affected nodes
+        layout_window.process_accessibility_action(dom_id, node_id, action, now)
+    }
+
     /// Process all window events using the V2 state-diffing system.
+    ///
+    /// V2: Main entry point for processing window events.
     ///
     /// This is the **main entry point** for event processing. Call this after updating
     /// the current window state with platform events.
@@ -720,6 +811,7 @@ pub trait PlatformWindowV2 {
         let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
         let previous_file_drop = self.get_layout_window().map(|w| &w.file_drop_manager); // FIXME: Should be previous frame's file_drop manager
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
+        let scroll_manager = self.get_layout_window().map(|w| &w.scroll_states);
 
         let events = if let (Some(fm), Some(fdm), Some(hm)) =
             (focus_manager, file_drop_manager, hover_manager)
@@ -733,6 +825,7 @@ pub trait PlatformWindowV2 {
                 previous_file_drop,
                 hm,
                 gesture_manager,
+                scroll_manager,
             )
         } else {
             // Fallback: create empty events if managers not available
@@ -754,10 +847,11 @@ pub trait PlatformWindowV2 {
             return ProcessEventResult::DoNothing;
         }
 
-        // Get hit test if available (clone early to avoid borrow conflicts)
+        // Get mouse hit test if available (clone early to avoid borrow conflicts)
+        use azul_layout::managers::InputPointId;
         let hit_test_for_dispatch = self
             .get_layout_window()
-            .and_then(|lw| lw.hover_manager.get_current())
+            .and_then(|lw| lw.hover_manager.get_current(&InputPointId::Mouse))
             .cloned();
 
         // If DragStart event occurred and we have a hit test, save it in the manager
@@ -789,6 +883,47 @@ pub trait PlatformWindowV2 {
             }
         }
 
+        // ========================================================================
+        // PRE-EVENT-DISPATCH PROCESSING
+        // ========================================================================
+        // Process input BEFORE event filtering and callback invocation.
+        // This ensures framework state (scroll, text, a11y) is updated before
+        // callbacks see the events.
+        //
+        // IMPORTANT: Hit tests must already be done by platform layer!
+        // Platform code should call update_hit_test() before calling this function.
+        //
+        // IMPLEMENTATION STATUS:
+        // ✅ Scroll: Platform calls scroll_manager.record_sample() in handle_scroll_wheel()
+        // ✅ Text: Platform calls process_text_input() in handle_key_down()
+        // ⏳ A11y: Not yet implemented (needs a11y_manager.record_state_changes())
+
+        // Process text input BEFORE event dispatch
+        // If there's a focused contenteditable node and text input occurred,
+        // apply the edit using cursor/selection managers and mark nodes dirty
+        let text_input_affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
+            // TODO: Get actual text input from platform (IME, composed chars, etc.)
+            // Platform layer needs to provide text_input: &str when available
+            // Example integration:
+            // - macOS: NSTextInputClient::insertText / setMarkedText
+            // - Windows: WM_CHAR / WM_UNICHAR messages
+            // - X11: XIM XLookupString with UTF-8
+            // - Wayland: text-input protocol
+            let text_input = "";  // Placeholder
+            layout_window.process_text_input(text_input)
+        } else {
+            BTreeMap::new()
+        };
+
+        // TODO: Process accessibility events
+        // if let Some(layout_window) = self.get_layout_window_mut() {
+        //     layout_window.a11y_manager.record_state_changes(...);
+        // }
+
+        // ========================================================================
+        // EVENT FILTERING AND CALLBACK DISPATCH
+        // ========================================================================
+
         // Use cross-platform dispatch logic to determine which callbacks to invoke
         let dispatch_result = dispatch_events(&events, hit_test_for_dispatch.as_ref());
 
@@ -801,6 +936,7 @@ pub trait PlatformWindowV2 {
         let mut should_stop_propagation = false;
         let mut should_recurse = false;
         let mut focus_changed = false;
+        let mut prevent_default = false; // Track if any callback prevented default
 
         for callback_to_invoke in &dispatch_result.callbacks {
             if should_stop_propagation {
@@ -838,6 +974,11 @@ pub trait PlatformWindowV2 {
                     focus_changed = true;
                 }
 
+                // Check if callback prevented default
+                if callback_result.prevent_default {
+                    prevent_default = true;
+                }
+
                 // Check if we should stop propagation
                 if callback_result.stop_propagation {
                     should_stop_propagation = true;
@@ -852,6 +993,24 @@ pub trait PlatformWindowV2 {
                 ) {
                     should_recurse = true;
                 }
+            }
+        }
+
+        // Apply text changeset if preventDefault was not set
+        // This is where we actually compute and cache the text changes
+        if !prevent_default && !text_input_affected_nodes.is_empty() {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                let dirty_nodes = layout_window.apply_text_changeset();
+                
+                // Mark dirty nodes for re-layout
+                for node in dirty_nodes {
+                    // TODO: Mark node as needing re-layout
+                    // This will be handled by the existing dirty tracking system
+                    let _ = node;
+                }
+                
+                // Request re-render since text changed
+                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             }
         }
 
@@ -1223,8 +1382,8 @@ pub trait PlatformWindowV2 {
 
         // Apply scroll using gpu_scroll
         if let Err(e) = self.gpu_scroll(
-            dom_id.inner as u64,
-            node_id.index() as u64,
+            dom_id,
+            node_id,
             if is_vertical { 0.0 } else { scroll_delta },
             if is_vertical { scroll_delta } else { 0.0 },
         ) {
@@ -1344,8 +1503,8 @@ pub trait PlatformWindowV2 {
 
         // Use gpu_scroll to update scroll position
         if let Err(e) = self.gpu_scroll(
-            dom_id.inner as u64,
-            node_id.index() as u64,
+            dom_id,
+            node_id,
             if is_vertical { 0.0 } else { delta_from_current },
             if is_vertical { delta_from_current } else { 0.0 },
         ) {

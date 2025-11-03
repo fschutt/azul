@@ -169,6 +169,8 @@ pub struct ScrollManager {
 pub struct ScrollState {
     /// Current scroll offset (live, may be animating)
     pub current_offset: LogicalPosition,
+    /// Previous frame's scroll offset (for delta calculation)
+    pub previous_offset: LogicalPosition,
     /// Ongoing smooth scroll animation, if any
     pub animation: Option<ScrollAnimation>,
     /// Last time scroll activity occurred (for fading scrollbars)
@@ -230,6 +232,11 @@ impl ScrollManager {
         self.had_scroll_activity = false;
         self.had_programmatic_scroll = false;
         self.had_new_doms = false;
+        
+        // Save current offsets as previous for delta calculation
+        for state in self.states.values_mut() {
+            state.previous_offset = state.current_offset;
+        }
     }
 
     pub fn end_frame(&self) -> FrameScrollInfo {
@@ -289,6 +296,107 @@ impl ScrollManager {
             self.set_scroll_position(event.dom_id, event.node_id, new_position, now);
         }
         true
+    }
+
+    /// Record a scroll input sample from user interaction (mouse wheel, touch, etc.)
+    ///
+    /// This method:
+    /// 1. Takes scroll delta and the input point that caused it
+    /// 2. Checks if there was a hit test for that input point (via HoverManager)
+    /// 3. Finds the first scrollable ancestor node
+    /// 4. Applies the scroll if a valid target is found
+    /// 5. Returns the affected node if scroll was applied
+    ///
+    /// This is called during event processing BEFORE event filtering.
+    ///
+    /// # Arguments
+    /// * `delta_x` - Horizontal scroll delta (positive = scroll right)
+    /// * `delta_y` - Vertical scroll delta (positive = scroll down)
+    /// * `hover_manager` - Reference to HoverManager to get hit test results
+    /// * `input_point_id` - Which input point caused the scroll (Mouse, Touch(id))
+    /// * `now` - Current timestamp
+    ///
+    /// # Returns
+    /// Option<(DomId, NodeId)> - The node that was scrolled, if any
+    pub fn record_sample(
+        &mut self,
+        delta_x: f32,
+        delta_y: f32,
+        hover_manager: &crate::managers::hover::HoverManager,
+        input_point_id: &crate::managers::InputPointId,
+        now: Instant,
+    ) -> Option<(DomId, NodeId)> {
+        // Get hit test for this input point
+        let hit_test = hover_manager.get_current(input_point_id)?;
+
+        // Find first scrollable node in hit test hierarchy
+        // Iterate through hovered nodes (should be ordered from innermost to outermost)
+        for (dom_id, hit_node) in &hit_test.hovered_nodes {
+            // Check scroll_hit_test_nodes first (nodes with overflow:scroll/auto)
+            for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
+                // This node is registered as scrollable, check if it actually has overflow
+                if self.is_node_scrollable(*dom_id, *node_id) {
+                    // Apply scroll to this node
+                    let delta = LogicalPosition {
+                        x: delta_x,
+                        y: delta_y,
+                    };
+                    
+                    let current = self.get_current_offset(*dom_id, *node_id).unwrap_or_default();
+                    let new_position = LogicalPosition {
+                        x: current.x + delta.x,
+                        y: current.y + delta.y,
+                    };
+                    
+                    self.set_scroll_position(*dom_id, *node_id, new_position, now);
+                    self.had_scroll_activity = true;
+                    
+                    return Some((*dom_id, *node_id));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
+    fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        // Get scroll state for this node
+        let state = match self.states.get(&(dom_id, node_id)) {
+            Some(s) => s,
+            None => return false, // Not registered as scrollable
+        };
+
+        // Check if content exceeds container (i.e., actually scrollable)
+        let has_horizontal_overflow = state.content_rect.size.width > state.container_rect.size.width;
+        let has_vertical_overflow = state.content_rect.size.height > state.container_rect.size.height;
+
+        // Node must have some overflow to be scrollable
+        has_horizontal_overflow || has_vertical_overflow
+    }
+
+    /// Get the scroll delta that was applied to a node in the current frame
+    /// (for generating scroll events in callbacks)
+    pub fn get_scroll_delta(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+        let state = self.states.get(&(dom_id, node_id))?;
+        
+        let delta = LogicalPosition {
+            x: state.current_offset.x - state.previous_offset.x,
+            y: state.current_offset.y - state.previous_offset.y,
+        };
+        
+        // Only return delta if non-zero
+        if delta.x.abs() > 0.001 || delta.y.abs() > 0.001 {
+            Some(delta)
+        } else {
+            None
+        }
+    }
+
+    /// Check if a node had scroll activity this frame
+    pub fn had_scroll_activity_for_node(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        // Check if there's a non-zero delta this frame
+        self.get_scroll_delta(dom_id, node_id).is_some()
     }
 
     pub fn set_scroll_position(
@@ -640,6 +748,7 @@ impl ScrollState {
     pub fn new(now: Instant) -> Self {
         Self {
             current_offset: LogicalPosition::zero(),
+            previous_offset: LogicalPosition::zero(),
             animation: None,
             last_activity: now,
             container_rect: LogicalRect::zero(),

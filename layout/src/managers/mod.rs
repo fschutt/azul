@@ -8,3 +8,7 @@ pub mod hover;
 pub mod iframe;
 pub mod scroll_state;
 pub mod selection;
+pub mod text_input;
+
+// Re-export commonly used types
+pub use hover::InputPointId;

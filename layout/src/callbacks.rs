@@ -989,27 +989,33 @@ impl CallbackInfo {
         &self.internal_get_layout_window().hover_manager
     }
 
-    /// Get the current hit test result (most recent frame)
+    /// Get the current mouse cursor hit test result (most recent frame)
     pub fn get_current_hit_test(&self) -> Option<&crate::hit_test::FullHitTest> {
-        self.get_hover_manager().get_current()
+        use crate::managers::InputPointId;
+        self.get_hover_manager().get_current(&InputPointId::Mouse)
     }
 
-    /// Get hit test from N frames ago (0 = current, 1 = previous, etc.)
+    /// Get mouse cursor hit test from N frames ago (0 = current, 1 = previous, etc.)
     pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&crate::hit_test::FullHitTest> {
-        self.get_hover_manager().get_frame(frames_ago)
+        use crate::managers::InputPointId;
+        self.get_hover_manager().get_frame(&InputPointId::Mouse, frames_ago)
     }
 
-    /// Get the full hit test history (up to 5 frames)
+    /// Get the full mouse cursor hit test history (up to 5 frames)
+    ///
+    /// Returns None if no mouse history exists yet
     pub fn get_hit_test_history(
         &self,
-    ) -> &alloc::collections::VecDeque<crate::hit_test::FullHitTest> {
-        self.get_hover_manager().get_history()
+    ) -> Option<&alloc::collections::VecDeque<crate::hit_test::FullHitTest>> {
+        use crate::managers::InputPointId;
+        self.get_hover_manager().get_history(&InputPointId::Mouse)
     }
 
-    /// Check if there's sufficient history for gesture detection (at least 2 frames)
+    /// Check if there's sufficient mouse history for gesture detection (at least 2 frames)
     pub fn has_sufficient_history_for_gestures(&self) -> bool {
+        use crate::managers::InputPointId;
         self.get_hover_manager()
-            .has_sufficient_history_for_gestures()
+            .has_sufficient_history_for_gestures(&InputPointId::Mouse)
     }
 
     // ===== Focus Manager Access =====
@@ -1069,6 +1075,32 @@ impl CallbackInfo {
                     None
                 }
             })
+    }
+
+    // ===== Scroll Manager Query Methods =====
+
+    /// Get the current scroll offset for a node (if it's scrollable)
+    pub fn get_scroll_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+        self.get_scroll_manager().get_current_offset(dom_id, node_id)
+    }
+
+    /// Get the scroll delta for a node in the current frame (for scroll event detection)
+    pub fn get_scroll_delta(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+        self.get_scroll_manager().get_scroll_delta(dom_id, node_id)
+    }
+
+    /// Check if a node had scroll activity this frame
+    pub fn had_scroll_activity(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        self.get_scroll_manager().had_scroll_activity_for_node(dom_id, node_id)
+    }
+
+    /// Get the scroll state (container rect, content rect, current offset) for a node
+    pub fn get_scroll_state(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<&crate::managers::scroll_state::ScrollState> {
+        self.get_scroll_manager().get_scroll_state(dom_id, node_id)
     }
 
     // ===== GPU State Manager Access =====

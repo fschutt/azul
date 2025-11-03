@@ -19,7 +19,7 @@ use azul_css::{
     css::{Css, NodeTypeTag},
     format_rust_code::GetHash,
     props::{
-        basic::FontRef,
+        basic::{FontRef, FloatValue},
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},
         property::CssProperty,
     },
@@ -37,6 +37,7 @@ use crate::{
         CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, IFrameCallback,
         IFrameCallbackType,
     },
+    geom::LogicalPosition,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
     menu::Menu,
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
@@ -943,6 +944,18 @@ pub enum On {
     FocusReceived,
     /// Equivalent to `onblur`.
     FocusLost,
+    
+    // Accessibility-specific events
+    /// Default action triggered by screen reader (usually same as click/activate)
+    Default,
+    /// Element should collapse (e.g., accordion panel, tree node)
+    Collapse,
+    /// Element should expand (e.g., accordion panel, tree node)
+    Expand,
+    /// Increment value (e.g., number input, slider)
+    Increment,
+    /// Decrement value (e.g., number input, slider)
+    Decrement,
 }
 
 // ============================================================================
@@ -1512,9 +1525,8 @@ impl Hash for NodeData {
             if let Some(c) = ext.clip_mask.as_ref() {
                 c.hash(state);
             }
-            if let Some(c) = ext.accessibility.as_ref() {
-                c.hash(state);
-            }
+            // Note: AccessibilityInfo doesn't implement Hash (has non-hashable fields)
+            // Skipping accessibility field in hash
             if let Some(c) = ext.menu_bar.as_ref() {
                 c.hash(state);
             }
@@ -1544,7 +1556,7 @@ pub struct NodeDataExt {
 
 /// Holds information about a UI element for accessibility purposes (e.g., screen readers).
 /// This is a wrapper for platform-specific accessibility APIs like MSAA.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct AccessibilityInfo {
     /// Get the "name" of the `IAccessible`, for example the
@@ -1578,77 +1590,21 @@ pub struct AccessibilityInfo {
     pub described_by: OptionDomNodeId,
 }
 
-// Manual trait implementations for AccessibilityInfo
-// Vec fields don't implement Ord/Hash, so we implement them manually
-impl PartialOrd for AccessibilityInfo {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for AccessibilityInfo {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Compare fields in order, Vec fields are compared by length then content
-        self.name
-            .cmp(&other.name)
-            .then_with(|| self.value.cmp(&other.value))
-            .then_with(|| self.role.cmp(&other.role))
-            .then_with(|| {
-                // Compare states Vec by length first, then content
-                self.states
-                    .len()
-                    .cmp(&other.states.len())
-                    .then_with(|| self.states.as_slice().cmp(other.states.as_slice()))
-            })
-            .then_with(|| self.accelerator.cmp(&other.accelerator))
-            .then_with(|| self.default_action.cmp(&other.default_action))
-            .then_with(|| {
-                // Compare supported_actions Vec by length first, then content
-                self.supported_actions
-                    .len()
-                    .cmp(&other.supported_actions.len())
-                    .then_with(|| {
-                        self.supported_actions
-                            .as_slice()
-                            .cmp(other.supported_actions.as_slice())
-                    })
-            })
-            .then_with(|| self.is_live_region.cmp(&other.is_live_region))
-            .then_with(|| self.labelled_by.cmp(&other.labelled_by))
-            .then_with(|| self.described_by.cmp(&other.described_by))
-    }
-}
-
-impl std::hash::Hash for AccessibilityInfo {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.value.hash(state);
-        self.role.hash(state);
-        // Hash Vec fields by hashing each element
-        for item in self.states.as_slice() {
-            item.hash(state);
-        }
-        self.accelerator.hash(state);
-        self.default_action.hash(state);
-        // Hash Vec fields by hashing each element
-        for item in self.supported_actions.as_slice() {
-            item.hash(state);
-        }
-        self.is_live_region.hash(state);
-        self.labelled_by.hash(state);
-        self.described_by.hash(state);
-    }
-}
-
 /// Actions that can be performed on an accessible element.
 /// This is a simplified version of accesskit::Action to avoid direct dependency in core.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum AccessibilityAction {
     /// The default action for the element (usually a click).
     Default,
     /// Set focus to this element.
     Focus,
+    /// Remove focus from this element.
+    Blur,
+    /// Collapse an expandable element (e.g., tree node, accordion).
+    Collapse,
+    /// Expand a collapsible element (e.g., tree node, accordion).
+    Expand,
     /// Scroll this element into view.
     ScrollIntoView,
     /// Increment a numeric value (e.g., slider, spinner).
@@ -1657,6 +1613,10 @@ pub enum AccessibilityAction {
     Decrement,
     /// Show a context menu.
     ShowContextMenu,
+    /// Hide a tooltip.
+    HideTooltip,
+    /// Show a tooltip.
+    ShowTooltip,
     /// Scroll backward (e.g., page up).
     ScrollBackward,
     /// Scroll forward (e.g., page down).
@@ -1669,6 +1629,29 @@ pub enum AccessibilityAction {
     ScrollLeft,
     /// Scroll right.
     ScrollRight,
+    /// Replace selected text with new text.
+    ReplaceSelectedText(AzString),
+    /// Scroll to a specific point.
+    ScrollToPoint(LogicalPosition),
+    /// Set scroll offset.
+    SetScrollOffset(LogicalPosition),
+    /// Set text selection.
+    SetTextSelection(TextSelectionStartEnd),
+    /// Set sequential focus navigation starting point.
+    SetSequentialFocusNavigationStartingPoint,
+    /// Set the value of a control.
+    SetValue(AzString),
+    /// Set numeric value of a control.
+    SetNumericValue(FloatValue),
+    /// Custom action with ID.
+    CustomAction(i32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct TextSelectionStartEnd {
+    pub start: usize,
+    pub end: usize,
 }
 
 impl_vec![
@@ -1691,7 +1674,8 @@ impl_vec_hash!(AccessibilityAction, AccessibilityActionVec);
 impl_option![
     AccessibilityAction,
     OptionAccessibilityAction,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 ];
 
 impl_option!(

@@ -314,10 +314,11 @@ impl MacOSWindow {
             CursorPosition::OutOfWindow(position);
 
         // Clear last hit test since mouse is out
+        use azul_layout::managers::InputPointId;
         if let Some(ref mut layout_window) = self.layout_window {
             layout_window
                 .hover_manager
-                .push_hit_test(FullHitTest::empty(None));
+                .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
         }
 
         // V2 system will detect MouseLeave events from state diff
@@ -355,42 +356,32 @@ impl MacOSWindow {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
-        // Update scroll state
-        use azul_css::OptionF32;
-        let current_x = self
-            .current_window_state
-            .mouse_state
-            .scroll_x
-            .into_option()
-            .unwrap_or(0.0);
-        let current_y = self
-            .current_window_state
-            .mouse_state
-            .scroll_y
-            .into_option()
-            .unwrap_or(0.0);
-
-        self.current_window_state.mouse_state.scroll_x =
-            OptionF32::Some(current_x + delta_x as f32);
-        self.current_window_state.mouse_state.scroll_y =
-            OptionF32::Some(current_y + delta_y as f32);
-
-        // Update hit test
+        // Update hit test FIRST (required for scroll manager)
         self.update_hit_test(position);
 
-        // GPU scroll for visible scrollbars (if delta is significant)
+        // Record scroll sample using ScrollManager (if delta is significant)
         if (delta_x.abs() > 0.01 || delta_y.abs() > 0.01) {
-            if let Some(hit_node) = self.get_first_hovered_node() {
-                let _ = self.gpu_scroll(
-                    hit_node.dom_id,
-                    hit_node.node_id,
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                use azul_layout::managers::InputPointId;
+                use azul_core::task::Instant;
+                
+                let now = Instant::from(std::time::Instant::now());
+                let scroll_node = layout_window.scroll_states.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
                     -delta_y as f32,
+                    &layout_window.hover_manager,
+                    &InputPointId::Mouse,
+                    now,
                 );
+                
+                // GPU scroll for visible scrollbars if a node was scrolled
+                if let Some((dom_id, node_id)) = scroll_node {
+                    let _ = self.gpu_scroll(dom_id, node_id, -delta_x as f32, -delta_y as f32);
+                }
             }
         }
 
-        // V2 system will detect Scroll event from state diff
+        // V2 system will detect Scroll event from ScrollManager state
         let result = self.process_window_events_recursive_v2(0);
 
         match result {
@@ -432,8 +423,13 @@ impl MacOSWindow {
         // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);
 
-        // Update keyboard state with character (for text input)
-        self.update_keyboard_state_with_char(character);
+        // Process text input if character is available
+        if let Some(ch) = character {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                let text_input = ch.to_string();
+                layout_window.process_text_input(&text_input);
+            }
+        }
 
         // V2 system will detect VirtualKeyDown and TextInput from state diff
         let result = self.process_window_events_recursive_v2(0);
@@ -812,13 +808,13 @@ impl MacOSWindow {
     }
 
     /// Update keyboard state with character from event
-    fn update_keyboard_state_with_char(&mut self, character: Option<char>) {
-        use azul_core::window::OptionChar;
-
-        self.current_window_state.keyboard_state.current_char = match character {
-            Some(ch) => OptionChar::Some(ch as u32),
-            None => OptionChar::None,
-        };
+    /// NOTE: This method is deprecated and should not set current_char anymore.
+    /// Text input is now handled by process_text_input() which receives the
+    /// composed text directly from NSTextInputClient.
+    fn update_keyboard_state_with_char(&mut self, _character: Option<char>) {
+        // current_char field has been removed from KeyboardState
+        // KeyboardState now only tracks virtual keys and scancodes
+        // Text input is handled separately by LayoutWindow::process_text_input()
     }
 
     /// Handle compositor resize notification.
@@ -1119,16 +1115,18 @@ impl MacOSWindow {
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
-            layout_window.hover_manager.push_hit_test(hit_test);
+            use azul_layout::managers::InputPointId;
+            layout_window.hover_manager.push_hit_test(InputPointId::Mouse, hit_test);
         }
     }
 
-    /// Get the first hovered node from current hit test.
+    /// Get the first hovered node from current mouse hit test.
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
+        use azul_layout::managers::InputPointId;
         self.layout_window
             .as_ref()?
             .hover_manager
-            .get_current()?
+            .get_current(&InputPointId::Mouse)?
             .hovered_nodes
             .iter()
             .flat_map(|(dom_id, ht)| {

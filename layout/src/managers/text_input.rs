@@ -1,0 +1,156 @@
+//! Text Input Manager
+//!
+//! Centralizes all text editing logic for contenteditable nodes.
+//! 
+//! This manager handles text input from multiple sources:
+//! - Keyboard input (character insertion, backspace, etc.)
+//! - IME composition (multi-character input for Asian languages)
+//! - Accessibility actions (screen readers, voice control)
+//! - Programmatic edits (from callbacks)
+//!
+//! ## Architecture
+//!
+//! The text input system uses a two-phase approach:
+//!
+//! 1. **Record Phase**: When text input occurs, record what changed (old_text + inserted_text)
+//!    - Store in `pending_changeset`
+//!    - Do NOT modify any caches yet
+//!    - Return affected nodes so callbacks can be invoked
+//!
+//! 2. **Apply Phase**: After callbacks, if preventDefault was not set:
+//!    - Compute new text using text3::edit
+//!    - Update cursor position
+//!    - Update text cache
+//!    - Mark nodes dirty for re-layout
+//!
+//! This separation allows:
+//! - User callbacks to inspect the changeset before it's applied
+//! - preventDefault to cancel the edit
+//! - Consistent behavior across keyboard/IME/A11y sources
+
+use azul_core::dom::{DomId, DomNodeId, NodeId};
+use azul_core::selection::TextCursor;
+use std::collections::BTreeMap;
+
+/// Information about a pending text edit that hasn't been applied yet
+#[derive(Debug, Clone)]
+pub struct TextChangeset {
+    /// The node that was edited
+    pub node: DomNodeId,
+    /// The text that was inserted
+    pub inserted_text: String,
+    /// The old text before the edit (plain text extracted from InlineContent)
+    pub old_text: String,
+}
+
+impl TextChangeset {
+    /// Compute the resulting text after applying the edit
+    /// 
+    /// This is a pure function that applies the inserted_text to old_text
+    /// using the current cursor position.
+    pub fn resulting_text(&self, cursor: Option<&TextCursor>) -> String {
+        // TODO: Apply edit at cursor position
+        // For now, just append the inserted text
+        let mut result = self.old_text.clone();
+        result.push_str(&self.inserted_text);
+        
+        let _ = cursor; // Will be used when we implement proper cursor-based insertion
+        
+        result
+    }
+}
+
+/// Source of a text input event
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextInputSource {
+    /// Regular keyboard input
+    Keyboard,
+    /// IME composition (multi-character input)
+    Ime,
+    /// Accessibility action from assistive technology
+    Accessibility,
+    /// Programmatic edit from user callback
+    Programmatic,
+}
+
+/// Text Input Manager
+///
+/// Centralizes all text editing logic. This is the single source of truth
+/// for text input state.
+pub struct TextInputManager {
+    /// The pending text changeset that hasn't been applied yet.
+    /// This is set during the "record" phase and cleared after the "apply" phase.
+    pub pending_changeset: Option<TextChangeset>,
+    
+    /// Source of the current text input
+    pub input_source: Option<TextInputSource>,
+}
+
+impl TextInputManager {
+    /// Create a new TextInputManager
+    pub fn new() -> Self {
+        Self {
+            pending_changeset: None,
+            input_source: None,
+        }
+    }
+
+    /// Record a text input event (Phase 1)
+    ///
+    /// This ONLY records what text was inserted. It does NOT apply the changes yet.
+    /// The changes are applied later in `apply_changeset()` if preventDefault is not set.
+    ///
+    /// # Arguments
+    /// * `node` - The DOM node being edited
+    /// * `inserted_text` - The text being inserted
+    /// * `old_text` - The current text before the edit
+    /// * `source` - Where the input came from (keyboard, IME, A11y, etc.)
+    ///
+    /// # Returns
+    /// The affected node for event generation
+    pub fn record_input(
+        &mut self,
+        node: DomNodeId,
+        inserted_text: String,
+        old_text: String,
+        source: TextInputSource,
+    ) -> DomNodeId {
+        // Clear any previous changeset
+        self.pending_changeset = None;
+        
+        // Store the new changeset
+        self.pending_changeset = Some(TextChangeset {
+            node,
+            inserted_text,
+            old_text,
+        });
+        
+        self.input_source = Some(source);
+        
+        node
+    }
+
+    /// Get the pending changeset (if any)
+    pub fn get_pending_changeset(&self) -> Option<&TextChangeset> {
+        self.pending_changeset.as_ref()
+    }
+
+    /// Clear the pending changeset
+    ///
+    /// This is called after applying the changeset or if preventDefault was set.
+    pub fn clear_changeset(&mut self) {
+        self.pending_changeset = None;
+        self.input_source = None;
+    }
+
+    /// Check if there's a pending changeset that needs to be applied
+    pub fn has_pending_changeset(&self) -> bool {
+        self.pending_changeset.is_some()
+    }
+}
+
+impl Default for TextInputManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

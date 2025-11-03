@@ -1784,6 +1784,13 @@ impl From<On> for EventFilter {
             HoveredFileCancelled => EventFilter::Hover(HoverEventFilter::HoveredFileCancelled),
             FocusReceived => EventFilter::Focus(FocusEventFilter::FocusReceived), // focus!
             FocusLost => EventFilter::Focus(FocusEventFilter::FocusLost),         // focus!
+            
+            // Accessibility events - treat as hover events (element-specific)
+            Default => EventFilter::Hover(HoverEventFilter::MouseUp), // Default action = click
+            Collapse => EventFilter::Hover(HoverEventFilter::MouseUp), // Collapse = click
+            Expand => EventFilter::Hover(HoverEventFilter::MouseUp), // Expand = click  
+            Increment => EventFilter::Hover(HoverEventFilter::MouseUp), // Increment = click
+            Decrement => EventFilter::Hover(HoverEventFilter::MouseUp), // Decrement = click
         }
     }
 }
