@@ -362,6 +362,22 @@ impl X11Window {
         // Update hit test
         self.update_hit_test(position);
 
+        // Update cursor based on CSS cursor properties
+        // This is done BEFORE callbacks so callbacks can override the cursor
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(hit_test) = layout_window
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+            {
+                let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
+                // Update the window state cursor type
+                self.current_window_state.mouse_state.mouse_cursor_type =
+                    Some(cursor_test.cursor_icon).into();
+                // Set the actual OS cursor
+                self.set_cursor(cursor_test.cursor_icon);
+            }
+        }
+
         // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
         self.process_window_events_recursive_v2(0)
     }

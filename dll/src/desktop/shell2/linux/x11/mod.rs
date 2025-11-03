@@ -867,17 +867,6 @@ impl X11Window {
             }
         }
 
-        // Mouse cursor synchronization - compute from current hit test
-        if let Some(layout_window) = self.layout_window.as_ref() {
-            if let Some(hit_test) = layout_window
-                .hover_manager
-                .get_current(&InputPointId::Mouse)
-            {
-                let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
-                self.set_cursor(cursor_test.cursor_icon);
-            }
-        }
-
         // Flush X11 commands
         unsafe {
             (self.xlib.XFlush)(self.display);

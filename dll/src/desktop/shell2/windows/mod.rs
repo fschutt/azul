@@ -1292,13 +1292,13 @@ unsafe extern "system" fn window_proc(
                     .hover_manager
                     .push_hit_test(InputPointId::Mouse, hit_test.clone());
 
+                // Update cursor based on CSS cursor properties
+                // This is done BEFORE callbacks so callbacks can override the cursor
                 let cursor_type_hit_test = layout_window.compute_cursor_type_hit_test(&hit_test);
-
-                // Extract the cursor icon from the hit test result
                 let new_cursor_type = cursor_type_hit_test.cursor_icon;
                 let new = OptionMouseCursorType::Some(new_cursor_type);
 
-                // Update cursor type
+                // Update cursor type if changed
                 if window.current_window_state.mouse_state.mouse_cursor_type != new {
                     window.current_window_state.mouse_state.mouse_cursor_type = new;
                     event::set_cursor(new_cursor_type, &window.win32);

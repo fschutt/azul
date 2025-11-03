@@ -35,17 +35,23 @@ impl KeyboardState {
 }
 
 pub(super) struct PointerState {
+    /// The wl_pointer object from Wayland
+    pub(super) pointer: *mut super::defines::wl_pointer,
     /// The serial of the last pointer event, used for requests like popups or moves.
     pub(super) serial: u32,
     /// Tracks which button was pressed down to distinguish clicks from drags.
     pub(super) button_down: Option<MouseButton>,
+    /// Current cursor theme (loaded once)
+    pub(super) cursor_theme: *mut super::defines::wl_cursor_theme,
 }
 
 impl PointerState {
     pub(super) fn new() -> Self {
         Self {
+            pointer: std::ptr::null_mut(),
             serial: 0,
             button_down: None,
+            cursor_theme: std::ptr::null_mut(),
         }
     }
 }
@@ -294,6 +300,7 @@ pub(super) extern "C" fn seat_capabilities_handler(
 
     if capabilities & WL_SEAT_CAPABILITY_POINTER != 0 {
         let pointer = unsafe { (window.wayland.wl_seat_get_pointer)(seat) };
+        window.pointer_state.pointer = pointer;
         let listener = wl_pointer_listener {
             enter: pointer_enter_handler,
             leave: pointer_leave_handler,

@@ -50,6 +50,29 @@ pub struct wl_shm_pool {
 pub struct wl_buffer {
     _private: [u8; 0],
 }
+
+// wl_cursor types (from wayland-cursor.h)
+#[repr(C)]
+pub struct wl_cursor_theme {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct wl_cursor {
+    pub image_count: u32,
+    pub images: *mut *mut wl_cursor_image,
+    pub name: *mut c_char,
+}
+
+#[repr(C)]
+pub struct wl_cursor_image {
+    pub width: u32,
+    pub height: u32,
+    pub hotspot_x: u32,
+    pub hotspot_y: u32,
+    pub delay: u32,
+}
+
 #[repr(C)]
 pub struct wl_proxy {
     _private: [u8; 0],

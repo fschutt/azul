@@ -1172,6 +1172,22 @@ impl WaylandWindow {
         // Update hit test for hover effects
         self.update_hit_test(logical_pos);
 
+        // Update cursor based on CSS cursor properties
+        // This is done BEFORE callbacks so callbacks can override the cursor
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(hit_test) = layout_window
+                .hover_manager
+                .get_current(&azul_layout::managers::InputPointId::Mouse)
+            {
+                let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
+                // Update the window state cursor type
+                self.current_window_state.mouse_state.mouse_cursor_type =
+                    Some(cursor_test.cursor_icon).into();
+                // Set the actual OS cursor
+                self.set_cursor(cursor_test.cursor_icon);
+            }
+        }
+
         // V2: Process events through state-diffing system
         let result = self.process_window_events_recursive_v2(0);
 
@@ -1579,20 +1595,6 @@ impl WaylandWindow {
         // Sync visibility
         // TODO: Wayland visibility control via xdg_toplevel methods
 
-        // Mouse cursor synchronization - compute from current hit test
-        // TODO: Wayland cursor support requires wl_cursor and wl_pointer protocols
-        // For now, this is a placeholder - full implementation needs:
-        // 1. Load cursor theme via wl_cursor_theme_load()
-        // 2. Get cursor from theme via wl_cursor_theme_get_cursor()
-        // 3. Attach cursor buffer to wl_pointer via wl_pointer_set_cursor()
-        // 4. Track wl_pointer from wl_seat (not yet implemented)
-        //
-        // Reference: https://wayland.freedesktop.org/docs/html/ch04.html#sect-Protocol-Input
-        if let Some(_layout_window) = self.layout_window.as_ref() {
-            // let cursor_test = layout_window.compute_cursor_type_hit_test(&current.last_hit_test);
-            // self.set_cursor(cursor_test.cursor_icon);  // Not yet implemented
-        }
-
         // Commit changes if needed
         if needs_commit {
             unsafe {
@@ -1693,6 +1695,144 @@ impl WaylandWindow {
 
         self.frame_needs_regeneration = false;
         self.frame_callback_pending = true;
+    }
+
+    /// Set the mouse cursor for this window
+    fn set_cursor(&mut self, cursor_type: azul_core::window::MouseCursorType) {
+        // Only proceed if we have cursor functions loaded
+        let cursor_theme_load = match self.wayland.wl_cursor_theme_load {
+            Some(f) => f,
+            None => return, // Cursor library not available
+        };
+        let cursor_theme_get = match self.wayland.wl_cursor_theme_get_cursor {
+            Some(f) => f,
+            None => return,
+        };
+        let cursor_image_get_buffer = match self.wayland.wl_cursor_image_get_buffer {
+            Some(f) => f,
+            None => return,
+        };
+        let pointer_set_cursor = match self.wayland.wl_pointer_set_cursor {
+            Some(f) => f,
+            None => return,
+        };
+
+        // Check if we have a pointer
+        if self.pointer_state.pointer.is_null() {
+            return;
+        }
+
+        // Load cursor theme once if not already loaded
+        if self.pointer_state.cursor_theme.is_null() {
+            self.pointer_state.cursor_theme = unsafe {
+                cursor_theme_load(
+                    std::ptr::null(), // Use default theme name
+                    24,               // Cursor size
+                    self.shm,         // Shared memory object
+                )
+            };
+            if self.pointer_state.cursor_theme.is_null() {
+                return; // Failed to load theme
+            }
+        }
+
+        // Map MouseCursorType to Wayland cursor name
+        let cursor_name = match cursor_type {
+            azul_core::window::MouseCursorType::Default
+            | azul_core::window::MouseCursorType::Arrow => "default",
+            azul_core::window::MouseCursorType::Hand => "pointer",
+            azul_core::window::MouseCursorType::Crosshair => "crosshair",
+            azul_core::window::MouseCursorType::Text => "text",
+            azul_core::window::MouseCursorType::Move => "move",
+            azul_core::window::MouseCursorType::Wait => "wait",
+            azul_core::window::MouseCursorType::Progress => "progress",
+            azul_core::window::MouseCursorType::NotAllowed
+            | azul_core::window::MouseCursorType::NoDrop => "not-allowed",
+            azul_core::window::MouseCursorType::Help => "help",
+            azul_core::window::MouseCursorType::ContextMenu => "context-menu",
+            azul_core::window::MouseCursorType::Cell => "cell",
+            azul_core::window::MouseCursorType::VerticalText => "vertical-text",
+            azul_core::window::MouseCursorType::Alias => "alias",
+            azul_core::window::MouseCursorType::Copy => "copy",
+            azul_core::window::MouseCursorType::Grab => "grab",
+            azul_core::window::MouseCursorType::Grabbing => "grabbing",
+            azul_core::window::MouseCursorType::AllScroll => "all-scroll",
+            azul_core::window::MouseCursorType::ZoomIn => "zoom-in",
+            azul_core::window::MouseCursorType::ZoomOut => "zoom-out",
+            azul_core::window::MouseCursorType::EResize => "e-resize",
+            azul_core::window::MouseCursorType::NResize => "n-resize",
+            azul_core::window::MouseCursorType::NeResize => "ne-resize",
+            azul_core::window::MouseCursorType::NwResize => "nw-resize",
+            azul_core::window::MouseCursorType::SResize => "s-resize",
+            azul_core::window::MouseCursorType::SeResize => "se-resize",
+            azul_core::window::MouseCursorType::SwResize => "sw-resize",
+            azul_core::window::MouseCursorType::WResize => "w-resize",
+            azul_core::window::MouseCursorType::EwResize => "ew-resize",
+            azul_core::window::MouseCursorType::NsResize => "ns-resize",
+            azul_core::window::MouseCursorType::NeswResize => "nesw-resize",
+            azul_core::window::MouseCursorType::NwseResize => "nwse-resize",
+            azul_core::window::MouseCursorType::ColResize => "col-resize",
+            azul_core::window::MouseCursorType::RowResize => "row-resize",
+        };
+
+        // Get cursor from theme
+        let cursor_name_cstr = match std::ffi::CString::new(cursor_name) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let cursor =
+            unsafe { cursor_theme_get(self.pointer_state.cursor_theme, cursor_name_cstr.as_ptr()) };
+        if cursor.is_null() {
+            return; // Cursor not found in theme
+        }
+
+        // Get first image from cursor
+        let cursor_struct = unsafe { &*cursor };
+        if cursor_struct.image_count == 0 || cursor_struct.images.is_null() {
+            return;
+        }
+        let image = unsafe { *cursor_struct.images };
+        if image.is_null() {
+            return;
+        }
+
+        // Get buffer from image
+        let buffer = unsafe { cursor_image_get_buffer(image) };
+        if buffer.is_null() {
+            return;
+        }
+
+        // Create a surface for the cursor if we don't have one
+        // Note: We could cache this surface, but creating it each time is simpler
+        let cursor_surface =
+            unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
+        if cursor_surface.is_null() {
+            return;
+        }
+
+        // Attach buffer to cursor surface
+        unsafe {
+            (self.wayland.wl_surface_attach)(cursor_surface, buffer, 0, 0);
+            (self.wayland.wl_surface_damage)(cursor_surface, 0, 0, i32::MAX, i32::MAX);
+            (self.wayland.wl_surface_commit)(cursor_surface);
+        }
+
+        // Set cursor on pointer
+        let image_struct = unsafe { &*image };
+        unsafe {
+            pointer_set_cursor(
+                self.pointer_state.pointer,
+                self.pointer_state.serial,
+                cursor_surface,
+                image_struct.hotspot_x as i32,
+                image_struct.hotspot_y as i32,
+            );
+        }
+
+        // Clean up cursor surface (compositor keeps its own reference)
+        unsafe {
+            (self.wayland.wl_proxy_destroy)(cursor_surface as *mut _);
+        }
     }
 }
 
