@@ -13,6 +13,7 @@
 //! - WebRender: Rendering and display lists
 //! - Common shell2 modules: Compositor, error handling
 
+pub mod accessibility;
 pub mod dlopen;
 mod dpi;
 pub mod event;
@@ -44,6 +45,7 @@ use azul_core::{
 };
 use azul_layout::{
     hit_test::FullHitTest,
+    managers::hover::InputPointId,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
     ScrollbarDragState,
@@ -154,6 +156,11 @@ pub struct Win32Window {
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
+
+    // Accessibility
+    /// Windows accessibility adapter
+    #[cfg(feature = "accessibility")]
+    pub accessibility_adapter: accessibility::WindowsAccessibilityAdapter,
 }
 
 impl Win32Window {
@@ -381,7 +388,7 @@ impl Win32Window {
         let current_window_state = layout_window.current_window_state.clone();
 
         // Build window structure
-        Ok(Win32Window {
+        let mut result = Win32Window {
             hwnd,
             hinstance,
             layout_window: Some(layout_window),
@@ -413,7 +420,19 @@ impl Win32Window {
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
             pending_window_creates: Vec::new(),
-        })
+            #[cfg(feature = "accessibility")]
+            accessibility_adapter: accessibility::WindowsAccessibilityAdapter::new(),
+        };
+
+        // Initialize accessibility adapter
+        #[cfg(feature = "accessibility")]
+        {
+            result.accessibility_adapter.initialize(hwnd).map_err(|e| {
+                WindowError::PlatformError(format!("Accessibility init failed: {}", e))
+            })?;
+        }
+
+        Ok(result)
     }
 
     /// Start or stop timers based on changes
@@ -644,7 +663,10 @@ impl Win32Window {
 
         // Mouse cursor synchronization - compute from current hit test
         if let Some(layout_window) = self.layout_window.as_ref() {
-            if let Some(hit_test) = layout_window.hover_manager.get_current() {
+            if let Some(hit_test) = layout_window
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+            {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 self.set_cursor(cursor_test.cursor_icon);
             }
@@ -825,7 +847,7 @@ impl Win32Window {
         let hit_test = self
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.hover_manager.get_current())
+            .and_then(|lw| lw.hover_manager.get_current(&InputPointId::Mouse))
             .cloned()
             .unwrap_or_else(|| FullHitTest::empty(None));
 
@@ -1040,7 +1062,7 @@ unsafe extern "system" fn window_proc(
     const WM_MOUSELEAVE: u32 = 0x02A3;
     const WM_DPICHANGED: u32 = 0x02E0;
     const WM_DROPFILES: u32 = 0x0233;
-    
+
     // IME (Input Method Editor) messages
     const WM_IME_SETCONTEXT: u32 = 0x0281;
     const WM_IME_NOTIFY: u32 = 0x0282;
@@ -1266,7 +1288,9 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                layout_window.hover_manager.push_hit_test(hit_test.clone());
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test.clone());
 
                 let cursor_type_hit_test = layout_window.compute_cursor_type_hit_test(&hit_test);
 
@@ -1382,7 +1406,9 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                layout_window.hover_manager.push_hit_test(hit_test);
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test);
             }
 
             // Capture mouse
@@ -1446,7 +1472,9 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                layout_window.hover_manager.push_hit_test(hit_test);
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test);
             }
 
             // Release mouse capture
@@ -1498,7 +1526,9 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                layout_window.hover_manager.push_hit_test(hit_test);
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test);
             }
 
             // V2 system will detect MouseDown event
@@ -1547,7 +1577,9 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                layout_window.hover_manager.push_hit_test(hit_test);
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test);
             }
 
             // Try to show context menu first
@@ -1645,21 +1677,40 @@ unsafe extern "system" fn window_proc(
             // Save previous state
             window.previous_window_state = Some(window.current_window_state.clone());
 
-            // Update scroll state
-            use azul_css::OptionF32;
-            let current_y = window
-                .current_window_state
-                .mouse_state
-                .scroll_y
-                .into_option()
-                .unwrap_or(0.0);
+            // Record scroll sample using ScrollManager (if delta is significant)
+            let hovered_node_for_scroll = if delta.abs() > 0 {
+                if let Some(ref mut layout_window) = window.layout_window {
+                    use azul_core::task::Instant;
 
-            window.current_window_state.mouse_state.scroll_y =
-                OptionF32::Some(current_y + scroll_amount);
+                    let now = Instant::from(std::time::Instant::now());
+                    let scroll_node = layout_window.scroll_manager.record_sample(
+                        0.0,                  // No horizontal scroll from mousewheel
+                        scroll_amount * 20.0, // Scale for pixel scrolling
+                        &layout_window.hover_manager,
+                        &InputPointId::Mouse,
+                        now,
+                    );
 
-            // Update hit test and get hovered node info
-            let hovered_node_for_scroll = if let Some(ref mut layout_window) = window.layout_window
-            {
+                    // GPU scroll for visible scrollbars if a node was scrolled
+                    if let Some((dom_id, node_id)) = scroll_node {
+                        let _ = window.gpu_scroll(
+                            dom_id.inner as u64,
+                            node_id.index() as u64,
+                            0.0,
+                            scroll_amount * 20.0,
+                        );
+                    }
+
+                    scroll_node
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Update hit test
+            if let Some(ref mut layout_window) = window.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
                 let hit_tester = window.hit_tester.resolve();
@@ -1672,39 +1723,12 @@ unsafe extern "system" fn window_proc(
                     hidpi_factor,
                 );
 
-                // Extract first hovered node for GPU scrolling
-                let hovered_info = if delta.abs() > 0 {
-                    hit_test
-                        .hovered_nodes
-                        .iter()
-                        .next()
-                        .and_then(|(dom_id, ht)| {
-                            ht.regular_hit_test_nodes
-                                .keys()
-                                .next()
-                                .map(|node_id| (*dom_id, *node_id))
-                        })
-                } else {
-                    None
-                };
-
-                layout_window.hover_manager.push_hit_test(hit_test);
-                hovered_info
-            } else {
-                None
-            };
-
-            // GPU scroll for hovered node (after layout_window borrow is released)
-            if let Some((dom_id, node_id)) = hovered_node_for_scroll {
-                let _ = window.gpu_scroll(
-                    dom_id.inner as u64,
-                    node_id.index() as u64,
-                    0.0,
-                    -scroll_amount * 20.0, // Scale for pixel scrolling
-                );
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test);
             }
 
-            // V2 system will detect Scroll event
+            // V2 system will detect Scroll event from ScrollManager state
             let result = window.process_window_events_recursive_v2(0);
 
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
@@ -1822,15 +1846,15 @@ unsafe extern "system" fn window_proc(
             // Update keyboard state with character
             if let Some(chr) = char_opt {
                 window.previous_window_state = Some(window.current_window_state.clone());
-                window.current_window_state.keyboard_state.current_char =
-                    azul_core::window::OptionChar::Some(chr as u32);
+
+                // Record text input in the TextInputManager
+                if let Some(ref mut layout_window) = window.layout_window {
+                    let text_str = chr.to_string();
+                    layout_window.record_text_input(&text_str);
+                }
 
                 // V2 system will detect TextInput event
                 let result = window.process_window_events_recursive_v2(0);
-
-                // Clear character after processing
-                window.current_window_state.keyboard_state.current_char =
-                    azul_core::window::OptionChar::None;
 
                 if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -1838,6 +1862,73 @@ unsafe extern "system" fn window_proc(
             }
 
             0
+        }
+
+        WM_IME_STARTCOMPOSITION => {
+            // IME composition started (e.g., user starts typing Japanese)
+            // Let Windows handle the composition window by default
+            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+        }
+
+        WM_IME_COMPOSITION => {
+            // IME composition in progress or completed
+            // lparam flags indicate what changed:
+            // GCS_RESULTSTR (0x0800) = final composed string ready
+            // GCS_COMPSTR (0x0008) = intermediate composition string
+
+            const GCS_RESULTSTR: isize = 0x0800;
+            const GCS_COMPSTR: isize = 0x0008;
+
+            if lparam & GCS_RESULTSTR != 0 {
+                // Final composed string is ready - retrieve it
+                // This requires calling ImmGetCompositionStringW
+                // For now, we'll let the default processing handle it
+                // which will generate WM_IME_CHAR messages
+                (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+            } else if lparam & GCS_COMPSTR != 0 {
+                // Intermediate composition - let Windows show composition window
+                (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+            } else {
+                (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+            }
+        }
+
+        WM_IME_ENDCOMPOSITION => {
+            // IME composition ended
+            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
+        }
+
+        WM_IME_CHAR => {
+            // Double-byte character from IME (e.g., Japanese, Chinese, Korean)
+            // The new V2 input system handles text input through a different mechanism
+            // This character will be processed by the event system automatically
+            let char_code = wparam as u32;
+
+            if let Some(chr) = char::from_u32(char_code) {
+                if !chr.is_control() {
+                    window.previous_window_state = Some(window.current_window_state.clone());
+
+                    // Record text input in the TextInputManager
+                    if let Some(ref mut layout_window) = window.layout_window {
+                        let text_str = chr.to_string();
+                        layout_window.record_text_input(&text_str);
+                    }
+
+                    // V2 system will detect TextInput event
+                    let result = window.process_window_events_recursive_v2(0);
+
+                    if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
+                        (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                    }
+                }
+            }
+
+            0
+        }
+
+        WM_IME_NOTIFY | WM_IME_SETCONTEXT => {
+            // Other IME events - use default processing
+            (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
 
         WM_SETFOCUS => {

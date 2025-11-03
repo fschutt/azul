@@ -8,8 +8,6 @@ extern crate azul_core;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod desktop;
-#[cfg(target_arch = "wasm32")]
-pub mod web;
 
 // TODO: Re-enable extra after fixing API compatibility
 // The extra module has API incompatibilities with the new azul-core/azul-layout APIs:
@@ -22,8 +20,6 @@ pub mod web;
 pub mod str;
 
 pub mod azul_impl {
-    #[cfg(target_arch = "wasm32")]
-    pub use self::web::*;
     #[cfg(not(target_arch = "wasm32"))]
     pub use super::desktop::*;
 }

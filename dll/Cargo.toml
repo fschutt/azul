@@ -38,7 +38,7 @@ cfg-if = "1.0"
 regex = { version = "1", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-accesskit = { version = "0.17", default-features = false, optional = true }
+accesskit = { version = "0.16", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

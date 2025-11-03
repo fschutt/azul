@@ -306,7 +306,8 @@ pub struct KeyboardState {
     /// For example entering `à` will fire a `VirtualKeyCode::Grave`, then `VirtualKeyCode::A`,
     /// so to correctly combine characters, the framework handles text composition internally.
     pub current_virtual_keycode: OptionVirtualKeyCode,
-    /// Currently pressed virtual keycodes (READONLY) - it can happen that more than one key is pressed
+    /// Currently pressed virtual keycodes (READONLY) - it can happen that more than one key is
+    /// pressed
     ///
     /// This is essentially an "extension" of `current_scancodes` - `current_keys` stores the
     /// characters, but what if the pressed key is not a character (such as `ArrowRight` or

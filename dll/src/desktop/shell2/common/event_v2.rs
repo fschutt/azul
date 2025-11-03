@@ -752,14 +752,14 @@ pub trait PlatformWindowV2 {
         action: azul_core::dom::AccessibilityAction,
     ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<EventFilter>, bool)> {
         use std::collections::BTreeMap;
-        
+
         let layout_window = match self.get_layout_window_mut() {
             Some(lw) => lw,
             None => return BTreeMap::new(),
         };
 
         let now = std::time::Instant::now();
-        
+
         // Delegate to LayoutWindow's process_accessibility_action
         // This has direct mutable access to all managers and returns affected nodes
         layout_window.process_accessibility_action(dom_id, node_id, action, now)
@@ -810,11 +810,11 @@ pub trait PlatformWindowV2 {
         let focus_manager = self.get_layout_window().map(|w| &w.focus_manager);
         let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
-        
+
         // Get EventProvider managers (scroll, text input, etc.)
         let scroll_manager_ref = self.get_layout_window().map(|w| &w.scroll_manager);
         let text_manager_ref = self.get_layout_window().map(|w| &w.text_input_manager);
-        
+
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
         if let Some(sm) = scroll_manager_ref.as_ref() {
@@ -823,7 +823,7 @@ pub trait PlatformWindowV2 {
         if let Some(tm) = text_manager_ref.as_ref() {
             event_providers.push(*tm as &dyn azul_core::events::EventProvider);
         }
-        
+
         // Get current timestamp
         #[cfg(feature = "std")]
         let timestamp = azul_core::task::Instant::from(std::time::Instant::now());
@@ -910,7 +910,7 @@ pub trait PlatformWindowV2 {
             // - Windows: WM_CHAR / WM_UNICHAR messages
             // - X11: XIM XLookupString with UTF-8
             // - Wayland: text-input protocol
-            let text_input = "";  // Placeholder
+            let text_input = ""; // Placeholder
             layout_window.process_text_input(text_input)
         } else {
             BTreeMap::new()
@@ -1009,23 +1009,23 @@ pub trait PlatformWindowV2 {
         // 2. Scroll cursor into view if needed
         // 3. Mark dirty nodes for re-layout
         // 4. Potentially trigger another event cycle if scrolling occurred
-        
+
         if !prevent_default && !text_input_affected_nodes.is_empty() {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 // Apply text changes and get list of dirty nodes
                 let dirty_nodes = layout_window.apply_text_changeset();
-                
+
                 // Mark dirty nodes for re-layout
                 for node in dirty_nodes {
                     // TODO: Mark node as needing re-layout
                     // This will be handled by the existing dirty tracking system
                     let _ = node;
                 }
-                
+
                 // Request re-render since text changed
                 result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             }
-            
+
             // After text changes, scroll cursor into view if we have a focused text input
             // Note: This needs to happen AFTER relayout to get accurate cursor position
             if let Some(layout_window) = self.get_layout_window() {
@@ -1033,54 +1033,87 @@ pub trait PlatformWindowV2 {
                     // Get the focused node to find its scroll container
                     if let Some(focused_node_id) = layout_window.focus_manager.focused_node {
                         // Find the nearest scrollable ancestor
-                        if let Some(scroll_container) = layout_window.find_scrollable_ancestor(focused_node_id) {
+                        if let Some(scroll_container) =
+                            layout_window.find_scrollable_ancestor(focused_node_id)
+                        {
                             // Get the scroll state for this container
                             let scroll_node_id = scroll_container.node.into_crate_internal();
                             if let Some(scroll_node_id) = scroll_node_id {
-                                if let Some(scroll_state) = layout_window.scroll_manager.get_scroll_state(scroll_container.dom, scroll_node_id) {
+                                if let Some(scroll_state) = layout_window
+                                    .scroll_manager
+                                    .get_scroll_state(scroll_container.dom, scroll_node_id)
+                                {
                                     // Get the container's layout rect
-                                    if let Some(container_rect) = layout_window.get_node_layout_rect(scroll_container) {
-                                        // Calculate the visible area (container rect adjusted by scroll offset)
+                                    if let Some(container_rect) =
+                                        layout_window.get_node_layout_rect(scroll_container)
+                                    {
+                                        // Calculate the visible area (container rect adjusted by
+                                        // scroll offset)
                                         let visible_area = azul_core::geom::LogicalRect::new(
                                             azul_core::geom::LogicalPosition::new(
-                                                container_rect.origin.x + scroll_state.current_offset.x,
-                                                container_rect.origin.y + scroll_state.current_offset.y,
+                                                container_rect.origin.x
+                                                    + scroll_state.current_offset.x,
+                                                container_rect.origin.y
+                                                    + scroll_state.current_offset.y,
                                             ),
                                             container_rect.size,
                                         );
-                                        
+
                                         // Add padding around cursor for comfortable visibility
                                         const SCROLL_PADDING: f32 = 5.0;
-                                        
+
                                         // Calculate how much to scroll to bring cursor into view
-                                        let mut scroll_delta = azul_core::geom::LogicalPosition::zero();
-                                        
+                                        let mut scroll_delta =
+                                            azul_core::geom::LogicalPosition::zero();
+
                                         // Check horizontal overflow
-                                        if cursor_rect.origin.x < visible_area.origin.x + SCROLL_PADDING {
+                                        if cursor_rect.origin.x
+                                            < visible_area.origin.x + SCROLL_PADDING
+                                        {
                                             // Cursor is too far left
-                                            scroll_delta.x = cursor_rect.origin.x - (visible_area.origin.x + SCROLL_PADDING);
-                                        } else if cursor_rect.origin.x + cursor_rect.size.width > visible_area.origin.x + visible_area.size.width - SCROLL_PADDING {
+                                            scroll_delta.x = cursor_rect.origin.x
+                                                - (visible_area.origin.x + SCROLL_PADDING);
+                                        } else if cursor_rect.origin.x + cursor_rect.size.width
+                                            > visible_area.origin.x + visible_area.size.width
+                                                - SCROLL_PADDING
+                                        {
                                             // Cursor is too far right
-                                            scroll_delta.x = (cursor_rect.origin.x + cursor_rect.size.width) - (visible_area.origin.x + visible_area.size.width - SCROLL_PADDING);
+                                            scroll_delta.x = (cursor_rect.origin.x
+                                                + cursor_rect.size.width)
+                                                - (visible_area.origin.x + visible_area.size.width
+                                                    - SCROLL_PADDING);
                                         }
-                                        
+
                                         // Check vertical overflow
-                                        if cursor_rect.origin.y < visible_area.origin.y + SCROLL_PADDING {
+                                        if cursor_rect.origin.y
+                                            < visible_area.origin.y + SCROLL_PADDING
+                                        {
                                             // Cursor is too far up
-                                            scroll_delta.y = cursor_rect.origin.y - (visible_area.origin.y + SCROLL_PADDING);
-                                        } else if cursor_rect.origin.y + cursor_rect.size.height > visible_area.origin.y + visible_area.size.height - SCROLL_PADDING {
+                                            scroll_delta.y = cursor_rect.origin.y
+                                                - (visible_area.origin.y + SCROLL_PADDING);
+                                        } else if cursor_rect.origin.y + cursor_rect.size.height
+                                            > visible_area.origin.y + visible_area.size.height
+                                                - SCROLL_PADDING
+                                        {
                                             // Cursor is too far down
-                                            scroll_delta.y = (cursor_rect.origin.y + cursor_rect.size.height) - (visible_area.origin.y + visible_area.size.height - SCROLL_PADDING);
+                                            scroll_delta.y = (cursor_rect.origin.y
+                                                + cursor_rect.size.height)
+                                                - (visible_area.origin.y
+                                                    + visible_area.size.height
+                                                    - SCROLL_PADDING);
                                         }
-                                        
+
                                         // Apply scroll if needed
                                         if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
                                             // Get current time from system callbacks
                                             let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                                             let now = (external.get_system_time_fn.cb)();
-                                            
-                                            if let Some(layout_window_mut) = self.get_layout_window_mut() {
-                                                // Instant scroll (duration = 0) for cursor scrolling
+
+                                            if let Some(layout_window_mut) =
+                                                self.get_layout_window_mut()
+                                            {
+                                                // Instant scroll (duration = 0) for cursor
+                                                // scrolling
                                                 layout_window_mut.scroll_manager.scroll_by(
                                                     scroll_container.dom,
                                                     scroll_node_id,
@@ -1090,7 +1123,9 @@ pub trait PlatformWindowV2 {
                                                     now.into(),
                                                 );
                                                 // Scrolling may trigger more events, so recurse
-                                                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                                result = result.max(
+                                                    ProcessEventResult::ShouldReRenderCurrentWindow,
+                                                );
                                                 should_recurse = true;
                                             }
                                         }

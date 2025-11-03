@@ -114,7 +114,9 @@
 //! - Synthetic Events: Default action triggers callback
 
 #[cfg(feature = "accessibility")]
-use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
+use accesskit::{
+    Action, ActionRequest, Node, NodeBuilder, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate,
+};
 use azul_core::{
     dom::{AccessibilityAction, AccessibilityRole, DomId, DomNodeId, NodeId},
     styled_dom::NodeHierarchyItemId,
@@ -164,7 +166,7 @@ impl A11yManager {
         let mut root_children = Vec::new();
 
         // Create root window node
-        let mut root_node = Node::new(Role::Window);
+        let mut root_node = NodeBuilder::new(Role::Window).build();
 
         nodes.push((root_id, root_node));
 
@@ -297,9 +299,9 @@ impl A11yManager {
             }
         };
 
-        let node = Node::new(role);
+        let node = NodeBuilder::new(role).build();
 
-        // TODO: Set properties once we understand accesskit 0.17 API better
+        // TODO: Set properties once we understand accesskit 0.16 API better
         // For now, just return a basic node with the role
         // In a future iteration, we'll add:
         // - Name/label from AccessibilityInfo
@@ -334,8 +336,8 @@ impl A11yManager {
             AccessibilityRole::Dialog => Role::Dialog,
             AccessibilityRole::Border => Role::GenericContainer,
             AccessibilityRole::Grouping => Role::Group,
-            AccessibilityRole::Separator => Role::GenericContainer, /* No Separator in accesskit
-                                                                      * 0.17 */
+            AccessibilityRole::Separator => Role::GenericContainer, /* No Separator in accesskit */
+            // 0.17
             AccessibilityRole::Toolbar => Role::Toolbar,
             AccessibilityRole::StatusBar => Role::Status,
             AccessibilityRole::Table => Role::Table,
@@ -368,8 +370,8 @@ impl A11yManager {
             AccessibilityRole::Slider => Role::Slider,
             AccessibilityRole::SpinButton => Role::SpinButton,
             AccessibilityRole::Diagram => Role::Figure,
-            AccessibilityRole::Animation => Role::GenericContainer, /* No Animation in accesskit
-                                                                      * 0.17 */
+            AccessibilityRole::Animation => Role::GenericContainer, /* No Animation in accesskit */
+            // 0.17
             AccessibilityRole::Equation => Role::Math,
             AccessibilityRole::ButtonDropdown => Role::Button,
             AccessibilityRole::ButtonMenu => Role::Button, // No MenuButton in accesskit 0.17
@@ -405,10 +407,10 @@ impl A11yManager {
         };
 
         // Map accesskit Action to AccessibilityAction
-        use azul_css::{AzString, props::basic::FloatValue};
         use azul_core::geom::LogicalPosition;
+        use azul_css::{props::basic::FloatValue, AzString};
         let action = match request.action {
-            Action::Click => AccessibilityAction::Default,
+            Action::Default => AccessibilityAction::Default,
             Action::Focus => AccessibilityAction::Focus,
             Action::Blur => AccessibilityAction::Blur,
             Action::Collapse => AccessibilityAction::Collapse,
@@ -465,17 +467,15 @@ impl A11yManager {
             Action::SetSequentialFocusNavigationStartingPoint => {
                 AccessibilityAction::SetSequentialFocusNavigationStartingPoint
             }
-            Action::SetValue => {
-                match request.data {
-                    Some(accesskit::ActionData::Value(value)) => {
-                        AccessibilityAction::SetValue(AzString::from(value.as_ref()))
-                    }
-                    Some(accesskit::ActionData::NumericValue(value)) => {
-                        AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
-                    }
-                    _ => return None,
+            Action::SetValue => match request.data {
+                Some(accesskit::ActionData::Value(value)) => {
+                    AccessibilityAction::SetValue(AzString::from(value.as_ref()))
                 }
-            }
+                Some(accesskit::ActionData::NumericValue(value)) => {
+                    AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
+                }
+                _ => return None,
+            },
             Action::CustomAction => {
                 if let Some(accesskit::ActionData::CustomAction(id)) = request.data {
                     AccessibilityAction::CustomAction(id)

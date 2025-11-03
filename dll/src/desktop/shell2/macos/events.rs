@@ -362,9 +362,9 @@ impl MacOSWindow {
         // Record scroll sample using ScrollManager (if delta is significant)
         if (delta_x.abs() > 0.01 || delta_y.abs() > 0.01) {
             if let Some(layout_window) = self.get_layout_window_mut() {
-                use azul_layout::managers::InputPointId;
                 use azul_core::task::Instant;
-                
+                use azul_layout::managers::InputPointId;
+
                 let now = Instant::from(std::time::Instant::now());
                 let scroll_node = layout_window.scroll_manager.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
@@ -373,7 +373,7 @@ impl MacOSWindow {
                     &InputPointId::Mouse,
                     now,
                 );
-                
+
                 // GPU scroll for visible scrollbars if a node was scrolled
                 if let Some((dom_id, node_id)) = scroll_node {
                     let _ = self.gpu_scroll(dom_id, node_id, -delta_x as f32, -delta_y as f32);
@@ -423,11 +423,11 @@ impl MacOSWindow {
         // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);
 
-        // Process text input if character is available
+        // Record text input if character is available
         if let Some(ch) = character {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 let text_input = ch.to_string();
-                layout_window.process_text_input(&text_input);
+                layout_window.record_text_input(&text_input);
             }
         }
 
@@ -1116,7 +1116,9 @@ impl MacOSWindow {
                 self.current_window_state.size.get_hidpi_factor(),
             );
             use azul_layout::managers::InputPointId;
-            layout_window.hover_manager.push_hit_test(InputPointId::Mouse, hit_test);
+            layout_window
+                .hover_manager
+                .push_hit_test(InputPointId::Mouse, hit_test);
         }
     }
 

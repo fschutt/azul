@@ -78,11 +78,11 @@ use crate::desktop::{
     },
 };
 
+pub mod accessibility;
 mod events;
 mod gl;
 mod menu;
 pub mod registry;
-pub mod accessibility;
 
 use events::HitTestNode;
 use gl::GlFunctions;
@@ -2000,7 +2000,10 @@ impl MacOSWindow {
         // Mouse cursor synchronization - compute from current hit test
         use azul_layout::managers::InputPointId;
         if let Some(layout_window) = self.layout_window.as_ref() {
-            if let Some(hit_test) = layout_window.hover_manager.get_current(&InputPointId::Mouse) {
+            if let Some(hit_test) = layout_window
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+            {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 let cursor_name = self.map_cursor_type_to_macos(cursor_test.cursor_icon);
                 self.set_cursor(cursor_name);
@@ -3232,7 +3235,13 @@ impl MacOSWindow {
     /// This should be called in the event loop to check if screen readers
     /// have requested any actions (focus, click, scroll, etc.)
     #[cfg(feature = "accessibility")]
-    pub fn poll_accessibility_actions(&mut self) -> Vec<(DomId, azul_core::dom::NodeId, azul_core::dom::AccessibilityAction)> {
+    pub fn poll_accessibility_actions(
+        &mut self,
+    ) -> Vec<(
+        DomId,
+        azul_core::dom::NodeId,
+        azul_core::dom::AccessibilityAction,
+    )> {
         let adapter = match self.accessibility_adapter.as_ref() {
             Some(a) => a,
             None => return Vec::new(),

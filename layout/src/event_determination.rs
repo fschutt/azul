@@ -5,7 +5,10 @@
 
 use azul_core::{
     dom::{DomId, DomNodeId},
-    events::{deduplicate_synthetic_events, EventProvider, EventSource, EventType, SyntheticEvent, EventData, WindowEventData},
+    events::{
+        deduplicate_synthetic_events, EventData, EventProvider, EventSource, EventType,
+        SyntheticEvent, WindowEventData,
+    },
     geom::{LogicalPosition, LogicalRect},
     id::NodeId,
     styled_dom::NodeHierarchyItemId,
@@ -124,7 +127,7 @@ fn detect_window_state_events(
             }),
             WinPos::Uninitialized => None,
         };
-        
+
         if let Some(pos) = position {
             events.push(SyntheticEvent::new(
                 EventType::WindowMove,
@@ -199,34 +202,41 @@ fn detect_window_state_events(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::task::SystemTick;
-    
+
+    use super::*;
+
     #[test]
     fn test_detect_window_resize() {
         let timestamp = Instant::Tick(SystemTick::new(0));
         let mut prev_state = FullWindowState::default();
         let mut curr_state = FullWindowState::default();
-        
+
         prev_state.size = azul_core::window::WindowSize {
-            dimensions: azul_core::geom::LogicalSize { width: 800.0, height: 600.0 },
+            dimensions: azul_core::geom::LogicalSize {
+                width: 800.0,
+                height: 600.0,
+            },
             dpi: 96,
             min_dimensions: Default::default(),
             max_dimensions: Default::default(),
         };
         curr_state.size = azul_core::window::WindowSize {
-            dimensions: azul_core::geom::LogicalSize { width: 1024.0, height: 768.0 },
+            dimensions: azul_core::geom::LogicalSize {
+                width: 1024.0,
+                height: 768.0,
+            },
             dpi: 96,
             min_dimensions: Default::default(),
             max_dimensions: Default::default(),
         };
-        
+
         let events = detect_window_state_events(&curr_state, &prev_state, timestamp);
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::WindowResize);
     }
-    
+
     #[test]
     fn test_determine_events_deduplicates() {
         struct DummyManager;
@@ -245,17 +255,17 @@ mod tests {
                 )]
             }
         }
-        
+
         let timestamp = Instant::Tick(SystemTick::new(0));
         let prev_state = FullWindowState::default();
         let curr_state = FullWindowState::default();
-        
+
         let manager1 = DummyManager;
         let manager2 = DummyManager;
         let managers: Vec<&dyn EventProvider> = vec![&manager1, &manager2];
-        
+
         let events = determine_events_from_managers(&curr_state, &prev_state, &managers, timestamp);
-        
+
         // Should deduplicate the two identical Input events
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Input);
@@ -298,22 +308,22 @@ pub fn determine_all_events(
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
     use azul_core::window::CursorPosition;
-    
+
     let mut events = Vec::new();
-    
+
     // Get root node for window-level events
     let root_node = DomNodeId {
         dom: DomId { inner: 0 },
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    
+
     // ========================================================================
     // MOUSE BUTTON EVENTS
     // ========================================================================
-    
+
     let current_mouse_down = current_state.mouse_state.mouse_down();
     let previous_mouse_down = previous_state.mouse_state.mouse_down();
-    
+
     // Left mouse button
     if current_state.mouse_state.left_down && !previous_state.mouse_state.left_down {
         events.push(SyntheticEvent::new(
@@ -333,7 +343,7 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // Right mouse button
     if current_state.mouse_state.right_down && !previous_state.mouse_state.right_down {
         events.push(SyntheticEvent::new(
@@ -353,7 +363,7 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // Middle mouse button
     if current_state.mouse_state.middle_down && !previous_state.mouse_state.middle_down {
         events.push(SyntheticEvent::new(
@@ -373,11 +383,11 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // ========================================================================
     // MOUSE MOVEMENT EVENTS
     // ========================================================================
-    
+
     let current_in_window = matches!(
         current_state.mouse_state.cursor_position,
         CursorPosition::InWindow(_)
@@ -386,11 +396,11 @@ pub fn determine_all_events(
         previous_state.mouse_state.cursor_position,
         CursorPosition::InWindow(_)
     );
-    
+
     if current_in_window {
         let current_pos = current_state.mouse_state.cursor_position.get_position();
         let previous_pos = previous_state.mouse_state.cursor_position.get_position();
-        
+
         // MouseOver fires on ANY mouse movement
         if current_pos != previous_pos {
             events.push(SyntheticEvent::new(
@@ -401,7 +411,7 @@ pub fn determine_all_events(
                 EventData::None,
             ));
         }
-        
+
         // MouseEnter (cursor entered window)
         if !previous_in_window {
             events.push(SyntheticEvent::new(
@@ -413,7 +423,7 @@ pub fn determine_all_events(
             ));
         }
     }
-    
+
     // MouseLeave (cursor left window)
     if previous_in_window && !current_in_window {
         events.push(SyntheticEvent::new(
@@ -424,14 +434,20 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // ========================================================================
     // KEYBOARD EVENTS
     // ========================================================================
-    
-    let current_key = current_state.keyboard_state.current_virtual_keycode.into_option();
-    let previous_key = previous_state.keyboard_state.current_virtual_keycode.into_option();
-    
+
+    let current_key = current_state
+        .keyboard_state
+        .current_virtual_keycode
+        .into_option();
+    let previous_key = previous_state
+        .keyboard_state
+        .current_virtual_keycode
+        .into_option();
+
     if current_key.is_some() && current_key != previous_key {
         events.push(SyntheticEvent::new(
             EventType::KeyDown,
@@ -450,11 +466,11 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // ========================================================================
     // WINDOW STATE EVENTS
     // ========================================================================
-    
+
     // Window resize
     if current_state.size.dimensions != previous_state.size.dimensions {
         events.push(SyntheticEvent::new(
@@ -471,7 +487,7 @@ pub fn determine_all_events(
             }),
         ));
     }
-    
+
     // Window moved
     if current_state.position != previous_state.position {
         use azul_core::window::WindowPosition as WinPos;
@@ -491,7 +507,7 @@ pub fn determine_all_events(
             ));
         }
     }
-    
+
     // Window close requested
     if current_state.flags.close_requested && !previous_state.flags.close_requested {
         events.push(SyntheticEvent::new(
@@ -502,7 +518,7 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // Window focus changed
     if current_state.window_focused && !previous_state.window_focused {
         events.push(SyntheticEvent::new(
@@ -522,7 +538,7 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // Theme changed
     if current_state.theme != previous_state.theme {
         events.push(SyntheticEvent::new(
@@ -533,11 +549,11 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // ========================================================================
     // FILE DROP EVENTS
     // ========================================================================
-    
+
     if let Some(_hovered_file) = file_drop_manager.get_hovered_file() {
         events.push(SyntheticEvent::new(
             EventType::FileHover,
@@ -547,7 +563,7 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     if file_drop_manager.dropped_file.is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
@@ -557,14 +573,14 @@ pub fn determine_all_events(
             EventData::None,
         ));
     }
-    
+
     // ========================================================================
     // GESTURE EVENTS
     // ========================================================================
-    
+
     if let Some(manager) = gesture_manager {
         let event_was_mouse_release = !current_mouse_down && previous_mouse_down;
-        
+
         // Detect DragStart
         if let Some(_detected_drag) = manager.detect_drag() {
             if !manager.is_dragging() {
@@ -577,12 +593,12 @@ pub fn determine_all_events(
                 ));
             }
         }
-        
+
         // Detect Drag (continuous movement)
         if manager.is_dragging() && current_mouse_down {
             let current_pos = current_state.mouse_state.cursor_position.get_position();
             let previous_pos = previous_state.mouse_state.cursor_position.get_position();
-            
+
             if current_pos != previous_pos {
                 events.push(SyntheticEvent::new(
                     EventType::Drag,
@@ -593,7 +609,7 @@ pub fn determine_all_events(
                 ));
             }
         }
-        
+
         // Detect DragEnd
         if manager.is_dragging() && event_was_mouse_release {
             events.push(SyntheticEvent::new(
@@ -604,7 +620,7 @@ pub fn determine_all_events(
                 EventData::None,
             ));
         }
-        
+
         // Detect DoubleClick
         if manager.detect_double_click() {
             events.push(SyntheticEvent::new(
@@ -615,7 +631,7 @@ pub fn determine_all_events(
                 EventData::None,
             ));
         }
-        
+
         // Detect LongPress (not in EventType yet, skip for now)
         // if let Some(long_press) = manager.detect_long_press() {
         //     if !long_press.callback_invoked {
@@ -628,7 +644,7 @@ pub fn determine_all_events(
         //         ));
         //     }
         // }
-        
+
         // Detect Swipe gestures (not in EventType yet, skip for now)
         // if let Some(direction) = manager.detect_swipe_direction() {
         //     use crate::managers::gesture::GestureDirection;
@@ -646,7 +662,7 @@ pub fn determine_all_events(
         //         EventData::None,
         //     ));
         // }
-        
+
         // Detect Pinch gestures (not in EventType yet, skip for now)
         // if let Some(pinch) = manager.detect_pinch() {
         //     let event_type = if pinch.scale < 1.0 {
@@ -662,7 +678,7 @@ pub fn determine_all_events(
         //         EventData::None,
         //     ));
         // }
-        
+
         // Detect Rotation gestures (not in EventType yet, skip for now)
         // if let Some(rotation) = manager.detect_rotation() {
         //     let event_type = if rotation.angle_radians > 0.0 {
@@ -678,13 +694,13 @@ pub fn determine_all_events(
         //         EventData::None,
         //     ));
         // }
-        
+
         // Detect Pen events (not in EventType yet, use TouchMove for now)
         if let Some(pen_state) = manager.get_pen_state() {
             if pen_state.in_contact {
                 let current_pos = current_state.mouse_state.cursor_position.get_position();
                 let previous_pos = previous_state.mouse_state.cursor_position.get_position();
-                
+
                 if current_pos != previous_pos {
                     events.push(SyntheticEvent::new(
                         EventType::TouchMove, // Use TouchMove as fallback
@@ -697,18 +713,18 @@ pub fn determine_all_events(
             }
         }
     }
-    
+
     // ========================================================================
     // MANAGER EVENTS (Scroll, Text Input, etc.)
     // ========================================================================
-    
+
     for manager in managers {
         events.extend(manager.get_pending_events(timestamp.clone()));
     }
-    
+
     // ========================================================================
     // DEDUPLICATION
     // ========================================================================
-    
+
     deduplicate_synthetic_events(events)
 }

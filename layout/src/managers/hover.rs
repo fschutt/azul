@@ -152,12 +152,12 @@ mod tests {
     fn test_hover_manager_push_and_get() {
         let mut manager = HoverManager::new();
         let mouse_id = InputPointId::Mouse;
-        
+
         assert_eq!(manager.frame_count(&mouse_id), 0);
 
         let hit1 = FullHitTest::empty(None);
         manager.push_hit_test(mouse_id, hit1.clone());
-        
+
         assert_eq!(manager.frame_count(&mouse_id), 1);
         assert_eq!(manager.get_current(&mouse_id), Some(&hit1));
         assert_eq!(manager.get_current_mouse(), Some(&hit1));
@@ -216,7 +216,7 @@ mod tests {
     fn test_gesture_history_check() {
         let mut manager = HoverManager::new();
         let mouse_id = InputPointId::Mouse;
-        
+
         assert!(!manager.has_sufficient_history_for_gestures(&mouse_id));
         assert!(!manager.any_has_sufficient_history_for_gestures());
 

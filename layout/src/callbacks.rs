@@ -998,7 +998,8 @@ impl CallbackInfo {
     /// Get mouse cursor hit test from N frames ago (0 = current, 1 = previous, etc.)
     pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&crate::hit_test::FullHitTest> {
         use crate::managers::InputPointId;
-        self.get_hover_manager().get_frame(&InputPointId::Mouse, frames_ago)
+        self.get_hover_manager()
+            .get_frame(&InputPointId::Mouse, frames_ago)
     }
 
     /// Get the full mouse cursor hit test history (up to 5 frames)
@@ -1081,7 +1082,8 @@ impl CallbackInfo {
 
     /// Get the current scroll offset for a node (if it's scrollable)
     pub fn get_scroll_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
-        self.get_scroll_manager().get_current_offset(dom_id, node_id)
+        self.get_scroll_manager()
+            .get_current_offset(dom_id, node_id)
     }
 
     /// Get the scroll delta for a node in the current frame (for scroll event detection)
@@ -1091,7 +1093,8 @@ impl CallbackInfo {
 
     /// Check if a node had scroll activity this frame
     pub fn had_scroll_activity(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        self.get_scroll_manager().had_scroll_activity_for_node(dom_id, node_id)
+        self.get_scroll_manager()
+            .had_scroll_activity_for_node(dom_id, node_id)
     }
 
     /// Get the scroll state (container rect, content rect, current offset) for a node

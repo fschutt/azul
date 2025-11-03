@@ -198,7 +198,12 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     // --- Step 3.5: Adjust Relatively Positioned Elements ---
     // Pass the viewport to correctly resolve percentage offsets for the root element.
-    positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut calculated_positions, viewport)?;
+    positioning::adjust_relative_positions(
+        &mut ctx,
+        &new_tree,
+        &mut calculated_positions,
+        viewport,
+    )?;
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     // This must be done AFTER layout but BEFORE display list generation

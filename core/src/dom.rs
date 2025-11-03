@@ -19,7 +19,7 @@ use azul_css::{
     css::{Css, NodeTypeTag},
     format_rust_code::GetHash,
     props::{
-        basic::{FontRef, FloatValue},
+        basic::{FloatValue, FontRef},
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},
         property::CssProperty,
     },
@@ -944,7 +944,7 @@ pub enum On {
     FocusReceived,
     /// Equivalent to `onblur`.
     FocusLost,
-    
+
     // Accessibility-specific events
     /// Default action triggered by screen reader (usually same as click/activate)
     Default,

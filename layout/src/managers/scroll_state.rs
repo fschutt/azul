@@ -10,11 +10,14 @@ use alloc::collections::BTreeMap;
 
 use azul_core::{
     dom::{DomId, NodeId},
-    events::{EasingFunction, EventSource, EventProvider, SyntheticEvent, EventType, EventData, ScrollEventData, ScrollDeltaMode},
+    events::{
+        EasingFunction, EventData, EventProvider, EventSource, EventType, ScrollDeltaMode,
+        ScrollEventData, SyntheticEvent,
+    },
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::{ExternalScrollId, ScrollPosition},
-    task::{Duration, Instant},
     styled_dom::NodeHierarchyItemId,
+    task::{Duration, Instant},
 };
 
 // ============================================================================
@@ -233,7 +236,7 @@ impl ScrollManager {
         self.had_scroll_activity = false;
         self.had_programmatic_scroll = false;
         self.had_new_doms = false;
-        
+
         // Save current offsets as previous for delta calculation
         for state in self.states.values_mut() {
             state.previous_offset = state.current_offset;
@@ -342,16 +345,18 @@ impl ScrollManager {
                         x: delta_x,
                         y: delta_y,
                     };
-                    
-                    let current = self.get_current_offset(*dom_id, *node_id).unwrap_or_default();
+
+                    let current = self
+                        .get_current_offset(*dom_id, *node_id)
+                        .unwrap_or_default();
                     let new_position = LogicalPosition {
                         x: current.x + delta.x,
                         y: current.y + delta.y,
                     };
-                    
+
                     self.set_scroll_position(*dom_id, *node_id, new_position, now);
                     self.had_scroll_activity = true;
-                    
+
                     return Some((*dom_id, *node_id));
                 }
             }
@@ -369,8 +374,10 @@ impl ScrollManager {
         };
 
         // Check if content exceeds container (i.e., actually scrollable)
-        let has_horizontal_overflow = state.content_rect.size.width > state.container_rect.size.width;
-        let has_vertical_overflow = state.content_rect.size.height > state.container_rect.size.height;
+        let has_horizontal_overflow =
+            state.content_rect.size.width > state.container_rect.size.width;
+        let has_vertical_overflow =
+            state.content_rect.size.height > state.container_rect.size.height;
 
         // Node must have some overflow to be scrollable
         has_horizontal_overflow || has_vertical_overflow
@@ -380,12 +387,12 @@ impl ScrollManager {
     /// (for generating scroll events in callbacks)
     pub fn get_scroll_delta(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
         let state = self.states.get(&(dom_id, node_id))?;
-        
+
         let delta = LogicalPosition {
             x: state.current_offset.x - state.previous_offset.x,
             y: state.current_offset.y - state.previous_offset.y,
         };
-        
+
         // Only return delta if non-zero
         if delta.x.abs() > 0.001 || delta.y.abs() > 0.001 {
             Some(delta)
@@ -799,7 +806,7 @@ impl EventProvider for ScrollManager {
     /// position changed this frame.
     fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
         let mut events = Vec::new();
-        
+
         // Generate events for all nodes that scrolled this frame
         for ((dom_id, node_id), state) in &self.states {
             // Check if scroll offset changed (delta != 0)
@@ -807,20 +814,20 @@ impl EventProvider for ScrollManager {
                 x: state.current_offset.x - state.previous_offset.x,
                 y: state.current_offset.y - state.previous_offset.y,
             };
-            
+
             if delta.x.abs() > 0.001 || delta.y.abs() > 0.001 {
                 let target = azul_core::dom::DomNodeId {
                     dom: *dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 };
-                
+
                 // Determine event source
                 let event_source = if self.had_programmatic_scroll {
                     EventSource::Programmatic
                 } else {
                     EventSource::User
                 };
-                
+
                 // Generate Scroll event
                 events.push(SyntheticEvent::new(
                     EventType::Scroll,
@@ -828,16 +835,16 @@ impl EventProvider for ScrollManager {
                     target,
                     timestamp.clone(),
                     EventData::Scroll(ScrollEventData {
-                        delta: delta,
+                        delta,
                         delta_mode: ScrollDeltaMode::Pixel,
                     }),
                 ));
-                
+
                 // TODO: Generate ScrollStart/ScrollEnd events
                 // Need to track when scroll starts/stops (first/last frame with delta)
             }
         }
-        
+
         events
     }
 }

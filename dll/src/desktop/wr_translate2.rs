@@ -564,9 +564,9 @@ pub fn fullhittest_new_webrender(
                     None => continue,
                 };
 
-                // Get node's absolute position and size
+                // Get node's calculated layout position and size
                 let node_pos = layout_result
-                    .absolute_positions
+                    .calculated_positions
                     .get(&layout_idx)
                     .copied()
                     .unwrap_or_default();

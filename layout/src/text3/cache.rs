@@ -2534,6 +2534,74 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         None
     }
 
+    /// Hit-tests a logical position to find the nearest text cursor.
+    ///
+    /// This is used for converting mouse clicks into cursor positions.
+    /// Returns a TextCursor pointing to the cluster nearest to the given position.
+    ///
+    /// Algorithm:
+    /// 1. Find the closest cluster vertically (line-by-line)
+    /// 2. Within that line, find the closest cluster horizontally
+    /// 3. Determine Leading vs Trailing affinity based on which half of the cluster was clicked
+    pub fn hit_test_to_cursor(&self, local_pos: LogicalPosition) -> Option<TextCursor> {
+        if self.items.is_empty() {
+            return None;
+        }
+
+        // Find the closest line vertically
+        let mut closest_item_idx = 0;
+        let mut closest_distance = f32::MAX;
+
+        for (idx, item) in self.items.iter().enumerate() {
+            // Only consider cluster items for cursor placement
+            if !matches!(item.item, ShapedItem::Cluster(_)) {
+                continue;
+            }
+
+            let item_bounds = item.item.bounds();
+            let item_center_y = item.position.y + item_bounds.height / 2.0;
+
+            // Distance from click position to item center
+            let vertical_distance = (local_pos.y - item_center_y).abs();
+
+            // For horizontal distance, check if we're within the cluster bounds
+            let horizontal_distance = if local_pos.x < item.position.x {
+                item.position.x - local_pos.x
+            } else if local_pos.x > item.position.x + item_bounds.width {
+                local_pos.x - (item.position.x + item_bounds.width)
+            } else {
+                0.0 // Inside the cluster horizontally
+            };
+
+            // Combined distance (prioritize vertical proximity)
+            let distance = vertical_distance * 2.0 + horizontal_distance;
+
+            if distance < closest_distance {
+                closest_distance = distance;
+                closest_item_idx = idx;
+            }
+        }
+
+        // Get the closest cluster
+        let closest_item = &self.items[closest_item_idx];
+        let Some(cluster) = closest_item.item.as_cluster() else {
+            return None;
+        };
+
+        // Determine affinity based on which half of the cluster was clicked
+        let cluster_mid_x = closest_item.position.x + cluster.advance / 2.0;
+        let affinity = if local_pos.x < cluster_mid_x {
+            CursorAffinity::Leading
+        } else {
+            CursorAffinity::Trailing
+        };
+
+        Some(TextCursor {
+            cluster_id: cluster.source_cluster_id,
+            affinity,
+        })
+    }
+
     /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
     pub fn move_cursor_left(
         &self,

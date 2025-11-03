@@ -4,15 +4,16 @@
 //! and macOS's NSAccessibility API through accesskit_macos.
 
 #[cfg(feature = "accessibility")]
+use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(feature = "accessibility")]
+use std::sync::{Arc, Mutex};
+
+#[cfg(feature = "accessibility")]
 use accesskit::{ActionRequest, NodeId as A11yNodeId, TreeUpdate};
 #[cfg(feature = "accessibility")]
 use accesskit_macos::SubclassingAdapter;
 #[cfg(feature = "accessibility")]
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
-#[cfg(feature = "accessibility")]
-use std::sync::mpsc::{channel, Receiver, Sender};
-#[cfg(feature = "accessibility")]
-use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "accessibility")]
 /// Activation handler that provides the initial accessibility tree on demand
@@ -75,9 +76,7 @@ impl MacOSAccessibilityAdapter {
         };
 
         // SAFETY: view must be a valid NSView pointer
-        let adapter = unsafe {
-            SubclassingAdapter::new(view, activation_handler, action_handler)
-        };
+        let adapter = unsafe { SubclassingAdapter::new(view, activation_handler, action_handler) };
 
         Self {
             adapter,
@@ -96,7 +95,7 @@ impl MacOSAccessibilityAdapter {
     pub fn update_tree(&mut self, tree_update: TreeUpdate) {
         // Store for next activation
         *self.tree_provider.lock().unwrap() = Some(tree_update.clone());
-        
+
         // Update active tree
         self.adapter.update_if_active(|| tree_update);
     }
@@ -119,8 +118,8 @@ impl MacOSAccessibilityAdapter {
             let node_id = NodeId::new((a11y_node_id & 0xFFFFFFFF) as usize);
 
             // Map accesskit Action to Azul AccessibilityAction
-            use azul_css::{AzString, props::basic::FloatValue};
             use azul_core::geom::LogicalPosition;
+            use azul_css::{props::basic::FloatValue, AzString};
             let action = match request.action {
                 accesskit::Action::Click => AccessibilityAction::Default,
                 accesskit::Action::Focus => AccessibilityAction::Focus,
@@ -168,10 +167,12 @@ impl MacOSAccessibilityAdapter {
                 }
                 accesskit::Action::SetTextSelection => {
                     if let Some(accesskit::ActionData::SetTextSelection(selection)) = request.data {
-                        AccessibilityAction::SetTextSelection(azul_core::dom::TextSelectionStartEnd {
-                            start: selection.anchor.character_index,
-                            end: selection.focus.character_index,
-                        })
+                        AccessibilityAction::SetTextSelection(
+                            azul_core::dom::TextSelectionStartEnd {
+                                start: selection.anchor.character_index,
+                                end: selection.focus.character_index,
+                            },
+                        )
                     } else {
                         return None;
                     }
@@ -179,17 +180,15 @@ impl MacOSAccessibilityAdapter {
                 accesskit::Action::SetSequentialFocusNavigationStartingPoint => {
                     AccessibilityAction::SetSequentialFocusNavigationStartingPoint
                 }
-                accesskit::Action::SetValue => {
-                    match request.data {
-                        Some(accesskit::ActionData::Value(value)) => {
-                            AccessibilityAction::SetValue(AzString::from(value.as_ref()))
-                        }
-                        Some(accesskit::ActionData::NumericValue(value)) => {
-                            AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
-                        }
-                        _ => return None,
+                accesskit::Action::SetValue => match request.data {
+                    Some(accesskit::ActionData::Value(value)) => {
+                        AccessibilityAction::SetValue(AzString::from(value.as_ref()))
                     }
-                }
+                    Some(accesskit::ActionData::NumericValue(value)) => {
+                        AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
+                    }
+                    _ => return None,
+                },
                 accesskit::Action::CustomAction => {
                     if let Some(accesskit::ActionData::CustomAction(id)) = request.data {
                         AccessibilityAction::CustomAction(id)

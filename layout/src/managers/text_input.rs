@@ -1,7 +1,7 @@
 //! Text Input Manager
 //!
 //! Centralizes all text editing logic for contenteditable nodes.
-//! 
+//!
 //! This manager handles text input from multiple sources:
 //! - Keyboard input (character insertion, backspace, etc.)
 //! - IME composition (multi-character input for Asian languages)
@@ -28,11 +28,14 @@
 //! - preventDefault to cancel the edit
 //! - Consistent behavior across keyboard/IME/A11y sources
 
-use azul_core::dom::{DomId, DomNodeId, NodeId};
-use azul_core::selection::TextCursor;
-use azul_core::events::{EventProvider, SyntheticEvent, EventType, EventSource as CoreEventSource, EventData};
-use azul_core::task::Instant;
 use std::collections::BTreeMap;
+
+use azul_core::{
+    dom::{DomId, DomNodeId, NodeId},
+    events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
+    selection::TextCursor,
+    task::Instant,
+};
 
 /// Information about a pending text edit that hasn't been applied yet
 #[derive(Debug, Clone)]
@@ -47,7 +50,7 @@ pub struct TextChangeset {
 
 impl TextChangeset {
     /// Compute the resulting text after applying the edit
-    /// 
+    ///
     /// This is a pure function that applies the inserted_text to old_text
     /// using the current cursor position.
     pub fn resulting_text(&self, cursor: Option<&TextCursor>) -> String {
@@ -55,9 +58,9 @@ impl TextChangeset {
         // For now, just append the inserted text
         let mut result = self.old_text.clone();
         result.push_str(&self.inserted_text);
-        
+
         let _ = cursor; // Will be used when we implement proper cursor-based insertion
-        
+
         result
     }
 }
@@ -83,7 +86,7 @@ pub struct TextInputManager {
     /// The pending text changeset that hasn't been applied yet.
     /// This is set during the "record" phase and cleared after the "apply" phase.
     pub pending_changeset: Option<TextChangeset>,
-    
+
     /// Source of the current text input
     pub input_source: Option<TextInputSource>,
 }
@@ -119,16 +122,16 @@ impl TextInputManager {
     ) -> DomNodeId {
         // Clear any previous changeset
         self.pending_changeset = None;
-        
+
         // Store the new changeset
         self.pending_changeset = Some(TextChangeset {
             node,
             inserted_text,
             old_text,
         });
-        
+
         self.input_source = Some(source);
-        
+
         node
     }
 
@@ -165,15 +168,18 @@ impl EventProvider for TextInputManager {
     /// query the changeset.
     fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
         let mut events = Vec::new();
-        
+
         if let Some(changeset) = &self.pending_changeset {
             let event_source = match self.input_source {
-                Some(TextInputSource::Keyboard) | Some(TextInputSource::Ime) => CoreEventSource::User,
-                Some(TextInputSource::Accessibility) => CoreEventSource::User, // A11y is still user input
+                Some(TextInputSource::Keyboard) | Some(TextInputSource::Ime) => {
+                    CoreEventSource::User
+                }
+                Some(TextInputSource::Accessibility) => CoreEventSource::User, /* A11y is still */
+                // user input
                 Some(TextInputSource::Programmatic) => CoreEventSource::Programmatic,
                 None => CoreEventSource::User,
             };
-            
+
             // Generate Input event (fires on every keystroke)
             events.push(SyntheticEvent::new(
                 EventType::Input,
@@ -182,11 +188,11 @@ impl EventProvider for TextInputManager {
                 timestamp,
                 EventData::None, // TODO: Add text-specific event data once we have it
             ));
-            
+
             // Note: We don't generate Change events here - those are generated
             // when focus is lost or Enter is pressed (handled elsewhere)
         }
-        
+
         events
     }
 }

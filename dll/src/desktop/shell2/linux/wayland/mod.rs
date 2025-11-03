@@ -35,6 +35,7 @@ use azul_core::{
     },
 };
 use azul_layout::{
+    managers::hover::InputPointId,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions, WindowState},
     ScrollbarDragState,
@@ -1045,8 +1046,7 @@ impl WaylandWindow {
         // Get XKB state
         let xkb_state = self.keyboard_state.state;
         if xkb_state.is_null() {
-            // XKB not initialized yet
-            self.current_window_state.keyboard_state.current_char = OptionChar::None;
+            // XKB not initialized yet - V2 input system will handle text input
             self.current_window_state
                 .keyboard_state
                 .current_virtual_keycode = OptionVirtualKeyCode::None;
@@ -1104,17 +1104,14 @@ impl WaylandWindow {
                         len as usize,
                     ))
                 };
-                if let Some(ch) = utf8_str.chars().next() {
-                    self.current_window_state.keyboard_state.current_char =
-                        OptionChar::Some(ch as u32); // OptionChar expects u32
-                } else {
-                    self.current_window_state.keyboard_state.current_char = OptionChar::None;
+
+                // Record text input in TextInputManager
+                if !utf8_str.is_empty() {
+                    if let Some(ref mut layout_window) = self.layout_window {
+                        layout_window.record_text_input(utf8_str);
+                    }
                 }
-            } else {
-                self.current_window_state.keyboard_state.current_char = OptionChar::None;
             }
-        } else {
-            self.current_window_state.keyboard_state.current_char = OptionChar::None;
         }
 
         // V2: Process events through state-diffing system
@@ -1299,25 +1296,34 @@ impl WaylandWindow {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
-        match axis {
-            WL_POINTER_AXIS_VERTICAL_SCROLL => {
-                let current = match self.current_window_state.mouse_state.scroll_y {
-                    OptionF32::Some(v) => v,
-                    OptionF32::None => 0.0,
-                };
-                self.current_window_state.mouse_state.scroll_y =
-                    OptionF32::Some(current + value as f32);
+        // Determine scroll delta based on axis
+        let (delta_x, delta_y) = match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => (value as f32, 0.0),
+            WL_POINTER_AXIS_VERTICAL_SCROLL => (0.0, value as f32),
+            _ => (0.0, 0.0),
+        };
+
+        // Record scroll sample using ScrollManager
+        let hovered_node_for_scroll = if let Some(ref mut layout_window) = self.layout_window {
+            use azul_core::task::Instant;
+
+            let now = Instant::from(std::time::Instant::now());
+            let scroll_node = layout_window.scroll_manager.record_sample(
+                -delta_x,
+                -delta_y,
+                &layout_window.hover_manager,
+                &InputPointId::Mouse,
+                now,
+            );
+
+            if let Some((dom_id, node_id)) = scroll_node {
+                let _ = self.gpu_scroll(dom_id, node_id, -delta_x, -delta_y);
             }
-            WL_POINTER_AXIS_HORIZONTAL_SCROLL => {
-                let current = match self.current_window_state.mouse_state.scroll_x {
-                    OptionF32::Some(v) => v,
-                    OptionF32::None => 0.0,
-                };
-                self.current_window_state.mouse_state.scroll_x =
-                    OptionF32::Some(current + value as f32);
-            }
-            _ => {}
-        }
+
+            scroll_node
+        } else {
+            None
+        };
 
         // V2: Process events through state-diffing system
         let result = self.process_window_events_recursive_v2(0);
@@ -1360,7 +1366,7 @@ impl WaylandWindow {
         if let Some(ref mut layout_window) = self.layout_window {
             layout_window
                 .hover_manager
-                .push_hit_test(FullHitTest::empty(None));
+                .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
         }
         self.frame_needs_regeneration = true;
     }
@@ -1389,7 +1395,9 @@ impl WaylandWindow {
                 .and_then(|lw| lw.focus_manager.get_focused_node().copied());
             let hit_test = wr_translate2::translate_hit_test_result(hit_test_result, focused_node);
             if let Some(ref mut layout_window) = self.layout_window {
-                layout_window.hover_manager.push_hit_test(hit_test);
+                layout_window
+                    .hover_manager
+                    .push_hit_test(InputPointId::Mouse, hit_test);
             }
         }
     }

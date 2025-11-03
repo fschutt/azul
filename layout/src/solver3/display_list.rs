@@ -761,10 +761,33 @@ where
         };
 
         if overflow_x.is_scroll() || overflow_y.is_scroll() {
-            // It's a scroll frame - use precomputed scroll ID
+            // Always a scroll frame if overflow: scroll
             let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
             let content_size = get_scroll_content_size(node);
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
+        } else if matches!(overflow_x, LayoutOverflow::Auto)
+            || matches!(overflow_y, LayoutOverflow::Auto)
+        {
+            // overflow: auto - check if content actually overflows
+            let content_size = get_scroll_content_size(node);
+            let container_size = LogicalSize {
+                width: clip_rect.size.width,
+                height: clip_rect.size.height,
+            };
+
+            let overflows_x = content_size.width > container_size.width;
+            let overflows_y = content_size.height > container_size.height;
+
+            // If overflow: auto and content overflows, treat as scroll frame
+            if (matches!(overflow_x, LayoutOverflow::Auto) && overflows_x)
+                || (matches!(overflow_y, LayoutOverflow::Auto) && overflows_y)
+            {
+                let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
+                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
+            } else {
+                // No overflow, just clip
+                builder.push_clip(clip_rect, border_radius);
+            }
         } else {
             // It's a simple clip
             builder.push_clip(clip_rect, border_radius);
@@ -789,10 +812,44 @@ where
             || !border_radius.is_zero();
 
         if needs_clip {
-            if matches!(overflow_x, LayoutOverflow::Auto | LayoutOverflow::Scroll)
-                || matches!(overflow_y, LayoutOverflow::Auto | LayoutOverflow::Scroll)
+            if matches!(overflow_x, LayoutOverflow::Scroll)
+                || matches!(overflow_y, LayoutOverflow::Scroll)
             {
+                // Always pop scroll frame for overflow: scroll
                 builder.pop_scroll_frame();
+            } else if matches!(overflow_x, LayoutOverflow::Auto)
+                || matches!(overflow_y, LayoutOverflow::Auto)
+            {
+                // For overflow: auto, check if we actually created a scroll frame
+                // by checking if content overflows
+                let content_size = get_scroll_content_size(node);
+                let paint_rect = self
+                    .get_paint_rect(
+                        self.positioned_tree
+                            .tree
+                            .nodes
+                            .iter()
+                            .position(|n| n.dom_node_id == Some(dom_id))
+                            .unwrap_or(0),
+                    )
+                    .unwrap_or_default();
+
+                let border = &node.box_props.border;
+                let container_size = LogicalSize {
+                    width: (paint_rect.size.width - border.left - border.right).max(0.0),
+                    height: (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                };
+
+                let overflows_x = content_size.width > container_size.width;
+                let overflows_y = content_size.height > container_size.height;
+
+                if (matches!(overflow_x, LayoutOverflow::Auto) && overflows_x)
+                    || (matches!(overflow_y, LayoutOverflow::Auto) && overflows_y)
+                {
+                    builder.pop_scroll_frame();
+                } else {
+                    builder.pop_clip();
+                }
             } else {
                 builder.pop_clip();
             }
@@ -1160,8 +1217,36 @@ fn get_scroll_id(id: Option<NodeId>) -> ExternalScrollId {
     id.map(|i| i.index() as u64).unwrap_or(0)
 }
 
+/// Calculates the actual content size of a node, including all children and text.
+/// This is used to determine if scrollbars should appear for overflow: auto.
 fn get_scroll_content_size<T: ParsedFontTrait>(node: &LayoutNode<T>) -> LogicalSize {
-    node.used_size.unwrap_or_default()
+    // Start with the node's own size
+    let mut content_size = node.used_size.unwrap_or_default();
+
+    // If this node has text layout, calculate the bounds of all text items
+    if let Some(ref text_layout) = node.inline_layout_result {
+        // Find the maximum extent of all positioned items
+        let mut max_x: f32 = 0.0;
+        let mut max_y: f32 = 0.0;
+
+        for positioned_item in &text_layout.items {
+            let item_bounds = positioned_item.item.bounds();
+            let item_right = positioned_item.position.x + item_bounds.width;
+            let item_bottom = positioned_item.position.y + item_bounds.height;
+
+            max_x = max_x.max(item_right);
+            max_y = max_y.max(item_bottom);
+        }
+
+        // Use the maximum extent as content size if it's larger
+        content_size.width = content_size.width.max(max_x);
+        content_size.height = content_size.height.max(max_y);
+    }
+
+    // TODO: Also check children positions to get max content bounds
+    // For now, this handles the most common case (text overflowing)
+
+    content_size
 }
 
 fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<TagId> {

@@ -127,7 +127,7 @@ impl FocusManager {
     }
 
     /// Set the focused node directly (used by event system)
-    /// 
+    ///
     /// If the node is not contenteditable, the cursor is automatically cleared.
     /// If the node is contenteditable, the cursor should be set separately via `set_text_cursor()`.
     pub fn set_focused_node(&mut self, node: Option<DomNodeId>) {
@@ -141,7 +141,7 @@ impl FocusManager {
     }
 
     /// Set the text cursor position
-    /// 
+    ///
     /// This should only be called when the focused node is contenteditable.
     /// The cursor will be automatically cleared when focus changes to a non-editable node.
     pub fn set_text_cursor(&mut self, cursor: Option<azul_core::selection::TextCursor>) {

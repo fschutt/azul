@@ -18,15 +18,15 @@ use std::{
 use azul_core::{
     callbacks::Update,
     dom::{DomId, NodeId},
-    events::{
-        dispatch_events, CallbackTarget as CoreCallbackTarget, EventFilter, MouseButton,
-        ProcessEventResult,
-    },
+    events::{CallbackTarget as CoreCallbackTarget, EventFilter, MouseButton, ProcessEventResult},
     geom::{LogicalPosition, PhysicalPosition},
     hit_test::FullHitTest,
     window::{CursorPosition, VirtualKeyCode},
 };
-use azul_layout::callbacks::{CallCallbacksResult, CallbackInfo};
+use azul_layout::{
+    callbacks::{CallCallbacksResult, CallbackInfo},
+    managers::hover::InputPointId,
+};
 
 use super::{defines::*, dlopen::Xlib, X11Window};
 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -385,7 +385,7 @@ impl X11Window {
             if let Some(ref mut layout_window) = self.layout_window {
                 layout_window
                     .hover_manager
-                    .push_hit_test(FullHitTest::empty(None));
+                    .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
             }
         }
 
@@ -403,40 +403,37 @@ impl X11Window {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
-        // Update scroll state
-        use azul_css::OptionF32;
-        let current_x = self
-            .current_window_state
-            .mouse_state
-            .scroll_x
-            .into_option()
-            .unwrap_or(0.0);
-        let current_y = self
-            .current_window_state
-            .mouse_state
-            .scroll_y
-            .into_option()
-            .unwrap_or(0.0);
-
-        self.current_window_state.mouse_state.scroll_x = OptionF32::Some(current_x + delta_x);
-        self.current_window_state.mouse_state.scroll_y = OptionF32::Some(current_y + delta_y);
-
         // Update hit test
         self.update_hit_test(position);
 
-        // GPU scroll for visible scrollbars (if delta is significant)
-        if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 {
-            if let Some(hit_node) = self.get_first_hovered_node() {
+        // Record scroll sample using ScrollManager
+        let hovered_node_for_scroll = if let Some(ref mut layout_window) = self.layout_window {
+            use azul_core::task::Instant;
+
+            let now = Instant::from(std::time::Instant::now());
+            let scroll_node = layout_window.scroll_manager.record_sample(
+                -delta_x * 20.0,
+                -delta_y * 20.0,
+                &layout_window.hover_manager,
+                &InputPointId::Mouse,
+                now,
+            );
+
+            if let Some((dom_id, node_id)) = scroll_node {
                 let _ = self.gpu_scroll(
-                    hit_node.dom_id,
-                    hit_node.node_id,
-                    -delta_x * 20.0, // Scale for pixel scrolling
+                    dom_id.inner as u64,
+                    node_id.index() as u64,
+                    -delta_x * 20.0,
                     -delta_y * 20.0,
                 );
             }
-        }
 
-        // V2 system will detect Scroll event from state diff
+            scroll_node
+        } else {
+            None
+        };
+
+        // V2 system will detect Scroll event from recorded state
         self.process_window_events_recursive_v2(0)
     }
 
@@ -475,6 +472,17 @@ impl X11Window {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
+        // Record text input if we have a character and it's a key press
+        if is_down {
+            if let Some(ref text) = char_str {
+                if !text.is_empty() {
+                    if let Some(ref mut layout_window) = self.layout_window {
+                        layout_window.record_text_input(text);
+                    }
+                }
+            }
+        }
+
         // Update keyboard state with virtual key and scancode
         if let Some(vk) = keysym.and_then(keysym_to_virtual_keycode) {
             if is_down {
@@ -508,16 +516,8 @@ impl X11Window {
             }
         }
 
-        // Update keyboard state with character (for text input)
-        if is_down {
-            if let Some(s) = char_str {
-                if let Some(c) = s.chars().next() {
-                    self.current_window_state.keyboard_state.current_char = Some(c as u32).into();
-                }
-            }
-        } else {
-            self.current_window_state.keyboard_state.current_char = None.into();
-        }
+        // Character input is now handled by V2 event system
+        // current_char field has been removed from KeyboardState
 
         // V2 system will detect VirtualKeyDown/VirtualKeyUp/TextInput from state diff
         self.process_window_events_recursive_v2(0)
@@ -541,7 +541,9 @@ impl X11Window {
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
-            layout_window.hover_manager.push_hit_test(hit_test);
+            layout_window
+                .hover_manager
+                .push_hit_test(InputPointId::Mouse, hit_test);
         }
     }
 
@@ -550,7 +552,7 @@ impl X11Window {
         self.layout_window
             .as_ref()?
             .hover_manager
-            .get_current()?
+            .get_current(&InputPointId::Mouse)?
             .hovered_nodes
             .iter()
             .flat_map(|(dom_id, ht)| {

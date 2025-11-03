@@ -1,5 +1,6 @@
 //! X11 implementation for Linux using the shell2 architecture.
 
+pub mod accessibility;
 pub mod defines;
 pub mod dlopen;
 pub mod events;
@@ -28,6 +29,7 @@ use azul_core::{
     },
 };
 use azul_layout::{
+    managers::hover::InputPointId,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions, WindowState},
     ScrollbarDragState,
@@ -95,6 +97,11 @@ pub struct X11Window {
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
+
+    // Accessibility
+    /// Linux accessibility adapter
+    #[cfg(feature = "accessibility")]
+    pub accessibility_adapter: accessibility::LinuxAccessibilityAdapter,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -508,7 +515,21 @@ impl X11Window {
             #[cfg(feature = "gnome-menus")]
             gnome_menu: None, // Initialize as None, will be set up if enabled
             resources,
+            #[cfg(feature = "accessibility")]
+            accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
+
+        // Initialize accessibility adapter
+        #[cfg(feature = "accessibility")]
+        {
+            let window_name = format!("Azul Window ({})", window.window);
+            window
+                .accessibility_adapter
+                .initialize(&window_name)
+                .map_err(|e| {
+                    WindowError::PlatformError(format!("Accessibility init failed: {}", e))
+                })?;
+        }
 
         unsafe { (window.xlib.XMapWindow)(display, window.window) };
         unsafe { (window.xlib.XFlush)(display) };
@@ -848,7 +869,10 @@ impl X11Window {
 
         // Mouse cursor synchronization - compute from current hit test
         if let Some(layout_window) = self.layout_window.as_ref() {
-            if let Some(hit_test) = layout_window.hover_manager.get_current() {
+            if let Some(hit_test) = layout_window
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+            {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 self.set_cursor(cursor_test.cursor_icon);
             }
