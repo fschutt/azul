@@ -40,6 +40,11 @@ pub enum EasingFunction {
     EaseOut,
 }
 
+// ============================================================================
+// OLD EVENT SYSTEM - Being replaced by SyntheticEvent + EventProvider
+// ============================================================================
+
+/* DEPRECATED: Remove once migration to SyntheticEvent is complete
 #[derive(Debug, Clone, PartialEq)]
 pub struct Events {
     pub window_events: Vec<WindowEventFilter>,
@@ -75,7 +80,9 @@ impl Events {
         !(self.hover_events.is_empty() && self.focus_events.is_empty())
     }
 }
+*/
 
+/* DEPRECATED: Remove once migration to SyntheticEvent is complete
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodesToCheck {
     pub new_hit_node_ids: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
@@ -213,6 +220,7 @@ impl NodesToCheck {
         self.old_focus_node != self.new_focus_node
     }
 }
+*/ // End of deprecated NodesToCheck
 
 pub type RestyleNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
 pub type RelayoutNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
@@ -231,6 +239,7 @@ pub struct CallbackToCall {
     pub event_filter: EventFilter,
 }
 
+/* DEPRECATED: Remove once migration to SyntheticEvent is complete
 pub fn get_hover_events(input: &[WindowEventFilter]) -> Vec<HoverEventFilter> {
     input
         .iter()
@@ -244,6 +253,7 @@ pub fn get_focus_events(input: &[HoverEventFilter]) -> Vec<FocusEventFilter> {
         .filter_map(|hover_event| hover_event.to_focus_event_filter())
         .collect()
 }
+*/
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ProcessEventResult {
@@ -1841,6 +1851,7 @@ impl EventDispatchResult {
     }
 }
 
+/* DEPRECATED: Old dispatch_events() with Events struct - replaced by SyntheticEvent-based version
 /// Main cross-platform event dispatch function.
 ///
 /// This function takes the detected events and hit test results, and determines
@@ -1945,6 +1956,7 @@ pub fn dispatch_events(events: &Events, hit_test: Option<&FullHitTest>) -> Event
 
     result
 }
+*/ // End of deprecated dispatch_events
 
 /// Process callback results and potentially generate new synthetic events.
 ///
@@ -1985,6 +1997,210 @@ pub trait CallbackResultRef {
     fn stop_propagation(&self) -> bool;
     fn prevent_default(&self) -> bool;
     fn should_regenerate_dom(&self) -> bool;
+}
+
+// ============================================================================
+// Unified Event Determination System (Phase 3.5+)
+// ============================================================================
+
+/// Trait for managers to provide their pending events.
+///
+/// Each manager (TextInputManager, ScrollManager, etc.) implements this to
+/// report what events occurred since the last frame. This enables a unified,
+/// lazy event determination system.
+pub trait EventProvider {
+    /// Get all pending events from this manager.
+    ///
+    /// Events should include:
+    /// - `target`: The DomNodeId that was affected
+    /// - `event_type`: What happened (Input, Scroll, Focus, etc.)
+    /// - `source`: EventSource::User for input, EventSource::Programmatic for API calls
+    /// - `data`: Type-specific event data
+    ///
+    /// After calling this, the manager should mark events as "read" so they
+    /// aren't returned again next frame.
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent>;
+}
+
+/// Deduplicate synthetic events by (target node, event type).
+///
+/// When multiple sources generate the same event (e.g., scroll from both
+/// ScrollManager and GestureManager), we keep only one.
+///
+/// Strategy:
+/// - Group by (target.dom, target.node, event_type)
+/// - Keep the event with the latest timestamp
+/// - Merge event data if needed (e.g., accumulate scroll deltas)
+pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<SyntheticEvent> {
+    if events.len() <= 1 {
+        return events;
+    }
+
+    // Sort by (dom, node, event_type) for grouping
+    events.sort_by(|a, b| {
+        (a.target.dom, a.target.node, a.event_type).cmp(&(b.target.dom, b.target.node, b.event_type))
+    });
+
+    let mut deduplicated = Vec::new();
+    let mut current_group: Option<SyntheticEvent> = None;
+
+    for event in events {
+        match &mut current_group {
+            None => {
+                // Start new group
+                current_group = Some(event);
+            }
+            Some(group) => {
+                // Check if same (dom, node, event_type)
+                if group.target == event.target && group.event_type == event.event_type {
+                    // Duplicate! Keep the one with later timestamp
+                    if event.timestamp > group.timestamp {
+                        // TODO: Merge event data (e.g., accumulate scroll deltas)
+                        *group = event;
+                    }
+                } else {
+                    // Different event, save previous group and start new one
+                    deduplicated.push(current_group.take().unwrap());
+                    current_group = Some(event);
+                }
+            }
+        }
+    }
+
+    // Don't forget the last group
+    if let Some(group) = current_group {
+        deduplicated.push(group);
+    }
+
+    deduplicated
+}
+
+/// Dispatch synthetic events to determine which callbacks should be invoked.
+///
+/// This is the new dispatch function that works with SyntheticEvent instead of the old Events struct.
+/// It converts SyntheticEvents to EventFilters and routes them to the correct nodes based on the
+/// event target.
+///
+/// ## Arguments
+/// * `events` - Vec of SyntheticEvents to dispatch (already deduplicated)
+/// * `hit_test` - Optional hit test for routing hover/mouse events
+///
+/// ## Returns
+/// * `EventDispatchResult` - List of callbacks to invoke with their targets
+pub fn dispatch_synthetic_events(
+    events: &[SyntheticEvent],
+    hit_test: Option<&FullHitTest>,
+) -> EventDispatchResult {
+    let mut result = EventDispatchResult::empty();
+
+    if events.is_empty() {
+        return result;
+    }
+
+    for event in events {
+        // Convert EventType to EventFilter
+        let event_filter = match event.event_type {
+            // Mouse events
+            EventType::MouseOver => Some(EventFilter::Hover(HoverEventFilter::MouseOver)),
+            EventType::MouseEnter => Some(EventFilter::Hover(HoverEventFilter::MouseEnter)),
+            EventType::MouseLeave => Some(EventFilter::Hover(HoverEventFilter::MouseLeave)),
+            EventType::MouseDown => Some(EventFilter::Hover(HoverEventFilter::LeftMouseDown)),
+            EventType::MouseUp => Some(EventFilter::Hover(HoverEventFilter::LeftMouseUp)),
+            EventType::Click => Some(EventFilter::Hover(HoverEventFilter::LeftMouseDown)), // Click = MouseDown for now
+            EventType::DoubleClick => Some(EventFilter::Window(WindowEventFilter::DoubleClick)),
+            EventType::ContextMenu => Some(EventFilter::Hover(HoverEventFilter::RightMouseDown)),
+            
+            // Keyboard events
+            EventType::KeyDown => Some(EventFilter::Focus(FocusEventFilter::VirtualKeyDown)),
+            EventType::KeyUp => Some(EventFilter::Focus(FocusEventFilter::VirtualKeyUp)),
+            EventType::KeyPress => Some(EventFilter::Focus(FocusEventFilter::TextInput)),
+            
+            // Focus events
+            EventType::Focus => Some(EventFilter::Focus(FocusEventFilter::FocusReceived)),
+            EventType::Blur => Some(EventFilter::Focus(FocusEventFilter::FocusLost)),
+            EventType::FocusIn => Some(EventFilter::Focus(FocusEventFilter::FocusReceived)),
+            EventType::FocusOut => Some(EventFilter::Focus(FocusEventFilter::FocusLost)),
+            
+            // Input events
+            EventType::Input => Some(EventFilter::Focus(FocusEventFilter::TextInput)),
+            EventType::Change => Some(EventFilter::Focus(FocusEventFilter::TextInput)),
+            
+            // Scroll events
+            EventType::Scroll => Some(EventFilter::Hover(HoverEventFilter::Scroll)),
+            EventType::ScrollStart => Some(EventFilter::Hover(HoverEventFilter::Scroll)),
+            EventType::ScrollEnd => Some(EventFilter::Hover(HoverEventFilter::Scroll)),
+            
+            // Drag events
+            EventType::DragStart => Some(EventFilter::Hover(HoverEventFilter::DragStart)),
+            EventType::Drag => Some(EventFilter::Hover(HoverEventFilter::Drag)),
+            EventType::DragEnd => Some(EventFilter::Hover(HoverEventFilter::DragEnd)),
+            EventType::DragEnter => Some(EventFilter::Hover(HoverEventFilter::MouseEnter)),
+            EventType::DragOver => Some(EventFilter::Hover(HoverEventFilter::MouseOver)),
+            EventType::DragLeave => Some(EventFilter::Hover(HoverEventFilter::MouseLeave)),
+            EventType::Drop => Some(EventFilter::Hover(HoverEventFilter::DroppedFile)),
+            
+            // Touch events
+            EventType::TouchStart => Some(EventFilter::Hover(HoverEventFilter::TouchStart)),
+            EventType::TouchMove => Some(EventFilter::Hover(HoverEventFilter::TouchMove)),
+            EventType::TouchEnd => Some(EventFilter::Hover(HoverEventFilter::TouchEnd)),
+            EventType::TouchCancel => Some(EventFilter::Hover(HoverEventFilter::TouchCancel)),
+            
+            // Window events
+            EventType::WindowResize => Some(EventFilter::Window(WindowEventFilter::Resized)),
+            EventType::WindowMove => Some(EventFilter::Window(WindowEventFilter::Moved)),
+            EventType::WindowClose => Some(EventFilter::Window(WindowEventFilter::CloseRequested)),
+            EventType::WindowFocusIn => Some(EventFilter::Window(WindowEventFilter::WindowFocusReceived)),
+            EventType::WindowFocusOut => Some(EventFilter::Window(WindowEventFilter::WindowFocusLost)),
+            EventType::ThemeChange => Some(EventFilter::Window(WindowEventFilter::ThemeChanged)),
+            
+            // File events
+            EventType::FileHover => Some(EventFilter::Hover(HoverEventFilter::HoveredFile)),
+            EventType::FileDrop => Some(EventFilter::Hover(HoverEventFilter::DroppedFile)),
+            EventType::FileHoverCancel => Some(EventFilter::Hover(HoverEventFilter::HoveredFileCancelled)),
+            
+            // Unsupported events (clipboard, media, lifecycle, etc.) - skip for now
+            _ => None,
+        };
+
+        if let Some(filter) = event_filter {
+            // Determine callback target based on event target
+            // Root node (NodeId::ZERO) → RootNodes target
+            // Specific node → Node target
+            let callback_target = if event.target.node == NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)) {
+                CallbackTarget::RootNodes
+            } else {
+                if let Some(node_id) = event.target.node.into_crate_internal() {
+                    CallbackTarget::Node {
+                        dom_id: event.target.dom,
+                        node_id,
+                    }
+                } else {
+                    // Invalid node ID, skip
+                    continue;
+                }
+            };
+
+            // Find hit test item for this node (if available)
+            let hit_test_item = if let CallbackTarget::Node { dom_id, node_id } = callback_target {
+                hit_test.and_then(|ht| {
+                    ht.hovered_nodes
+                        .get(&dom_id)
+                        .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
+                        .cloned()
+                })
+            } else {
+                None
+            };
+
+            result.callbacks.push(CallbackToInvoke {
+                target: callback_target,
+                event_filter: filter,
+                hit_test_item,
+            });
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]

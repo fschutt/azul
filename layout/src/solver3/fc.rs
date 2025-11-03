@@ -361,7 +361,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
 
         // We use a temporary, discarded position map to prevent this sizing pass
-        // from polluting the final `absolute_positions` map with incorrect values.
+        // from polluting the final `calculated_positions` map with incorrect values.
         let mut temp_positions = BTreeMap::new();
 
         // The child's containing block is its parent's content box.

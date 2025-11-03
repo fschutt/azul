@@ -185,6 +185,7 @@ impl From<FullWindowState> for WindowState {
     }
 }
 
+/* DEPRECATED: Replaced by determine_events_from_managers() in event_determination.rs
 /// Create Events by comparing current and previous window states.
 /// This is the cross-platform event detection layer.
 ///
@@ -564,3 +565,4 @@ pub fn create_events_from_states_with_gestures(
         event_was_mouse_release,
     }
 }
+*/ // End of deprecated create_events_from_states functions

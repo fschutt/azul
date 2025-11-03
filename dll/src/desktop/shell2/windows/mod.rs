@@ -741,7 +741,7 @@ impl Win32Window {
         // TODO: ScrollManager API changed - need to update this
         /*
         layout_window
-            .scroll_states
+            .scroll_manager
             .scroll_node_with_id(dom_id, node_id, scroll_x, scroll_y);
         */
 
@@ -1040,6 +1040,18 @@ unsafe extern "system" fn window_proc(
     const WM_MOUSELEAVE: u32 = 0x02A3;
     const WM_DPICHANGED: u32 = 0x02E0;
     const WM_DROPFILES: u32 = 0x0233;
+    
+    // IME (Input Method Editor) messages
+    const WM_IME_SETCONTEXT: u32 = 0x0281;
+    const WM_IME_NOTIFY: u32 = 0x0282;
+    const WM_IME_CONTROL: u32 = 0x0283;
+    const WM_IME_COMPOSITIONFULL: u32 = 0x0284;
+    const WM_IME_SELECT: u32 = 0x0285;
+    const WM_IME_CHAR: u32 = 0x0286;
+    const WM_IME_REQUEST: u32 = 0x0288;
+    const WM_IME_STARTCOMPOSITION: u32 = 0x010D;
+    const WM_IME_COMPOSITION: u32 = 0x010F;
+    const WM_IME_ENDCOMPOSITION: u32 = 0x010E;
 
     const GWLP_USERDATA: i32 = -21;
     const WHEEL_DELTA: i32 = 120;

@@ -162,7 +162,7 @@ use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId},
     events::{
-        dispatch_events, CallbackTarget as CoreCallbackTarget, EventFilter, ProcessEventResult,
+        CallbackTarget as CoreCallbackTarget, EventFilter, ProcessEventResult, SyntheticEvent,
     },
     geom::LogicalPosition,
     gl::*,
@@ -176,6 +176,7 @@ use azul_layout::{
     callbacks::{
         CallCallbacksResult, Callback as LayoutCallback, CallbackInfo, ExternalSystemCallbacks,
     },
+    event_determination::determine_all_events,
     hit_test::FullHitTest,
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{self, FullWindowState},
@@ -634,7 +635,7 @@ pub trait PlatformWindowV2 {
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
 
         // Apply scroll
-        layout_window.scroll_states.scroll_by(
+        layout_window.scroll_manager.scroll_by(
             scroll_event.dom_id,
             scroll_event.node_id,
             scroll_event.delta,
@@ -803,47 +804,52 @@ pub trait PlatformWindowV2 {
         let gesture_manager = self.get_layout_window().map(|lw| &lw.gesture_drag_manager);
 
         // Detect all events that occurred by comparing states
-        // Includes gesture events (DragStart, Drag, DragEnd, DoubleClick, LongPress)
+        // Using new SyntheticEvent architecture with determine_all_events()
 
         // Get managers for event detection
         let focus_manager = self.get_layout_window().map(|w| &w.focus_manager);
-        let previous_focus = self.get_layout_window().map(|w| &w.focus_manager); // FIXME: Should be previous frame's focus manager
         let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
-        let previous_file_drop = self.get_layout_window().map(|w| &w.file_drop_manager); // FIXME: Should be previous frame's file_drop manager
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
-        let scroll_manager = self.get_layout_window().map(|w| &w.scroll_states);
+        
+        // Get EventProvider managers (scroll, text input, etc.)
+        let scroll_manager_ref = self.get_layout_window().map(|w| &w.scroll_manager);
+        let text_manager_ref = self.get_layout_window().map(|w| &w.text_input_manager);
+        
+        // Build list of EventProvider managers
+        let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
+        if let Some(sm) = scroll_manager_ref.as_ref() {
+            event_providers.push(*sm as &dyn azul_core::events::EventProvider);
+        }
+        if let Some(tm) = text_manager_ref.as_ref() {
+            event_providers.push(*tm as &dyn azul_core::events::EventProvider);
+        }
+        
+        // Get current timestamp
+        #[cfg(feature = "std")]
+        let timestamp = azul_core::task::Instant::from(std::time::Instant::now());
+        #[cfg(not(feature = "std"))]
+        let timestamp = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
 
-        let events = if let (Some(fm), Some(fdm), Some(hm)) =
+        // Determine all events (returns Vec<SyntheticEvent>)
+        let synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
             (focus_manager, file_drop_manager, hover_manager)
         {
-            window_state::create_events_from_states_with_gestures(
+            determine_all_events(
                 self.get_current_window_state(),
                 previous_state,
-                fm,
-                previous_focus,
-                fdm,
-                previous_file_drop,
                 hm,
+                fm,
+                fdm,
                 gesture_manager,
-                scroll_manager,
+                &event_providers,
+                timestamp,
             )
         } else {
-            // Fallback: create empty events if managers not available
-            azul_core::events::Events {
-                window_events: Vec::new(),
-                hover_events: Vec::new(),
-                focus_events: Vec::new(),
-                old_hit_node_ids: alloc::collections::BTreeMap::new(),
-                old_focus_node: None,
-                current_window_state_mouse_is_down: false,
-                previous_window_state_mouse_is_down: false,
-                event_was_mouse_down: false,
-                event_was_mouse_leave: false,
-                event_was_mouse_release: false,
-            }
+            // Fallback: no events if managers not available
+            Vec::new()
         };
 
-        if events.is_empty() {
+        if synthetic_events.is_empty() {
             return ProcessEventResult::DoNothing;
         }
 
@@ -856,14 +862,9 @@ pub trait PlatformWindowV2 {
 
         // If DragStart event occurred and we have a hit test, save it in the manager
         // This allows callbacks to query which nodes were hit at drag start
-        if events
-            .window_events
+        if synthetic_events
             .iter()
-            .any(|e| matches!(e, azul_core::events::WindowEventFilter::DragStart))
-            || events
-                .hover_events
-                .iter()
-                .any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart))
+            .any(|e| matches!(e.event_type, azul_core::events::EventType::DragStart))
         {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 // Extract first hit from current state (the hovered DOM node)
@@ -924,8 +925,11 @@ pub trait PlatformWindowV2 {
         // EVENT FILTERING AND CALLBACK DISPATCH
         // ========================================================================
 
-        // Use cross-platform dispatch logic to determine which callbacks to invoke
-        let dispatch_result = dispatch_events(&events, hit_test_for_dispatch.as_ref());
+        // Use the new dispatch_synthetic_events() to convert SyntheticEvents to callbacks
+        let dispatch_result = azul_core::events::dispatch_synthetic_events(
+            &synthetic_events,
+            hit_test_for_dispatch.as_ref(),
+        );
 
         if dispatch_result.is_empty() {
             return ProcessEventResult::DoNothing;
@@ -996,10 +1000,19 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        // Apply text changeset if preventDefault was not set
-        // This is where we actually compute and cache the text changes
+        // ========================================================================
+        // POST-CALLBACK TEXT INPUT PROCESSING
+        // ========================================================================
+        // Apply text changeset if preventDefault was not set.
+        // This is where we:
+        // 1. Compute and cache the text changes (reshape glyphs)
+        // 2. Scroll cursor into view if needed
+        // 3. Mark dirty nodes for re-layout
+        // 4. Potentially trigger another event cycle if scrolling occurred
+        
         if !prevent_default && !text_input_affected_nodes.is_empty() {
             if let Some(layout_window) = self.get_layout_window_mut() {
+                // Apply text changes and get list of dirty nodes
                 let dirty_nodes = layout_window.apply_text_changeset();
                 
                 // Mark dirty nodes for re-layout
@@ -1011,6 +1024,82 @@ pub trait PlatformWindowV2 {
                 
                 // Request re-render since text changed
                 result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+            
+            // After text changes, scroll cursor into view if we have a focused text input
+            // Note: This needs to happen AFTER relayout to get accurate cursor position
+            if let Some(layout_window) = self.get_layout_window() {
+                if let Some(cursor_rect) = layout_window.get_focused_cursor_rect() {
+                    // Get the focused node to find its scroll container
+                    if let Some(focused_node_id) = layout_window.focus_manager.focused_node {
+                        // Find the nearest scrollable ancestor
+                        if let Some(scroll_container) = layout_window.find_scrollable_ancestor(focused_node_id) {
+                            // Get the scroll state for this container
+                            let scroll_node_id = scroll_container.node.into_crate_internal();
+                            if let Some(scroll_node_id) = scroll_node_id {
+                                if let Some(scroll_state) = layout_window.scroll_manager.get_scroll_state(scroll_container.dom, scroll_node_id) {
+                                    // Get the container's layout rect
+                                    if let Some(container_rect) = layout_window.get_node_layout_rect(scroll_container) {
+                                        // Calculate the visible area (container rect adjusted by scroll offset)
+                                        let visible_area = azul_core::geom::LogicalRect::new(
+                                            azul_core::geom::LogicalPosition::new(
+                                                container_rect.origin.x + scroll_state.current_offset.x,
+                                                container_rect.origin.y + scroll_state.current_offset.y,
+                                            ),
+                                            container_rect.size,
+                                        );
+                                        
+                                        // Add padding around cursor for comfortable visibility
+                                        const SCROLL_PADDING: f32 = 5.0;
+                                        
+                                        // Calculate how much to scroll to bring cursor into view
+                                        let mut scroll_delta = azul_core::geom::LogicalPosition::zero();
+                                        
+                                        // Check horizontal overflow
+                                        if cursor_rect.origin.x < visible_area.origin.x + SCROLL_PADDING {
+                                            // Cursor is too far left
+                                            scroll_delta.x = cursor_rect.origin.x - (visible_area.origin.x + SCROLL_PADDING);
+                                        } else if cursor_rect.origin.x + cursor_rect.size.width > visible_area.origin.x + visible_area.size.width - SCROLL_PADDING {
+                                            // Cursor is too far right
+                                            scroll_delta.x = (cursor_rect.origin.x + cursor_rect.size.width) - (visible_area.origin.x + visible_area.size.width - SCROLL_PADDING);
+                                        }
+                                        
+                                        // Check vertical overflow
+                                        if cursor_rect.origin.y < visible_area.origin.y + SCROLL_PADDING {
+                                            // Cursor is too far up
+                                            scroll_delta.y = cursor_rect.origin.y - (visible_area.origin.y + SCROLL_PADDING);
+                                        } else if cursor_rect.origin.y + cursor_rect.size.height > visible_area.origin.y + visible_area.size.height - SCROLL_PADDING {
+                                            // Cursor is too far down
+                                            scroll_delta.y = (cursor_rect.origin.y + cursor_rect.size.height) - (visible_area.origin.y + visible_area.size.height - SCROLL_PADDING);
+                                        }
+                                        
+                                        // Apply scroll if needed
+                                        if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
+                                            // Get current time from system callbacks
+                                            let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                                            let now = (external.get_system_time_fn.cb)();
+                                            
+                                            if let Some(layout_window_mut) = self.get_layout_window_mut() {
+                                                // Instant scroll (duration = 0) for cursor scrolling
+                                                layout_window_mut.scroll_manager.scroll_by(
+                                                    scroll_container.dom,
+                                                    scroll_node_id,
+                                                    scroll_delta,
+                                                    std::time::Duration::from_millis(0).into(),
+                                                    azul_core::events::EasingFunction::Linear,
+                                                    now.into(),
+                                                );
+                                                // Scrolling may trigger more events, so recurse
+                                                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                                should_recurse = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1035,10 +1124,9 @@ pub trait PlatformWindowV2 {
 
         // Auto-activate window drag if DragStart occurred on titlebar
         // This allows titlebar dragging to work even when mouse leaves window
-        if events
-            .hover_events
+        if synthetic_events
             .iter()
-            .any(|e| matches!(e, azul_core::events::HoverEventFilter::DragStart))
+            .any(|e| matches!(e.event_type, azul_core::events::EventType::DragStart))
         {
             // Get current window position before mutable borrow
             let current_pos = self.get_current_window_state().position;
@@ -1276,7 +1364,7 @@ pub trait PlatformWindowV2 {
                 };
 
                 let scroll_offset = layout_window
-                    .scroll_states
+                    .scroll_manager
                     .get_current_offset(dom_id, node_id)
                     .unwrap_or_default();
 
@@ -1317,13 +1405,13 @@ pub trait PlatformWindowV2 {
 
         // Get current scrollbar geometry
         let scrollbar_state = if is_vertical {
-            layout_window.scroll_states.get_scrollbar_state(
+            layout_window.scroll_manager.get_scrollbar_state(
                 dom_id,
                 node_id,
                 ScrollbarOrientation::Vertical,
             )
         } else {
-            layout_window.scroll_states.get_scrollbar_state(
+            layout_window.scroll_manager.get_scrollbar_state(
                 dom_id,
                 node_id,
                 ScrollbarOrientation::Horizontal,
@@ -1337,7 +1425,7 @@ pub trait PlatformWindowV2 {
 
         // Get current scroll state
         let scroll_state = match layout_window
-            .scroll_states
+            .scroll_manager
             .get_scroll_state(dom_id, node_id)
         {
             Some(s) => s,
@@ -1434,7 +1522,7 @@ pub trait PlatformWindowV2 {
 
         let scrollbar_state =
             match layout_window
-                .scroll_states
+                .scroll_manager
                 .get_scrollbar_state(dom_id, node_id, orientation)
             {
                 Some(s) if s.visible => s,
@@ -1442,7 +1530,7 @@ pub trait PlatformWindowV2 {
             };
 
         let scroll_state = match layout_window
-            .scroll_states
+            .scroll_manager
             .get_scroll_state(dom_id, node_id)
         {
             Some(s) => s,

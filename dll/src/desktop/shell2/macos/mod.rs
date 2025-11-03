@@ -1888,7 +1888,7 @@ impl MacOSWindow {
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
 
         // Apply scroll using scroll_by instead of apply_scroll_event
-        layout_window.scroll_states.scroll_by(
+        layout_window.scroll_manager.scroll_by(
             scroll_event.dom_id,
             scroll_event.node_id,
             scroll_event.delta,
@@ -1903,7 +1903,7 @@ impl MacOSWindow {
 
         // 2. Recalculate scrollbar states after scroll update
         // This updates scrollbar thumb positions based on new scroll offsets
-        layout_window.scroll_states.calculate_scrollbar_states();
+        layout_window.scroll_manager.calculate_scrollbar_states();
 
         // 3. Update WebRender scroll layers and GPU transforms
         let mut txn = crate::desktop::wr_translate2::WrTransaction::new();

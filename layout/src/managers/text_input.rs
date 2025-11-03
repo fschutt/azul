@@ -30,6 +30,8 @@
 
 use azul_core::dom::{DomId, DomNodeId, NodeId};
 use azul_core::selection::TextCursor;
+use azul_core::events::{EventProvider, SyntheticEvent, EventType, EventSource as CoreEventSource, EventData};
+use azul_core::task::Instant;
 use std::collections::BTreeMap;
 
 /// Information about a pending text edit that hasn't been applied yet
@@ -152,5 +154,39 @@ impl TextInputManager {
 impl Default for TextInputManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl EventProvider for TextInputManager {
+    /// Get pending text input events.
+    ///
+    /// If there's a pending changeset, returns an Input event for the affected node.
+    /// The event data includes the old text and inserted text so callbacks can
+    /// query the changeset.
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        let mut events = Vec::new();
+        
+        if let Some(changeset) = &self.pending_changeset {
+            let event_source = match self.input_source {
+                Some(TextInputSource::Keyboard) | Some(TextInputSource::Ime) => CoreEventSource::User,
+                Some(TextInputSource::Accessibility) => CoreEventSource::User, // A11y is still user input
+                Some(TextInputSource::Programmatic) => CoreEventSource::Programmatic,
+                None => CoreEventSource::User,
+            };
+            
+            // Generate Input event (fires on every keystroke)
+            events.push(SyntheticEvent::new(
+                EventType::Input,
+                event_source,
+                changeset.node,
+                timestamp,
+                EventData::None, // TODO: Add text-specific event data once we have it
+            ));
+            
+            // Note: We don't generate Change events here - those are generated
+            // when focus is lost or Enter is pressed (handled elsewhere)
+        }
+        
+        events
     }
 }

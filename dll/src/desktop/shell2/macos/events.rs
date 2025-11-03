@@ -3,7 +3,7 @@
 use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId},
-    events::{EventFilter, MouseButton, NodesToCheck, ProcessEventResult, SyntheticEvent},
+    events::{EventFilter, MouseButton, ProcessEventResult, SyntheticEvent},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::{CursorTypeHitTest, FullHitTest},
     window::{
@@ -366,7 +366,7 @@ impl MacOSWindow {
                 use azul_core::task::Instant;
                 
                 let now = Instant::from(std::time::Instant::now());
-                let scroll_node = layout_window.scroll_states.record_sample(
+                let scroll_node = layout_window.scroll_manager.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
                     -delta_y as f32,
                     &layout_window.hover_manager,

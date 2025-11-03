@@ -95,7 +95,7 @@ fn test_basic_layout() {
 
     let mut layout_cache = LayoutCache {
         tree: None,
-        absolute_positions: BTreeMap::new(),
+        calculated_positions: BTreeMap::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -144,7 +144,7 @@ fn test_layout_with_empty_font_cache() {
 
     let mut layout_cache = LayoutCache {
         tree: None,
-        absolute_positions: BTreeMap::new(),
+        calculated_positions: BTreeMap::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),

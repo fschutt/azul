@@ -67,7 +67,7 @@ pub struct LayoutCache<T: ParsedFontTrait> {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
     pub tree: Option<LayoutTree<T>>,
     /// The final, absolute positions of all nodes from the previous frame.
-    pub absolute_positions: BTreeMap<usize, LogicalPosition>,
+    pub calculated_positions: BTreeMap<usize, LogicalPosition>,
     /// The viewport size from the last layout pass, used to detect resizes.
     pub viewport: Option<LogicalRect>,
     /// Stable scroll IDs computed from node_data_hash (layout index -> scroll ID)
@@ -103,7 +103,7 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     tree: &LayoutTree<T>,
     layout_roots: &BTreeSet<usize>,
-    absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
     // Find the unique parents of all dirty layout roots. These are the containers
     // where sibling positions need to be adjusted.
@@ -130,7 +130,7 @@ pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
                     parent_node,
                     tree,
                     layout_roots,
-                    absolute_positions,
+                    calculated_positions,
                 );
             }
 
@@ -200,7 +200,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
     parent_node: &LayoutNode<T>,
     tree: &LayoutTree<T>,
     layout_roots: &BTreeSet<usize>,
-    absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
     let dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
     let styled_node_state = styled_dom
@@ -210,7 +210,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
         .map(|n| n.state.clone())
         .unwrap_or_default();
     let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state);
-    let parent_pos = absolute_positions
+    let parent_pos = calculated_positions
         .get(&parent_idx)
         .copied()
         .unwrap_or_default();
@@ -234,7 +234,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
         if layout_roots.contains(&child_idx) {
             // This child was DIRTY and has been correctly repositioned.
             // Update the pen to the position immediately after this child.
-            let new_pos = match absolute_positions.get(&child_idx) {
+            let new_pos = match calculated_positions.get(&child_idx) {
                 Some(p) => *p,
                 None => continue,
             };
@@ -251,7 +251,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
                 + child_node.box_props.margin.main_end(writing_mode);
         } else {
             // This child is CLEAN. Calculate its new position and shift its entire subtree.
-            let old_pos = match absolute_positions.get(&child_idx) {
+            let old_pos = match calculated_positions.get(&child_idx) {
                 Some(p) => *p,
                 None => continue,
             };
@@ -274,7 +274,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
                     new_absolute_pos.x - old_pos.x,
                     new_absolute_pos.y - old_pos.y,
                 );
-                shift_subtree_position(child_idx, delta, tree, absolute_positions);
+                shift_subtree_position(child_idx, delta, tree, calculated_positions);
             }
 
             main_pen += margin_box_main_size;
@@ -287,16 +287,16 @@ pub fn shift_subtree_position<T: ParsedFontTrait>(
     node_idx: usize,
     delta: LogicalPosition,
     tree: &LayoutTree<T>,
-    absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
-    if let Some(pos) = absolute_positions.get_mut(&node_idx) {
+    if let Some(pos) = calculated_positions.get_mut(&node_idx) {
         pos.x += delta.x;
         pos.y += delta.y;
     }
 
     if let Some(node) = tree.get(node_idx) {
         for &child_idx in &node.children {
-            shift_subtree_position(child_idx, delta, tree, absolute_positions);
+            shift_subtree_position(child_idx, delta, tree, calculated_positions);
         }
     }
 }
@@ -491,7 +491,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     containing_block_pos: LogicalPosition,
     containing_block_size: LogicalSize,
     // The map of final absolute positions, which is mutated by this function.
-    absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     reflow_needed_for_scrollbars: &mut bool,
 ) -> Result<()> {
     let (constraints, dom_id, writing_mode, mut final_used_size, box_props) = {
@@ -649,7 +649,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             self_content_box_pos.x + child_relative_pos.x,
             self_content_box_pos.y + child_relative_pos.y,
         );
-        absolute_positions.insert(child_index, child_absolute_pos);
+        calculated_positions.insert(child_index, child_absolute_pos);
 
         // For Flex/Grid containers, Taffy has already laid out the children completely
         // (including their used_size and relative_position). We should NOT call
@@ -670,7 +670,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 child_index,
                 child_absolute_pos,
                 inner_size_after_scrollbars,
-                absolute_positions,
+                calculated_positions,
                 reflow_needed_for_scrollbars,
             )?;
         }

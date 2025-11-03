@@ -125,7 +125,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         return generate_display_list(
             &mut ctx,
             tree,
-            &cache.absolute_positions,
+            &cache.calculated_positions,
             scroll_offsets,
             &scroll_ids,
             gpu_value_cache,
@@ -134,9 +134,9 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
-    let mut absolute_positions;
+    let mut calculated_positions;
     loop {
-        absolute_positions = cache.absolute_positions.clone();
+        calculated_positions = cache.calculated_positions.clone();
         let mut reflow_needed_for_scrollbars = false;
 
         // ... (Passes 2a, 2b, 2c remain the same)
@@ -147,7 +147,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 &new_tree,
                 &new_dom,
                 root_idx,
-                &absolute_positions,
+                &calculated_positions,
                 viewport,
             );
 
@@ -158,15 +158,15 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 root_idx,
                 cb_pos,
                 cb_size,
-                &mut absolute_positions,
+                &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
             )?;
 
-            // CRITICAL: Insert the root node's own position into absolute_positions
+            // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
             // positions for children, not for the root itself.
-            if !absolute_positions.contains_key(&root_idx) {
-                absolute_positions.insert(root_idx, cb_pos);
+            if !calculated_positions.contains_key(&root_idx) {
+                calculated_positions.insert(root_idx, cb_pos);
             }
         }
 
@@ -174,7 +174,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             &new_dom,
             &new_tree,
             &recon_result.layout_roots,
-            &mut absolute_positions,
+            &mut calculated_positions,
         );
 
         if reflow_needed_for_scrollbars {
@@ -192,13 +192,13 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     positioning::position_out_of_flow_elements(
         &mut ctx,
         &new_tree,
-        &mut absolute_positions,
+        &mut calculated_positions,
         viewport,
     )?;
 
     // --- Step 3.5: Adjust Relatively Positioned Elements ---
     // Pass the viewport to correctly resolve percentage offsets for the root element.
-    positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut absolute_positions, viewport)?;
+    positioning::adjust_relative_positions(&mut ctx, &new_tree, &mut calculated_positions, viewport)?;
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     // This must be done AFTER layout but BEFORE display list generation
@@ -209,7 +209,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let display_list = generate_display_list(
         &mut ctx,
         &new_tree,
-        &absolute_positions,
+        &calculated_positions,
         scroll_offsets,
         &scroll_ids,
         gpu_value_cache,
@@ -217,7 +217,7 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     )?;
 
     cache.tree = Some(new_tree);
-    cache.absolute_positions = absolute_positions;
+    cache.calculated_positions = calculated_positions;
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
@@ -230,12 +230,12 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
     tree: &LayoutTree<T>,
     styled_dom: &StyledDom,
     node_idx: usize,
-    absolute_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect,
 ) -> (LogicalPosition, LogicalSize) {
     if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(parent_idx) {
-            let pos = absolute_positions
+            let pos = calculated_positions
                 .get(&parent_idx)
                 .copied()
                 .unwrap_or_default();

@@ -124,7 +124,7 @@ pub struct DomLayoutResult {
     /// The layout tree with computed sizes and positions
     pub layout_tree: LayoutTree<FontRef>,
     /// Absolute positions of all nodes
-    pub absolute_positions: BTreeMap<usize, LogicalPosition>,
+    pub calculated_positions: BTreeMap<usize, LogicalPosition>,
     /// The viewport used for this layout
     pub viewport: LogicalRect,
     /// The generated display list for this DOM.
@@ -178,7 +178,7 @@ pub struct LayoutWindow {
     /// Cached layout results for all DOMs (root + iframes)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
-    pub scroll_states: ScrollManager,
+    pub scroll_manager: ScrollManager,
     /// Gesture and drag manager for multi-frame interactions (moved from FullWindowState)
     pub gesture_drag_manager: crate::managers::gesture::GestureAndDragManager,
     /// Focus manager for keyboard focus and tab navigation
@@ -245,7 +245,7 @@ impl LayoutWindow {
         Ok(Self {
             layout_cache: Solver3LayoutCache {
                 tree: None,
-                absolute_positions: BTreeMap::new(),
+                calculated_positions: BTreeMap::new(),
                 viewport: None,
                 scroll_ids: BTreeMap::new(),
                 scroll_id_to_node_id: BTreeMap::new(),
@@ -254,7 +254,7 @@ impl LayoutWindow {
             font_manager: FontManager::new(fc_cache)?,
             image_cache: ImageCache::default(),
             layout_results: BTreeMap::new(),
-            scroll_states: ScrollManager::new(),
+            scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
@@ -356,7 +356,7 @@ impl LayoutWindow {
             size: window_state.size.dimensions,
         };
 
-        let scroll_offsets = self.scroll_states.get_scroll_states_for_dom(dom_id);
+        let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
         let styled_dom_clone = styled_dom.clone();
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
@@ -385,10 +385,10 @@ impl LayoutWindow {
 
         // Synchronize scrollbar transforms AFTER layout
         self.gpu_state_manager
-            .update_scrollbar_transforms(dom_id, &self.scroll_states, &tree);
+            .update_scrollbar_transforms(dom_id, &self.scroll_manager, &tree);
 
         // Scan for IFrames *after* the initial layout pass
-        let iframes = self.scan_for_iframes(dom_id, &tree, &self.layout_cache.absolute_positions);
+        let iframes = self.scan_for_iframes(dom_id, &tree, &self.layout_cache.calculated_positions);
 
         for (node_id, bounds) in iframes {
             if let Some(child_dom_id) = self.invoke_iframe_callback(
@@ -417,7 +417,7 @@ impl LayoutWindow {
             DomLayoutResult {
                 styled_dom: styled_dom_clone,
                 layout_tree: tree,
-                absolute_positions: self.layout_cache.absolute_positions.clone(),
+                calculated_positions: self.layout_cache.calculated_positions.clone(),
                 viewport,
                 display_list,
                 scroll_ids,
@@ -432,7 +432,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         layout_tree: &LayoutTree<FontRef>,
-        absolute_positions: &BTreeMap<usize, LogicalPosition>,
+        calculated_positions: &BTreeMap<usize, LogicalPosition>,
     ) -> Vec<(NodeId, LogicalRect)> {
         use azul_core::dom::NodeType;
         layout_tree
@@ -444,7 +444,7 @@ impl LayoutWindow {
                 let layout_result = self.layout_results.get(&dom_id)?;
                 let node_data = &layout_result.styled_dom.node_data.as_container()[node_dom_id];
                 if matches!(node_data.get_node_type(), NodeType::IFrame(_)) {
-                    let pos = absolute_positions.get(&idx).copied().unwrap_or_default();
+                    let pos = calculated_positions.get(&idx).copied().unwrap_or_default();
                     let size = node.used_size.unwrap_or_default();
                     Some((node_dom_id, LogicalRect::new(pos, size)))
                 } else {
@@ -498,14 +498,14 @@ impl LayoutWindow {
     pub fn clear_caches(&mut self) {
         self.layout_cache = Solver3LayoutCache {
             tree: None,
-            absolute_positions: BTreeMap::new(),
+            calculated_positions: BTreeMap::new(),
             viewport: None,
             scroll_ids: BTreeMap::new(),
             scroll_id_to_node_id: BTreeMap::new(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
-        self.scroll_states = ScrollManager::new();
+        self.scroll_manager = ScrollManager::new();
         self.selection_manager.clear_all();
     }
 
@@ -517,20 +517,20 @@ impl LayoutWindow {
         #[cfg(not(feature = "std"))]
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
-        self.scroll_states.update_node_bounds(
+        self.scroll_manager.update_node_bounds(
             dom_id,
             node_id,
             scroll.parent_rect,
             scroll.children_rect,
             now.clone(),
         );
-        self.scroll_states
+        self.scroll_manager
             .set_scroll_position(dom_id, node_id, scroll.children_rect.origin, now);
     }
 
     /// Get scroll position for a node
     pub fn get_scroll_position(&self, dom_id: DomId, node_id: NodeId) -> Option<ScrollPosition> {
-        let states = self.scroll_states.get_scroll_states_for_dom(dom_id);
+        let states = self.scroll_manager.get_scroll_states_for_dom(dom_id);
         states.get(&node_id).cloned()
     }
 
@@ -626,7 +626,7 @@ impl LayoutWindow {
 
         // Update node bounds in the scroll manager. This is necessary for the IFrameManager
         // to correctly detect edge scroll conditions.
-        self.scroll_states.update_node_bounds(
+        self.scroll_manager.update_node_bounds(
             parent_dom_id,
             node_id,
             bounds,
@@ -639,7 +639,7 @@ impl LayoutWindow {
         let reason = match self.iframe_manager.check_reinvoke(
             parent_dom_id,
             node_id,
-            &self.scroll_states,
+            &self.scroll_manager,
             bounds,
         ) {
             Some(r) => r,
@@ -657,7 +657,7 @@ impl LayoutWindow {
         );
 
         let scroll_offset = self
-            .scroll_states
+            .scroll_manager
             .get_current_offset(parent_dom_id, node_id)
             .unwrap_or_default();
         let hidpi_factor = window_state.size.get_hidpi_factor();
@@ -757,7 +757,7 @@ impl LayoutWindow {
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
-        let position = layout_result.absolute_positions.get(&nid.index())?;
+        let position = layout_result.calculated_positions.get(&nid.index())?;
         Some(*position)
     }
 
@@ -864,7 +864,7 @@ impl LayoutWindow {
         dom_id: DomId,
     ) -> BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> {
         let mut nested = BTreeMap::new();
-        let scroll_states = self.scroll_states.get_scroll_states_for_dom(dom_id);
+        let scroll_states = self.scroll_manager.get_scroll_states_for_dom(dom_id);
         let mut inner = BTreeMap::new();
         for (node_id, scroll_pos) in scroll_states {
             inner.insert(
@@ -1053,7 +1053,7 @@ impl LayoutWindow {
     /// conflicts.
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
-        scroll_states: &ScrollManager,
+        scroll_manager: &ScrollManager,
         dom_id: DomId,
         layout_tree: &LayoutTree<FontRef>,
         system_callbacks: &ExternalSystemCallbacks,
@@ -1084,7 +1084,7 @@ impl LayoutWindow {
             // Calculate current opacity from ScrollManager
             let vertical_opacity = if scrollbar_info.needs_vertical {
                 Self::calculate_scrollbar_opacity(
-                    scroll_states.get_last_activity_time(dom_id, node_id),
+                    scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
@@ -1095,7 +1095,7 @@ impl LayoutWindow {
 
             let horizontal_opacity = if scrollbar_info.needs_horizontal {
                 Self::calculate_scrollbar_opacity(
-                    scroll_states.get_last_activity_time(dom_id, node_id),
+                    scroll_manager.get_last_activity_time(dom_id, node_id),
                     now.clone(),
                     fade_delay,
                     fade_duration,
@@ -1280,8 +1280,8 @@ impl LayoutWindow {
             .iter()
             .position(|node| node.dom_node_id == target_node_id)?;
 
-        // Get the absolute position from cache
-        let abs_pos = self.layout_cache.absolute_positions.get(&layout_idx)?;
+        // Get the calculated layout position from cache (already in logical units)
+        let calc_pos = self.layout_cache.calculated_positions.get(&layout_idx)?;
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
@@ -1289,7 +1289,7 @@ impl LayoutWindow {
         // Get the used size (the actual laid-out size)
         let used_size = layout_node.used_size?;
 
-        // Convert to logical coordinates
+        // Convert size to logical coordinates
         let hidpi_factor = self
             .current_window_state
             .size
@@ -1299,14 +1299,97 @@ impl LayoutWindow {
 
         Some(LogicalRect::new(
             LogicalPosition::new(
-                abs_pos.x as f32 / hidpi_factor,
-                abs_pos.y as f32 / hidpi_factor,
+                calc_pos.x as f32,
+                calc_pos.y as f32,
             ),
             LogicalSize::new(
                 used_size.width / hidpi_factor,
                 used_size.height / hidpi_factor,
             ),
         ))
+    }
+
+    /// Get the cursor rect for the currently focused text input node
+    /// Returns None if:
+    /// - No node is focused
+    /// - Focused node has no text cursor
+    /// - Focused node has no layout
+    /// - Text cache cannot find cursor position
+    pub fn get_focused_cursor_rect(&self) -> Option<azul_core::geom::LogicalRect> {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+
+        // Get the focused node
+        let focused_node = self.focus_manager.focused_node?;
+
+        // Get the text cursor
+        let cursor = &self.focus_manager.text_cursor?;
+
+        // Get the layout tree from cache
+        let layout_tree = self.layout_cache.tree.as_ref()?;
+
+        // Find the layout node index corresponding to the focused DOM node
+        let target_node_id = focused_node.node.into_crate_internal();
+        let layout_idx = layout_tree
+            .nodes
+            .iter()
+            .position(|node| node.dom_node_id == target_node_id)?;
+
+        // Get the layout node
+        let layout_node = layout_tree.nodes.get(layout_idx)?;
+
+        // Get the text layout result for this node
+        let inline_layout = layout_node.inline_layout_result.as_ref()?;
+
+        // Get the cursor rect in node-relative coordinates
+        let mut cursor_rect = inline_layout.get_cursor_rect(cursor)?;
+
+        // Get the calculated layout position from cache (already in logical units)
+        let calc_pos = self.layout_cache.calculated_positions.get(&layout_idx)?;
+
+        // Add layout position to cursor rect (both already in logical units)
+        cursor_rect.origin.x += calc_pos.x as f32;
+        cursor_rect.origin.y += calc_pos.y as f32;
+
+        Some(cursor_rect)
+    }
+
+    /// Find the nearest scrollable ancestor for a given node
+    /// Returns (DomId, NodeId) of the scrollable container, or None if no scrollable ancestor exists
+    pub fn find_scrollable_ancestor(&self, mut node_id: azul_core::dom::DomNodeId) -> Option<azul_core::dom::DomNodeId> {
+        // Get the layout tree
+        let layout_tree = self.layout_cache.tree.as_ref()?;
+        
+        // Convert to internal NodeId
+        let mut current_node_id = node_id.node.into_crate_internal();
+        
+        // Walk up the tree looking for a scrollable node
+        loop {
+            // Find layout node index
+            let layout_idx = layout_tree
+                .nodes
+                .iter()
+                .position(|node| node.dom_node_id == current_node_id)?;
+            
+            let layout_node = layout_tree.nodes.get(layout_idx)?;
+            
+            // Check if this node has scrollbar info (meaning it's scrollable)
+            if layout_node.scrollbar_info.is_some() {
+                // Check if it actually has a scroll state registered
+                let check_node_id = current_node_id?;
+                if self.scroll_manager.get_scroll_state(node_id.dom, check_node_id).is_some() {
+                    // Found a scrollable ancestor
+                    return Some(azul_core::dom::DomNodeId {
+                        dom: node_id.dom,
+                        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(check_node_id)),
+                    });
+                }
+            }
+            
+            // Move to parent
+            let parent_idx = layout_node.parent?;
+            let parent_node = layout_tree.nodes.get(parent_idx)?;
+            current_node_id = parent_node.dom_node_id;
+        }
     }
 }
 
@@ -2128,11 +2211,11 @@ mod tests {
         let node_id = NodeId::new(0);
 
         // Initially no scroll states
-        let scroll_offsets = window.scroll_states.get_scroll_states_for_dom(dom_id);
+        let scroll_offsets = window.scroll_manager.get_scroll_states_for_dom(dom_id);
         assert!(scroll_offsets.is_empty());
 
         // No current offset
-        let offset = window.scroll_states.get_current_offset(dom_id, node_id);
+        let offset = window.scroll_manager.get_current_offset(dom_id, node_id);
         assert_eq!(offset, None);
     }
 
@@ -2162,7 +2245,7 @@ mod tests {
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
         let did_scroll = window
-            .scroll_states
+            .scroll_manager
             .process_scroll_event(scroll_event, now.clone());
 
         // process_scroll_event should return true for successful scroll
@@ -2185,7 +2268,7 @@ mod tests {
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
         // Programmatic scroll with animation
-        window.scroll_states.scroll_to(
+        window.scroll_manager.scroll_to(
             dom_id,
             node_id,
             LogicalPosition::new(100.0, 200.0),
@@ -2194,7 +2277,7 @@ mod tests {
             now.clone(),
         );
 
-        let tick_result = window.scroll_states.tick(now);
+        let tick_result = window.scroll_manager.tick(now);
 
         // Programmatic scroll should start animation
         assert!(tick_result.needs_repaint);
@@ -2504,7 +2587,7 @@ impl LayoutWindow {
                 self.scroll_to_node_if_needed(dom_id, node_id, now);
             }
             AccessibilityAction::ScrollUp => {
-                self.scroll_states.scroll_by(
+                self.scroll_manager.scroll_by(
                     dom_id,
                     node_id,
                     LogicalPosition { x: 0.0, y: -100.0 },
@@ -2514,7 +2597,7 @@ impl LayoutWindow {
                 );
             }
             AccessibilityAction::ScrollDown => {
-                self.scroll_states.scroll_by(
+                self.scroll_manager.scroll_by(
                     dom_id,
                     node_id,
                     LogicalPosition { x: 0.0, y: 100.0 },
@@ -2524,7 +2607,7 @@ impl LayoutWindow {
                 );
             }
             AccessibilityAction::ScrollLeft => {
-                self.scroll_states.scroll_by(
+                self.scroll_manager.scroll_by(
                     dom_id,
                     node_id,
                     LogicalPosition { x: -100.0, y: 0.0 },
@@ -2534,7 +2617,7 @@ impl LayoutWindow {
                 );
             }
             AccessibilityAction::ScrollRight => {
-                self.scroll_states.scroll_by(
+                self.scroll_manager.scroll_by(
                     dom_id,
                     node_id,
                     LogicalPosition { x: 100.0, y: 0.0 },
@@ -2547,7 +2630,7 @@ impl LayoutWindow {
                 // Scroll up by one page
                 if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
                     let page_height = size.height;
-                    self.scroll_states.scroll_by(
+                    self.scroll_manager.scroll_by(
                         dom_id,
                         node_id,
                         LogicalPosition { x: 0.0, y: -page_height },
@@ -2561,7 +2644,7 @@ impl LayoutWindow {
                 // Scroll down by one page
                 if let Some(size) = self.get_node_used_size_a11y(dom_id, node_id) {
                     let page_height = size.height;
-                    self.scroll_states.scroll_by(
+                    self.scroll_manager.scroll_by(
                         dom_id,
                         node_id,
                         LogicalPosition { x: 0.0, y: page_height },
@@ -2572,7 +2655,7 @@ impl LayoutWindow {
                 }
             }
             AccessibilityAction::SetScrollOffset(pos) => {
-                self.scroll_states.scroll_to(
+                self.scroll_manager.scroll_to(
                     dom_id,
                     node_id,
                     pos,
@@ -2582,7 +2665,7 @@ impl LayoutWindow {
                 );
             }
             AccessibilityAction::ScrollToPoint(pos) => {
-                self.scroll_states.scroll_to(
+                self.scroll_manager.scroll_to(
                     dom_id,
                     node_id,
                     pos,
@@ -3051,8 +3134,8 @@ impl LayoutWindow {
         // Get size from used_size
         let size = node.used_size?;
         
-        // Get position from absolute_positions map
-        let position = layout_result.absolute_positions.get(&node_id.index())?;
+        // Get position from calculated_positions map
+        let position = layout_result.calculated_positions.get(&node_id.index())?;
         
         Some(LayoutRect {
             origin: azul_css::props::basic::LayoutPoint {
@@ -3084,7 +3167,7 @@ impl LayoutWindow {
 
         // For now, just ensure the node's scroll state is at origin
         if self.get_node_bounds(dom_id, node_id).is_some() {
-            self.scroll_states.scroll_to(
+            self.scroll_manager.scroll_to(
                 dom_id,
                 node_id,
                 LogicalPosition { x: 0.0, y: 0.0 },

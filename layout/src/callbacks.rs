@@ -187,7 +187,7 @@ pub struct CallbackInfo {
     /// properties
     css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    current_scroll_states: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+    current_scroll_manager: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next
     /// frame)
     nodes_scrolled_in_callback:
@@ -238,7 +238,7 @@ impl CallbackInfo {
             DomId,
             BTreeMap<NodeId, Vec<CssProperty>>,
         >,
-        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+        current_scroll_manager: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
         nodes_scrolled_in_callback: &'a mut BTreeMap<
             DomId,
             BTreeMap<NodeHierarchyItemId, LogicalPosition>,
@@ -274,11 +274,11 @@ impl CallbackInfo {
                 as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks
                 as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-            current_scroll_states: current_scroll_states
+            current_scroll_manager: current_scroll_manager
                 as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback
                 as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-            scroll_manager: &layout_window.scroll_states
+            scroll_manager: &layout_window.scroll_manager
                 as *const crate::managers::scroll_state::ScrollManager,
             gesture_drag_manager: &layout_window.gesture_drag_manager
                 as *const crate::managers::gesture::GestureAndDragManager,

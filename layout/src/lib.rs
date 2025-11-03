@@ -18,6 +18,8 @@ pub mod solver3;
 pub mod callbacks;
 #[cfg(feature = "cpurender")]
 pub mod cpurender;
+#[cfg(feature = "text_layout")]
+pub mod event_determination;
 #[cfg(feature = "font_loading")]
 pub mod font;
 #[cfg(feature = "text_layout")]
@@ -34,6 +36,8 @@ pub mod thread;
 pub mod timer;
 #[cfg(feature = "text_layout")]
 pub mod window;
+#[cfg(feature = "text_layout")]
+mod window_tests;
 #[cfg(feature = "text_layout")]
 pub mod window_state;
 #[cfg(feature = "xml")]

@@ -37,7 +37,7 @@ pub fn perform_scrollbar_hit_test<W: PlatformWindowV2>(
     for (dom_id, node_hit_test) in &hit_test.hovered_nodes {
         for (node_id, _hit_item) in &node_hit_test.regular_hit_test_nodes {
             // Get scroll state for this node
-            let scroll_state = layout_window.scroll_states.get_scroll_state(*dom_id, *node_id)?;
+            let scroll_state = layout_window.scroll_manager.get_scroll_state(*dom_id, *node_id)?;
 
             // Check if we hit a scrollbar
             let action = check_scrollbar_hit(scroll_state, position)?;
@@ -134,7 +134,7 @@ pub fn handle_scrollbar_drag<W: PlatformWindowV2>(
         None => return,
     };
 
-    let scroll_state = match layout_window.scroll_states.get_scroll_state(drag_state.dom_id, drag_state.node_id) {
+    let scroll_state = match layout_window.scroll_manager.get_scroll_state(drag_state.dom_id, drag_state.node_id) {
         Some(state) => state,
         None => return,
     };
@@ -157,7 +157,7 @@ pub fn handle_scrollbar_drag<W: PlatformWindowV2>(
     );
 
     // Update scroll position
-    layout_window.scroll_states.set_scroll_position(
+    layout_window.scroll_manager.set_scroll_position(
         drag_state.dom_id,
         drag_state.node_id,
         new_scroll_x,
@@ -234,7 +234,7 @@ fn handle_track_click<W: PlatformWindowV2>(
         None => return,
     };
 
-    let scroll_state = match layout_window.scroll_states.get_scroll_state(dom_id, node_id) {
+    let scroll_state = match layout_window.scroll_manager.get_scroll_state(dom_id, node_id) {
         Some(state) => state,
         None => return,
     };
@@ -259,7 +259,7 @@ fn handle_track_click<W: PlatformWindowV2>(
                         (current_scroll.y + page_size).min(max_scroll)
                     };
 
-                    layout_window.scroll_states.set_scroll_position(
+                    layout_window.scroll_manager.set_scroll_position(
                         dom_id,
                         node_id,
                         current_scroll.x,
@@ -289,7 +289,7 @@ fn handle_track_click<W: PlatformWindowV2>(
                         (current_scroll.x + page_size).min(max_scroll)
                     };
 
-                    layout_window.scroll_states.set_scroll_position(
+                    layout_window.scroll_manager.set_scroll_position(
                         dom_id,
                         node_id,
                         new_scroll_x,
@@ -314,7 +314,7 @@ fn get_current_scroll_position<W: PlatformWindowV2>(
         None => return LogicalPosition::zero(),
     };
 
-    let scroll_state = match layout_window.scroll_states.get_scroll_state(dom_id, node_id) {
+    let scroll_state = match layout_window.scroll_manager.get_scroll_state(dom_id, node_id) {
         Some(state) => state,
         None => return LogicalPosition::zero(),
     };

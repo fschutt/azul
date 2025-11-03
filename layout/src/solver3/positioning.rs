@@ -155,7 +155,7 @@ fn resolve_css_offsets(
 pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
-    absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect,
 ) -> Result<()> {
     for node_index in 0..tree.nodes.len() {
@@ -177,7 +177,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     tree,
                     node_index,
                     ctx.styled_dom,
-                    absolute_positions,
+                    calculated_positions,
                     viewport,
                 )?
             };
@@ -186,7 +186,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             let offsets =
                 resolve_css_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
 
-            let static_pos = absolute_positions
+            let static_pos = calculated_positions
                 .get(&node_index)
                 .copied()
                 .unwrap_or_default();
@@ -214,7 +214,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 final_pos.x = static_pos.x;
             }
 
-            absolute_positions.insert(node_index, final_pos);
+            calculated_positions.insert(node_index, final_pos);
         }
     }
     Ok(())
@@ -228,7 +228,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
-    absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) -> Result<()> {
     // Iterate through all nodes. We need the index to modify the position map.
@@ -264,7 +264,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 resolve_css_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
 
             // Get a mutable reference to the position and apply the offsets.
-            if let Some(current_pos) = absolute_positions.get_mut(&node_index) {
+            if let Some(current_pos) = calculated_positions.get_mut(&node_index) {
                 let initial_pos = *current_pos;
 
                 // top/bottom/left/right offsets are applied relative to the static position.
@@ -309,7 +309,7 @@ fn find_absolute_containing_block_rect<T: ParsedFontTrait>(
     tree: &LayoutTree<T>,
     node_index: usize,
     styled_dom: &StyledDom,
-    absolute_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect,
 ) -> Result<LogicalRect> {
     let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
@@ -318,7 +318,7 @@ fn find_absolute_containing_block_rect<T: ParsedFontTrait>(
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
 
         if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
-            let pos = absolute_positions
+            let pos = calculated_positions
                 .get(&parent_index)
                 .copied()
                 .unwrap_or_default();

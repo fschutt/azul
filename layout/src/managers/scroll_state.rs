@@ -10,10 +10,11 @@ use alloc::collections::BTreeMap;
 
 use azul_core::{
     dom::{DomId, NodeId},
-    events::{EasingFunction, EventSource},
+    events::{EasingFunction, EventSource, EventProvider, SyntheticEvent, EventType, EventData, ScrollEventData, ScrollDeltaMode},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::{ExternalScrollId, ScrollPosition},
     task::{Duration, Instant},
+    styled_dom::NodeHierarchyItemId,
 };
 
 // ============================================================================
@@ -786,3 +787,57 @@ pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 
 // Legacy type alias
 pub type ScrollStates = ScrollManager;
+
+// ============================================================================
+// EventProvider Implementation
+// ============================================================================
+
+impl EventProvider for ScrollManager {
+    /// Get pending scroll events.
+    ///
+    /// Returns Scroll/ScrollStart/ScrollEnd events for nodes whose scroll
+    /// position changed this frame.
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        let mut events = Vec::new();
+        
+        // Generate events for all nodes that scrolled this frame
+        for ((dom_id, node_id), state) in &self.states {
+            // Check if scroll offset changed (delta != 0)
+            let delta = LogicalPosition {
+                x: state.current_offset.x - state.previous_offset.x,
+                y: state.current_offset.y - state.previous_offset.y,
+            };
+            
+            if delta.x.abs() > 0.001 || delta.y.abs() > 0.001 {
+                let target = azul_core::dom::DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                
+                // Determine event source
+                let event_source = if self.had_programmatic_scroll {
+                    EventSource::Programmatic
+                } else {
+                    EventSource::User
+                };
+                
+                // Generate Scroll event
+                events.push(SyntheticEvent::new(
+                    EventType::Scroll,
+                    event_source,
+                    target,
+                    timestamp.clone(),
+                    EventData::Scroll(ScrollEventData {
+                        delta: delta,
+                        delta_mode: ScrollDeltaMode::Pixel,
+                    }),
+                ));
+                
+                // TODO: Generate ScrollStart/ScrollEnd events
+                // Need to track when scroll starts/stops (first/last frame with delta)
+            }
+        }
+        
+        events
+    }
+}

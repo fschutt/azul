@@ -1346,7 +1346,7 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
 
         // Get scroll states for this DOM
         let scroll_states = layout_window
-            .scroll_states
+            .scroll_manager
             .get_scroll_states_for_dom(*dom_id);
 
         // Update each scrollable node

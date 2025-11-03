@@ -136,7 +136,7 @@ pub fn regenerate_layout(
 
     // 4. Calculate scrollbar states based on new layout
     // This updates scrollbar geometry (thumb position/size ratios, visibility)
-    layout_window.scroll_states.calculate_scrollbar_states();
+    layout_window.scroll_manager.calculate_scrollbar_states();
 
     // 5. Rebuild display list and send to WebRender
     let dpi_factor = current_window_state.size.get_hidpi_factor();
@@ -157,7 +157,7 @@ pub fn regenerate_layout(
     for (dom_id, layout_result) in &layout_window.layout_results {
         LayoutWindow::synchronize_scrollbar_opacity(
             &mut layout_window.gpu_state_manager,
-            &layout_window.scroll_states,
+            &layout_window.scroll_manager,
             *dom_id,
             &layout_result.layout_tree,
             &system_callbacks,

@@ -304,7 +304,7 @@
 //!     layout_window.layout_and_generate_display_list(...)?;
 //!
 //!     // 4. Calculate scrollbar states
-//!     layout_window.scroll_states.calculate_scrollbar_states();
+//!     layout_window.scroll_manager.calculate_scrollbar_states();
 //!
 //!     // 5. Rebuild display list to WebRender
 //!     rebuild_display_list(&mut txn, layout_window, &mut render_api, ...);

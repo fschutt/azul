@@ -614,7 +614,7 @@ impl X11Window {
 
         // Apply scroll delta
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-        layout_window.scroll_states.scroll_by(
+        layout_window.scroll_manager.scroll_by(
             dom_id_typed,
             node_id_typed,
             LogicalPosition::new(delta_x, delta_y),
@@ -627,7 +627,7 @@ impl X11Window {
         );
 
         // Recalculate scrollbar states after scroll update
-        layout_window.scroll_states.calculate_scrollbar_states();
+        layout_window.scroll_manager.calculate_scrollbar_states();
 
         // Update WebRender scroll layers and GPU transforms
         if let (Some(render_api), Some(document_id)) = (&mut self.render_api, self.document_id) {

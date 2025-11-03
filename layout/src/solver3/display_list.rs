@@ -404,7 +404,7 @@ impl DisplayListBuilder {
 pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
-    absolute_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &BTreeMap<usize, LogicalPosition>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     scroll_ids: &BTreeMap<usize, u64>,
     gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
@@ -414,7 +414,7 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     let positioned_tree = PositionedTree {
         tree,
-        absolute_positions,
+        calculated_positions,
     };
     let mut generator = DisplayListGenerator::new(
         ctx,
@@ -525,7 +525,7 @@ where
         // Get the absolute position of this node
         let node_pos = self
             .positioned_tree
-            .absolute_positions
+            .calculated_positions
             .get(&node_index)
             .copied()
             .unwrap_or_default();
@@ -621,7 +621,7 @@ where
         // Get the node's bounds for the stacking context
         let node_pos = self
             .positioned_tree
-            .absolute_positions
+            .calculated_positions
             .get(&context.node_index)
             .copied()
             .unwrap_or_default();
@@ -805,7 +805,7 @@ where
         let node = self.positioned_tree.tree.get(node_index)?;
         let mut pos = self
             .positioned_tree
-            .absolute_positions
+            .calculated_positions
             .get(&node_index)
             .copied()
             .unwrap_or_default();
@@ -1134,7 +1134,7 @@ where
 /// Helper struct to pass layout results to the generator.
 pub struct PositionedTree<'a, T: ParsedFontTrait> {
     pub tree: &'a LayoutTree<T>,
-    pub absolute_positions: &'a BTreeMap<usize, LogicalPosition>,
+    pub calculated_positions: &'a BTreeMap<usize, LogicalPosition>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
