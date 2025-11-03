@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 126] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 128] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -84,6 +84,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 126] = [
     (CssPropertyType::WhiteSpace, "white-space"),
     (CssPropertyType::Hyphens, "hyphens"),
     (CssPropertyType::Direction, "direction"),
+    (CssPropertyType::UserSelect, "user-select"),
+    (CssPropertyType::TextDecoration, "text-decoration"),
     (CssPropertyType::Cursor, "cursor"),
     (CssPropertyType::Width, "width"),
     (CssPropertyType::Height, "height"),
@@ -266,6 +268,8 @@ pub type StyleScrollbarColorValue = CssPropertyValue<StyleScrollbarColor>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
 pub type StyleHyphensValue = CssPropertyValue<StyleHyphens>;
 pub type StyleDirectionValue = CssPropertyValue<StyleDirection>;
+pub type StyleUserSelectValue = CssPropertyValue<StyleUserSelect>;
+pub type StyleTextDecorationValue = CssPropertyValue<StyleTextDecoration>;
 pub type StyleWhiteSpaceValue = CssPropertyValue<StyleWhiteSpace>;
 pub type LayoutFloatValue = CssPropertyValue<LayoutFloat>;
 pub type LayoutBoxSizingValue = CssPropertyValue<LayoutBoxSizing>;
@@ -450,6 +454,8 @@ pub enum CssProperty {
     WhiteSpace(StyleWhiteSpaceValue),
     Hyphens(StyleHyphensValue),
     Direction(StyleDirectionValue),
+    UserSelect(StyleUserSelectValue),
+    TextDecoration(StyleTextDecorationValue),
     Cursor(StyleCursorValue),
     Display(LayoutDisplayValue),
     Float(LayoutFloatValue),
@@ -605,6 +611,8 @@ pub enum CssPropertyType {
     WhiteSpace,
     Hyphens,
     Direction,
+    UserSelect,
+    TextDecoration,
     Cursor,
     Display,
     Float,
@@ -859,6 +867,8 @@ impl CssPropertyType {
             CssPropertyType::WhiteSpace => "white-space",
             CssPropertyType::Hyphens => "hyphens",
             CssPropertyType::Direction => "direction",
+            CssPropertyType::UserSelect => "user-select",
+            CssPropertyType::TextDecoration => "text-decoration",
             CssPropertyType::BreakBefore => "break-before",
             CssPropertyType::BreakAfter => "break-after",
             CssPropertyType::BreakInside => "break-inside",
@@ -1015,6 +1025,8 @@ pub enum CssParsingError<'a> {
     WhiteSpace(StyleWhiteSpaceParseError<'a>),
     Hyphens(StyleHyphensParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
+    UserSelect(StyleUserSelectParseError<'a>),
+    TextDecoration(StyleTextDecorationParseError<'a>),
     Cursor(CursorParseError<'a>),
     CaretColor(CssColorParseError<'a>),
     CaretAnimationDuration(DurationParseError<'a>),
@@ -1148,6 +1160,8 @@ pub enum CssParsingErrorOwned {
     WhiteSpace(StyleWhiteSpaceParseErrorOwned),
     Hyphens(StyleHyphensParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
+    UserSelect(StyleUserSelectParseErrorOwned),
+    TextDecoration(StyleTextDecorationParseErrorOwned),
     Cursor(CursorParseErrorOwned),
     CaretColor(CssColorParseErrorOwned),
     CaretAnimationDuration(DurationParseErrorOwned),
@@ -1315,6 +1329,8 @@ impl_display! { CssParsingError<'a>, {
     WhiteSpace(e) => format!("Invalid white-space: {}", e),
     Hyphens(e) => format!("Invalid hyphens: {}", e),
     Direction(e) => format!("Invalid direction: {}", e),
+    UserSelect(e) => format!("Invalid user-select: {}", e),
+    TextDecoration(e) => format!("Invalid text-decoration: {}", e),
     Cursor(e) => format!("Invalid cursor: {}", e),
     LayoutDisplay(e) => format!("Invalid display: {}", e),
     LayoutFloat(e) => format!("Invalid float: {}", e),
@@ -1494,6 +1510,11 @@ impl_from!(StyleTabWidthParseError<'a>, CssParsingError::TabWidth);
 impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
 impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
+impl_from!(StyleUserSelectParseError<'a>, CssParsingError::UserSelect);
+impl_from!(
+    StyleTextDecorationParseError<'a>,
+    CssParsingError::TextDecoration
+);
 impl_from!(CursorParseError<'a>, CssParsingError::Cursor);
 
 // Layout basic properties
@@ -1690,6 +1711,10 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::WhiteSpace(e) => CssParsingErrorOwned::WhiteSpace(e.to_contained()),
             CssParsingError::Hyphens(e) => CssParsingErrorOwned::Hyphens(e.to_contained()),
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
+            CssParsingError::UserSelect(e) => CssParsingErrorOwned::UserSelect(e.to_contained()),
+            CssParsingError::TextDecoration(e) => {
+                CssParsingErrorOwned::TextDecoration(e.to_contained())
+            }
             CssParsingError::Cursor(e) => CssParsingErrorOwned::Cursor(e.to_contained()),
             CssParsingError::LayoutDisplay(e) => {
                 CssParsingErrorOwned::LayoutDisplay(e.to_contained())
@@ -1847,6 +1872,10 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::WhiteSpace(e) => CssParsingError::WhiteSpace(e.to_shared()),
             CssParsingErrorOwned::Hyphens(e) => CssParsingError::Hyphens(e.to_shared()),
             CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
+            CssParsingErrorOwned::UserSelect(e) => CssParsingError::UserSelect(e.to_shared()),
+            CssParsingErrorOwned::TextDecoration(e) => {
+                CssParsingError::TextDecoration(e.to_shared())
+            }
             CssParsingErrorOwned::Cursor(e) => CssParsingError::Cursor(e.to_shared()),
             CssParsingErrorOwned::LayoutDisplay(e) => CssParsingError::LayoutDisplay(e.to_shared()),
             CssParsingErrorOwned::LayoutFloat(e) => CssParsingError::LayoutFloat(e.to_shared()),
@@ -1919,6 +1948,8 @@ pub fn parse_css_property<'a>(
             CssPropertyType::WhiteSpace => parse_style_white_space(value)?.into(),
             CssPropertyType::Hyphens => parse_style_hyphens(value)?.into(),
             CssPropertyType::Direction => parse_style_direction(value)?.into(),
+            CssPropertyType::UserSelect => parse_style_user_select(value)?.into(),
+            CssPropertyType::TextDecoration => parse_style_text_decoration(value)?.into(),
             CssPropertyType::Cursor => parse_style_cursor(value)?.into(),
 
             CssPropertyType::Display => parse_layout_display(value)?.into(),
@@ -2980,6 +3011,8 @@ impl CssProperty {
             CssProperty::TextShadow(v) => v.get_css_value_fmt(),
             CssProperty::Hyphens(v) => v.get_css_value_fmt(),
             CssProperty::Direction(v) => v.get_css_value_fmt(),
+            CssProperty::UserSelect(v) => v.get_css_value_fmt(),
+            CssProperty::TextDecoration(v) => v.get_css_value_fmt(),
             CssProperty::WhiteSpace(v) => v.get_css_value_fmt(),
             CssProperty::BreakBefore(v) => v.get_css_value_fmt(),
             CssProperty::BreakAfter(v) => v.get_css_value_fmt(),
@@ -3395,6 +3428,8 @@ impl CssProperty {
             CssProperty::WhiteSpace(_) => CssPropertyType::WhiteSpace,
             CssProperty::Hyphens(_) => CssPropertyType::Hyphens,
             CssProperty::Direction(_) => CssPropertyType::Direction,
+            CssProperty::UserSelect(_) => CssPropertyType::UserSelect,
+            CssProperty::TextDecoration(_) => CssPropertyType::TextDecoration,
             CssProperty::BreakBefore(_) => CssPropertyType::BreakBefore,
             CssProperty::BreakAfter(_) => CssPropertyType::BreakAfter,
             CssProperty::BreakInside(_) => CssPropertyType::BreakInside,
@@ -3464,6 +3499,12 @@ impl CssProperty {
     }
     pub const fn cursor(input: StyleCursor) -> Self {
         CssProperty::Cursor(CssPropertyValue::Exact(input))
+    }
+    pub const fn user_select(input: StyleUserSelect) -> Self {
+        CssProperty::UserSelect(CssPropertyValue::Exact(input))
+    }
+    pub const fn text_decoration(input: StyleTextDecoration) -> Self {
+        CssProperty::TextDecoration(CssPropertyValue::Exact(input))
     }
     pub const fn display(input: LayoutDisplay) -> Self {
         CssProperty::Display(CssPropertyValue::Exact(input))
@@ -4341,6 +4382,18 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_user_select(&self) -> Option<&StyleUserSelectValue> {
+        match self {
+            CssProperty::UserSelect(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_decoration(&self) -> Option<&StyleTextDecorationValue> {
+        match self {
+            CssProperty::TextDecoration(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_hyphens(&self) -> Option<&StyleHyphensValue> {
         match self {
             CssProperty::Hyphens(f) => Some(f),
@@ -4642,6 +4695,8 @@ impl CssProperty {
             TextShadow(c) => c.is_initial(),
             WhiteSpace(c) => c.is_initial(),
             Direction(c) => c.is_initial(),
+            UserSelect(c) => c.is_initial(),
+            TextDecoration(c) => c.is_initial(),
             Hyphens(c) => c.is_initial(),
             BreakBefore(c) => c.is_initial(),
             BreakAfter(c) => c.is_initial(),
@@ -5301,6 +5356,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::Direction(p) => format!(
             "CssProperty::Direction({})",
             print_css_property_value(p, tabs, "Direction")
+        ),
+        CssProperty::UserSelect(p) => format!(
+            "CssProperty::UserSelect({})",
+            print_css_property_value(p, tabs, "StyleUserSelect")
+        ),
+        CssProperty::TextDecoration(p) => format!(
+            "CssProperty::TextDecoration({})",
+            print_css_property_value(p, tabs, "StyleTextDecoration")
         ),
         CssProperty::WhiteSpace(p) => format!(
             "CssProperty::WhiteSpace({})",

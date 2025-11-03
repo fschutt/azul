@@ -479,6 +479,10 @@ macro_rules! css_property_from_type {
             CssPropertyType::Direction => CssProperty::Direction(CssPropertyValue::$content_type),
             CssPropertyType::Hyphens => CssProperty::Hyphens(CssPropertyValue::$content_type),
             CssPropertyType::WhiteSpace => CssProperty::WhiteSpace(CssPropertyValue::$content_type),
+            CssPropertyType::UserSelect => CssProperty::UserSelect(CssPropertyValue::$content_type),
+            CssPropertyType::TextDecoration => {
+                CssProperty::TextDecoration(CssPropertyValue::$content_type)
+            }
             // Fragmentation / Columns / Flow / Shape / Content
             CssPropertyType::TextJustify => {
                 CssProperty::LayoutTextJustify(CssPropertyValue::$content_type)

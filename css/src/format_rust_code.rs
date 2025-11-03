@@ -586,6 +586,10 @@ impl_enum_fmt!(LayoutOverflow, Auto, Scroll, Visible, Hidden, Clip);
 
 impl_enum_fmt!(StyleTextAlign, Center, Left, Right, Justify, Start, End);
 
+impl_enum_fmt!(StyleUserSelect, Auto, Text, None, All);
+
+impl_enum_fmt!(StyleTextDecoration, None, Underline, Overline, LineThrough);
+
 impl_enum_fmt!(
     DirectionCorner,
     Right,

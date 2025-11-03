@@ -286,6 +286,79 @@ impl PrintAsCssValue for StyleDirection {
     }
 }
 
+// -- StyleUserSelect --
+
+/// Controls whether the user can select text.
+/// Used to prevent accidental text selection on UI controls like buttons.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleUserSelect {
+    /// Browser determines selectability (default)
+    Auto,
+    /// Text is selectable
+    Text,
+    /// Text is not selectable
+    None,
+    /// User can select all text with a single action
+    All,
+}
+impl Default for StyleUserSelect {
+    fn default() -> Self {
+        StyleUserSelect::Auto
+    }
+}
+impl_option!(
+    StyleUserSelect,
+    OptionStyleUserSelect,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleUserSelect {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleUserSelect::Auto => "auto",
+            StyleUserSelect::Text => "text",
+            StyleUserSelect::None => "none",
+            StyleUserSelect::All => "all",
+        })
+    }
+}
+
+// -- StyleTextDecoration --
+
+/// Text decoration (underline, overline, line-through).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextDecoration {
+    /// No decoration
+    None,
+    /// Underline
+    Underline,
+    /// Line above text
+    Overline,
+    /// Strike-through line
+    LineThrough,
+}
+impl Default for StyleTextDecoration {
+    fn default() -> Self {
+        StyleTextDecoration::None
+    }
+}
+impl_option!(
+    StyleTextDecoration,
+    OptionStyleTextDecoration,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl PrintAsCssValue for StyleTextDecoration {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            StyleTextDecoration::None => "none",
+            StyleTextDecoration::Underline => "underline",
+            StyleTextDecoration::Overline => "overline",
+            StyleTextDecoration::LineThrough => "line-through",
+        })
+    }
+}
+
 // -- StyleVerticalAlign --
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Top`
@@ -769,6 +842,115 @@ pub fn parse_style_direction(input: &str) -> Result<StyleDirection, StyleDirecti
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
+pub enum StyleUserSelectParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleUserSelectParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleUserSelectParseError<'a>, {
+    InvalidValue(e) => format!("Invalid user-select value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(InvalidValueErr<'a>, StyleUserSelectParseError::InvalidValue);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleUserSelectParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleUserSelectParseError<'a> {
+    pub fn to_contained(&self) -> StyleUserSelectParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => StyleUserSelectParseErrorOwned::InvalidValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleUserSelectParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleUserSelectParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleUserSelectParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_user_select(input: &str) -> Result<StyleUserSelect, StyleUserSelectParseError> {
+    match input.trim() {
+        "auto" => Ok(StyleUserSelect::Auto),
+        "text" => Ok(StyleUserSelect::Text),
+        "none" => Ok(StyleUserSelect::None),
+        "all" => Ok(StyleUserSelect::All),
+        other => Err(StyleUserSelectParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextDecorationParseError<'a> {
+    InvalidValue(InvalidValueErr<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextDecorationParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextDecorationParseError<'a>, {
+    InvalidValue(e) => format!("Invalid text-decoration value: \"{}\"", e.0),
+}}
+#[cfg(feature = "parser")]
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleTextDecorationParseError::InvalidValue
+);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleTextDecorationParseErrorOwned {
+    InvalidValue(InvalidValueErrOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextDecorationParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextDecorationParseErrorOwned {
+        match self {
+            Self::InvalidValue(e) => {
+                StyleTextDecorationParseErrorOwned::InvalidValue(e.to_contained())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextDecorationParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextDecorationParseError<'a> {
+        match self {
+            Self::InvalidValue(e) => StyleTextDecorationParseError::InvalidValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_decoration(
+    input: &str,
+) -> Result<StyleTextDecoration, StyleTextDecorationParseError> {
+    match input.trim() {
+        "none" => Ok(StyleTextDecoration::None),
+        "underline" => Ok(StyleTextDecoration::Underline),
+        "overline" => Ok(StyleTextDecoration::Overline),
+        "line-through" => Ok(StyleTextDecoration::LineThrough),
+        other => Err(StyleTextDecorationParseError::InvalidValue(
+            InvalidValueErr(other),
+        )),
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
 pub enum StyleVerticalAlignParseError<'a> {
     InvalidValue(InvalidValueErr<'a>),
 }
@@ -898,6 +1080,22 @@ pub fn parse_caret_animation_duration(
     use crate::props::basic::parse_duration;
 
     parse_duration(input).map(|inner| CaretAnimationDuration { inner })
+}
+
+// --- From implementations for CssProperty ---
+
+impl From<StyleUserSelect> for crate::props::property::CssProperty {
+    fn from(value: StyleUserSelect) -> Self {
+        use crate::props::property::CssProperty;
+        CssProperty::user_select(value)
+    }
+}
+
+impl From<StyleTextDecoration> for crate::props::property::CssProperty {
+    fn from(value: StyleTextDecoration) -> Self {
+        use crate::props::property::CssProperty;
+        CssProperty::text_decoration(value)
+    }
 }
 
 #[cfg(all(test, feature = "parser"))]

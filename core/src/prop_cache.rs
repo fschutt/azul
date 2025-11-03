@@ -69,9 +69,9 @@ use azul_css::{
             StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
             StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
             StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
-            StyleTextAlignValue, StyleTextColorValue, StyleTransformOriginValue,
-            StyleTransformVecValue, StyleVisibilityValue, StyleWhiteSpaceValue,
-            StyleWordSpacingValue, WidowsValue,
+            StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue,
+            StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
+            StyleVisibilityValue, StyleWhiteSpaceValue, StyleWordSpacingValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -1939,6 +1939,29 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleTextAlignValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlign)
             .and_then(|p| p.as_text_align())
+    }
+    pub fn get_user_select<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleUserSelectValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::UserSelect)
+            .and_then(|p| p.as_user_select())
+    }
+    pub fn get_text_decoration<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextDecorationValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::TextDecoration,
+        )
+        .and_then(|p| p.as_text_decoration())
     }
     pub fn get_line_height<'a>(
         &'a self,
