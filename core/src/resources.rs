@@ -437,7 +437,17 @@ impl ImageRef {
         match self.get_data() {
             DecodedImage::Raw((image_descriptor, image_data)) => Some(RawImage {
                 pixels: match image_data {
-                    ImageData::Raw(u8_bytes) => RawImageData::U8(u8_bytes.clone()),
+                    ImageData::Raw(shared_data) => {
+                        // Clone the SharedRawImageData (increments ref count),
+                        // then try to extract or convert to U8Vec
+                        let data_clone = shared_data.clone();
+                        if let Some(u8vec) = data_clone.into_inner() {
+                            RawImageData::U8(u8vec)
+                        } else {
+                            // Multiple references exist, need to copy the data
+                            RawImageData::U8(shared_data.as_ref().to_vec().into())
+                        }
+                    }
                     ImageData::External(_) => return None,
                 },
                 width: image_descriptor.width,
@@ -447,6 +457,30 @@ impl ImageRef {
                 tag: Vec::new().into(),
             }),
             _ => None,
+        }
+    }
+
+    /// Get raw bytes from the image as a slice
+    /// Returns None if this is not a Raw image or if it's an External image
+    pub fn get_bytes(&self) -> Option<&[u8]> {
+        match self.get_data() {
+            DecodedImage::Raw((_, image_data)) => match image_data {
+                ImageData::Raw(shared_data) => Some(shared_data.as_ref()),
+                ImageData::External(_) => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Get a pointer to the raw bytes for debugging/profiling purposes
+    /// Returns a unique pointer for this ImageRef's data
+    pub fn get_bytes_ptr(&self) -> *const u8 {
+        match self.get_data() {
+            DecodedImage::Raw((_, image_data)) => match image_data {
+                ImageData::Raw(shared_data) => shared_data.as_ptr(),
+                ImageData::External(_) => std::ptr::null(),
+            },
+            _ => std::ptr::null(),
         }
     }
 
@@ -1518,7 +1552,7 @@ impl RawImage {
             }
         };
 
-        let image_data = ImageData::Raw(bytes);
+        let image_data = ImageData::Raw(SharedRawImageData::new(bytes));
         let image_descriptor = ImageDescriptor {
             format: data_format,
             width,
@@ -1666,6 +1700,133 @@ impl Default for SyntheticItalics {
     }
 }
 
+/// Reference-counted wrapper around raw image bytes (U8Vec).
+/// This allows sharing image data between azul-core and webrender without cloning.
+///
+/// Similar to ImageRef but specifically for raw byte data, avoiding the overhead
+/// of the full DecodedImage enum when we just need the bytes.
+#[derive(Debug)]
+#[repr(C)]
+pub struct SharedRawImageData {
+    /// Shared pointer to the raw image bytes
+    pub data: *const U8Vec,
+    /// Reference counter - when it reaches 0, the data is deallocated
+    pub copies: *const AtomicUsize,
+    /// Whether to run the destructor (for FFI safety)
+    pub run_destructor: bool,
+}
+
+impl SharedRawImageData {
+    /// Create a new SharedRawImageData from a U8Vec
+    pub fn new(data: U8Vec) -> Self {
+        Self {
+            data: Box::into_raw(Box::new(data)),
+            copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
+        }
+    }
+
+    /// Get a reference to the underlying bytes
+    pub fn as_ref(&self) -> &[u8] {
+        unsafe { (*self.data).as_ref() }
+    }
+
+    /// Alias for as_ref() - get the raw bytes as a slice
+    pub fn get_bytes(&self) -> &[u8] {
+        self.as_ref()
+    }
+
+    /// Get a pointer to the raw bytes for hashing/identification
+    pub fn as_ptr(&self) -> *const u8 {
+        unsafe { (*self.data).as_ref().as_ptr() }
+    }
+
+    /// Get the length of the data
+    pub fn len(&self) -> usize {
+        unsafe { (*self.data).len() }
+    }
+
+    /// Check if the data is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Try to extract the U8Vec if this is the only reference
+    /// Returns None if there are other references
+    pub fn into_inner(self) -> Option<U8Vec> {
+        unsafe {
+            if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
+                let data = Box::from_raw(self.data as *mut U8Vec);
+                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+                core::mem::forget(self); // don't run the destructor
+                Some(*data)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+unsafe impl Send for SharedRawImageData {}
+unsafe impl Sync for SharedRawImageData {}
+
+impl Clone for SharedRawImageData {
+    fn clone(&self) -> Self {
+        unsafe {
+            self.copies
+                .as_ref()
+                .map(|m| m.fetch_add(1, AtomicOrdering::SeqCst));
+        }
+        Self {
+            data: self.data,
+            copies: self.copies,
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for SharedRawImageData {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+        unsafe {
+            let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
+            if copies == 1 {
+                let _ = Box::from_raw(self.data as *mut U8Vec);
+                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+            }
+        }
+    }
+}
+
+impl PartialEq for SharedRawImageData {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.data as usize == rhs.data as usize
+    }
+}
+
+impl Eq for SharedRawImageData {}
+
+impl PartialOrd for SharedRawImageData {
+    fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SharedRawImageData {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.data as usize).cmp(&(other.data as usize))
+    }
+}
+
+impl Hash for SharedRawImageData {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        (self.data as usize).hash(state)
+    }
+}
+
 /// Represents the backing store of an arbitrary series of pixels for display by
 /// WebRender. This storage can take several forms.
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -1673,7 +1834,7 @@ impl Default for SyntheticItalics {
 pub enum ImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
-    Raw(U8Vec),
+    Raw(SharedRawImageData),
     /// An image owned by the embedding, and referenced by WebRender. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
@@ -2186,7 +2347,7 @@ pub fn build_add_font_resource_updates(
 /// need to be added.
 ///
 /// Returns Vec<(ImageRefHash, AddImageMsg)> where:
-/// - ImageRefHash: Stable hash of the ImageRef pointer  
+/// - ImageRefHash: Stable hash of the ImageRef pointer
 /// - AddImageMsg: Message to add the image to WebRender
 ///
 /// The ImageKey in AddImageMsg is generated directly from the ImageRefHash using

@@ -39,7 +39,7 @@ use webrender::Renderer as WrRenderer;
 
 use self::{
     defines::*,
-    dlopen::{Egl, Library, Xkb, Xlib},
+    dlopen::{Egl, Gtk3Im, Library, Xkb, Xlib},
 };
 use super::common::gl::GlFunctions;
 use crate::desktop::{
@@ -60,8 +60,8 @@ pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
-    pub gtk_im: Option<Rc<Gtk3Im>>,  // Optional GTK IM context for IME
-    pub gtk_im_context: Option<*mut dlopen::GtkIMContext>,  // GTK IM context instance
+    pub gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME
+    pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
     pub display: *mut Display,
     pub window: Window,
     pub is_open: bool,
@@ -368,7 +368,10 @@ impl X11Window {
                 }
             }
             Err(e) => {
-                eprintln!("[X11] GTK3 IM not available (IME positioning disabled): {:?}", e);
+                eprintln!(
+                    "[X11] GTK3 IM not available (IME positioning disabled): {:?}",
+                    e
+                );
                 (None, None)
             }
         };
@@ -1289,10 +1292,11 @@ impl X11Window {
     /// Sync ime_position from window state to OS
     /// Sync IME position to OS (X11 with XIM)
     pub fn sync_ime_position_to_os(&self) {
-        use azul_core::window::ImePosition;
         use std::ffi::CString;
+
+        use azul_core::window::ImePosition;
         use defines::{XPoint, XRectangle};
-        
+
         if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
             // Use XIM if available (preferred over GTK)
             if let Some(ref ime_mgr) = self.ime_manager {
@@ -1300,18 +1304,18 @@ impl X11Window {
                     x: rect.origin.x as i16,
                     y: rect.origin.y as i16,
                 };
-                
+
                 let area = XRectangle {
                     x: rect.origin.x as i16,
                     y: rect.origin.y as i16,
                     width: rect.size.width as u16,
                     height: rect.size.height as u16,
                 };
-                
+
                 unsafe {
                     let spot_location = CString::new("spotLocation").unwrap();
                     let preedit_attr = CString::new("preeditAttributes").unwrap();
-                    
+
                     // Set spot location (cursor position) for preedit window
                     let xic = ime_mgr.get_xic();
                     (self.xlib.XSetICValues)(
@@ -1324,7 +1328,7 @@ impl X11Window {
                 }
                 return;
             }
-            
+
             // Fallback to GTK IM context if XIM not available
             if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
                 let gdk_rect = dlopen::GdkRectangle {
@@ -1333,7 +1337,7 @@ impl X11Window {
                     width: rect.size.width as i32,
                     height: rect.size.height as i32,
                 };
-                
+
                 unsafe {
                     (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
                 }

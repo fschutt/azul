@@ -90,12 +90,13 @@ pub fn upload_to_texture_cache(
                 format_override,
                 source,
             } = update;
-            let mut arc_data = None;
+            let mut shared_data_opt = None;
             let dummy_data;
             let data = match source {
                 TextureUpdateSource::Bytes { ref data } => {
-                    arc_data = Some(data.clone());
-                    &data[offset as usize..]
+                    shared_data_opt = Some(data.clone());
+                    // Get the raw bytes from the SharedRawImageData
+                    &data.get_bytes()[offset as usize..]
                 }
                 TextureUpdateSource::External { id, channel_index } => {
                     let handler = renderer
@@ -148,7 +149,7 @@ pub fn upload_to_texture_cache(
                 && rect.area() < renderer.device.batched_upload_threshold();
 
             if use_batch_upload
-                && arc_data.is_some()
+                && shared_data_opt.is_some()
                 && matches!(renderer.device.upload_method(), &UploadMethod::Immediate)
                 && rect.area() > BATCH_UPLOAD_TEXTURE_SIZE.area() / 2
             {
@@ -157,7 +158,7 @@ pub fn upload_to_texture_cache(
                     &mut renderer.staging_texture_pool,
                     rect,
                     stride,
-                    arc_data.unwrap(),
+                    shared_data_opt.unwrap(),
                     texture_id,
                     texture,
                     &mut batch_upload_buffers,
@@ -478,7 +479,7 @@ fn skip_staging_buffer<'a>(
     staging_texture_pool: &mut UploadTexturePool,
     update_rect: DeviceIntRect,
     stride: Option<i32>,
-    data: Arc<Vec<u8>>,
+    data: azul_core::resources::SharedRawImageData,
     dest_texture_id: CacheTextureId,
     texture: &Texture,
     batch_upload_buffers: &mut FastHashMap<
@@ -834,7 +835,7 @@ enum StagingBufferKind<'a> {
         bytes: Vec<mem::MaybeUninit<u8>>,
     },
     Image {
-        bytes: Arc<Vec<u8>>,
+        bytes: azul_core::resources::SharedRawImageData,
         stride: Option<i32>,
     },
 }

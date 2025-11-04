@@ -677,10 +677,15 @@ pub fn collect_image_resource_updates(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
     insert_into_active_gl_textures: azul_core::resources::GlStoreImageFn,
-) -> Vec<(azul_core::resources::ImageRefHash, azul_core::resources::AddImageMsg)> {
-    use azul_core::resources::{build_add_image_resource_updates, image_ref_get_hash};
+) -> Vec<(
+    azul_core::resources::ImageRefHash,
+    azul_core::resources::AddImageMsg,
+)> {
+    use azul_core::{
+        resources::{build_add_image_resource_updates, image_ref_get_hash},
+        FastBTreeSet,
+    };
     use azul_layout::solver3::display_list::DisplayListItem;
-    use azul_core::FastBTreeSet;
 
     eprintln!(
         "[collect_image_resource_updates] Scanning {} DOMs for images",
@@ -1073,15 +1078,15 @@ fn collect_image_keys_from_display_list(
     display_list: &azul_layout::solver3::display_list::DisplayList,
 ) -> Vec<ImageKey> {
     use azul_layout::solver3::display_list::DisplayListItem;
-    
+
     let mut image_keys = Vec::new();
-    
+
     for item in &display_list.items {
         if let DisplayListItem::Image { key, .. } = item {
             image_keys.push(*key);
         }
     }
-    
+
     image_keys
 }
 
@@ -1090,16 +1095,43 @@ fn translate_font_key(key: FontKey) -> WrFontKey {
     WrFontKey(wr_translate_id_namespace(key.namespace), key.key)
 }
 
-/// Translate ImageData from azul-core to WebRender
-fn translate_image_data(data: azul_core::resources::ImageData) -> WrImageData {
+/// Translate ImageData from azul-core to WebRender's ImageData
+///
+/// Note: Both types now use SharedRawImageData for the Raw variant,
+/// so we only need to translate the External variant's structure.
+fn translate_image_data(data: azul_core::resources::ImageData) -> webrender::api::ImageData {
+    use azul_core::resources::ImageData as AzImageData;
+
     match data {
-        // TODO: remove this cloning the image data once imagedata is migrated to ImageRef
-        AzImageData::Raw(arc_vec) => WrImageData::Raw(Arc::new(arc_vec.as_slice().to_vec())),
+        AzImageData::Raw(shared_data) => {
+            // SharedRawImageData can be passed directly
+            webrender::api::ImageData::Raw(shared_data)
+        }
         AzImageData::External(ext_data) => {
-            // External images need special handling
-            // For now, treat as raw empty data
-            eprintln!("[translate_image_data] External image data not yet supported");
-            WrImageData::Raw(std::sync::Arc::new(Vec::new()))
+            // External images need structure translation
+            webrender::api::ImageData::External(webrender::api::ExternalImageData {
+                id: webrender::api::ExternalImageId(ext_data.id.inner),
+                channel_index: ext_data.channel_index,
+                image_type: match ext_data.image_type {
+                    azul_core::resources::ExternalImageType::TextureHandle(kind) => {
+                        webrender::api::ExternalImageType::TextureHandle(match kind {
+                            azul_core::resources::ImageBufferKind::Texture2D => {
+                                webrender::api::ImageBufferKind::Texture2D
+                            }
+                            azul_core::resources::ImageBufferKind::TextureRect => {
+                                webrender::api::ImageBufferKind::TextureRect
+                            }
+                            azul_core::resources::ImageBufferKind::TextureExternal => {
+                                webrender::api::ImageBufferKind::TextureExternal
+                            }
+                        })
+                    }
+                    azul_core::resources::ExternalImageType::Buffer => {
+                        webrender::api::ExternalImageType::Buffer
+                    }
+                },
+                normalized_uvs: false, // azul-core doesn't track this, default to false
+            })
         }
     }
 }
@@ -1163,21 +1195,20 @@ pub fn generate_frame(
         // Update currently_registered_images with new images
         for (image_ref_hash, add_image_msg) in &image_updates {
             use azul_core::resources::ResolvedImage;
-            
+
             let resolved_image = ResolvedImage {
                 key: add_image_msg.0.key,
                 descriptor: add_image_msg.0.descriptor,
             };
-            
+
             layout_window
                 .renderer_resources
                 .currently_registered_images
                 .insert(*image_ref_hash, resolved_image);
-            
+
             eprintln!(
                 "[generate_frame] Registered ImageRefHash({}) -> ImageKey {:?}",
-                image_ref_hash.0,
-                add_image_msg.0.key
+                image_ref_hash.0, add_image_msg.0.key
             );
         }
 
@@ -1279,17 +1310,18 @@ pub fn generate_frame(
             ) {
                 Ok((_, built_display_list, nested_pipelines)) => {
                     eprintln!(
-                        "[generate_frame] Adding display list for DOM {} to transaction (with {} nested pipelines)",
+                        "[generate_frame] Adding display list for DOM {} to transaction (with {} \
+                         nested pipelines)",
                         dom_id.inner,
                         nested_pipelines.len()
                     );
-                    
+
                     // Add main pipeline
                     txn.set_display_list(
                         webrender::api::Epoch(layout_window.epoch.into_u32()),
                         (pipeline_id, built_display_list),
                     );
-                    
+
                     // Add all nested iframe pipelines
                     for (nested_pipeline_id, nested_display_list) in nested_pipelines {
                         eprintln!(
@@ -1948,13 +1980,17 @@ pub fn build_webrender_transaction(
             Ok((_, built_display_list, nested_pipelines)) => {
                 let epoch = webrender::api::Epoch(layout_window.epoch.into_u32());
                 eprintln!(
-                    "[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch {:?}, {} nested)",
-                    dom_id.inner, pipeline_id, epoch, nested_pipelines.len()
+                    "[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch \
+                     {:?}, {} nested)",
+                    dom_id.inner,
+                    pipeline_id,
+                    epoch,
+                    nested_pipelines.len()
                 );
-                
+
                 // Add main pipeline
                 txn.set_display_list(epoch, (pipeline_id, built_display_list));
-                
+
                 // Add all nested iframe pipelines
                 for (nested_pipeline_id, nested_display_list) in nested_pipelines {
                     eprintln!(

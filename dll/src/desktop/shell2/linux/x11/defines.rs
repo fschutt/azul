@@ -295,10 +295,6 @@ pub const CWOverrideRedirect: c_ulong = 1 << 9;
 pub const SubstructureRedirectMask: c_long = 1 << 20;
 pub const SubstructureNotifyMask: c_long = 1 << 19;
 
-// IME
-pub const XIMPreeditNothing: c_ulong = 0x0008;
-pub const XIMStatusNothing: c_ulong = 0x0010;
-
 // Keysyms
 pub const XK_BackSpace: u32 = 0xFF08;
 pub const XK_Tab: u32 = 0xFF09;
@@ -609,12 +605,14 @@ pub const XC_sizing: c_uint = 120;
 
 // XIM (X Input Method) structures and constants
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct XPoint {
     pub x: i16,
     pub y: i16,
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct XRectangle {
     pub x: i16,
     pub y: i16,

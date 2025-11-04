@@ -4,6 +4,7 @@
 //! It handles both GPU (hardware) and CPU (software) rendering paths.
 
 use alloc::collections::BTreeMap;
+
 use azul_core::{
     dom::DomId,
     geom::LogicalSize,
@@ -25,13 +26,13 @@ use webrender::{
             DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
             LayoutVector2D,
         },
-        AlphaType as WrAlphaType, APZScrollGeneration, BorderRadius as WrBorderRadius,
+        APZScrollGeneration, AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
         BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
         ClipMode as WrClipMode, ColorF, CommonItemProperties,
         ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
         DocumentId, Epoch, ExternalScrollId, HasScrollLinkedEffect, ItemTag, PipelineId,
-        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind,
-        SpaceAndClipInfo, SpatialId, SpatialTreeItemKey, TransformStyle,
+        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo,
+        SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
     Transaction,
@@ -371,14 +372,14 @@ pub fn translate_displaylist_to_wr(
                 // Define scroll frame using WebRender API
                 let parent_space = *spatial_stack.last().unwrap();
                 let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
-                
+
                 let scroll_spatial_id = builder.define_scroll_frame(
                     parent_space,
                     external_scroll_id,
                     content_rect,
                     frame_rect,
                     LayoutVector2D::zero(), // external_scroll_offset
-                    0, // scroll_offset_generation (APZScrollGeneration)
+                    0,                      // scroll_offset_generation (APZScrollGeneration)
                     HasScrollLinkedEffect::No,
                     SpatialTreeItemKey::new(*scroll_id, 0),
                 );
@@ -388,7 +389,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Define clip for the scroll frame
                 let scroll_clip_id = builder.define_clip_rect(scroll_spatial_id, frame_rect);
-                
+
                 // Create a clip chain with this clip
                 let scroll_clip_chain = builder.define_clip_chain(None, [scroll_clip_id]);
                 clip_stack.push(scroll_clip_chain);
@@ -579,31 +580,31 @@ pub fn translate_displaylist_to_wr(
             DisplayListItem::Image { bounds, key } => {
                 // Look up the ImageKey in renderer_resources
                 let image_ref_hash = ImageRefHash(key.key as usize);
-                
+
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);
-                    
+
                     let rect = LayoutRect::from_origin_and_size(
                         LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                         LayoutSize::new(bounds.size.width, bounds.size.height),
                     );
-                    
+
                     let info = CommonItemProperties {
                         clip_rect: rect,
                         clip_chain_id: *clip_stack.last().unwrap(),
                         spatial_id: *spatial_stack.last().unwrap(),
                         flags: Default::default(),
                     };
-                    
+
                     eprintln!(
                         "[compositor2] >>>>> push_image: bounds={:?}, key={:?} <<<<<",
                         bounds, wr_image_key
                     );
-                    
+
                     // Use push_image from WebRender
                     // ImageRendering::Auto and PremultipliedAlpha are reasonable defaults
                     use webrender::api::ImageRendering as WrImageRendering;
-                    
+
                     builder.push_image(
                         &info,
                         rect,
@@ -659,23 +660,25 @@ pub fn translate_displaylist_to_wr(
                 // 3. Recursively translate child display list
                 // 4. Store child pipeline for later registration
                 // 5. Push iframe to current display list
-                
-                let child_pipeline_id = wr_translate_pipeline_id(
-                    AzulPipelineId(child_dom_id.inner as u32, document_id)
-                );
-                
+
+                let child_pipeline_id = wr_translate_pipeline_id(AzulPipelineId(
+                    child_dom_id.inner as u32,
+                    document_id,
+                ));
+
                 eprintln!(
-                    "[compositor2] IFrame: child_dom_id={:?}, child_pipeline_id={:?}, bounds={:?}, clip_rect={:?}",
+                    "[compositor2] IFrame: child_dom_id={:?}, child_pipeline_id={:?}, \
+                     bounds={:?}, clip_rect={:?}",
                     child_dom_id, child_pipeline_id, bounds, clip_rect
                 );
-                
+
                 // Look up child layout result
                 if let Some(child_layout_result) = layout_results.get(child_dom_id) {
                     eprintln!(
                         "[compositor2] Found child layout result with {} display list items",
                         child_layout_result.display_list.items.len()
                     );
-                    
+
                     // Recursively translate child display list
                     match translate_displaylist_to_wr(
                         &child_layout_result.display_list,
@@ -689,22 +692,23 @@ pub fn translate_displaylist_to_wr(
                     ) {
                         Ok((_, child_dl, mut child_nested)) => {
                             eprintln!(
-                                "[compositor2] Successfully translated child display list with {} nested pipelines",
+                                "[compositor2] Successfully translated child display list with {} \
+                                 nested pipelines",
                                 child_nested.len()
                             );
-                            
+
                             // Store this child pipeline
                             nested_pipelines.push((child_pipeline_id, child_dl));
-                            
+
                             // Store all deeply nested pipelines
                             nested_pipelines.append(&mut child_nested);
-                            
+
                             // Push iframe to current display list
                             let space_and_clip = SpaceAndClipInfo {
                                 spatial_id: *spatial_stack.last().unwrap(),
                                 clip_chain_id: *clip_stack.last().unwrap(),
                             };
-                            
+
                             let wr_bounds = LayoutRect::from_origin_and_size(
                                 LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                                 LayoutSize::new(bounds.size.width, bounds.size.height),
@@ -713,7 +717,7 @@ pub fn translate_displaylist_to_wr(
                                 LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
                                 LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
                             );
-                            
+
                             builder.push_iframe(
                                 wr_bounds,
                                 wr_clip_rect,
@@ -721,12 +725,16 @@ pub fn translate_displaylist_to_wr(
                                 child_pipeline_id,
                                 false, // ignore_missing_pipeline
                             );
-                            
-                            eprintln!("[compositor2] Pushed iframe for pipeline {:?}", child_pipeline_id);
+
+                            eprintln!(
+                                "[compositor2] Pushed iframe for pipeline {:?}",
+                                child_pipeline_id
+                            );
                         }
                         Err(e) => {
                             eprintln!(
-                                "[compositor2] Error translating child display list for dom_id={:?}: {}",
+                                "[compositor2] Error translating child display list for \
+                                 dom_id={:?}: {}",
                                 child_dom_id, e
                             );
                         }
@@ -750,7 +758,8 @@ pub fn translate_displaylist_to_wr(
     eprintln!("[compositor2] >>>>> builder.end() RETURNED <<<<<");
 
     eprintln!(
-        "[compositor2] Builder finished, returning ({} resources, display_list, {} nested pipelines)",
+        "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \
+         pipelines)",
         wr_resources.len(),
         nested_pipelines.len()
     );

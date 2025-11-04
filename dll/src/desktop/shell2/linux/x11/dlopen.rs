@@ -262,7 +262,8 @@ impl Xkb {
 pub struct Gtk3Im {
     _lib: Library,
     pub gtk_im_context_simple_new: unsafe extern "C" fn() -> *mut GtkIMContext,
-    pub gtk_im_context_set_cursor_location: unsafe extern "C" fn(*mut GtkIMContext, *const GdkRectangle),
+    pub gtk_im_context_set_cursor_location:
+        unsafe extern "C" fn(*mut GtkIMContext, *const GdkRectangle),
     pub gtk_im_context_focus_in: unsafe extern "C" fn(*mut GtkIMContext),
     pub gtk_im_context_focus_out: unsafe extern "C" fn(*mut GtkIMContext),
     pub gtk_im_context_reset: unsafe extern "C" fn(*mut GtkIMContext),
@@ -270,11 +271,13 @@ pub struct Gtk3Im {
 
 // Opaque GTK types
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct GtkIMContext {
     _private: [u8; 0],
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct GdkRectangle {
     pub x: i32,
     pub y: i32,
@@ -284,13 +287,14 @@ pub struct GdkRectangle {
 
 impl Gtk3Im {
     pub fn new() -> Result<Rc<Self>, DlError> {
-        let lib = load_first_available::<Library>(&[
-            "libgtk-3.so.0",
-            "libgtk-3.so",
-        ])?;
+        let lib = load_first_available::<Library>(&["libgtk-3.so.0", "libgtk-3.so"])?;
         Ok(Rc::new(Self {
             gtk_im_context_simple_new: load_symbol!(lib, _, "gtk_im_context_simple_new"),
-            gtk_im_context_set_cursor_location: load_symbol!(lib, _, "gtk_im_context_set_cursor_location"),
+            gtk_im_context_set_cursor_location: load_symbol!(
+                lib,
+                _,
+                "gtk_im_context_set_cursor_location"
+            ),
             gtk_im_context_focus_in: load_symbol!(lib, _, "gtk_im_context_focus_in"),
             gtk_im_context_focus_out: load_symbol!(lib, _, "gtk_im_context_focus_out"),
             gtk_im_context_reset: load_symbol!(lib, _, "gtk_im_context_reset"),

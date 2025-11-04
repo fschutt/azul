@@ -121,7 +121,10 @@ impl CacheItem {
 pub enum CachedImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
-    Raw(Arc<Vec<u8>>),
+    ///
+    /// Uses SharedRawImageData from azul-core which is a reference-counted pointer to
+    /// raw image bytes. This eliminates unnecessary cloning when caching image data.
+    Raw(azul_core::resources::SharedRawImageData),
     /// An series of commands that can be rasterized into an image via an
     /// embedding-provided callback.
     ///
@@ -1357,7 +1360,9 @@ impl ResourceCache {
                                 offset: 0,
                             },
                             TextureFilter::Linear,
-                            Some(CachedImageData::Raw(Arc::new(glyph.bytes))),
+                            Some(CachedImageData::Raw(
+                                azul_core::resources::SharedRawImageData::new(glyph.bytes.into()),
+                            )),
                             [glyph.left, -glyph.top, glyph.scale, 0.0],
                             DirtyRect::All,
                             gpu_cache,
@@ -1399,10 +1404,11 @@ impl ResourceCache {
                         .get_mut(&BlobImageKey(request.key))
                         .unwrap();
                     let img = &blob_image[&request.tile.unwrap()];
-                    updates.push((
-                        CachedImageData::Raw(Arc::clone(&img.data)),
-                        Some(img.rasterized_rect),
-                    ));
+                    // Convert blob rasterized data to SharedRawImageData
+                    let shared_data = azul_core::resources::SharedRawImageData::new(
+                        img.data.as_ref().clone().into(),
+                    );
+                    updates.push((CachedImageData::Raw(shared_data), Some(img.rasterized_rect)));
                 }
             };
 
@@ -1973,27 +1979,31 @@ impl ResourceCache {
         for (&key, template) in res.image_templates.images.iter() {
             let desc = &template.descriptor;
             match template.data {
-                CachedImageData::Raw(ref arc) => {
+                CachedImageData::Raw(ref image_ref) => {
                     let image_id = image_paths.len() + 1;
-                    let entry = match image_paths.entry(arc.as_ptr()) {
+                    let entry = match image_paths.entry(image_ref.get_bytes_ptr()) {
                         Entry::Occupied(_) => continue,
                         Entry::Vacant(e) => e,
                     };
 
                     #[cfg(feature = "png")]
-                    CaptureConfig::save_png(
-                        root.join(format!("images/{}.png", image_id)),
-                        desc.size,
-                        desc.format,
-                        desc.stride,
-                        &arc,
-                    );
+                    if let Some(bytes) = image_ref.get_bytes() {
+                        CaptureConfig::save_png(
+                            root.join(format!("images/{}.png", image_id)),
+                            desc.size,
+                            desc.format,
+                            desc.stride,
+                            bytes,
+                        );
+                    }
                     let file_name = format!("{}.raw", image_id);
                     let short_path = format!("images/{}", file_name);
-                    fs::File::create(path_images.join(file_name))
-                        .expect(&format!("Unable to create {}", short_path))
-                        .write_all(&*arc)
-                        .unwrap();
+                    if let Some(bytes) = image_ref.get_bytes() {
+                        fs::File::create(path_images.join(file_name))
+                            .expect(&format!("Unable to create {}", short_path))
+                            .write_all(bytes)
+                            .unwrap();
+                    }
                     entry.insert(short_path);
                 }
                 CachedImageData::Blob => {
@@ -2102,7 +2112,9 @@ impl ResourceCache {
                         *key,
                         PlainImageTemplate {
                             data: match template.data {
-                                CachedImageData::Raw(ref arc) => image_paths[&arc.as_ptr()].clone(),
+                                CachedImageData::Raw(ref image_ref) => {
+                                    image_paths[&image_ref.get_bytes_ptr()].clone()
+                                }
                                 _ => other_paths[key].clone(),
                             },
                             descriptor: template.descriptor.clone(),

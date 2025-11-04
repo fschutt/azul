@@ -47,7 +47,10 @@ use self::{
     defines::*,
     dlopen::{Library, Wayland, Xkb},
 };
-use super::common::gl::GlFunctions;
+use super::{
+    common::gl::GlFunctions,
+    x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
+};
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2},
@@ -113,10 +116,11 @@ impl MonitorState {
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
-    gtk_im: Option<Rc<Gtk3Im>>,  // Optional GTK IM context for IME (fallback)
-    gtk_im_context: Option<*mut dlopen::GtkIMContext>,  // GTK IM context instance (fallback)
-    text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>,  // Wayland text-input v3 manager
-    text_input: Option<*mut defines::zwp_text_input_v3>,  // Wayland text-input v3 instance
+    gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME (fallback)
+    gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance (fallback)
+    text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>, /* Wayland text-input
+                                                                          * v3 manager */
+    text_input: Option<*mut defines::zwp_text_input_v3>, // Wayland text-input v3 instance
     pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
     compositor: *mut defines::wl_compositor,
@@ -160,7 +164,7 @@ pub struct WaylandWindow {
 
     // Accessibility
     #[cfg(feature = "accessibility")]
-    pub accessibility_adapter: super::super::x11::accessibility::LinuxAccessibilityAdapter,
+    pub accessibility_adapter: LinuxAccessibilityAdapter,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -802,7 +806,10 @@ impl WaylandWindow {
                 }
             }
             Err(e) => {
-                eprintln!("[Wayland] GTK3 IM not available (IME positioning disabled): {:?}", e);
+                eprintln!(
+                    "[Wayland] GTK3 IM not available (IME positioning disabled): {:?}",
+                    e
+                );
                 (None, None)
             }
         };
@@ -828,7 +835,7 @@ impl WaylandWindow {
             xkb,
             gtk_im,
             gtk_im_context,
-            text_input_manager: None,  // Will be populated if compositor supports text-input v3
+            text_input_manager: None, // Will be populated if compositor supports text-input v3
             text_input: None,
             display,
             event_queue,
@@ -879,7 +886,7 @@ impl WaylandWindow {
             frame_needs_regeneration: false,
             frame_callback_pending: false,
             #[cfg(feature = "accessibility")]
-            accessibility_adapter: super::super::x11::accessibility::LinuxAccessibilityAdapter::new(),
+            accessibility_adapter: LinuxAccessibilityAdapter::new(),
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
             known_outputs: Vec::new(),
@@ -1073,7 +1080,8 @@ impl WaylandWindow {
         self.previous_window_state = Some(self.current_window_state.clone());
 
         // Phase 2: OnFocus callback (delayed) - if we receive keyboard events, we must have focus
-        // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard activity
+        // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard
+        // activity
         if is_pressed && !self.current_window_state.window_focused {
             self.current_window_state.window_focused = true;
             self.sync_ime_position_to_os();
@@ -2491,7 +2499,7 @@ impl WaylandWindow {
     /// Sync IME position to OS (Wayland with text-input-v3 or GTK fallback)
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
-        
+
         if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
             // Try text-input v3 protocol first (preferred, but requires compositor support)
             if let Some(text_input) = self.text_input {
@@ -2499,7 +2507,7 @@ impl WaylandWindow {
                 // However, this requires proper protocol bindings which are complex
                 // For now, we note that this is where native Wayland IME would go
                 eprintln!("[Wayland] text-input v3 available but not yet implemented");
-                
+
                 // The proper implementation would be:
                 // zwp_text_input_v3_set_cursor_rectangle(
                 //     text_input,
@@ -2510,7 +2518,7 @@ impl WaylandWindow {
                 // );
                 // wl_display_flush(self.display);
             }
-            
+
             // Fallback to GTK IM context (works across X11 and Wayland)
             if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
                 let gdk_rect = dlopen::GdkRectangle {
@@ -2519,7 +2527,7 @@ impl WaylandWindow {
                     width: rect.size.width as i32,
                     height: rect.size.height as i32,
                 };
-                
+
                 unsafe {
                     (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
                 }

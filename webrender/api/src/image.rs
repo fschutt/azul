@@ -319,46 +319,36 @@ impl ImageDescriptor {
 
 /// Represents the backing store of an arbitrary series of pixels for display by
 /// WebRender. This storage can take several forms.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum ImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
-    Raw(#[serde(with = "serde_image_data_raw")] Arc<Vec<u8>>),
+    ///
+    /// Uses SharedRawImageData from azul-core which is a reference-counted pointer to
+    /// decoded image data. This eliminates unnecessary cloning when passing images
+    /// from azul-core to WebRender.
+    Raw(azul_core::resources::SharedRawImageData),
     /// An image owned by the embedding, and referenced by WebRender. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
 }
 
-mod serde_image_data_raw {
-    extern crate serde_bytes;
-
-    use std::sync::Arc;
-
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(
-        bytes: &Arc<Vec<u8>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        serde_bytes::serialize(bytes.as_slice(), serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Arc<Vec<u8>>, D::Error> {
-        serde_bytes::deserialize(deserializer).map(Arc::new)
-    }
-}
-
 impl ImageData {
-    /// Mints a new raw ImageData, taking ownership of the bytes.
+    /// Mints a new raw ImageData from a SharedRawImageData.
+    pub fn new_from_shared(shared_data: azul_core::resources::SharedRawImageData) -> Self {
+        ImageData::Raw(shared_data)
+    }
+
+    /// Mints a new raw ImageData from raw bytes, creating a SharedRawImageData internally.
+    /// This is a compatibility function for code that still passes Vec<u8>.
     pub fn new(bytes: Vec<u8>) -> Self {
-        ImageData::Raw(Arc::new(bytes))
+        ImageData::Raw(azul_core::resources::SharedRawImageData::new(bytes.into()))
     }
 
     /// Mints a new raw ImageData from Arc-ed bytes.
+    /// Deprecated: Use new() instead, as SharedRawImageData handles reference counting.
     pub fn new_shared(bytes: Arc<Vec<u8>>) -> Self {
-        ImageData::Raw(bytes)
+        Self::new(bytes.as_ref().clone())
     }
 }
 

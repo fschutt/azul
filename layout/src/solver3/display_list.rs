@@ -1172,8 +1172,7 @@ where
             let needs_strikethrough = glyph_run.text_decoration.strikethrough;
             let needs_overline = glyph_run.text_decoration.overline;
 
-            if needs_underline || needs_strikethrough || needs_overline
-            {
+            if needs_underline || needs_strikethrough || needs_overline {
                 // Calculate the bounding box for this glyph run
                 if let (Some(first_glyph), Some(last_glyph)) =
                     (glyph_run.glyphs.first(), glyph_run.glyphs.last())
@@ -1246,7 +1245,9 @@ where
                         LogicalSize::new(bounds.width, bounds.height),
                     );
                     if let InlineContent::Image(image) = content {
-                        if let Some(image_key) = get_image_key_for_image_source(&image.source, self.id_namespace) {
+                        if let Some(image_key) =
+                            get_image_key_for_image_source(&image.source, self.id_namespace)
+                        {
                             builder.push_image(object_bounds, image_key);
                         }
                     }
@@ -1382,9 +1383,11 @@ fn get_image_key_for_src(src: &ImageRefHash, namespace: IdNamespace) -> ImageKey
     azul_core::resources::image_ref_hash_to_image_key(*src, namespace)
 }
 
-fn get_image_key_for_image_source(_source: &ImageSource, _namespace: IdNamespace) -> Option<ImageKey> {
+fn get_image_key_for_image_source(
+    _source: &ImageSource,
+    _namespace: IdNamespace,
+) -> Option<ImageKey> {
     // TODO: ImageSource needs to be extended to contain ImageRef/ImageRefHash
     // For now, inline images are not yet supported
     None
 }
-

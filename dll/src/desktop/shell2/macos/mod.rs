@@ -389,7 +389,7 @@ define_class!(
             _actual_range: *mut NSRange,
         ) -> NSRect {
             use azul_core::window::ImePosition;
-            
+
             // Get ime_position from window state
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -401,7 +401,7 @@ define_class!(
                 if let ImePosition::Initialized(rect) = window.current_window_state.ime_position {
                     // Convert from window-local coordinates to screen coordinates
                     let window_frame = window.window.frame();
-                    
+
                     return NSRect {
                         origin: NSPoint {
                             x: window_frame.origin.x + rect.origin.x as f64,
@@ -725,7 +725,7 @@ define_class!(
             _actual_range: *mut NSRange,
         ) -> NSRect {
             use azul_core::window::ImePosition;
-            
+
             // Get ime_position from window state
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
@@ -737,7 +737,7 @@ define_class!(
                 if let ImePosition::Initialized(rect) = window.current_window_state.ime_position {
                     // Convert from window-local coordinates to screen coordinates
                     let window_frame = window.window.frame();
-                    
+
                     return NSRect {
                         origin: NSPoint {
                             x: window_frame.origin.x + rect.origin.x as f64,
@@ -3555,14 +3555,17 @@ impl MacOSWindow {
     /// protocol implementation will return it.
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
-        
+
         // On macOS, no explicit API call needed
         // The system will call firstRectForCharacterRange: when it needs
         // the IME candidate window position, and we return ime_position there
-        
+
         // However, we can invalidate the marked text to trigger a refresh
         // if we want to force the IME window to update immediately
-        if matches!(self.current_window_state.ime_position, ImePosition::Initialized(_)) {
+        if matches!(
+            self.current_window_state.ime_position,
+            ImePosition::Initialized(_)
+        ) {
             // TODO: Could call invalidateMarkable or similar if needed
             // For now, passive approach is sufficient
         }

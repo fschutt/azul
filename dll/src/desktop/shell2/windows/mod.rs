@@ -32,6 +32,7 @@ use std::{
 };
 
 use azul_core::{
+    dom::{DomId, NodeId},
     events::ProcessEventResult,
     geom::LogicalPosition,
     gl::OptionGlContextPtr,
@@ -1900,7 +1901,7 @@ unsafe extern "system" fn window_proc(
             if lparam & GCS_RESULTSTR != 0 {
                 // Final composed string is ready - clear composition preview
                 window.ime_composition = None;
-                
+
                 // Let default processing handle it which will generate WM_IME_CHAR messages
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
             } else if lparam & GCS_COMPSTR != 0 {
@@ -1911,14 +1912,18 @@ unsafe extern "system" fn window_proc(
                         let himc = (imm32.ImmGetContext)(hwnd);
                         if !himc.is_null() {
                             // Get composition string length
-                            let len =
-                                (imm32.ImmGetCompositionStringW)(himc, GCS_COMPSTR as u32, ptr::null_mut(), 0);
-                            
+                            let len = (imm32.ImmGetCompositionStringW)(
+                                himc,
+                                GCS_COMPSTR as u32,
+                                ptr::null_mut(),
+                                0,
+                            );
+
                             if len > 0 {
                                 // Allocate buffer (len is in bytes, need len/2 u16s)
                                 let buf_len = (len as usize) / 2;
                                 let mut buffer: Vec<u16> = vec![0; buf_len];
-                                
+
                                 // Get the actual string
                                 let result = (imm32.ImmGetCompositionStringW)(
                                     himc,
@@ -1926,20 +1931,20 @@ unsafe extern "system" fn window_proc(
                                     buffer.as_mut_ptr() as *mut _,
                                     len as u32,
                                 );
-                                
+
                                 if result > 0 {
                                     // Convert to String and store
                                     window.ime_composition = String::from_utf16(&buffer).ok();
                                     eprintln!("[IME] Composition: {:?}", window.ime_composition);
                                 }
                             }
-                            
+
                             // Release context
                             (imm32.ImmReleaseContext)(hwnd, himc);
                         }
                     }
                 }
-                
+
                 // Let Windows show composition window by default
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
             } else {
@@ -2427,17 +2432,32 @@ impl Win32Window {
     /// * `Ok(())` if menu injection succeeded
     /// * `Err(String)` if menu injection failed
     pub fn inject_menu_bar(&mut self) -> Result<(), String> {
-        // Extract menu from current window state
-        let menu_opt = if let Some(layout_window) = self.layout_window.as_ref() {
-            // Get menu from layout_window's root DOM
-            layout_window.get_menu()
-        } else {
-            None
-        };
+        // Extract menu from current window state (clone since we can't return a reference)
+        let menu_opt: Option<azul_core::menu::Menu> =
+            if let Some(layout_window) = self.layout_window.as_ref() {
+                // Get menu from layout_window's root DOM (dom_id 0, node_id 0)
+                layout_window
+                    .layout_results
+                    .get(&DomId::ROOT_ID)
+                    .and_then(|lr| {
+                        let node_container = lr.styled_dom.node_data.as_container();
+                        node_container
+                            .get(NodeId::ZERO)
+                            .and_then(|n| n.get_menu_bar())
+                            .map(|boxed_menu| (**boxed_menu).clone())
+                    })
+            } else {
+                None
+            };
 
         // Update menu bar using the helper function from menu.rs
         // This handles creation, update (via hash diff), and removal
-        menu::set_menu_bar(self.hwnd, &mut self.menu_bar, menu_opt.as_ref(), &self.win32);
+        menu::set_menu_bar(
+            self.hwnd,
+            &mut self.menu_bar,
+            menu_opt.as_ref(),
+            &self.win32,
+        );
 
         // Force window to redraw with new menu
         unsafe {
@@ -2855,10 +2875,10 @@ impl Win32Window {
             unsafe {
                 let hwnd = self.hwnd;
                 let himc = (imm32.ImmGetContext)(hwnd);
-                
+
                 if !himc.is_null() {
-                    use dlopen::{COMPOSITIONFORM, CFS_RECT, POINT, RECT};
-                    
+                    use dlopen::{CFS_RECT, COMPOSITIONFORM, POINT, RECT};
+
                     let mut comp_form = COMPOSITIONFORM {
                         dwStyle: CFS_RECT,
                         ptCurrentPos: POINT {
@@ -2872,7 +2892,7 @@ impl Win32Window {
                             bottom: (rect.origin.y + rect.size.height) as i32,
                         },
                     };
-                    
+
                     (imm32.ImmSetCompositionWindow)(himc, &comp_form);
                     (imm32.ImmReleaseContext)(hwnd, himc);
                 }
@@ -2883,10 +2903,9 @@ impl Win32Window {
     /// Sync ime_position from window state to OS
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
-        
+
         if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
             self.set_ime_composition_window(rect);
-        }
         }
     }
 }

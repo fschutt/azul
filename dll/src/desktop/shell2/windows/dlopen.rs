@@ -604,9 +604,12 @@ impl Win32Libraries {
                 let get_comp_string = dll.get_symbol("ImmGetCompositionStringW");
                 let set_comp_window = dll.get_symbol("ImmSetCompositionWindow");
 
-                if let (Some(get_ctx), Some(rel_ctx), Some(get_str), Some(set_win)) =
-                    (get_context, release_context, get_comp_string, set_comp_window)
-                {
+                if let (Some(get_ctx), Some(rel_ctx), Some(get_str), Some(set_win)) = (
+                    get_context,
+                    release_context,
+                    get_comp_string,
+                    set_comp_window,
+                ) {
                     Some(Imm32Functions {
                         ImmGetContext: get_ctx,
                         ImmReleaseContext: rel_ctx,

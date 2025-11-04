@@ -1607,7 +1607,7 @@ pub enum TextureUpdateSource {
         channel_index: u8,
     },
     Bytes {
-        data: Arc<Vec<u8>>,
+        data: azul_core::resources::SharedRawImageData,
     },
     /// Clears the target area, rather than uploading any pixels. Used when the
     /// texture cache debug display is active.

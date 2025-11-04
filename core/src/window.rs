@@ -27,7 +27,10 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     callbacks::{LayoutCallback, LayoutCallbackType, Update},
     dom::{DomId, DomNodeId, NodeHierarchy},
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalSize, PhysicalPositionI32, PhysicalSize},
+    geom::{
+        LogicalPosition, LogicalRect, LogicalSize, OptionLogicalSize, PhysicalPositionI32,
+        PhysicalSize,
+    },
     gl::OptionGlContextPtr,
     hit_test::{ExternalScrollId, OverflowingScrollNode},
     id::{NodeDataContainer, NodeId},

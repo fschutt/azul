@@ -255,10 +255,13 @@ impl From<EdgeType> for EdgeFlags {
 
 #[cfg(test)]
 mod tests {
+    use azul_core::{
+        events::EasingFunction,
+        task::{Duration, Instant, SystemTick, SystemTickDiff},
+    };
+
     use super::*;
     use crate::managers::scroll_state::ScrollManager;
-    use azul_core::task::{Duration, Instant, SystemTick, SystemTickDiff};
-    use azul_core::events::EasingFunction;
 
     fn test_instant() -> Instant {
         #[cfg(feature = "std")]
@@ -325,10 +328,10 @@ mod tests {
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(400.0, 300.0),
         );
-        
+
         let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, small_bounds);
         assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-        
+
         iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
 
         // Update with scroll sizes from the callback
@@ -344,7 +347,7 @@ mod tests {
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(800.0, 300.0),
         );
-        
+
         let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
         assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
 
@@ -360,8 +363,9 @@ mod tests {
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(800.0, 600.0),
         );
-        
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
+
+        let reason =
+            iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
         assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
     }
 
@@ -522,9 +526,15 @@ mod tests {
         );
 
         // get_nested_dom_id should return existing IDs
-        assert_eq!(iframe_mgr.get_nested_dom_id(parent_dom, node1), Some(child1));
-        assert_eq!(iframe_mgr.get_nested_dom_id(parent_dom, node2), Some(child2));
-        
+        assert_eq!(
+            iframe_mgr.get_nested_dom_id(parent_dom, node1),
+            Some(child1)
+        );
+        assert_eq!(
+            iframe_mgr.get_nested_dom_id(parent_dom, node2),
+            Some(child2)
+        );
+
         // Non-existent should return None
         let nonexistent = NodeId::new(999);
         assert_eq!(iframe_mgr.get_nested_dom_id(parent_dom, nonexistent), None);
@@ -547,7 +557,7 @@ mod tests {
 
         // Check reinvoke to create state
         iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        
+
         // Still not invoked until we mark it
         assert!(!iframe_mgr.was_iframe_invoked(parent_dom, node_id));
 

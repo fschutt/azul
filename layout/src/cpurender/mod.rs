@@ -420,7 +420,10 @@ fn render_text(
     let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
         Some((font_ref, _instances)) => font_ref,
         None => {
-            eprintln!("[cpurender] FontKey {:?} not found in registered fonts", font_key);
+            eprintln!(
+                "[cpurender] FontKey {:?} not found in registered fonts",
+                font_key
+            );
             return Ok(());
         }
     };
@@ -604,11 +607,14 @@ fn render_image(
 
     // Look up the image in renderer_resources
     let image_ref_hash = ImageRefHash(key.key as usize);
-    
+
     let resolved_image = match renderer_resources.get_image(&image_ref_hash) {
         Some(img) => img,
         None => {
-            eprintln!("[cpurender] Image {:?} not found in renderer_resources", key);
+            eprintln!(
+                "[cpurender] Image {:?} not found in renderer_resources",
+                key
+            );
             return Ok(()); // Skip rendering this image
         }
     };
@@ -616,7 +622,7 @@ fn render_image(
     // The image data is stored in renderer_resources, but we need to access it through ImageRef
     // For CPU rendering, we'd need to decode the image data and blit it to the pixmap
     // This is a complex operation that requires image decoding support in tiny-skia
-    
+
     // For now, render a placeholder rectangle to show where the image would be
     let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
     let rect = match rect {
@@ -631,7 +637,13 @@ fn render_image(
 
     let path = build_rect_path(rect, &BorderRadius::default(), dpi_factor);
     if let Some(path) = path {
-        pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
     }
 
     // TODO: Implement actual image blitting
@@ -640,7 +652,7 @@ fn render_image(
     // 2. Getting the decoded image data (DecodedImage::Raw or DecodedImage::Gl)
     // 3. Converting it to a tiny-skia Pixmap
     // 4. Blitting it to the target pixmap with proper scaling
-    
+
     Ok(())
 }
 

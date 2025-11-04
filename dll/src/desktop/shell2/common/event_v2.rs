@@ -1028,10 +1028,10 @@ pub trait PlatformWindowV2 {
         // IFrame Integration: Check if any Scroll events occurred
         // If scrolling happened, we need to regenerate layout so IFrameManager can check
         // for edge detection and trigger re-invocation if needed
-        let has_scroll_events = synthetic_events.iter().any(|e| {
-            matches!(e.event_type, azul_core::events::EventType::Scroll)
-        });
-        
+        let has_scroll_events = synthetic_events
+            .iter()
+            .any(|e| matches!(e.event_type, azul_core::events::EventType::Scroll));
+
         if has_scroll_events {
             // Mark frame for regeneration to enable IFrame edge detection
             self.mark_frame_needs_regeneration();
