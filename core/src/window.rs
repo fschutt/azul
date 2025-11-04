@@ -844,6 +844,14 @@ pub struct WindowFlags {
     /// Use native context menus instead of Azul window-based context menus
     /// Default: true on Windows/macOS, false on Linux
     pub use_native_context_menus: bool,
+    /// Keep window above all others (even from other applications)
+    /// Platform-specific: Uses SetWindowPos(HWND_TOPMOST) on Windows, [NSWindow setLevel:] on
+    /// macOS, _NET_WM_STATE_ABOVE on X11, zwlr_layer_shell on Wayland
+    pub is_top_level: bool,
+    /// Prevent system from sleeping while window is open
+    /// Platform-specific: Uses SetThreadExecutionState on Windows, IOPMAssertionCreateWithName on
+    /// macOS, org.freedesktop.ScreenSaver.Inhibit on Linux
+    pub prevent_system_sleep: bool,
 }
 
 /// Window type classification for behavior control
@@ -940,6 +948,8 @@ impl Default for WindowFlags {
             // The platform layer will override this appropriately
             use_native_menus: cfg!(any(target_os = "windows", target_os = "macos")),
             use_native_context_menus: cfg!(any(target_os = "windows", target_os = "macos")),
+            is_top_level: false,
+            prevent_system_sleep: false,
         }
     }
 }

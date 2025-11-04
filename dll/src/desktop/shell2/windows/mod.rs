@@ -20,6 +20,7 @@ pub mod event;
 mod gl;
 pub mod menu;
 pub mod registry;
+mod tooltip;
 mod wcreate;
 
 use std::{
@@ -159,6 +160,10 @@ pub struct Win32Window {
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
+
+    // Tooltip
+    /// Tooltip window (for programmatic tooltip display)
+    pub tooltip: Option<tooltip::TooltipWindow>,
 
     // Accessibility
     /// Windows accessibility adapter
@@ -424,6 +429,7 @@ impl Win32Window {
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
             pending_window_creates: Vec::new(),
+            tooltip: None, // Created lazily when first needed
             #[cfg(feature = "accessibility")]
             accessibility_adapter: accessibility::WindowsAccessibilityAdapter::new(),
         };
@@ -687,6 +693,20 @@ impl Win32Window {
                         }
                     }
                 }
+            }
+        }
+
+        // is_top_level flag changed?
+        if previous.flags.is_top_level != current.flags.is_top_level {
+            if let Err(e) = self.set_is_top_level(current.flags.is_top_level) {
+                eprintln!("[Windows] Failed to set is_top_level: {}", e);
+            }
+        }
+
+        // prevent_system_sleep flag changed?
+        if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
+            if let Err(e) = self.set_prevent_system_sleep(current.flags.prevent_system_sleep) {
+                eprintln!("[Windows] Failed to set prevent_system_sleep: {}", e);
             }
         }
 
@@ -2559,6 +2579,95 @@ impl Win32Window {
             }],
         })
     }
+
+    /// Show a tooltip with the given text at the specified position
+    ///
+    /// Position is in logical coordinates. The tooltip will be created on first use.
+    pub fn show_tooltip(&mut self, text: &str, position: LogicalPosition) -> Result<(), String> {
+        // Lazily create tooltip if needed
+        if self.tooltip.is_none() {
+            self.tooltip = Some(tooltip::TooltipWindow::new(self.hwnd, self.win32.clone())?);
+        }
+
+        let dpi_factor = DpiScaleFactor::new(self.get_window_dpi() as f32 / 96.0);
+
+        if let Some(ref mut tooltip) = self.tooltip {
+            tooltip.show(text, position, dpi_factor)?;
+        }
+
+        Ok(())
+    }
+
+    /// Hide the currently displayed tooltip
+    ///
+    /// Does nothing if no tooltip is shown.
+    pub fn hide_tooltip(&mut self) -> Result<(), String> {
+        if let Some(ref mut tooltip) = self.tooltip {
+            tooltip.hide()?;
+        }
+        Ok(())
+    }
+
+    /// Set the window to be always on top (or not)
+    ///
+    /// Uses SetWindowPos with HWND_TOPMOST/HWND_NOTOPMOST.
+    pub fn set_is_top_level(&mut self, is_top_level: bool) -> Result<(), String> {
+        const HWND_TOPMOST: HWND = -1isize as HWND;
+        const HWND_NOTOPMOST: HWND = -2isize as HWND;
+        const SWP_NOMOVE: u32 = 0x0002;
+        const SWP_NOSIZE: u32 = 0x0001;
+        const SWP_NOACTIVATE: u32 = 0x0010;
+
+        let hwnd_insert_after = if is_top_level {
+            HWND_TOPMOST
+        } else {
+            HWND_NOTOPMOST
+        };
+
+        let result = unsafe {
+            (self.win32.user32.SetWindowPos)(
+                self.hwnd,
+                hwnd_insert_after,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+
+        if result == 0 {
+            Err("SetWindowPos failed for is_top_level".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Prevent the system from sleeping (or allow it to sleep)
+    ///
+    /// Uses SetThreadExecutionState with ES_CONTINUOUS and ES_DISPLAY_REQUIRED.
+    pub fn set_prevent_system_sleep(&mut self, prevent: bool) -> Result<(), String> {
+        const ES_CONTINUOUS: u32 = 0x80000000;
+        const ES_DISPLAY_REQUIRED: u32 = 0x00000002;
+
+        if let Some(ref kernel32) = self.win32.kernel32 {
+            let flags = if prevent {
+                ES_CONTINUOUS | ES_DISPLAY_REQUIRED
+            } else {
+                ES_CONTINUOUS
+            };
+
+            let result = unsafe { (kernel32.SetThreadExecutionState)(flags) };
+
+            if result == 0 {
+                Err("SetThreadExecutionState failed".to_string())
+            } else {
+                Ok(())
+            }
+        } else {
+            Err("kernel32.dll not loaded - cannot set prevent_system_sleep".to_string())
+        }
+    }
 }
 
 // ========================= PlatformWindowV2 Trait Implementation =========================
@@ -2811,6 +2920,22 @@ impl PlatformWindowV2 for Win32Window {
         } else {
             // Show fallback DOM-based menu
             self.show_fallback_menu(menu, position);
+        }
+    }
+
+    fn show_tooltip_from_callback(
+        &mut self,
+        text: &str,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        if let Err(e) = self.show_tooltip(text, position) {
+            eprintln!("[Windows] Failed to show tooltip: {}", e);
+        }
+    }
+
+    fn hide_tooltip_from_callback(&mut self) {
+        if let Err(e) = self.hide_tooltip() {
+            eprintln!("[Windows] Failed to hide tooltip: {}", e);
         }
     }
 }

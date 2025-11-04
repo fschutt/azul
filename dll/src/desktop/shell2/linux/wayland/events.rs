@@ -205,6 +205,17 @@ pub(super) extern "C" fn registry_global_handler(
                 ) as *mut _
             };
         }
+        "wl_subcompositor" => {
+            let subcompositor = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    &window.wayland.wl_subcompositor_interface,
+                    1,
+                ) as *mut _
+            };
+            window.subcompositor = Some(subcompositor);
+        }
         "wl_shm" => {
             window.shm = unsafe {
                 (window.wayland.wl_registry_bind)(

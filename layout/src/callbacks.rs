@@ -61,6 +61,8 @@ pub enum CallbackChange {
     // ===== Event Propagation Control =====
     /// Stop event from propagating to parent nodes
     StopPropagation,
+    /// Prevent default browser behavior (e.g., block text input from being applied)
+    PreventDefault,
 
     // ===== Timer Management =====
     /// Add a new timer to the window
@@ -126,6 +128,45 @@ pub enum CallbackChange {
         menu: Menu,
         /// Optional position override (if None, uses menu.position)
         position: Option<LogicalPosition>,
+    },
+
+    // ===== Tooltip Management =====
+    /// Show a tooltip at a specific position
+    ///
+    /// Platform-specific implementation:
+    /// - Windows: Uses native tooltip window (TOOLTIPS_CLASS)
+    /// - macOS: Uses NSPopover or custom NSWindow with tooltip styling
+    /// - X11: Creates transient window with _NET_WM_WINDOW_TYPE_TOOLTIP
+    /// - Wayland: Creates surface with zwlr_layer_shell_v1 (overlay layer)
+    ShowTooltip {
+        text: AzString,
+        position: LogicalPosition,
+    },
+    /// Hide the currently displayed tooltip
+    HideTooltip,
+
+    // ===== Text Editing =====
+    /// Insert text at the current cursor position or replace selection
+    InsertText {
+        dom_id: DomId,
+        node_id: NodeId,
+        text: AzString,
+    },
+    /// Delete text backward (backspace) at cursor
+    DeleteBackward { dom_id: DomId, node_id: NodeId },
+    /// Delete text forward (delete key) at cursor
+    DeleteForward { dom_id: DomId, node_id: NodeId },
+    /// Move cursor to a specific position
+    MoveCursor {
+        dom_id: DomId,
+        node_id: NodeId,
+        cursor: azul_core::selection::TextCursor,
+    },
+    /// Set text selection range
+    SetSelection {
+        dom_id: DomId,
+        node_id: NodeId,
+        selection: azul_core::selection::Selection,
     },
 }
 
@@ -290,8 +331,6 @@ pub struct CallbackInfo {
     threads_removed: *mut FastBTreeSet<ThreadId>,
     /// Used to spawn new windows from callbacks
     new_windows: *mut Vec<WindowCreateOptions>,
-    /// Sets whether the event should be propagated to the parent hit node or not
-    stop_propagation: *mut bool,
     /// The callback can change the focus_target
     focus_target: *mut Option<FocusTarget>,
     /// Mutable reference to a list of words / text items that were changed in the callback
@@ -354,7 +393,6 @@ impl CallbackInfo {
         current_window_handle: &'a RawWindowHandle,
         new_windows: &'a mut Vec<WindowCreateOptions>,
         system_callbacks: &'a ExternalSystemCallbacks,
-        stop_propagation: &'a mut bool,
         focus_target: &'a mut Option<FocusTarget>,
         words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
         images_changed_in_callbacks: &'a mut BTreeMap<
@@ -407,7 +445,6 @@ impl CallbackInfo {
             timers_removed: timers_removed as *mut FastBTreeSet<TimerId>,
             threads_removed: threads_removed as *mut FastBTreeSet<ThreadId>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
-            stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             words_changed_in_callbacks: words_changed_in_callbacks
                 as *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
@@ -559,6 +596,98 @@ impl CallbackInfo {
         self.push_change(CallbackChange::ReloadSystemFonts);
     }
 
+    // ===== Text Input / Changeset API =====
+
+    /// Get the current text changeset being processed (if any)
+    ///
+    /// This allows callbacks to inspect what text input is about to be applied.
+    /// Returns None if no text input is currently being processed.
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::TextInput -> |info| {
+    ///     if let Some(changeset) = info.get_current_text_changeset() {
+    ///         eprintln!("About to insert: {}", changeset.inserted_text);
+    ///         eprintln!("Current text: {}", changeset.old_text);
+    ///         
+    ///         // Prevent default and apply custom text
+    ///         info.prevent_default();
+    ///         info.override_text_changeset(
+    ///             changeset.node,
+    ///             "my custom text".to_string()
+    ///         );
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn get_current_text_changeset(
+        &self,
+    ) -> Option<&crate::managers::text_input::TextChangeset> {
+        self.internal_get_layout_window()
+            .text_input_manager
+            .get_pending_changeset()
+    }
+
+    /// Override the text changeset with custom text
+    ///
+    /// This replaces the text that would be inserted with custom text.
+    /// Must be called in conjunction with prevent_default() to take effect.
+    ///
+    /// # Arguments
+    /// * `node` - The DOM node to apply the text change to
+    /// * `new_text` - The custom text to insert instead of the default
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::TextInput -> |info| {
+    ///     if let Some(changeset) = info.get_current_text_changeset() {
+    ///         // Convert to uppercase
+    ///         let uppercase = changeset.inserted_text.to_uppercase();
+    ///         
+    ///         info.prevent_default();
+    ///         info.override_text_changeset(changeset.node, uppercase);
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn override_text_changeset(&mut self, node: DomNodeId, new_text: String) {
+        // Get old text from current changeset
+        let old_text = self
+            .get_current_text_changeset()
+            .map(|cs| cs.old_text.clone())
+            .unwrap_or_default();
+
+        // Update the text input manager with the new text
+        use crate::managers::text_input::TextInputSource;
+        self.text_input_manager.record_input(
+            node,
+            new_text,
+            old_text,
+            TextInputSource::Programmatic,
+        );
+    }
+
+    /// Prevent the default text input from being applied
+    ///
+    /// When called in a TextInput callback, prevents the typed text from being inserted.
+    /// Useful for custom validation, filtering, or text transformation.
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::TextInput -> |info| {
+    ///     if let Some(changeset) = info.get_current_text_changeset() {
+    ///         // Only allow digits
+    ///         if !changeset.inserted_text.chars().all(|c| c.is_digit(10)) {
+    ///             info.prevent_default();
+    ///         }
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn prevent_default(&mut self) {
+        self.push_change(CallbackChange::PreventDefault);
+    }
+
     /// Open a menu (context menu or dropdown)
     ///
     /// The menu will be displayed either as a native menu or a fallback DOM-based menu
@@ -583,6 +712,210 @@ impl CallbackInfo {
         self.push_change(CallbackChange::OpenMenu {
             menu,
             position: Some(position),
+        });
+    }
+
+    // ===== Tooltip API =====
+
+    /// Show a tooltip at the current cursor position
+    ///
+    /// Displays a simple text tooltip near the mouse cursor.
+    /// The tooltip will be shown using platform-specific native APIs where available.
+    ///
+    /// Platform implementations:
+    /// - **Windows**: Uses `TOOLTIPS_CLASS` Win32 control
+    /// - **macOS**: Uses `NSPopover` or custom `NSWindow` with tooltip styling
+    /// - **X11**: Creates transient window with `_NET_WM_WINDOW_TYPE_TOOLTIP`
+    /// - **Wayland**: Uses `zwlr_layer_shell_v1` with overlay layer
+    ///
+    /// # Arguments
+    /// * `text` - The tooltip text to display
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::MouseOver -> |info| {
+    ///     info.show_tooltip("Click to open".into());
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn show_tooltip(&mut self, text: AzString) {
+        let position = self
+            .get_cursor_relative_to_viewport()
+            .into_option()
+            .unwrap_or_else(LogicalPosition::zero);
+        self.push_change(CallbackChange::ShowTooltip { text, position });
+    }
+
+    /// Show a tooltip at a specific position
+    ///
+    /// # Arguments
+    /// * `text` - The tooltip text to display
+    /// * `position` - The position where the tooltip should appear (in window coordinates)
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::Click -> |info| {
+    ///     let pos = LogicalPosition::new(100, 200);
+    ///     info.show_tooltip_at("Clicked here!".into(), pos);
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn show_tooltip_at(&mut self, text: AzString, position: LogicalPosition) {
+        self.push_change(CallbackChange::ShowTooltip { text, position });
+    }
+
+    /// Hide the currently displayed tooltip
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::MouseOut -> |info| {
+    ///     info.hide_tooltip();
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn hide_tooltip(&mut self) {
+        self.push_change(CallbackChange::HideTooltip);
+    }
+
+    // ===== Text Editing API (transactional) =====
+
+    /// Insert text at the current cursor position in a text node
+    ///
+    /// This operation is transactional - the text will be inserted after the callback returns.
+    /// If there's a selection, it will be replaced with the inserted text.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the text node
+    /// * `node_id` - The node to insert text into
+    /// * `text` - The text to insert
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::Click -> |info| {
+    ///     info.insert_text(info.get_hit_dom_id(), info.get_hit_node_id(), "Hello!");
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn insert_text(&mut self, dom_id: DomId, node_id: NodeId, text: AzString) {
+        self.push_change(CallbackChange::InsertText {
+            dom_id,
+            node_id,
+            text,
+        });
+    }
+
+    /// Delete text backward (backspace) at the current cursor position
+    ///
+    /// Deletes one grapheme cluster backward from the cursor position.
+    /// If there's a selection, deletes the selection instead.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the text node
+    /// * `node_id` - The node to delete text from
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Back) -> |info| {
+    ///     info.delete_backward(info.get_hit_dom_id(), info.get_hit_node_id());
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn delete_backward(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::DeleteBackward { dom_id, node_id });
+    }
+
+    /// Delete text forward (delete key) at the current cursor position
+    ///
+    /// Deletes one grapheme cluster forward from the cursor position.
+    /// If there's a selection, deletes the selection instead.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the text node
+    /// * `node_id` - The node to delete text from
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Delete) -> |info| {
+    ///     info.delete_forward(info.get_hit_dom_id(), info.get_hit_node_id());
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn delete_forward(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::DeleteForward { dom_id, node_id });
+    }
+
+    /// Move the text cursor to a specific position
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the text node
+    /// * `node_id` - The node containing the cursor
+    /// * `cursor` - The new cursor position
+    ///
+    /// # Example
+    /// ```ignore
+    /// use azul_core::selection::{TextCursor, GraphemeClusterId, CursorAffinity};
+    ///
+    /// On::Click -> |info| {
+    ///     let cursor = TextCursor {
+    ///         cluster_id: GraphemeClusterId {
+    ///             source_run: 0,
+    ///             start_byte_in_run: 0,
+    ///         },
+    ///         affinity: CursorAffinity::Leading,
+    ///     };
+    ///     info.move_cursor(info.get_hit_dom_id(), info.get_hit_node_id(), cursor);
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn move_cursor(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        cursor: azul_core::selection::TextCursor,
+    ) {
+        self.push_change(CallbackChange::MoveCursor {
+            dom_id,
+            node_id,
+            cursor,
+        });
+    }
+
+    /// Set the text selection range
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM containing the text node
+    /// * `node_id` - The node containing the selection
+    /// * `selection` - The new selection (can be a cursor or range)
+    ///
+    /// # Example
+    /// ```ignore
+    /// use azul_core::selection::{Selection, SelectionRange, TextCursor, GraphemeClusterId, CursorAffinity};
+    ///
+    /// On::DoubleClick -> |info| {
+    ///     // Select entire word
+    ///     let start_cursor = TextCursor {
+    ///         cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+    ///         affinity: CursorAffinity::Leading,
+    ///     };
+    ///     let end_cursor = TextCursor {
+    ///         cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 5 },
+    ///         affinity: CursorAffinity::Trailing,
+    ///     };
+    ///     let selection = Selection::Range(SelectionRange { start: start_cursor, end: end_cursor });
+    ///     info.set_selection(info.get_hit_dom_id(), info.get_hit_node_id(), selection);
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn set_selection(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        selection: azul_core::selection::Selection,
+    ) {
+        self.push_change(CallbackChange::SetSelection {
+            dom_id,
+            node_id,
+            selection,
         });
     }
 
@@ -1660,6 +1993,10 @@ pub struct CallCallbacksResult {
     pub windows_created: Vec<WindowCreateOptions>,
     /// Menus to open (context menus or dropdowns)
     pub menus_to_open: Vec<(Menu, Option<LogicalPosition>)>,
+    /// Tooltips to show
+    pub tooltips_to_show: Vec<(AzString, LogicalPosition)>,
+    /// Whether to hide the currently displayed tooltip
+    pub hide_tooltip: bool,
     /// Whether the cursor changed
     pub cursor_changed: bool,
     /// Whether stopPropagation() was called (prevents bubbling up in DOM-style event propagation)
@@ -1686,6 +2023,8 @@ impl Default for CallCallbacksResult {
             threads_removed: None,
             windows_created: Vec::new(),
             menus_to_open: Vec::new(),
+            tooltips_to_show: Vec::new(),
+            hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,

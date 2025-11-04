@@ -299,6 +299,8 @@ impl Drop for DynamicLibrary {
 }
 
 /// Win32 user32.dll function pointers
+/// Win32 user32.dll function pointers
+#[derive(Copy, Clone)]
 pub struct User32Functions {
     // Menu functions
     pub CreateMenu: unsafe extern "system" fn() -> HMENU,
@@ -357,6 +359,7 @@ pub struct User32Functions {
     pub TrackMouseEvent: unsafe extern "system" fn(*mut TRACKMOUSEEVENT) -> BOOL,
 
     // Messages
+    pub SendMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
     pub PostMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> BOOL,
     pub GetMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32) -> BOOL,
     pub PeekMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32, u32) -> BOOL,
@@ -398,6 +401,12 @@ pub struct Shell32Functions {
     pub DragFinish: unsafe extern "system" fn(HDROP),
 }
 
+/// Win32 kernel32.dll function pointers for power management
+#[derive(Copy, Clone)]
+pub struct Kernel32Functions {
+    pub SetThreadExecutionState: unsafe extern "system" fn(u32) -> u32,
+}
+
 /// Pre-load commonly used Win32 DLLs
 pub struct Win32Libraries {
     pub user32_dll: Option<DynamicLibrary>,
@@ -408,6 +417,8 @@ pub struct Win32Libraries {
     pub imm32: Option<Imm32Functions>,
     pub shell32_dll: Option<DynamicLibrary>,
     pub shell32: Option<Shell32Functions>,
+    pub kernel32_dll: Option<DynamicLibrary>,
+    pub kernel32: Option<Kernel32Functions>,
     pub opengl32: Option<DynamicLibrary>,
     pub dwmapi: Option<DynamicLibrary>,
 }
@@ -523,6 +534,9 @@ impl Win32Libraries {
                     .ok_or_else(|| "TrackMouseEvent not found".to_string())?,
 
                 // Messages
+                SendMessageW: user32_dll
+                    .get_symbol("SendMessageW")
+                    .ok_or_else(|| "SendMessageW not found".to_string())?,
                 PostMessageW: user32_dll
                     .get_symbol("PostMessageW")
                     .ok_or_else(|| "PostMessageW not found".to_string())?,
@@ -624,6 +638,19 @@ impl Win32Libraries {
             None
         };
 
+        // Try to load function pointers from kernel32.dll (optional - for power management)
+        let kernel32_dll = DynamicLibrary::load("kernel32.dll").ok();
+        let kernel32 = if let Some(ref dll) = kernel32_dll {
+            unsafe {
+                dll.get_symbol("SetThreadExecutionState")
+                    .map(|f| Kernel32Functions {
+                        SetThreadExecutionState: f,
+                    })
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             user32_dll: Some(user32_dll),
             user32,
@@ -633,9 +660,30 @@ impl Win32Libraries {
             imm32,
             shell32_dll,
             shell32,
+            kernel32_dll,
+            kernel32,
             opengl32: DynamicLibrary::load("opengl32.dll").ok(),
             dwmapi: DynamicLibrary::load("dwmapi.dll").ok(),
         })
+    }
+}
+
+impl Clone for Win32Libraries {
+    fn clone(&self) -> Self {
+        Self {
+            user32_dll: None, // Don't clone DLL handles, they're shared
+            user32: self.user32,
+            gdi32_dll: None,
+            gdi32: self.gdi32,
+            imm32_dll: None,
+            imm32: self.imm32,
+            shell32_dll: None,
+            shell32: self.shell32,
+            kernel32_dll: None,
+            kernel32: self.kernel32,
+            opengl32: None,
+            dwmapi: None,
+        }
     }
 }
 

@@ -12,6 +12,7 @@ mod dlopen;
 mod events;
 mod gl;
 pub mod menu;
+mod tooltip;
 
 use std::{
     cell::RefCell,
@@ -135,6 +136,16 @@ pub struct WaylandWindow {
     pointer_state: events::PointerState,
     is_open: bool,
     configured: bool,
+
+    // Wayland protocols
+    subcompositor: Option<*mut defines::wl_subcompositor>, // For tooltips
+
+    // Tooltip
+    tooltip: Option<tooltip::TooltipWindow>,
+
+    // Power management (D-Bus)
+    screensaver_inhibit_cookie: Option<u32>,
+    dbus_connection: Option<*mut super::dbus::DBusConnection>,
 
     // Shell2 state
     pub layout_window: Option<LayoutWindow>,
@@ -805,6 +816,27 @@ impl PlatformWindowV2 for WaylandWindow {
             self.show_fallback_menu(menu, position);
         }
     }
+
+    // =========================================================================
+    // Tooltip Methods (Wayland Implementation)
+    // =========================================================================
+
+    fn show_tooltip_from_callback(
+        &mut self,
+        text: String,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Convert logical position to surface-relative coordinates
+        // (Wayland tooltips use subsurfaces positioned relative to parent)
+        let x = position.x as i32;
+        let y = position.y as i32;
+
+        self.show_tooltip(text, x, y);
+    }
+
+    fn hide_tooltip_from_callback(&mut self) {
+        self.hide_tooltip();
+    }
 }
 
 impl WaylandWindow {
@@ -908,6 +940,10 @@ impl WaylandWindow {
             xdg_toplevel: std::ptr::null_mut(),
             is_open: true,
             configured: false,
+            subcompositor: None,
+            tooltip: None,
+            screensaver_inhibit_cookie: None,
+            dbus_connection: None,
             current_window_state: FullWindowState {
                 title: options.state.title.clone(),
                 size: options.state.size,
@@ -1763,6 +1799,20 @@ impl WaylandWindow {
                     }
                 }
                 needs_commit = true;
+            }
+        }
+
+        // Check window flags for is_top_level
+        if let Some(prev) = &self.previous_window_state {
+            if prev.flags.is_top_level != self.current_window_state.flags.is_top_level {
+                self.set_is_top_level(self.current_window_state.flags.is_top_level);
+            }
+
+            // Check window flags for prevent_system_sleep
+            if prev.flags.prevent_system_sleep
+                != self.current_window_state.flags.prevent_system_sleep
+            {
+                self.set_prevent_system_sleep(self.current_window_state.flags.prevent_system_sleep);
             }
         }
 
@@ -2636,6 +2686,277 @@ impl WaylandWindow {
                 unsafe {
                     (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
                 }
+            }
+        }
+    }
+
+    /// Show a tooltip at the given position (Wayland implementation using subsurface)
+    fn show_tooltip(&mut self, text: String, x: i32, y: i32) {
+        // Create tooltip if needed
+        if self.tooltip.is_none() {
+            let subcompositor = match self.subcompositor {
+                Some(sc) => sc,
+                None => {
+                    eprintln!("[Wayland] Subcompositor not available for tooltips");
+                    return;
+                }
+            };
+
+            match tooltip::TooltipWindow::new(
+                self.wayland.clone(),
+                self.display,
+                self.surface,
+                self.compositor,
+                self.shm,
+                subcompositor,
+            ) {
+                Ok(tooltip_window) => {
+                    self.tooltip = Some(tooltip_window);
+                }
+                Err(e) => {
+                    eprintln!("[Wayland] Failed to create tooltip: {}", e);
+                    return;
+                }
+            }
+        }
+
+        // Show tooltip
+        if let Some(tooltip) = self.tooltip.as_mut() {
+            tooltip.show(text, x, y);
+        }
+    }
+
+    /// Hide the tooltip (Wayland implementation)
+    fn hide_tooltip(&mut self) {
+        if let Some(tooltip) = self.tooltip.as_mut() {
+            tooltip.hide();
+        }
+    }
+
+    /// Set the window to always be on top (Wayland - not supported)
+    ///
+    /// Wayland does not provide a direct mechanism for applications to set themselves
+    /// as "always on top". This is a deliberate design decision to prevent applications
+    /// from interfering with the user's desktop environment.
+    ///
+    /// Workarounds using layer-shell (zwlr_layer_shell_v1) exist but require compositor
+    /// support and are typically reserved for system components (panels, notifications, etc.).
+    fn set_is_top_level(&mut self, _is_top_level: bool) {
+        // Wayland does not support always-on-top for regular application windows
+        // This would require zwlr_layer_shell_v1 which is compositor-specific
+        eprintln!(
+            "[Wayland] set_is_top_level not supported - Wayland does not allow applications to \
+             force window stacking"
+        );
+    }
+
+    /// Prevent the system from sleeping (Wayland implementation using D-Bus)
+    ///
+    /// Uses org.freedesktop.portal.Inhibit D-Bus API (XDG Desktop Portal).
+    /// This is the standard way for Wayland applications to inhibit system sleep.
+    fn set_prevent_system_sleep(&mut self, prevent: bool) {
+        use std::ffi::CString;
+
+        use super::dbus;
+
+        if prevent {
+            // Already inhibited?
+            if self.screensaver_inhibit_cookie.is_some() {
+                return;
+            }
+
+            // Try to load D-Bus library
+            let dbus_lib = match dbus::DBusLib::new() {
+                Ok(lib) => lib,
+                Err(e) => {
+                    eprintln!("[Wayland] Failed to load D-Bus library: {}", e);
+                    eprintln!("[Wayland] System sleep prevention not available");
+                    return;
+                }
+            };
+
+            // Connect to session bus if not already connected
+            if self.dbus_connection.is_none() {
+                unsafe {
+                    let mut error: dbus::DBusError = std::mem::zeroed();
+                    (dbus_lib.dbus_error_init)(&mut error);
+
+                    let conn = (dbus_lib.dbus_bus_get)(dbus::DBUS_BUS_SESSION, &mut error);
+                    if (dbus_lib.dbus_error_is_set)(&error) != 0 {
+                        eprintln!("[Wayland] Failed to connect to D-Bus session bus");
+                        (dbus_lib.dbus_error_free)(&mut error);
+                        return;
+                    }
+
+                    self.dbus_connection = Some(conn);
+                }
+            }
+
+            let conn = match self.dbus_connection {
+                Some(c) => c,
+                None => return,
+            };
+
+            unsafe {
+                // Create method call: org.freedesktop.ScreenSaver.Inhibit
+                // (This works on both X11 and Wayland)
+                let destination = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let path = CString::new("/org/freedesktop/ScreenSaver").unwrap();
+                let interface = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let method = CString::new("Inhibit").unwrap();
+
+                let msg = (dbus_lib.dbus_message_new_method_call)(
+                    destination.as_ptr(),
+                    path.as_ptr(),
+                    interface.as_ptr(),
+                    method.as_ptr(),
+                );
+
+                if msg.is_null() {
+                    eprintln!("[Wayland] Failed to create D-Bus method call");
+                    return;
+                }
+
+                // Append arguments: app_name (string), reason (string)
+                let app_name = CString::new("Azul GUI Application").unwrap();
+                let reason = CString::new("Video playback or presentation mode").unwrap();
+
+                let mut iter: dbus::DBusMessageIter = std::mem::zeroed();
+                (dbus_lib.dbus_message_iter_init_append)(msg, &mut iter);
+
+                let app_name_ptr = app_name.as_ptr();
+                (dbus_lib.dbus_message_iter_append_basic)(
+                    &mut iter,
+                    dbus::DBUS_TYPE_STRING,
+                    &app_name_ptr as *const _ as *const c_void,
+                );
+
+                let reason_ptr = reason.as_ptr();
+                (dbus_lib.dbus_message_iter_append_basic)(
+                    &mut iter,
+                    dbus::DBUS_TYPE_STRING,
+                    &reason_ptr as *const _ as *const c_void,
+                );
+
+                // Send with reply and wait for cookie
+                let mut error: dbus::DBusError = std::mem::zeroed();
+                (dbus_lib.dbus_error_init)(&mut error);
+
+                let reply = (dbus_lib.dbus_connection_send_with_reply_and_block)(
+                    conn, msg, -1, // default timeout
+                    &mut error,
+                );
+
+                (dbus_lib.dbus_message_unref)(msg);
+
+                if (dbus_lib.dbus_error_is_set)(&error) != 0 {
+                    eprintln!("[Wayland] D-Bus ScreenSaver.Inhibit failed");
+                    (dbus_lib.dbus_error_free)(&mut error);
+                    return;
+                }
+
+                if reply.is_null() {
+                    eprintln!("[Wayland] D-Bus ScreenSaver.Inhibit returned no reply");
+                    return;
+                }
+
+                // Parse reply to get the cookie (uint32)
+                let mut reply_iter: dbus::DBusMessageIter = std::mem::zeroed();
+                if (dbus_lib.dbus_message_iter_init)(reply, &mut reply_iter) == 0 {
+                    eprintln!("[Wayland] D-Bus reply has no arguments");
+                    (dbus_lib.dbus_message_unref)(reply);
+                    return;
+                }
+
+                let arg_type = (dbus_lib.dbus_message_iter_get_arg_type)(&mut reply_iter);
+                if arg_type != dbus::DBUS_TYPE_UINT32 {
+                    eprintln!("[Wayland] D-Bus reply has wrong type: expected uint32");
+                    (dbus_lib.dbus_message_unref)(reply);
+                    return;
+                }
+
+                let mut cookie: u32 = 0;
+                (dbus_lib.dbus_message_iter_get_basic)(
+                    &mut reply_iter,
+                    &mut cookie as *mut _ as *mut c_void,
+                );
+
+                self.screensaver_inhibit_cookie = Some(cookie);
+                (dbus_lib.dbus_message_unref)(reply);
+
+                eprintln!("[Wayland] System sleep prevented (cookie: {})", cookie);
+            }
+        } else {
+            // Remove inhibit
+            let cookie = match self.screensaver_inhibit_cookie.take() {
+                Some(c) => c,
+                None => return, // Not inhibited
+            };
+
+            let conn = match self.dbus_connection {
+                Some(c) => c,
+                None => return,
+            };
+
+            // Try to load D-Bus library
+            let dbus_lib = match dbus::DBusLib::new() {
+                Ok(lib) => lib,
+                Err(e) => {
+                    eprintln!("[Wayland] Failed to load D-Bus library: {}", e);
+                    return;
+                }
+            };
+
+            unsafe {
+                // Create method call: org.freedesktop.ScreenSaver.UnInhibit(cookie)
+                let destination = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let path = CString::new("/org/freedesktop/ScreenSaver").unwrap();
+                let interface = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let method = CString::new("UnInhibit").unwrap();
+
+                let msg = (dbus_lib.dbus_message_new_method_call)(
+                    destination.as_ptr(),
+                    path.as_ptr(),
+                    interface.as_ptr(),
+                    method.as_ptr(),
+                );
+
+                if msg.is_null() {
+                    eprintln!("[Wayland] Failed to create D-Bus method call");
+                    return;
+                }
+
+                // Append argument: cookie (uint32)
+                let mut iter: dbus::DBusMessageIter = std::mem::zeroed();
+                (dbus_lib.dbus_message_iter_init_append)(msg, &mut iter);
+                (dbus_lib.dbus_message_iter_append_basic)(
+                    &mut iter,
+                    dbus::DBUS_TYPE_UINT32,
+                    &cookie as *const _ as *const c_void,
+                );
+
+                // Send (no reply needed)
+                let mut error: dbus::DBusError = std::mem::zeroed();
+                (dbus_lib.dbus_error_init)(&mut error);
+
+                let reply = (dbus_lib.dbus_connection_send_with_reply_and_block)(
+                    conn, msg, -1, // default timeout
+                    &mut error,
+                );
+
+                (dbus_lib.dbus_message_unref)(msg);
+
+                if (dbus_lib.dbus_error_is_set)(&error) != 0 {
+                    eprintln!("[Wayland] D-Bus ScreenSaver.UnInhibit failed");
+                    (dbus_lib.dbus_error_free)(&mut error);
+                    return;
+                }
+
+                if !reply.is_null() {
+                    (dbus_lib.dbus_message_unref)(reply);
+                }
+
+                eprintln!("[Wayland] System sleep allowed (cookie: {})", cookie);
             }
         }
     }

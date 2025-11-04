@@ -83,9 +83,37 @@ mod events;
 mod gl;
 mod menu;
 pub mod registry;
+mod tooltip;
 
 use events::HitTestNode;
 use gl::GlFunctions;
+
+// ============================================================================
+// IOKit FFI - Power Management (IOPMAssertion)
+// ============================================================================
+
+type IOPMAssertionID = u32;
+type IOReturn = i32;
+
+const kIOReturnSuccess: IOReturn = 0;
+
+// IOPMAssertion types
+#[allow(non_upper_case_globals)]
+const kIOPMAssertionTypeNoDisplaySleep: &str = "PreventUserIdleDisplaySleep";
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOPMAssertionCreateWithName(
+        assertion_type: *const objc2_foundation::NSString,
+        assertion_level: u32,
+        assertion_name: *const objc2_foundation::NSString,
+        assertion_id: *mut IOPMAssertionID,
+    ) -> IOReturn;
+
+    fn IOPMAssertionRelease(assertion_id: IOPMAssertionID) -> IOReturn;
+}
+
+const kIOPMAssertionLevelOn: u32 = 255;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum RenderBackend {
@@ -1098,6 +1126,14 @@ pub struct MacOSWindow {
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
 
+    // Tooltip
+    /// Tooltip panel (for programmatic tooltip display)
+    tooltip: Option<tooltip::TooltipWindow>,
+
+    // Power Management
+    /// IOPMAssertion ID for preventing system sleep (video playback)
+    pm_assertion_id: Option<IOPMAssertionID>,
+
     // Timers and threads
     /// Active timers (TimerId -> NSTimer object)
     timers: std::collections::HashMap<usize, Retained<objc2_foundation::NSTimer>>,
@@ -1380,6 +1416,22 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
             // Show fallback DOM-based menu
             // Make show_window_based_context_menu public or inline its logic
             self.show_fallback_menu(menu, position);
+        }
+    }
+
+    fn show_tooltip_from_callback(
+        &mut self,
+        text: &str,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        if let Err(e) = self.show_tooltip(text, position) {
+            eprintln!("[macOS] Failed to show tooltip: {}", e);
+        }
+    }
+
+    fn hide_tooltip_from_callback(&mut self) {
+        if let Err(e) = self.hide_tooltip() {
+            eprintln!("[macOS] Failed to hide tooltip: {}", e);
         }
     }
 }
@@ -1819,6 +1871,8 @@ impl MacOSWindow {
             #[cfg(feature = "accessibility")]
             accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
+            tooltip: None,         // Created lazily when first needed
+            pm_assertion_id: None, // No sleep prevention by default
             timers: std::collections::HashMap::new(),
             thread_timer_running: None,
         };
@@ -2129,6 +2183,20 @@ impl MacOSWindow {
                 self.window.makeKeyAndOrderFront(None);
             } else {
                 self.window.orderOut(None);
+            }
+        }
+
+        // is_top_level flag changed?
+        if previous.flags.is_top_level != current.flags.is_top_level {
+            if let Err(e) = self.set_is_top_level(current.flags.is_top_level) {
+                eprintln!("[macOS] Failed to set is_top_level: {}", e);
+            }
+        }
+
+        // prevent_system_sleep flag changed?
+        if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
+            if let Err(e) = self.set_prevent_system_sleep(current.flags.prevent_system_sleep) {
+                eprintln!("[macOS] Failed to set prevent_system_sleep: {}", e);
             }
         }
 
@@ -2673,6 +2741,107 @@ impl MacOSWindow {
             if let Some(ns_menu) = self.menu_state.get_nsmenu() {
                 let app = NSApplication::sharedApplication(self.mtm);
                 app.setMainMenu(Some(ns_menu));
+            }
+        }
+    }
+
+    /// Show a tooltip with the given text at the specified position
+    ///
+    /// Position is in logical coordinates. The tooltip will be created on first use.
+    pub fn show_tooltip(
+        &mut self,
+        text: &str,
+        position: azul_core::geom::LogicalPosition,
+    ) -> Result<(), String> {
+        // Lazily create tooltip if needed
+        if self.tooltip.is_none() {
+            self.tooltip = Some(tooltip::TooltipWindow::new(self.mtm)?);
+        }
+
+        let dpi_factor = DpiScaleFactor::new(unsafe {
+            self.window
+                .screen()
+                .map(|screen| screen.backingScaleFactor() as f32)
+                .unwrap_or(1.0)
+        });
+
+        if let Some(ref mut tooltip) = self.tooltip {
+            tooltip.show(text, position, dpi_factor)?;
+        }
+
+        Ok(())
+    }
+
+    /// Hide the currently displayed tooltip
+    ///
+    /// Does nothing if no tooltip is shown.
+    pub fn hide_tooltip(&mut self) -> Result<(), String> {
+        if let Some(ref mut tooltip) = self.tooltip {
+            tooltip.hide()?;
+        }
+        Ok(())
+    }
+
+    /// Set the window to be always on top (or not)
+    ///
+    /// Uses setLevel with NSFloatingWindowLevel or NSNormalWindowLevel.
+    pub fn set_is_top_level(&mut self, is_top_level: bool) -> Result<(), String> {
+        unsafe {
+            if is_top_level {
+                self.window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
+            } else {
+                self.window.setLevel(objc2_app_kit::NSNormalWindowLevel);
+            }
+        }
+        Ok(())
+    }
+
+    /// Prevent the system from sleeping (or allow it to sleep)
+    ///
+    /// Uses IOPMAssertionCreateWithName to create a power assertion.
+    pub fn set_prevent_system_sleep(&mut self, prevent: bool) -> Result<(), String> {
+        unsafe {
+            if prevent {
+                // Already have an assertion?
+                if self.pm_assertion_id.is_some() {
+                    return Ok(());
+                }
+
+                // Create assertion
+                let assertion_type = NSString::from_str(kIOPMAssertionTypeNoDisplaySleep);
+                let assertion_name = NSString::from_str("Azul GUI - Video Playback");
+                let mut assertion_id: IOPMAssertionID = 0;
+
+                let result = IOPMAssertionCreateWithName(
+                    assertion_type.as_ref(),
+                    kIOPMAssertionLevelOn,
+                    assertion_name.as_ref(),
+                    &mut assertion_id,
+                );
+
+                if result == kIOReturnSuccess {
+                    self.pm_assertion_id = Some(assertion_id);
+                    eprintln!(
+                        "[macOS] System sleep prevented (assertion: {})",
+                        assertion_id
+                    );
+                    Ok(())
+                } else {
+                    Err(format!("IOPMAssertionCreateWithName failed: {}", result))
+                }
+            } else {
+                // Release assertion
+                if let Some(assertion_id) = self.pm_assertion_id.take() {
+                    let result = IOPMAssertionRelease(assertion_id);
+                    if result == kIOReturnSuccess {
+                        eprintln!("[macOS] System sleep allowed (assertion: {})", assertion_id);
+                        Ok(())
+                    } else {
+                        Err(format!("IOPMAssertionRelease failed: {}", result))
+                    }
+                } else {
+                    Ok(()) // No assertion to release
+                }
             }
         }
     }
@@ -3303,6 +3472,14 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn close(&mut self) {
+        // Release power management assertion if active
+        if let Some(assertion_id) = self.pm_assertion_id.take() {
+            unsafe {
+                IOPMAssertionRelease(assertion_id);
+            }
+            eprintln!("[macOS] Released power assertion on window close");
+        }
+
         self.window.close();
         self.is_open = false;
     }

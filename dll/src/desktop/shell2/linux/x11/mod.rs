@@ -6,6 +6,7 @@ pub mod dlopen;
 pub mod events;
 pub mod gl;
 pub mod menu;
+pub mod tooltip;
 
 use std::{
     cell::RefCell,
@@ -68,6 +69,9 @@ pub struct X11Window {
     wm_delete_window_atom: Atom,
     ime_manager: Option<events::ImeManager>,
     render_mode: RenderMode,
+    tooltip: Option<tooltip::TooltipWindow>,
+    screensaver_inhibit_cookie: Option<u32>, // D-Bus cookie for ScreenSaver.Inhibit
+    dbus_connection: Option<*mut super::dbus::DBusConnection>, // D-Bus session connection
 
     // Shell2 state
     pub layout_window: Option<LayoutWindow>,
@@ -516,6 +520,9 @@ impl X11Window {
             wm_delete_window_atom,
             ime_manager,
             render_mode,
+            tooltip: None,
+            screensaver_inhibit_cookie: None,
+            dbus_connection: None,
             layout_window: None,
             current_window_state: FullWindowState {
                 title: options.state.title.clone(),
@@ -945,6 +952,16 @@ impl X11Window {
             }
         }
 
+        // Check window flags for is_top_level
+        if previous.flags.is_top_level != current.flags.is_top_level {
+            self.set_is_top_level(current.flags.is_top_level);
+        }
+
+        // Check window flags for prevent_system_sleep
+        if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
+            self.set_prevent_system_sleep(current.flags.prevent_system_sleep);
+        }
+
         // Flush X11 commands
         unsafe {
             (self.xlib.XFlush)(self.display);
@@ -1348,6 +1365,31 @@ impl X11Window {
 
         self.pending_window_creates.push(menu_options);
     }
+
+    // =========================================================================
+    // Tooltip Methods (X11 Implementation)
+    // =========================================================================
+
+    fn show_tooltip_from_callback(
+        &mut self,
+        text: String,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Convert logical position to screen coordinates
+        let window_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => (pos.x, pos.y),
+            _ => (0, 0),
+        };
+
+        let screen_x = window_pos.0 + position.x as i32;
+        let screen_y = window_pos.1 + position.y as i32;
+
+        self.show_tooltip(text, screen_x, screen_y);
+    }
+
+    fn hide_tooltip_from_callback(&mut self) {
+        self.hide_tooltip();
+    }
 }
 
 impl Drop for X11Window {
@@ -1435,6 +1477,319 @@ impl X11Window {
             // Check if we have active threads (they need periodic checking)
             if !layout_window.threads.is_empty() {
                 self.frame_needs_regeneration = true;
+            }
+        }
+    }
+
+    /// Show a tooltip at the given position (X11 implementation)
+    fn show_tooltip(&mut self, text: String, x: i32, y: i32) {
+        // Create tooltip window if needed
+        if self.tooltip.is_none() {
+            match tooltip::TooltipWindow::new(self.xlib.clone(), self.display) {
+                Ok(tooltip_window) => {
+                    self.tooltip = Some(tooltip_window);
+                }
+                Err(e) => {
+                    eprintln!("[X11] Failed to create tooltip window: {}", e);
+                    return;
+                }
+            }
+        }
+
+        // Show tooltip
+        if let Some(tooltip) = self.tooltip.as_mut() {
+            tooltip.show(text, x, y);
+        }
+    }
+
+    /// Hide the tooltip (X11 implementation)
+    fn hide_tooltip(&mut self) {
+        if let Some(tooltip) = self.tooltip.as_mut() {
+            tooltip.hide();
+        }
+    }
+
+    /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)
+    fn set_is_top_level(&mut self, is_top_level: bool) {
+        unsafe {
+            // Get _NET_WM_STATE atom
+            let net_wm_state =
+                (self.xlib.XInternAtom)(self.display, b"_NET_WM_STATE\0".as_ptr() as *const i8, 0);
+
+            // Get _NET_WM_STATE_ABOVE atom
+            let net_wm_state_above = (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
+                0,
+            );
+
+            if is_top_level {
+                // Add _NET_WM_STATE_ABOVE to window properties
+                (self.xlib.XChangeProperty)(
+                    self.display,
+                    self.window,
+                    net_wm_state,
+                    defines::XA_ATOM,
+                    32,
+                    defines::PropModeAppend,
+                    &net_wm_state_above as *const _ as *const u8,
+                    1,
+                );
+            } else {
+                // Remove _NET_WM_STATE_ABOVE from window properties
+                // First, get current state
+                let mut actual_type: Atom = 0;
+                let mut actual_format: i32 = 0;
+                let mut nitems: u64 = 0;
+                let mut bytes_after: u64 = 0;
+                let mut prop: *mut u8 = std::ptr::null_mut();
+
+                let result = (self.xlib.XGetWindowProperty)(
+                    self.display,
+                    self.window,
+                    net_wm_state,
+                    0,
+                    1024,
+                    0,
+                    defines::XA_ATOM,
+                    &mut actual_type,
+                    &mut actual_format,
+                    &mut nitems,
+                    &mut bytes_after,
+                    &mut prop,
+                );
+
+                if result == 0 && !prop.is_null() && actual_type == defines::XA_ATOM {
+                    let atoms = std::slice::from_raw_parts(prop as *const Atom, nitems as usize);
+                    let mut new_atoms: Vec<Atom> = atoms
+                        .iter()
+                        .filter(|&&atom| atom != net_wm_state_above)
+                        .copied()
+                        .collect();
+
+                    // Replace property with filtered list
+                    (self.xlib.XChangeProperty)(
+                        self.display,
+                        self.window,
+                        net_wm_state,
+                        defines::XA_ATOM,
+                        32,
+                        defines::PropModeReplace,
+                        new_atoms.as_mut_ptr() as *const u8,
+                        new_atoms.len() as i32,
+                    );
+
+                    (self.xlib.XFree)(prop as *mut c_void);
+                }
+            }
+
+            (self.xlib.XFlush)(self.display);
+        }
+    }
+
+    /// Prevent the system from sleeping (X11 implementation using D-Bus ScreenSaver inhibit)
+    fn set_prevent_system_sleep(&mut self, prevent: bool) {
+        use std::ffi::CString;
+
+        use super::dbus;
+
+        if prevent {
+            // Already inhibited?
+            if self.screensaver_inhibit_cookie.is_some() {
+                return;
+            }
+
+            // Try to load D-Bus library
+            let dbus_lib = match dbus::DBusLib::new() {
+                Ok(lib) => lib,
+                Err(e) => {
+                    eprintln!("[X11] Failed to load D-Bus library: {}", e);
+                    eprintln!("[X11] System sleep prevention not available");
+                    return;
+                }
+            };
+
+            // Connect to session bus if not already connected
+            if self.dbus_connection.is_none() {
+                unsafe {
+                    let mut error: dbus::DBusError = std::mem::zeroed();
+                    (dbus_lib.dbus_error_init)(&mut error);
+
+                    let conn = (dbus_lib.dbus_bus_get)(dbus::DBUS_BUS_SESSION, &mut error);
+                    if (dbus_lib.dbus_error_is_set)(&error) != 0 {
+                        eprintln!("[X11] Failed to connect to D-Bus session bus");
+                        (dbus_lib.dbus_error_free)(&mut error);
+                        return;
+                    }
+
+                    self.dbus_connection = Some(conn);
+                }
+            }
+
+            let conn = match self.dbus_connection {
+                Some(c) => c,
+                None => return,
+            };
+
+            unsafe {
+                // Create method call: org.freedesktop.ScreenSaver.Inhibit(app_name, reason)
+                let destination = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let path = CString::new("/org/freedesktop/ScreenSaver").unwrap();
+                let interface = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let method = CString::new("Inhibit").unwrap();
+
+                let msg = (dbus_lib.dbus_message_new_method_call)(
+                    destination.as_ptr(),
+                    path.as_ptr(),
+                    interface.as_ptr(),
+                    method.as_ptr(),
+                );
+
+                if msg.is_null() {
+                    eprintln!("[X11] Failed to create D-Bus method call");
+                    return;
+                }
+
+                // Append arguments: app_name (string), reason (string)
+                let app_name = CString::new("Azul GUI Application").unwrap();
+                let reason = CString::new("Video playback or presentation mode").unwrap();
+
+                let mut iter: dbus::DBusMessageIter = std::mem::zeroed();
+                (dbus_lib.dbus_message_iter_init_append)(msg, &mut iter);
+
+                let app_name_ptr = app_name.as_ptr();
+                (dbus_lib.dbus_message_iter_append_basic)(
+                    &mut iter,
+                    dbus::DBUS_TYPE_STRING,
+                    &app_name_ptr as *const _ as *const c_void,
+                );
+
+                let reason_ptr = reason.as_ptr();
+                (dbus_lib.dbus_message_iter_append_basic)(
+                    &mut iter,
+                    dbus::DBUS_TYPE_STRING,
+                    &reason_ptr as *const _ as *const c_void,
+                );
+
+                // Send with reply and wait for cookie
+                let mut error: dbus::DBusError = std::mem::zeroed();
+                (dbus_lib.dbus_error_init)(&mut error);
+
+                let reply = (dbus_lib.dbus_connection_send_with_reply_and_block)(
+                    conn, msg, -1, // default timeout
+                    &mut error,
+                );
+
+                (dbus_lib.dbus_message_unref)(msg);
+
+                if (dbus_lib.dbus_error_is_set)(&error) != 0 {
+                    eprintln!("[X11] D-Bus ScreenSaver.Inhibit failed");
+                    (dbus_lib.dbus_error_free)(&mut error);
+                    return;
+                }
+
+                if reply.is_null() {
+                    eprintln!("[X11] D-Bus ScreenSaver.Inhibit returned no reply");
+                    return;
+                }
+
+                // Parse reply to get the cookie (uint32)
+                let mut reply_iter: dbus::DBusMessageIter = std::mem::zeroed();
+                if (dbus_lib.dbus_message_iter_init)(reply, &mut reply_iter) == 0 {
+                    eprintln!("[X11] D-Bus reply has no arguments");
+                    (dbus_lib.dbus_message_unref)(reply);
+                    return;
+                }
+
+                let arg_type = (dbus_lib.dbus_message_iter_get_arg_type)(&mut reply_iter);
+                if arg_type != dbus::DBUS_TYPE_UINT32 {
+                    eprintln!("[X11] D-Bus reply has wrong type: expected uint32");
+                    (dbus_lib.dbus_message_unref)(reply);
+                    return;
+                }
+
+                let mut cookie: u32 = 0;
+                (dbus_lib.dbus_message_iter_get_basic)(
+                    &mut reply_iter,
+                    &mut cookie as *mut _ as *mut c_void,
+                );
+
+                self.screensaver_inhibit_cookie = Some(cookie);
+                (dbus_lib.dbus_message_unref)(reply);
+
+                eprintln!("[X11] System sleep prevented (cookie: {})", cookie);
+            }
+        } else {
+            // Remove inhibit
+            let cookie = match self.screensaver_inhibit_cookie.take() {
+                Some(c) => c,
+                None => return, // Not inhibited
+            };
+
+            let conn = match self.dbus_connection {
+                Some(c) => c,
+                None => return,
+            };
+
+            // Try to load D-Bus library
+            let dbus_lib = match dbus::DBusLib::new() {
+                Ok(lib) => lib,
+                Err(e) => {
+                    eprintln!("[X11] Failed to load D-Bus library: {}", e);
+                    return;
+                }
+            };
+
+            unsafe {
+                // Create method call: org.freedesktop.ScreenSaver.UnInhibit(cookie)
+                let destination = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let path = CString::new("/org/freedesktop/ScreenSaver").unwrap();
+                let interface = CString::new("org.freedesktop.ScreenSaver").unwrap();
+                let method = CString::new("UnInhibit").unwrap();
+
+                let msg = (dbus_lib.dbus_message_new_method_call)(
+                    destination.as_ptr(),
+                    path.as_ptr(),
+                    interface.as_ptr(),
+                    method.as_ptr(),
+                );
+
+                if msg.is_null() {
+                    eprintln!("[X11] Failed to create D-Bus method call");
+                    return;
+                }
+
+                // Append argument: cookie (uint32)
+                let mut iter: dbus::DBusMessageIter = std::mem::zeroed();
+                (dbus_lib.dbus_message_iter_init_append)(msg, &mut iter);
+                (dbus_lib.dbus_message_iter_append_basic)(
+                    &mut iter,
+                    dbus::DBUS_TYPE_UINT32,
+                    &cookie as *const _ as *const c_void,
+                );
+
+                // Send (no reply needed)
+                let mut error: dbus::DBusError = std::mem::zeroed();
+                (dbus_lib.dbus_error_init)(&mut error);
+
+                let reply = (dbus_lib.dbus_connection_send_with_reply_and_block)(
+                    conn, msg, -1, // default timeout
+                    &mut error,
+                );
+
+                (dbus_lib.dbus_message_unref)(msg);
+
+                if (dbus_lib.dbus_error_is_set)(&error) != 0 {
+                    eprintln!("[X11] D-Bus ScreenSaver.UnInhibit failed");
+                    (dbus_lib.dbus_error_free)(&mut error);
+                    return;
+                }
+
+                if !reply.is_null() {
+                    (dbus_lib.dbus_message_unref)(reply);
+                }
+
+                eprintln!("[X11] System sleep allowed (cookie: {})", cookie);
             }
         }
     }

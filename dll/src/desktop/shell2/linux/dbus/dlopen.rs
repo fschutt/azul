@@ -134,6 +134,20 @@ pub struct DBusLib {
     // Sending
     pub dbus_connection_send:
         unsafe extern "C" fn(*mut DBusConnection, *mut DBusMessage, *mut c_uint) -> c_int,
+    pub dbus_connection_send_with_reply_and_block: unsafe extern "C" fn(
+        *mut DBusConnection,
+        *mut DBusMessage,
+        c_int,
+        *mut DBusError,
+    ) -> *mut DBusMessage,
+
+    // Method calls
+    pub dbus_message_new_method_call: unsafe extern "C" fn(
+        *const c_char,
+        *const c_char,
+        *const c_char,
+        *const c_char,
+    ) -> *mut DBusMessage,
 
     // Error handling
     pub dbus_error_init: unsafe extern "C" fn(*mut DBusError),
@@ -383,6 +397,28 @@ impl DBusLib {
                 lib,
                 unsafe extern "C" fn(*mut DBusConnection, *mut DBusMessage, *mut c_uint) -> c_int,
                 "dbus_connection_send"
+            ),
+            dbus_connection_send_with_reply_and_block: load_symbol!(
+                lib,
+                unsafe extern "C" fn(
+                    *mut DBusConnection,
+                    *mut DBusMessage,
+                    c_int,
+                    *mut DBusError,
+                ) -> *mut DBusMessage,
+                "dbus_connection_send_with_reply_and_block"
+            ),
+
+            // Method calls
+            dbus_message_new_method_call: load_symbol!(
+                lib,
+                unsafe extern "C" fn(
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                    *const c_char,
+                ) -> *mut DBusMessage,
+                "dbus_message_new_method_call"
             ),
 
             // Error handling

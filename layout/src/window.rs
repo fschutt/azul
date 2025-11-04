@@ -975,7 +975,10 @@ impl LayoutWindow {
         threads_removed_out: &mut FastBTreeSet<ThreadId>,
         new_windows_out: &mut Vec<WindowCreateOptions>,
         menus_to_open_out: &mut Vec<(azul_core::menu::Menu, Option<LogicalPosition>)>,
+        tooltips_to_show_out: &mut Vec<(AzString, LogicalPosition)>,
+        hide_tooltip_out: &mut bool,
         stop_propagation_out: &mut bool,
+        prevent_default_out: &mut bool,
         focus_target_out: &mut Option<FocusTarget>,
         words_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
         images_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
@@ -1005,6 +1008,9 @@ impl LayoutWindow {
                 }
                 CallbackChange::StopPropagation => {
                     *stop_propagation_out = true;
+                }
+                CallbackChange::PreventDefault => {
+                    *prevent_default_out = true;
                 }
                 CallbackChange::AddTimer { timer_id, timer } => {
                     timers_out.insert(timer_id, timer);
@@ -1080,6 +1086,122 @@ impl LayoutWindow {
                 }
                 CallbackChange::OpenMenu { menu, position } => {
                     menus_to_open_out.push((menu, position));
+                }
+                CallbackChange::ShowTooltip { text, position } => {
+                    tooltips_to_show_out.push((text, position));
+                }
+                CallbackChange::HideTooltip => {
+                    *hide_tooltip_out = true;
+                }
+                CallbackChange::InsertText {
+                    dom_id,
+                    node_id,
+                    text,
+                } => {
+                    // Record text input for the node
+                    use azul_core::styled_dom::NodeHierarchyItemId;
+                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id,
+                        node: hierarchy_id,
+                    };
+
+                    // Get old text from node
+                    let old_inline_content = self.get_text_before_textinput(dom_id, node_id);
+                    let old_text = self.extract_text_from_inline_content(&old_inline_content);
+
+                    // Record the text input
+                    use crate::managers::text_input::TextInputSource;
+                    self.text_input_manager.record_input(
+                        dom_node_id,
+                        text.to_string(),
+                        old_text,
+                        TextInputSource::Programmatic,
+                    );
+                }
+                CallbackChange::DeleteBackward { dom_id, node_id } => {
+                    // Get current cursor/selection
+                    if let Some(cursor) = self.focus_manager.get_text_cursor() {
+                        // Get current content
+                        let content = self.get_text_before_textinput(dom_id, node_id);
+
+                        // Apply delete backward using text3::edit
+                        use azul_core::selection::Selection;
+
+                        use crate::text3::edit::{delete_backward, TextEdit};
+                        let mut new_content = content.clone();
+                        let (updated_content, new_cursor) =
+                            delete_backward(&mut new_content, cursor);
+
+                        // Update cursor position
+                        self.focus_manager.set_text_cursor(Some(new_cursor));
+
+                        // Update text cache
+                        self.update_text_cache_after_edit(dom_id, node_id, updated_content);
+
+                        // Mark node as dirty
+                        use azul_core::styled_dom::NodeHierarchyItemId;
+                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                        let dom_node_id = DomNodeId {
+                            dom: dom_id,
+                            node: hierarchy_id,
+                        };
+                        // Note: Dirty marking happens in the caller
+                    }
+                }
+                CallbackChange::DeleteForward { dom_id, node_id } => {
+                    // Get current cursor/selection
+                    if let Some(cursor) = self.focus_manager.get_text_cursor() {
+                        // Get current content
+                        let content = self.get_text_before_textinput(dom_id, node_id);
+
+                        // Apply delete forward using text3::edit
+                        use azul_core::selection::Selection;
+
+                        use crate::text3::edit::{delete_forward, TextEdit};
+                        let mut new_content = content.clone();
+                        let (updated_content, new_cursor) =
+                            delete_forward(&mut new_content, cursor);
+
+                        // Update cursor position
+                        self.focus_manager.set_text_cursor(Some(new_cursor));
+
+                        // Update text cache
+                        self.update_text_cache_after_edit(dom_id, node_id, updated_content);
+                    }
+                }
+                CallbackChange::MoveCursor {
+                    dom_id,
+                    node_id,
+                    cursor,
+                } => {
+                    // Update cursor position in FocusManager
+                    self.focus_manager.set_text_cursor(Some(cursor));
+                }
+                CallbackChange::SetSelection {
+                    dom_id,
+                    node_id,
+                    selection,
+                } => {
+                    // Update selection in SelectionManager
+                    use azul_core::styled_dom::NodeHierarchyItemId;
+                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id,
+                        node: hierarchy_id,
+                    };
+
+                    match selection {
+                        azul_core::selection::Selection::Cursor(cursor) => {
+                            self.focus_manager.set_text_cursor(Some(cursor));
+                            self.selection_manager.clear_all();
+                        }
+                        azul_core::selection::Selection::Range(range) => {
+                            self.focus_manager.set_text_cursor(Some(range.start));
+                            // TODO: Set selection range in SelectionManager
+                            // self.selection_manager.set_selection(dom_node_id, range);
+                        }
+                    }
                 }
             }
         }
@@ -2008,6 +2130,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             menus_to_open: Vec::new(),
+            tooltips_to_show: Vec::new(),
+            hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2038,8 +2162,6 @@ impl LayoutWindow {
             .and_then(|t| t.node_id.into_option());
 
         if timer_exists {
-            let mut stop_propagation = false;
-
             // TODO: store the hit DOM of the timer?
             let hit_dom_node = match timer_node_id {
                 Some(s) => s,
@@ -2071,7 +2193,6 @@ impl LayoutWindow {
                 current_window_handle,
                 &mut ret.windows_created,
                 system_callbacks,
-                &mut stop_propagation,
                 &mut new_focus_target,
                 &mut ret_words_changed,
                 &mut ret_images_changed,
@@ -2091,6 +2212,10 @@ impl LayoutWindow {
             should_terminate = tcr.should_terminate;
 
             // Apply callback changes collected during timer execution
+            let mut stop_propagation = false;
+            let mut prevent_default = false;
+            let mut tooltips_to_show = Vec::new();
+            let mut hide_tooltip = false;
             self.apply_callback_changes(
                 callback_changes,
                 &mut ret_timers,
@@ -2099,7 +2224,10 @@ impl LayoutWindow {
                 &mut ret_threads_removed,
                 &mut ret.windows_created,
                 &mut ret.menus_to_open,
+                &mut tooltips_to_show,
+                &mut hide_tooltip,
                 &mut stop_propagation,
+                &mut prevent_default,
                 &mut new_focus_target,
                 &mut ret_words_changed,
                 &mut ret_images_changed,
@@ -2110,6 +2238,11 @@ impl LayoutWindow {
                 image_cache,
                 system_fonts,
             );
+
+            ret.stop_propagation = stop_propagation;
+            ret.prevent_default = prevent_default;
+            ret.tooltips_to_show = tooltips_to_show;
+            ret.hide_tooltip = hide_tooltip;
 
             if !ret_timers.is_empty() {
                 ret.timers = Some(ret_timers);
@@ -2204,6 +2337,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             menus_to_open: Vec::new(),
+            tooltips_to_show: Vec::new(),
+            hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2294,7 +2429,6 @@ impl LayoutWindow {
                 current_window_handle,
                 &mut ret.windows_created,
                 system_callbacks,
-                &mut stop_propagation,
                 &mut new_focus_target,
                 &mut ret_words_changed,
                 &mut ret_images_changed,
@@ -2315,6 +2449,10 @@ impl LayoutWindow {
             ret.callbacks_update_screen.max_self(callback_update);
 
             // Apply callback changes collected during thread writeback
+            let mut stop_propagation = false;
+            let mut prevent_default = false;
+            let mut tooltips_to_show = Vec::new();
+            let mut hide_tooltip = false;
             self.apply_callback_changes(
                 callback_changes,
                 &mut ret_timers,
@@ -2323,7 +2461,10 @@ impl LayoutWindow {
                 &mut ret_threads_removed,
                 &mut ret.windows_created,
                 &mut ret.menus_to_open,
+                &mut tooltips_to_show,
+                &mut hide_tooltip,
                 &mut stop_propagation,
+                &mut prevent_default,
                 &mut new_focus_target,
                 &mut ret_words_changed,
                 &mut ret_images_changed,
@@ -2334,6 +2475,11 @@ impl LayoutWindow {
                 image_cache,
                 system_fonts,
             );
+
+            ret.stop_propagation = ret.stop_propagation || stop_propagation;
+            ret.prevent_default = ret.prevent_default || prevent_default;
+            ret.tooltips_to_show.extend(tooltips_to_show);
+            ret.hide_tooltip = ret.hide_tooltip || hide_tooltip;
 
             if is_finished {
                 ret.threads_removed
@@ -2429,6 +2575,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             menus_to_open: Vec::new(),
+            tooltips_to_show: Vec::new(),
+            hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2472,7 +2620,6 @@ impl LayoutWindow {
             current_window_handle,
             &mut ret.windows_created,
             system_callbacks,
-            &mut stop_propagation,
             &mut new_focus_target,
             &mut ret_words_changed,
             &mut ret_images_changed,
@@ -2489,6 +2636,10 @@ impl LayoutWindow {
         ret.callbacks_update_screen = (callback.cb)(data, &mut callback_info);
 
         // Apply callback changes collected during callback execution
+        let mut stop_propagation = false;
+        let mut prevent_default = false;
+        let mut tooltips_to_show = Vec::new();
+        let mut hide_tooltip = false;
         self.apply_callback_changes(
             callback_changes,
             &mut ret_timers,
@@ -2497,7 +2648,10 @@ impl LayoutWindow {
             &mut ret_threads_removed,
             &mut ret.windows_created,
             &mut ret.menus_to_open,
+            &mut tooltips_to_show,
+            &mut hide_tooltip,
             &mut stop_propagation,
+            &mut prevent_default,
             &mut new_focus_target,
             &mut ret_words_changed,
             &mut ret_images_changed,
@@ -2508,6 +2662,11 @@ impl LayoutWindow {
             image_cache,
             system_fonts,
         );
+
+        ret.stop_propagation = stop_propagation;
+        ret.prevent_default = prevent_default;
+        ret.tooltips_to_show = tooltips_to_show;
+        ret.hide_tooltip = hide_tooltip;
 
         if !ret_timers.is_empty() {
             ret.timers = Some(ret_timers);
@@ -2591,6 +2750,8 @@ impl LayoutWindow {
             threads_removed: None,
             windows_created: Vec::new(),
             menus_to_open: Vec::new(),
+            tooltips_to_show: Vec::new(),
+            hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2634,7 +2795,6 @@ impl LayoutWindow {
             current_window_handle,
             &mut ret.windows_created,
             system_callbacks,
-            &mut stop_propagation,
             &mut new_focus_target,
             &mut ret_words_changed,
             &mut ret_images_changed,
@@ -2652,6 +2812,10 @@ impl LayoutWindow {
             (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
 
         // Apply callback changes collected during menu callback execution
+        let mut stop_propagation = false;
+        let mut prevent_default = false;
+        let mut tooltips_to_show = Vec::new();
+        let mut hide_tooltip = false;
         self.apply_callback_changes(
             callback_changes,
             &mut ret_timers,
@@ -2660,7 +2824,10 @@ impl LayoutWindow {
             &mut ret_threads_removed,
             &mut ret.windows_created,
             &mut ret.menus_to_open,
+            &mut tooltips_to_show,
+            &mut hide_tooltip,
             &mut stop_propagation,
+            &mut prevent_default,
             &mut new_focus_target,
             &mut ret_words_changed,
             &mut ret_images_changed,
@@ -2671,6 +2838,11 @@ impl LayoutWindow {
             image_cache,
             system_fonts,
         );
+
+        ret.stop_propagation = stop_propagation;
+        ret.prevent_default = prevent_default;
+        ret.tooltips_to_show = tooltips_to_show;
+        ret.hide_tooltip = hide_tooltip;
 
         if !ret_timers.is_empty() {
             ret.timers = Some(ret_timers);
@@ -3187,11 +3359,13 @@ impl LayoutWindow {
         now: std::time::Instant,
     ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
         use azul_core::{
-            dom::{AccessibilityAction, DomNodeId},
+            dom::{AccessibilityAction, AttributeType, DomNodeId, NodeType},
             events::EventFilter,
             geom::LogicalPosition,
             styled_dom::NodeHierarchyItemId,
         };
+
+        use crate::managers::text_input::TextInputSource;
 
         let mut affected_nodes = BTreeMap::new();
 
@@ -3361,18 +3535,147 @@ impl LayoutWindow {
             // Actions that should trigger element callbacks if they exist
             // These generate synthetic EventFilters that go through the normal
             // callback system
-            AccessibilityAction::Default
-            | AccessibilityAction::Increment
-            | AccessibilityAction::Decrement
-            | AccessibilityAction::Collapse
-            | AccessibilityAction::Expand => {
-                // Map accessibility action to corresponding On:: event
+            AccessibilityAction::Default => {
+                // Default action → synthetic Click event
+                use azul_core::events::HoverEventFilter;
+
+                let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                let dom_node_id = DomNodeId {
+                    dom: dom_id,
+                    node: hierarchy_id,
+                };
+
+                // Check if node has a Default callback, otherwise fallback to Click
+                let event_filter = if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                    if let Some(styled_node) = layout_result
+                        .styled_dom
+                        .node_data
+                        .as_ref()
+                        .get(node_id.index())
+                    {
+                        let has_default_callback =
+                            styled_node.callbacks.as_ref().iter().any(|cb| {
+                                // On::Default converts to HoverEventFilter::MouseUp
+                                matches!(cb.event, EventFilter::Hover(HoverEventFilter::MouseUp))
+                            });
+
+                        if has_default_callback {
+                            EventFilter::Hover(HoverEventFilter::MouseUp)
+                        } else {
+                            EventFilter::Hover(HoverEventFilter::MouseUp)
+                        }
+                    } else {
+                        EventFilter::Hover(HoverEventFilter::MouseUp)
+                    }
+                } else {
+                    EventFilter::Hover(HoverEventFilter::MouseUp)
+                };
+
+                affected_nodes.insert(dom_node_id, (vec![event_filter], false));
+            }
+
+            AccessibilityAction::Increment | AccessibilityAction::Decrement => {
+                // Increment/Decrement work by:
+                // 1. Reading the current value (from "value" attribute or text content)
+                // 2. Parsing it as a number
+                // 3. Incrementing/decrementing by 1
+                // 4. Converting back to string
+                // 5. Recording as text input (fires TextInput event)
+                //
+                // This allows user callbacks to intercept via On::TextInput
+
+                let is_increment = matches!(action, AccessibilityAction::Increment);
+
+                // Get the current value
+                let current_value = if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                    if let Some(styled_node) = layout_result
+                        .styled_dom
+                        .node_data
+                        .as_ref()
+                        .get(node_id.index())
+                    {
+                        // Try "value" attribute first
+                        styled_node
+                            .attributes
+                            .as_ref()
+                            .iter()
+                            .find_map(|attr| {
+                                if let AttributeType::Value(v) = attr {
+                                    Some(v.as_str().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .or_else(|| {
+                                // Fallback to text content
+                                if let NodeType::Text(text) = styled_node.get_node_type() {
+                                    Some(text.as_str().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Parse as number, increment/decrement, convert back to string
+                if let Some(value_str) = current_value {
+                    let parsed: Result<f64, _> = value_str.trim().parse();
+
+                    let new_value_str = if let Ok(num) = parsed {
+                        // Successfully parsed as number
+                        let new_num = if is_increment { num + 1.0 } else { num - 1.0 };
+                        // Format with same precision as input if possible
+                        if num.fract() == 0.0 {
+                            format!("{}", new_num as i64)
+                        } else {
+                            format!("{}", new_num)
+                        }
+                    } else {
+                        // Not a number - treat as 0 and increment/decrement
+                        if is_increment {
+                            "1".to_string()
+                        } else {
+                            "-1".to_string()
+                        }
+                    };
+
+                    // Record as text input (will fire On::TextInput callbacks)
+                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id,
+                        node: hierarchy_id,
+                    };
+
+                    // Get old text for changeset
+                    let old_inline_content = self.get_text_before_textinput(dom_id, node_id);
+                    let old_text = self.extract_text_from_inline_content(&old_inline_content);
+
+                    // Record the text input
+                    self.text_input_manager.record_input(
+                        dom_node_id,
+                        new_value_str,
+                        old_text,
+                        TextInputSource::Accessibility,
+                    );
+
+                    // Add TextInput event to affected nodes
+                    use azul_core::events::FocusEventFilter;
+                    affected_nodes.insert(
+                        dom_node_id,
+                        (vec![EventFilter::Focus(FocusEventFilter::TextInput)], false),
+                    );
+                }
+            }
+
+            AccessibilityAction::Collapse | AccessibilityAction::Expand => {
+                // Map to corresponding On:: events
                 use azul_core::dom::On;
 
                 let event_type = match action {
-                    AccessibilityAction::Default => On::Default,
-                    AccessibilityAction::Increment => On::Increment,
-                    AccessibilityAction::Decrement => On::Decrement,
                     AccessibilityAction::Collapse => On::Collapse,
                     AccessibilityAction::Expand => On::Expand,
                     _ => unreachable!(),
@@ -3750,23 +4053,125 @@ impl LayoutWindow {
 
     /// Get the current inline content (text before text input is applied)
     ///
-    /// This is a query function that retrieves the current text state from the cache.
-    /// Returns empty Vec if the node has no text or doesn't exist.
+    /// This is a query function that retrieves the current text state from the node.
+    /// Returns InlineContent vector if the node has text.
+    ///
+    /// # Implementation Note
+    /// This function currently reconstructs InlineContent from the styled DOM.
+    /// A future optimization would be to cache the InlineContent during layout
+    /// and retrieve it directly from the text cache.
     fn get_text_before_textinput(
         &self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Vec<crate::text3::cache::InlineContent> {
-        // TODO: Query the text cache for this node's current InlineContent
-        // For now, return empty vec as placeholder
-        //
-        // Future implementation should:
-        // 1. Look up the node in the text cache
-        // 2. Return its InlineContent vec (which may include images/shapes)
-        // 3. Return empty vec if not found
+        use azul_core::dom::NodeType;
 
-        let _ = (dom_id, node_id);
-        Vec::new()
+        use crate::text3::cache::{InlineContent, StyledRun};
+
+        // Get the layout result for this DOM
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return Vec::new(),
+        };
+
+        // Get the node data
+        let node_data = match layout_result
+            .styled_dom
+            .node_data
+            .as_ref()
+            .get(node_id.index())
+        {
+            Some(nd) => nd,
+            None => return Vec::new(),
+        };
+
+        // Extract text content from the node
+        match node_data.get_node_type() {
+            NodeType::Text(text) => {
+                // Simple text node - create a single StyledRun
+                let style = self.get_text_style_for_node(dom_id, node_id);
+
+                vec![InlineContent::Text(StyledRun {
+                    text: text.as_str().to_string(),
+                    style,
+                    logical_start_byte: 0,
+                })]
+            }
+            NodeType::Div | NodeType::Body | NodeType::IFrame(_) => {
+                // Container nodes - recursively collect text from children
+                self.collect_text_from_children(dom_id, node_id)
+            }
+            _ => {
+                // Other node types (Image, etc.) don't contribute text
+                Vec::new()
+            }
+        }
+    }
+
+    /// Get the font style for a text node from CSS
+    fn get_text_style_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> alloc::sync::Arc<crate::text3::cache::StyleProperties> {
+        use alloc::sync::Arc;
+
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return Arc::new(Default::default()),
+        };
+
+        // Try to get font from styled DOM
+        let styled_nodes = layout_result.styled_dom.styled_nodes.as_ref();
+        let _styled_node = match styled_nodes.get(node_id.index()) {
+            Some(sn) => sn,
+            None => return Arc::new(Default::default()),
+        };
+
+        // Extract font properties from computed style
+        // For now, use default - full implementation would query CSS property cache
+        // TODO: Query CSS property cache for font-family, font-size, font-weight, etc.
+        Arc::new(Default::default())
+    }
+
+    /// Recursively collect text content from child nodes
+    fn collect_text_from_children(
+        &self,
+        dom_id: DomId,
+        parent_node_id: NodeId,
+    ) -> Vec<crate::text3::cache::InlineContent> {
+        use crate::text3::cache::InlineContent;
+
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return Vec::new(),
+        };
+
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+        let parent_item = match node_hierarchy.get(parent_node_id.index()) {
+            Some(item) => item,
+            None => return Vec::new(),
+        };
+
+        let mut result = Vec::new();
+
+        // Traverse all children
+        let mut current_child = parent_item.first_child_id(parent_node_id);
+        while let Some(child_id) = current_child {
+            // Get content from this child (recursive)
+            let child_content = self.get_text_before_textinput(dom_id, child_id);
+            result.extend(child_content);
+
+            // Move to next sibling
+            let child_item = match node_hierarchy.get(child_id.index()) {
+                Some(item) => item,
+                None => break,
+            };
+            current_child = child_item.next_sibling_id();
+        }
+
+        result
     }
 
     /// Extract plain text string from inline content

@@ -568,6 +568,45 @@ pub trait PlatformWindowV2 {
     );
 
     // =========================================================================
+    // REQUIRED: Tooltip Display (Platform-Specific Implementation)
+    // =========================================================================
+
+    /// Show a tooltip with the given text at the specified position.
+    ///
+    /// This method is called when a callback uses `info.show_tooltip()` or
+    /// `info.show_tooltip_at()`. The platform should display a native tooltip at the given
+    /// position.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **Windows**: Use TOOLTIPS_CLASS with TTM_TRACKACTIVATE
+    /// - **macOS**: Use NSPopover with NSViewController
+    /// - **X11**: Create transient window with override_redirect
+    /// - **Wayland**: Use zwlr_layer_shell_v1 for tooltip surface
+    ///
+    /// ## Parameters
+    /// * `text` - The tooltip text to display
+    /// * `position` - The position where the tooltip should appear (logical coordinates)
+    fn show_tooltip_from_callback(
+        &mut self,
+        text: &str,
+        position: azul_core::geom::LogicalPosition,
+    );
+
+    /// Hide the currently displayed tooltip.
+    ///
+    /// This method is called when a callback uses `info.hide_tooltip()`.
+    /// The platform should hide any currently displayed tooltip.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **Windows**: Use TTM_TRACKACTIVATE with FALSE
+    /// - **macOS**: Call [popover close]
+    /// - **X11**: Unmap the tooltip window
+    /// - **Wayland**: Destroy the tooltip surface
+    fn hide_tooltip_from_callback(&mut self);
+
+    // =========================================================================
     // PROVIDED: Callback Invocation (Cross-Platform Implementation)
     // =========================================================================
 
@@ -1711,6 +1750,19 @@ pub trait PlatformWindowV2 {
                 self.show_menu_from_callback(menu, position);
             }
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // Handle tooltip show requests
+        if !result.tooltips_to_show.is_empty() {
+            // Show only the last tooltip requested (if multiple were requested in one callback)
+            if let Some((text, position)) = result.tooltips_to_show.last() {
+                self.show_tooltip_from_callback(text.as_str(), *position);
+            }
+        }
+
+        // Handle tooltip hide request
+        if result.hide_tooltip {
+            self.hide_tooltip_from_callback();
         }
 
         // Process Update screen command

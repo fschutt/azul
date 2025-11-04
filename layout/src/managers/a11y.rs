@@ -86,23 +86,30 @@
 //!
 //! ## TODO List
 //!
-//! ### High Priority
-//! - [ ] Implement CursorManager with TextCursor state per DOM
-//! - [ ] Add cursor initialization in FocusManager::set_focused_node()
-//! - [ ] Implement edit_text_node() with text_cache lookup
-//! - [ ] Add has_contenteditable() helper
+//! ### High Priority (1.0 Blockers)
+//! - [x] Implement CursorManager with TextCursor state per DOM (EXISTS in FocusManager!)
+//! - [ ] Add automatic cursor initialization in FocusManager::set_focused_node()
+//! - [ ] Implement get_text_before_textinput() with text_cache lookup
+//! - [x] Add has_contenteditable() helper (implemented inline in apply_text_changeset)
 //! - [ ] Generate synthetic events for Default/Increment/Decrement/Collapse/Expand
 //!
-//! ### Medium Priority
+//! ### Medium Priority (Post-1.0)
 //! - [ ] Add cursor movement functions using text3 utilities
 //! - [ ] Implement SetTextSelection action
 //! - [ ] Add text cursor visualization in renderer
 //! - [ ] Handle multi-cursor scenarios
 //!
-//! ### Low Priority
+//! ### Low Priority (Future)
 //! - [ ] Custom action handlers
 //! - [ ] Tooltip actions (ShowTooltip/HideTooltip)
 //! - [ ] ARIA live region announcements
+//!
+//! ## Implementation Status Notes
+//!
+//! - **CursorManager**: Already implemented as `FocusManager.text_cursor` field!
+//! - **Text Editing**: Works through `text3::edit` + `managers::text_input` system
+//! - **Focus/Selection/Scroll**: All managers fully implemented and working
+//! - **Tree Generation**: Basic implementation done, needs property setting refinement
 //!
 //! ## Testing Strategy
 //!
@@ -161,17 +168,24 @@ impl A11yManager {
         window_title: &azul_css::AzString,
         window_size: azul_core::geom::LogicalSize,
     ) -> TreeUpdate {
+        use std::collections::HashMap;
+
         use accesskit::{Node, Rect};
 
         let mut nodes = Vec::new();
         let mut root_children = Vec::new();
 
+        // Map from (DomId, NodeId) to A11yNodeId for building parent-child relationships
+        let mut node_id_map: HashMap<(u32, u32), A11yNodeId> = HashMap::new();
+
+        // Map to collect children for each parent
+        let mut parent_children_map: HashMap<A11yNodeId, Vec<A11yNodeId>> = HashMap::new();
+
         // Create root window node
         let mut root_node = Node::new(Role::Window);
+        root_node.set_label(window_title.as_str());
 
-        nodes.push((root_id, root_node));
-
-        // Traverse all DOMs and their layout trees
+        // Traverse all DOMs and their layout trees - FIRST PASS: Create all nodes
         for (dom_id, layout_result) in layout_results {
             let styled_dom = &layout_result.styled_dom;
 
@@ -226,28 +240,74 @@ impl A11yManager {
                 let a11y_info_ref = a11y_info.as_ref().map(|b| b.as_ref());
                 let node = Self::build_node(node_data, layout_node, a11y_info_ref);
 
-                // Set up parent-child relationships
-                let node_hierarchy = styled_dom.node_hierarchy.as_ref();
-                let hierarchy_item = &node_hierarchy[dom_node_id.index()];
-
-                // Collect children that have accessibility nodes
-                // TODO: Properly traverse children from NodeHierarchy
-                // For now, we create nodes but don't set up parent-child relationships
-                // as NodeHierarchyItem doesn't have a children field (it uses last_child + sibling
-                // pointers)
-
-                // If this is a top-level node (no parent), add to root children
-                let has_parent = hierarchy_item.parent != usize::MAX;
-                if !has_parent {
-                    root_children.push(a11y_node_id);
-                }
+                // Store node ID mapping
+                node_id_map.insert((dom_id.inner as u32, node_index as u32), a11y_node_id);
 
                 nodes.push((a11y_node_id, node));
             }
         }
 
-        // Update root node with children
-        // TODO: Implement this properly once we figure out accesskit 0.17 API
+        // SECOND PASS: Build parent-child relationships
+        for (dom_id, layout_result) in layout_results {
+            let styled_dom = &layout_result.styled_dom;
+            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+
+            for layout_node in layout_result.layout_tree.nodes.iter() {
+                let Some(dom_node_id) = layout_node.dom_node_id else {
+                    continue;
+                };
+
+                let node_index = dom_node_id.index();
+                let a11y_node_id = match node_id_map.get(&(dom_id.inner as u32, node_index as u32))
+                {
+                    Some(id) => *id,
+                    None => continue, // Node was filtered out
+                };
+
+                let hierarchy_item = &node_hierarchy[node_index];
+
+                // Find accessible parent by walking up the tree
+                let mut parent_node_index = hierarchy_item.parent;
+                let mut accessible_parent_id = None;
+
+                while parent_node_index != usize::MAX {
+                    if let Some(parent_a11y_id) =
+                        node_id_map.get(&(dom_id.inner as u32, parent_node_index as u32))
+                    {
+                        accessible_parent_id = Some(*parent_a11y_id);
+                        break;
+                    }
+                    // Parent doesn't have a11y node, walk up further
+                    let parent_item = &node_hierarchy[parent_node_index];
+                    parent_node_index = parent_item.parent;
+                }
+
+                // Add this node as child to its accessible parent
+                if let Some(parent_id) = accessible_parent_id {
+                    parent_children_map
+                        .entry(parent_id)
+                        .or_insert_with(Vec::new)
+                        .push(a11y_node_id);
+                } else {
+                    // No accessible parent - this is a top-level node
+                    root_children.push(a11y_node_id);
+                }
+            }
+        }
+
+        // THIRD PASS: Set children on all nodes
+        for (node_id, node) in nodes.iter_mut() {
+            if let Some(children) = parent_children_map.get(node_id) {
+                node.set_children(children.clone());
+            }
+        }
+
+        // Set children on root node (first node in list)
+        if let Some((node_id, root_node)) = nodes.first_mut() {
+            if *node_id == root_id {
+                root_node.set_children(root_children);
+            }
+        }
 
         // Determine focus - for now default to root
         let focus = root_id;
@@ -255,7 +315,7 @@ impl A11yManager {
         // Create the tree update
         let tree_update = TreeUpdate {
             nodes,
-            tree: Some(Tree::new(root_id)), // Always create new tree for now
+            tree: Some(Tree::new(root_id)),
             focus,
         };
 
@@ -300,18 +360,63 @@ impl A11yManager {
             }
         };
 
-        let node = Node::new(role);
+        let mut builder = Node::new(role);
 
-        // TODO: Set properties once we understand accesskit 0.17 API better
-        // For now, just return a basic node with the role
-        // In a future iteration, we'll add:
-        // - Name/label from AccessibilityInfo
-        // - Description
-        // - Value
-        // - States (focusable, disabled, readonly, checked, expanded)
-        // - Bounds from layout_node
+        // Set node properties based on AccessibilityInfo and NodeType
+        if let Some(info) = a11y_info {
+            // Name/Label
+            if let Some(name) = info.name.as_option() {
+                builder.set_label(name.as_str());
+            }
 
-        node
+            // Value (for inputs, sliders, etc.)
+            if let Some(value) = info.value.as_option() {
+                builder.set_value(value.as_str());
+            }
+
+            // States from AccessibilityStateVec
+            use azul_core::dom::AccessibilityState;
+            for state in info.states.as_ref() {
+                match state {
+                    AccessibilityState::Unavailable => {
+                        builder.set_disabled();
+                    }
+                    AccessibilityState::Readonly => {
+                        builder.set_read_only();
+                    }
+                    AccessibilityState::Checked => {
+                        builder.set_toggled(accesskit::Toggled::True);
+                    }
+                    AccessibilityState::Expanded => {
+                        builder.set_expanded(true);
+                    }
+                    AccessibilityState::Collapsed => {
+                        builder.set_expanded(false);
+                    }
+                    _ => {
+                        // Other states: Focused (handled by focus manager), Selected, Focusable,
+                        // etc.
+                    }
+                }
+            }
+        }
+
+        // Extract text content for Text and StaticText nodes
+        if let NodeType::Text(text) = &node_data.node_type {
+            builder.set_label(text.as_str());
+        }
+
+        // Set bounds from layout node
+        if let (Some(pos), Some(size)) = (layout_node.relative_position, layout_node.used_size) {
+            builder.set_bounds(Rect {
+                x0: pos.x as f64,
+                y0: pos.y as f64,
+                x1: (pos.x + size.width) as f64,
+                y1: (pos.y + size.height) as f64,
+            });
+        }
+
+        builder
     }
 
     /// Maps Azul's AccessibilityRole to accesskit's Role.

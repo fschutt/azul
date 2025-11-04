@@ -1,10 +1,20 @@
-//! Text editing changeset system
+//! Text editing changeset system (FUTURE ARCHITECTURE - NOT YET IMPLEMENTED)
 //!
-//! This module implements a two-phase changeset system for all text editing operations:
+//! **STATUS:** This module defines the planned architecture for a unified text editing
+//! changeset system, but is not yet implemented. Current text editing works through:
+//! - `text3::edit` module for text manipulation
+//! - `managers::text_input` for event recording
+//! - `window.rs` for integration
+//!
+//! This module serves as a design document for post-1.0 refactoring.
+//!
+//! ## Planned Architecture (Future)
+//!
+//! This module will implement a two-phase changeset system for all text editing operations:
 //! 1. **Create changesets** (pre-callback): Analyze what would change, don't mutate yet
 //! 2. **Apply changesets** (post-callback): Actually mutate state if !preventDefault
 //!
-//! This pattern enables:
+//! This pattern will enable:
 //! - preventDefault support for ALL operations (not just text input)
 //! - Undo/redo stack (record changesets before applying)
 //! - Validation (check bounds, permissions before mutation)
@@ -436,7 +446,9 @@ fn create_move_cursor_changeset(
     _timestamp: Instant,
     _layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement cursor position calculation from logical position
+    // TODO: Future architecture - Implement cursor position calculation from logical position
+    // Current implementation: Cursor movement handled by FocusManager::set_text_cursor()
+    // and TextInputManager in text_input.rs
     None
 }
 
@@ -446,7 +458,9 @@ fn create_select_word_changeset(
     _timestamp: Instant,
     _layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement word selection
+    // TODO: Future architecture - Implement word selection
+    // Would use text3::edit::find_word_boundaries() to determine selection range
+    // Current implementation: Word selection happens through SelectionManager
     None
 }
 
@@ -456,7 +470,9 @@ fn create_select_paragraph_changeset(
     _timestamp: Instant,
     _layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement paragraph selection
+    // TODO: Future architecture - Implement paragraph selection
+    // Would find paragraph boundaries using newline characters
+    // Current implementation: SelectionManager handles text selection
     None
 }
 
@@ -488,7 +504,10 @@ fn create_copy_changeset(
     _timestamp: Instant,
     _layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement copy
+    // TODO: Future architecture - Implement copy operation
+    // Would create changeset with selected text to copy to clipboard
+    // Current implementation: Clipboard operations handled by platform-specific code
+    // See window.rs clipboard integration
     None
 }
 
@@ -497,7 +516,9 @@ fn create_cut_changeset(
     _timestamp: Instant,
     _layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement cut
+    // TODO: Future architecture - Implement cut operation
+    // Would create changeset with Delete operation + copy to clipboard
+    // Current implementation: Handled by platform-specific clipboard + text3::edit::delete_range()
     None
 }
 
@@ -506,7 +527,9 @@ fn create_paste_changeset(
     _timestamp: Instant,
     _layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement paste
+    // TODO: Future architecture - Implement paste operation
+    // Would create changeset with Insert operation from clipboard content
+    // Current implementation: Handled by platform clipboard + text3::edit::insert_text()
     None
 }
 
@@ -539,7 +562,9 @@ fn apply_move_cursor(
     _position: CursorPosition,
     _layout_window: &mut crate::window::LayoutWindow,
 ) -> bool {
-    // TODO: Implement cursor move application
+    // TODO: Future architecture - Implement cursor move application
+    // Would update FocusManager cursor state from CursorPosition
+    // Current implementation: FocusManager::set_text_cursor() handles cursor updates
     false
 }
 
@@ -548,7 +573,9 @@ fn apply_set_selection(
     _range: SelectionRange,
     _layout_window: &mut crate::window::LayoutWindow,
 ) -> bool {
-    // TODO: Implement selection application
+    // TODO: Future architecture - Implement selection application
+    // Would update SelectionManager state from SelectionRange
+    // Current implementation: SelectionManager handles selection updates
     false
 }
 
@@ -557,6 +584,8 @@ fn apply_copy(
     _range: SelectionRange,
     _layout_window: &mut crate::window::LayoutWindow,
 ) -> bool {
-    // TODO: Implement copy to clipboard
+    // TODO: Future architecture - Implement copy to clipboard
+    // Would extract text from SelectionRange and copy to platform clipboard
+    // Current implementation: Platform-specific clipboard integration in window.rs
     false
 }
