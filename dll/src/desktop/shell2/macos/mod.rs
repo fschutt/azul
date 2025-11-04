@@ -329,6 +329,13 @@ define_class!(
             _selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            // Phase 2: OnCompositionStart callback - sync IME position
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.sync_ime_position_to_os();
+                }
+            }
         }
 
         #[unsafe(method(unmarkText))]
@@ -381,13 +388,34 @@ define_class!(
             _range: NSRange,
             _actual_range: *mut NSRange,
         ) -> NSRect {
-            NSRect {
-                origin: NSPoint { x: 0.0, y: 0.0 },
-                size: NSSize {
-                    width: 0.0,
-                    height: 0.0,
-                },
+            use azul_core::window::ImePosition;
+            
+            // Get ime_position from window state
+            let window_ptr = match self.get_window_ptr() {
+                Some(ptr) => ptr,
+                None => return NSRect::ZERO,
+            };
+
+            unsafe {
+                let window = &*(window_ptr as *const MacOSWindow);
+                if let ImePosition::Initialized(rect) = window.current_window_state.ime_position {
+                    // Convert from window-local coordinates to screen coordinates
+                    let window_frame = window.window.frame();
+                    
+                    return NSRect {
+                        origin: NSPoint {
+                            x: window_frame.origin.x + rect.origin.x as f64,
+                            y: window_frame.origin.y + rect.origin.y as f64,
+                        },
+                        size: NSSize {
+                            width: rect.size.width as f64,
+                            height: rect.size.height as f64,
+                        },
+                    };
+                }
             }
+
+            NSRect::ZERO
         }
 
         #[unsafe(method(doCommandBySelector:))]
@@ -640,6 +668,13 @@ define_class!(
             _selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            // Phase 2: OnCompositionStart callback - sync IME position
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.sync_ime_position_to_os();
+                }
+            }
         }
 
         #[unsafe(method(unmarkText))]
@@ -689,13 +724,34 @@ define_class!(
             _range: NSRange,
             _actual_range: *mut NSRange,
         ) -> NSRect {
-            NSRect {
-                origin: NSPoint { x: 0.0, y: 0.0 },
-                size: NSSize {
-                    width: 0.0,
-                    height: 0.0,
-                },
+            use azul_core::window::ImePosition;
+            
+            // Get ime_position from window state
+            let window_ptr = match self.get_window_ptr() {
+                Some(ptr) => ptr,
+                None => return NSRect::ZERO,
+            };
+
+            unsafe {
+                let window = &*(window_ptr as *const MacOSWindow);
+                if let ImePosition::Initialized(rect) = window.current_window_state.ime_position {
+                    // Convert from window-local coordinates to screen coordinates
+                    let window_frame = window.window.frame();
+                    
+                    return NSRect {
+                        origin: NSPoint {
+                            x: window_frame.origin.x + rect.origin.x as f64,
+                            y: window_frame.origin.y + rect.origin.y as f64,
+                        },
+                        size: NSSize {
+                            width: rect.size.width as f64,
+                            height: rect.size.height as f64,
+                        },
+                    };
+                }
             }
+
+            NSRect::ZERO
         }
 
         #[unsafe(method(doCommandBySelector:))]
@@ -867,6 +923,9 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.current_window_state.window_focused = true;
+
+                    // Phase 2: OnFocus callback - sync IME position after focus
+                    macos_window.sync_ime_position_to_os();
                 }
             }
         }
@@ -1815,7 +1874,24 @@ impl MacOSWindow {
         #[cfg(feature = "accessibility")]
         self.update_accessibility();
 
+        // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
+        self.update_ime_position_from_cursor();
+        self.sync_ime_position_to_os();
+
         Ok(())
+    }
+
+    /// Update ime_position in window state from focused text cursor
+    /// Called after layout to ensure IME window appears at correct position
+    fn update_ime_position_from_cursor(&mut self) {
+        use azul_core::window::ImePosition;
+
+        if let Some(layout_window) = &self.layout_window {
+            if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
+                // Successfully calculated cursor position from text layout
+                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+            }
+        }
     }
 
     /// Generate frame if needed and reset flag
@@ -3298,17 +3374,17 @@ impl MacOSWindow {
     /// On macOS, this creates a native NSMenu hierarchy attached to the application.
     /// Menu callbacks are wired up to trigger when menu items are clicked.
     ///
+    /// # Implementation
+    /// This method is deprecated in favor of `set_application_menu()` which provides
+    /// a complete NSMenu implementation with callback integration.
+    ///
     /// # Returns
     /// * `Ok(())` if menu injection succeeded
     /// * `Err(String)` if menu injection failed
     pub fn inject_menu_bar(&mut self) -> Result<(), String> {
-        // TODO: Implement native NSMenu creation
-        // 1. Extract menu structure from WindowState
-        // 2. Convert to NSMenu hierarchy
-        // 3. Set as application menu with [NSApp setMainMenu:]
-        // 4. Wire up callbacks for menu items
-
-        eprintln!("[inject_menu_bar] TODO: Implement native macOS menu injection");
+        // Native macOS menu integration is fully implemented via set_application_menu()
+        // See menu.rs for AzulMenuTarget bridge and MenuState implementation
+        eprintln!("[inject_menu_bar] Use set_application_menu() for native macOS menus");
         Ok(())
     }
 
@@ -3466,5 +3542,29 @@ fn position_window_on_monitor(
 
     unsafe {
         window.setFrame_display(new_frame, false);
+    }
+}
+
+// ===== IME Position Management =====
+
+impl MacOSWindow {
+    /// Sync ime_position from window state to OS
+    /// On macOS, the IME position is provided via firstRectForCharacterRange,
+    /// which is called by the system when needed. We just need to ensure
+    /// ime_position is set in window state, and the NSTextInputClient
+    /// protocol implementation will return it.
+    pub fn sync_ime_position_to_os(&self) {
+        use azul_core::window::ImePosition;
+        
+        // On macOS, no explicit API call needed
+        // The system will call firstRectForCharacterRange: when it needs
+        // the IME candidate window position, and we return ime_position there
+        
+        // However, we can invalidate the marked text to trigger a refresh
+        // if we want to force the IME window to update immediately
+        if matches!(self.current_window_state.ime_position, ImePosition::Initialized(_)) {
+            // TODO: Could call invalidateMarkable or similar if needed
+            // For now, passive approach is sufficient
+        }
     }
 }

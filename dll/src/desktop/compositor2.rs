@@ -23,14 +23,15 @@ use webrender::{
     api::{
         units::{
             DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
+            LayoutVector2D,
         },
-        AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
+        AlphaType as WrAlphaType, APZScrollGeneration, BorderRadius as WrBorderRadius,
         BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
         ClipMode as WrClipMode, ColorF, CommonItemProperties,
         ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
-        DocumentId, Epoch, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
-        PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo, SpatialId, SpatialTreeItemKey,
-        TransformStyle,
+        DocumentId, Epoch, ExternalScrollId, HasScrollLinkedEffect, ItemTag, PipelineId,
+        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind,
+        SpaceAndClipInfo, SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
     Transaction,
@@ -357,7 +358,7 @@ pub fn translate_displaylist_to_wr(
                 scroll_id,
             } => {
                 // Create a scroll frame with proper clipping and content size
-                let clip_rect = LayoutRect::from_origin_and_size(
+                let frame_rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(clip_bounds.origin.x, clip_bounds.origin.y),
                     LayoutSize::new(clip_bounds.size.width, clip_bounds.size.height),
                 );
@@ -367,30 +368,49 @@ pub fn translate_displaylist_to_wr(
                     LayoutSize::new(content_size.width, content_size.height),
                 );
 
-                // TODO: Implement PushScrollFrame - WebRender API has changed
-                // The new define_scroll_frame requires:
-                // - ExternalScrollId (not ItemTag)
-                // - APZScrollGeneration, HasScrollLinkedEffect, SpatialTreeItemKey
-                // These types are not exported in the current WebRender version
-                // For now, we skip scroll frames and just push spatial/clip info
-
-                eprintln!(
-                    "[compositor2] PushScrollFrame: SKIPPED (API changed) - clip_bounds={:?}, \
-                     content_size={:?}, scroll_id={}",
-                    clip_bounds, content_size, scroll_id
+                // Define scroll frame using WebRender API
+                let parent_space = *spatial_stack.last().unwrap();
+                let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
+                
+                let scroll_spatial_id = builder.define_scroll_frame(
+                    parent_space,
+                    external_scroll_id,
+                    content_rect,
+                    frame_rect,
+                    LayoutVector2D::zero(), // external_scroll_offset
+                    0, // scroll_offset_generation (APZScrollGeneration)
+                    HasScrollLinkedEffect::No,
+                    SpatialTreeItemKey::new(*scroll_id, 0),
                 );
 
-                // TODO: Properly implement scroll frames when WebRender types are available
-                // For now, we don't push new spatial/clip nodes
-                // This means scrolling won't work correctly until fixed
+                // Push the new spatial ID onto the stack
+                spatial_stack.push(scroll_spatial_id);
+
+                // Define clip for the scroll frame
+                let scroll_clip_id = builder.define_clip_rect(scroll_spatial_id, frame_rect);
+                
+                // Create a clip chain with this clip
+                let scroll_clip_chain = builder.define_clip_chain(None, [scroll_clip_id]);
+                clip_stack.push(scroll_clip_chain);
+
+                eprintln!(
+                    "[compositor2] PushScrollFrame: frame_rect={:?}, content_rect={:?}, \
+                     scroll_id={}, spatial_id={:?}",
+                    frame_rect, content_rect, scroll_id, scroll_spatial_id
+                );
             }
 
             DisplayListItem::PopScrollFrame => {
-                // TODO: Re-enable when PushScrollFrame is properly implemented
-                eprintln!("[compositor2] PopScrollFrame: SKIPPED (scroll frames disabled)");
+                // Pop both spatial and clip stacks
+                clip_stack.pop();
+                spatial_stack.pop();
 
-                // For now, don't pop stacks since we didn't push them
-                // This keeps the spatial/clip stack balanced
+                if spatial_stack.is_empty() || clip_stack.is_empty() {
+                    eprintln!("[compositor2] ERROR: PopScrollFrame caused stack underflow");
+                    return Err("Scroll frame stack underflow".to_string());
+                }
+
+                eprintln!("[compositor2] PopScrollFrame: spatial and clip stacks popped");
             }
 
             DisplayListItem::HitTestArea { bounds, tag } => {
@@ -424,6 +444,84 @@ pub fn translate_displaylist_to_wr(
                     "[compositor2] HitTestArea: bounds={:?}, tag={:?}",
                     bounds, tag
                 );
+            }
+
+            DisplayListItem::Underline {
+                bounds,
+                color,
+                thickness,
+            } => {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, *thickness),
+                );
+                let color_f = ColorF::new(
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                );
+
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    clip_chain_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
+                    flags: Default::default(),
+                };
+
+                builder.push_rect(&info, rect, color_f);
+            }
+
+            DisplayListItem::Strikethrough {
+                bounds,
+                color,
+                thickness,
+            } => {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, *thickness),
+                );
+                let color_f = ColorF::new(
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                );
+
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    clip_chain_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
+                    flags: Default::default(),
+                };
+
+                builder.push_rect(&info, rect, color_f);
+            }
+
+            DisplayListItem::Overline {
+                bounds,
+                color,
+                thickness,
+            } => {
+                let rect = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutSize::new(bounds.size.width, *thickness),
+                );
+                let color_f = ColorF::new(
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                );
+
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    clip_chain_id: *clip_stack.last().unwrap(),
+                    spatial_id: *spatial_stack.last().unwrap(),
+                    flags: Default::default(),
+                };
+
+                builder.push_rect(&info, rect, color_f);
             }
 
             DisplayListItem::Text {

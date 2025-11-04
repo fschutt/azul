@@ -60,6 +60,8 @@ pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
+    pub gtk_im: Option<Rc<Gtk3Im>>,  // Optional GTK IM context for IME
+    pub gtk_im_context: Option<*mut dlopen::GtkIMContext>,  // GTK IM context instance
     pub display: *mut Display,
     pub window: Window,
     pub is_open: bool,
@@ -170,6 +172,20 @@ impl PlatformWindow for X11Window {
             let result = match unsafe { event.type_ } {
                 defines::Expose => {
                     self.request_redraw();
+                    ProcessEventResult::DoNothing
+                }
+                defines::FocusIn => {
+                    // Window gained focus
+                    self.current_window_state.window_focused = true;
+
+                    // Phase 2: OnFocus callback - sync IME position after focus
+                    self.sync_ime_position_to_os();
+
+                    ProcessEventResult::DoNothing
+                }
+                defines::FocusOut => {
+                    // Window lost focus
+                    self.current_window_state.window_focused = false;
                     ProcessEventResult::DoNothing
                 }
                 defines::ConfigureNotify => {
@@ -339,6 +355,24 @@ impl X11Window {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
         })?;
 
+        // Try to load GTK3 IM context for IME support (optional, fail silently)
+        let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
+            Ok(gtk) => {
+                eprintln!("[X11] GTK3 IM context loaded for IME support");
+                let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
+                if !ctx.is_null() {
+                    (Some(gtk), Some(ctx))
+                } else {
+                    eprintln!("[X11] Failed to create GTK IM context instance");
+                    (None, None)
+                }
+            }
+            Err(e) => {
+                eprintln!("[X11] GTK3 IM not available (IME positioning disabled): {:?}", e);
+                (None, None)
+            }
+        };
+
         let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
         if display.is_null() {
             return Err(WindowError::PlatformError(
@@ -472,6 +506,8 @@ impl X11Window {
             xlib,
             egl,
             xkb,
+            gtk_im,
+            gtk_im_context,
             display,
             window: window_handle,
             is_open: true,
@@ -706,10 +742,35 @@ impl X11Window {
             self.document_id.ok_or("No document ID")?,
         )?;
 
+        // Update accessibility tree after layout
+        #[cfg(feature = "accessibility")]
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
+                self.accessibility_adapter.update_tree(tree_update);
+            }
+        }
+
         // Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
+        // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
+        self.update_ime_position_from_cursor();
+        self.sync_ime_position_to_os();
+
         Ok(())
+    }
+
+    /// Update ime_position in window state from focused text cursor
+    /// Called after layout to ensure IME window appears at correct position
+    fn update_ime_position_from_cursor(&mut self) {
+        use azul_core::window::ImePosition;
+
+        if let Some(layout_window) = &self.layout_window {
+            if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
+                // Successfully calculated cursor position from text layout
+                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+            }
+        }
     }
 
     /// Generate frame if needed and reset flag
@@ -1219,6 +1280,65 @@ impl Drop for X11Window {
         // Unregister from global registry before closing
         super::registry::unregister_x11_window(self.window);
         self.close();
+    }
+}
+
+// ===== IME Position Management =====
+
+impl X11Window {
+    /// Sync ime_position from window state to OS
+    /// Sync IME position to OS (X11 with XIM)
+    pub fn sync_ime_position_to_os(&self) {
+        use azul_core::window::ImePosition;
+        use std::ffi::CString;
+        use defines::{XPoint, XRectangle};
+        
+        if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
+            // Use XIM if available (preferred over GTK)
+            if let Some(ref ime_mgr) = self.ime_manager {
+                let spot = XPoint {
+                    x: rect.origin.x as i16,
+                    y: rect.origin.y as i16,
+                };
+                
+                let area = XRectangle {
+                    x: rect.origin.x as i16,
+                    y: rect.origin.y as i16,
+                    width: rect.size.width as u16,
+                    height: rect.size.height as u16,
+                };
+                
+                unsafe {
+                    let spot_location = CString::new("spotLocation").unwrap();
+                    let preedit_attr = CString::new("preeditAttributes").unwrap();
+                    
+                    // Set spot location (cursor position) for preedit window
+                    let xic = ime_mgr.get_xic();
+                    (self.xlib.XSetICValues)(
+                        xic,
+                        preedit_attr.as_ptr(),
+                        spot_location.as_ptr(),
+                        &spot as *const XPoint,
+                        std::ptr::null::<i8>(),
+                    );
+                }
+                return;
+            }
+            
+            // Fallback to GTK IM context if XIM not available
+            if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
+                let gdk_rect = dlopen::GdkRectangle {
+                    x: rect.origin.x as i32,
+                    y: rect.origin.y as i32,
+                    width: rect.size.width as i32,
+                    height: rect.size.height as i32,
+                };
+                
+                unsafe {
+                    (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
+                }
+            }
+        }
     }
 }
 

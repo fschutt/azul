@@ -374,6 +374,17 @@ pub const WL_POINTER_AXIS_HORIZONTAL_SCROLL: u32 = 1;
 
 pub const WL_SHM_FORMAT_ARGB8888: u32 = 0;
 
+// Text input protocol v3 (zwp_text_input_v3)
+#[repr(C)]
+pub struct zwp_text_input_manager_v3 {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct zwp_text_input_v3 {
+    _private: [u8; 0],
+}
+
 // XKB Constants
 pub const XKB_CONTEXT_NO_FLAGS: u32 = 0;
 pub const XKB_KEYMAP_FORMAT_TEXT_V1: u32 = 1;

@@ -537,6 +537,7 @@ pub type XOpenIM = unsafe extern "C" fn(*mut Display, *mut c_void, *mut c_char, 
 pub type XCloseIM = unsafe extern "C" fn(XIM) -> c_int;
 pub type XCreateIC = unsafe extern "C" fn(XIM, ...) -> XIC;
 pub type XDestroyIC = unsafe extern "C" fn(XIC);
+pub type XSetICValues = unsafe extern "C" fn(XIC, ...) -> *mut c_char;
 pub type XmbLookupString =
     unsafe extern "C" fn(XIC, *mut XKeyEvent, *mut c_char, c_int, *mut KeySym, *mut c_int) -> c_int;
 pub type XSetICFocus = unsafe extern "C" fn(XIC);
@@ -605,6 +606,32 @@ pub const XC_bottom_right_corner: c_uint = 14;
 pub const XC_sb_h_double_arrow: c_uint = 108;
 pub const XC_sb_v_double_arrow: c_uint = 116;
 pub const XC_sizing: c_uint = 120;
+
+// XIM (X Input Method) structures and constants
+#[repr(C)]
+pub struct XPoint {
+    pub x: i16,
+    pub y: i16,
+}
+
+#[repr(C)]
+pub struct XRectangle {
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
+}
+
+// XIM style constants
+pub const XIMPreeditArea: c_ulong = 0x0001;
+pub const XIMPreeditCallbacks: c_ulong = 0x0002;
+pub const XIMPreeditPosition: c_ulong = 0x0004;
+pub const XIMPreeditNothing: c_ulong = 0x0008;
+pub const XIMPreeditNone: c_ulong = 0x0010;
+pub const XIMStatusArea: c_ulong = 0x0100;
+pub const XIMStatusCallbacks: c_ulong = 0x0200;
+pub const XIMStatusNothing: c_ulong = 0x0400;
+pub const XIMStatusNone: c_ulong = 0x0800;
 
 // Display dimension functions
 pub type XDisplayWidth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;

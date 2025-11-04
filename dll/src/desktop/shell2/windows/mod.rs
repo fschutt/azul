@@ -135,6 +135,8 @@ pub struct Win32Window {
     // Input state
     /// High surrogate for UTF-16 character composition
     pub high_surrogate: Option<u16>,
+    /// IME composition string (for preview during typing)
+    pub ime_composition: Option<String>,
     /// Last hovered node (for hover state tracking)
     pub last_hovered_node: Option<event_v2::HitTestNode>,
     /// Scrollbar drag state (for drag interactions)
@@ -413,6 +415,7 @@ impl Win32Window {
             timers: HashMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
+            ime_composition: None,
             last_hovered_node: None,
             scrollbar_drag_state: None,
             dpi: dpi_functions,
@@ -551,6 +554,14 @@ impl Win32Window {
             self.document_id,
         )?;
 
+        // Update accessibility tree after layout
+        #[cfg(feature = "accessibility")]
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
+                self.accessibility_adapter.update_tree(tree_update);
+            }
+        }
+
         // Send frame immediately (Windows doesn't batch like macOS/X11)
         let layout_window = self.layout_window.as_mut().unwrap();
         crate::desktop::shell2::common::layout_v2::generate_frame(
@@ -560,7 +571,24 @@ impl Win32Window {
         );
         self.render_api.flush_scene_builder();
 
+        // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
+        self.update_ime_position_from_cursor();
+        self.sync_ime_position_to_os();
+
         Ok(())
+    }
+
+    /// Update ime_position in window state from focused text cursor
+    /// Called after layout to ensure IME window appears at correct position
+    fn update_ime_position_from_cursor(&mut self) {
+        use azul_core::window::ImePosition;
+
+        if let Some(layout_window) = &self.layout_window {
+            if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
+                // Successfully calculated cursor position from text layout
+                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+            }
+        }
     }
 
     /// Synchronize window state with Windows OS
@@ -1853,6 +1881,9 @@ unsafe extern "system" fn window_proc(
 
         WM_IME_STARTCOMPOSITION => {
             // IME composition started (e.g., user starts typing Japanese)
+            // Phase 2: OnCompositionStart callback - sync IME position
+            window.sync_ime_position_to_os();
+
             // Let Windows handle the composition window by default
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
@@ -1867,13 +1898,49 @@ unsafe extern "system" fn window_proc(
             const GCS_COMPSTR: isize = 0x0008;
 
             if lparam & GCS_RESULTSTR != 0 {
-                // Final composed string is ready - retrieve it
-                // This requires calling ImmGetCompositionStringW
-                // For now, we'll let the default processing handle it
-                // which will generate WM_IME_CHAR messages
+                // Final composed string is ready - clear composition preview
+                window.ime_composition = None;
+                
+                // Let default processing handle it which will generate WM_IME_CHAR messages
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
             } else if lparam & GCS_COMPSTR != 0 {
-                // Intermediate composition - let Windows show composition window
+                // Intermediate composition - extract and store it
+                if let Some(ref imm32) = window.win32.imm32 {
+                    unsafe {
+                        // Get IME context
+                        let himc = (imm32.ImmGetContext)(hwnd);
+                        if !himc.is_null() {
+                            // Get composition string length
+                            let len =
+                                (imm32.ImmGetCompositionStringW)(himc, GCS_COMPSTR as u32, ptr::null_mut(), 0);
+                            
+                            if len > 0 {
+                                // Allocate buffer (len is in bytes, need len/2 u16s)
+                                let buf_len = (len as usize) / 2;
+                                let mut buffer: Vec<u16> = vec![0; buf_len];
+                                
+                                // Get the actual string
+                                let result = (imm32.ImmGetCompositionStringW)(
+                                    himc,
+                                    GCS_COMPSTR as u32,
+                                    buffer.as_mut_ptr() as *mut _,
+                                    len as u32,
+                                );
+                                
+                                if result > 0 {
+                                    // Convert to String and store
+                                    window.ime_composition = String::from_utf16(&buffer).ok();
+                                    eprintln!("[IME] Composition: {:?}", window.ime_composition);
+                                }
+                            }
+                            
+                            // Release context
+                            (imm32.ImmReleaseContext)(hwnd, himc);
+                        }
+                    }
+                }
+                
+                // Let Windows show composition window by default
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
             } else {
                 (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
@@ -1881,7 +1948,8 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_IME_ENDCOMPOSITION => {
-            // IME composition ended
+            // IME composition ended - clear composition preview
+            window.ime_composition = None;
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
         }
 
@@ -1923,6 +1991,9 @@ unsafe extern "system" fn window_proc(
             window.previous_window_state = Some(window.current_window_state.clone());
             window.current_window_state.flags.has_focus = true;
             window.current_window_state.window_focused = true;
+
+            // Phase 2: OnFocus callback - sync IME position after focus
+            window.sync_ime_position_to_os();
 
             0
         }
@@ -2356,13 +2427,23 @@ impl Win32Window {
     /// * `Ok(())` if menu injection succeeded
     /// * `Err(String)` if menu injection failed
     pub fn inject_menu_bar(&mut self) -> Result<(), String> {
-        // TODO: Implement native Windows menu creation
-        // 1. Extract menu structure from WindowState
-        // 2. Convert to HMENU hierarchy
-        // 3. Set as window menu with SetMenu(hwnd, hmenu)
-        // 4. Wire up WM_COMMAND handler for menu callbacks
+        // Extract menu from current window state
+        let menu_opt = if let Some(layout_window) = self.layout_window.as_ref() {
+            // Get menu from layout_window's root DOM
+            layout_window.get_menu()
+        } else {
+            None
+        };
 
-        eprintln!("[inject_menu_bar] TODO: Implement native Windows menu injection");
+        // Update menu bar using the helper function from menu.rs
+        // This handles creation, update (via hash diff), and removal
+        menu::set_menu_bar(self.hwnd, &mut self.menu_bar, menu_opt.as_ref(), &self.win32);
+
+        // Force window to redraw with new menu
+        unsafe {
+            (self.win32.user32.DrawMenuBar)(self.hwnd);
+        }
+
         Ok(())
     }
 
@@ -2761,6 +2842,52 @@ fn position_window_on_monitor(
             0, // Height (ignored with SWP_NOSIZE)
             SWP_NOZORDER | SWP_NOSIZE,
         );
+    }
+}
+
+// ===== IME Position Management =====
+
+impl Win32Window {
+    /// Set IME composition window position and area
+    /// Called when ime_position is updated in window state
+    pub fn set_ime_composition_window(&self, rect: azul_core::geom::LogicalRect) {
+        if let Some(ref imm32) = self.win32.imm32 {
+            unsafe {
+                let hwnd = self.hwnd;
+                let himc = (imm32.ImmGetContext)(hwnd);
+                
+                if !himc.is_null() {
+                    use dlopen::{COMPOSITIONFORM, CFS_RECT, POINT, RECT};
+                    
+                    let mut comp_form = COMPOSITIONFORM {
+                        dwStyle: CFS_RECT,
+                        ptCurrentPos: POINT {
+                            x: rect.origin.x as i32,
+                            y: rect.origin.y as i32,
+                        },
+                        rcArea: RECT {
+                            left: rect.origin.x as i32,
+                            top: rect.origin.y as i32,
+                            right: (rect.origin.x + rect.size.width) as i32,
+                            bottom: (rect.origin.y + rect.size.height) as i32,
+                        },
+                    };
+                    
+                    (imm32.ImmSetCompositionWindow)(himc, &comp_form);
+                    (imm32.ImmReleaseContext)(hwnd, himc);
+                }
+            }
+        }
+    }
+
+    /// Sync ime_position from window state to OS
+    pub fn sync_ime_position_to_os(&self) {
+        use azul_core::window::ImePosition;
+        
+        if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
+            self.set_ime_composition_window(rect);
+        }
+        }
     }
 }
 

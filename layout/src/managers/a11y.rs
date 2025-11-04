@@ -132,6 +132,8 @@ pub struct A11yManager {
     pub root_id: A11yNodeId,
     /// The current accessibility tree state.
     pub tree: Option<Tree>,
+    /// The last generated tree update (for platform adapter consumption).
+    pub last_tree_update: Option<TreeUpdate>,
 }
 
 #[cfg(feature = "accessibility")]
@@ -142,6 +144,7 @@ impl A11yManager {
         Self {
             root_id,
             tree: None,
+            last_tree_update: None,
         }
     }
 

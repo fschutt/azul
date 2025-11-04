@@ -103,6 +103,7 @@ pub struct Xlib {
     pub XCloseIM: XCloseIM,
     pub XCreateIC: XCreateIC,
     pub XDestroyIC: XDestroyIC,
+    pub XSetICValues: XSetICValues,
     pub XmbLookupString: XmbLookupString,
     pub XSetICFocus: XSetICFocus,
     pub XUnsetICFocus: XUnsetICFocus,
@@ -157,6 +158,7 @@ impl Xlib {
             XCloseIM: load_symbol!(lib, _, "XCloseIM"),
             XCreateIC: load_symbol!(lib, _, "XCreateIC"),
             XDestroyIC: load_symbol!(lib, _, "XDestroyIC"),
+            XSetICValues: load_symbol!(lib, _, "XSetICValues"),
             XmbLookupString: load_symbol!(lib, _, "XmbLookupString"),
             XSetICFocus: load_symbol!(lib, _, "XSetICFocus"),
             XUnsetICFocus: load_symbol!(lib, _, "XUnsetICFocus"),
@@ -251,6 +253,47 @@ impl Xkb {
             xkb_state_update_mask: load_symbol!(lib, _, "xkb_state_update_mask"),
             xkb_state_key_get_one_sym: load_symbol!(lib, _, "xkb_state_key_get_one_sym"),
             xkb_state_key_get_utf8: load_symbol!(lib, _, "xkb_state_key_get_utf8"),
+            _lib: lib,
+        }))
+    }
+}
+
+/// Dynamically loaded GTK3 IM context functions for IME support
+pub struct Gtk3Im {
+    _lib: Library,
+    pub gtk_im_context_simple_new: unsafe extern "C" fn() -> *mut GtkIMContext,
+    pub gtk_im_context_set_cursor_location: unsafe extern "C" fn(*mut GtkIMContext, *const GdkRectangle),
+    pub gtk_im_context_focus_in: unsafe extern "C" fn(*mut GtkIMContext),
+    pub gtk_im_context_focus_out: unsafe extern "C" fn(*mut GtkIMContext),
+    pub gtk_im_context_reset: unsafe extern "C" fn(*mut GtkIMContext),
+}
+
+// Opaque GTK types
+#[repr(C)]
+pub struct GtkIMContext {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct GdkRectangle {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl Gtk3Im {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(&[
+            "libgtk-3.so.0",
+            "libgtk-3.so",
+        ])?;
+        Ok(Rc::new(Self {
+            gtk_im_context_simple_new: load_symbol!(lib, _, "gtk_im_context_simple_new"),
+            gtk_im_context_set_cursor_location: load_symbol!(lib, _, "gtk_im_context_set_cursor_location"),
+            gtk_im_context_focus_in: load_symbol!(lib, _, "gtk_im_context_focus_in"),
+            gtk_im_context_focus_out: load_symbol!(lib, _, "gtk_im_context_focus_out"),
+            gtk_im_context_reset: load_symbol!(lib, _, "gtk_im_context_reset"),
             _lib: lib,
         }))
     }

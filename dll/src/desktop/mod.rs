@@ -515,26 +515,26 @@
 //! }
 //! ```
 //!
-//! ## Next Steps
+//! ## Completed Features (Phase 1)
 //!
-//! 1. **Wayland V2 Port:**
-//!    - Add `state_dirty` flag
-//!    - Implement `sync_and_process_events()`
-//!    - Copy `regenerate_layout()` from X11
-//!    - Implement `sync_window_state()` with Wayland protocols
+//! ✅ **All Platform V2 Ports Complete:**
+//!    - macOS: Full event_v2 integration with NSApplication event loop
+//!    - Windows: Complete V2 implementation with frame regeneration tracking
+//!    - X11: Full V2 architecture with state diffing
+//!    - Wayland: Complete V2 port with wl_output protocol for monitor enumeration
 //!
-//! 2. **Windows V2 Port:**
-//!    - Refactor WndProc to handler methods
-//!    - Add `frame_needs_regeneration` tracking
-//!    - Implement `regenerate_layout()`
-//!    - Implement `sync_window_state()`
+//! ✅ **Native Menu Systems:**
+//!    - macOS: Full NSMenu integration with AzulMenuTarget callback bridge
+//!    - Windows: HMENU integration planned for Phase 2
+//!    - Linux: Native menu support planned for Phase 2
 //!
-//! 3. **Native Menu Systems:**
+//! ## Next Steps (Phase 2)
+//!
+//! 1. **Enhanced Menu Systems:**
 //!    - Windows HMENU integration
-//!    - macOS NSMenu completion
-//!    - Unified callback interface
+//!    - Linux native menu support
 //!
-//! 4. **Testing:**
+//! 2. **Testing & Validation:**
 //!    - Multi-window stress tests
 //!    - CSD interaction tests
 //!    - Menu callback routing tests

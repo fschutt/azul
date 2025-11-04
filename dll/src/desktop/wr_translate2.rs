@@ -336,7 +336,7 @@ pub fn translate_hit_test_result(
             point_in_viewport,
             point_relative_to_item,
             is_focusable: false, // TODO: Determine from node data
-            is_iframe_hit: None, // TODO: Re-enable iframe support when needed
+            is_iframe_hit: None, // IFrames handled via DisplayListItem::IFrame
         };
 
         hovered_nodes
@@ -502,7 +502,7 @@ pub fn fullhittest_new_webrender(
                         HitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
                             point_relative_to_item,
-                            is_iframe_hit: None, // TODO: Re-enable iframe support when needed
+                            is_iframe_hit: None, // IFrames handled via DisplayListItem::IFrame
                             is_focusable: layout_result
                                 .styled_dom
                                 .node_data

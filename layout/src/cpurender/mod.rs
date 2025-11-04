@@ -155,6 +155,60 @@ fn render_display_list(
                     dpi_factor,
                 )?;
             }
+            DisplayListItem::Underline {
+                bounds,
+                color,
+                thickness,
+            } => {
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                // Render underline as a simple filled rectangle
+                render_rect(
+                    pixmap,
+                    bounds,
+                    *color,
+                    &BorderRadius::default(),
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
+            }
+            DisplayListItem::Strikethrough {
+                bounds,
+                color,
+                thickness,
+            } => {
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                // Render strikethrough as a simple filled rectangle
+                render_rect(
+                    pixmap,
+                    bounds,
+                    *color,
+                    &BorderRadius::default(),
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
+            }
+            DisplayListItem::Overline {
+                bounds,
+                color,
+                thickness,
+            } => {
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                // Render overline as a simple filled rectangle
+                render_rect(
+                    pixmap,
+                    bounds,
+                    *color,
+                    &BorderRadius::default(),
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
+            }
             DisplayListItem::Text {
                 glyphs,
                 font_size_px,

@@ -113,6 +113,10 @@ impl MonitorState {
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
+    gtk_im: Option<Rc<Gtk3Im>>,  // Optional GTK IM context for IME (fallback)
+    gtk_im_context: Option<*mut dlopen::GtkIMContext>,  // GTK IM context instance (fallback)
+    text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>,  // Wayland text-input v3 manager
+    text_input: Option<*mut defines::zwp_text_input_v3>,  // Wayland text-input v3 instance
     pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
     compositor: *mut defines::wl_compositor,
@@ -153,6 +157,10 @@ pub struct WaylandWindow {
     pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
+
+    // Accessibility
+    #[cfg(feature = "accessibility")]
+    pub accessibility_adapter: super::super::x11::accessibility::LinuxAccessibilityAdapter,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -781,6 +789,24 @@ impl WaylandWindow {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
         })?;
 
+        // Try to load GTK3 IM context for IME support (optional, fail silently)
+        let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
+            Ok(gtk) => {
+                eprintln!("[Wayland] GTK3 IM context loaded for IME support");
+                let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
+                if !ctx.is_null() {
+                    (Some(gtk), Some(ctx))
+                } else {
+                    eprintln!("[Wayland] Failed to create GTK IM context instance");
+                    (None, None)
+                }
+            }
+            Err(e) => {
+                eprintln!("[Wayland] GTK3 IM not available (IME positioning disabled): {:?}", e);
+                (None, None)
+            }
+        };
+
         let display = unsafe { (wayland.wl_display_connect)(std::ptr::null()) };
         if display.is_null() {
             return Err(WindowError::PlatformError(
@@ -800,6 +826,10 @@ impl WaylandWindow {
         let mut window = Self {
             wayland: wayland.clone(),
             xkb,
+            gtk_im,
+            gtk_im_context,
+            text_input_manager: None,  // Will be populated if compositor supports text-input v3
+            text_input: None,
             display,
             event_queue,
             registry,
@@ -848,6 +878,8 @@ impl WaylandWindow {
             last_hovered_node: None,
             frame_needs_regeneration: false,
             frame_callback_pending: false,
+            #[cfg(feature = "accessibility")]
+            accessibility_adapter: super::super::x11::accessibility::LinuxAccessibilityAdapter::new(),
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
             known_outputs: Vec::new(),
@@ -1039,6 +1071,13 @@ impl WaylandWindow {
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Phase 2: OnFocus callback (delayed) - if we receive keyboard events, we must have focus
+        // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard activity
+        if is_pressed && !self.current_window_state.window_focused {
+            self.current_window_state.window_focused = true;
+            self.sync_ime_position_to_os();
+        }
 
         // XKB uses keycode = evdev_keycode + 8
         let xkb_keycode = key + 8;
@@ -1535,7 +1574,32 @@ impl WaylandWindow {
         // Mark that frame needs regeneration (will be called once at event processing end)
         self.frame_needs_regeneration = true;
 
+        // Update accessibility tree on Wayland
+        #[cfg(feature = "accessibility")]
+        {
+            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.take() {
+                self.accessibility_adapter.update_tree(tree_update);
+            }
+        }
+
+        // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
+        self.update_ime_position_from_cursor();
+        self.sync_ime_position_to_os();
+
         Ok(())
+    }
+
+    /// Update ime_position in window state from focused text cursor
+    /// Called after layout to ensure IME window appears at correct position
+    fn update_ime_position_from_cursor(&mut self) {
+        use azul_core::window::ImePosition;
+
+        if let Some(layout_window) = &self.layout_window {
+            if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
+                // Successfully calculated cursor position from text layout
+                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+            }
+        }
     }
 
     /// Synchronize window state with Wayland compositor
@@ -2416,6 +2480,50 @@ extern "C" fn popup_xdg_surface_configure(
                 ack(xdg_surface, serial);
             }
             libc::dlclose(lib);
+        }
+    }
+}
+
+// ===== IME Position Management =====
+
+impl WaylandWindow {
+    /// Sync ime_position from window state to OS
+    /// Sync IME position to OS (Wayland with text-input-v3 or GTK fallback)
+    pub fn sync_ime_position_to_os(&self) {
+        use azul_core::window::ImePosition;
+        
+        if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
+            // Try text-input v3 protocol first (preferred, but requires compositor support)
+            if let Some(text_input) = self.text_input {
+                // zwp_text_input_v3_set_cursor_rectangle would be called here
+                // However, this requires proper protocol bindings which are complex
+                // For now, we note that this is where native Wayland IME would go
+                eprintln!("[Wayland] text-input v3 available but not yet implemented");
+                
+                // The proper implementation would be:
+                // zwp_text_input_v3_set_cursor_rectangle(
+                //     text_input,
+                //     rect.origin.x as i32,
+                //     rect.origin.y as i32,
+                //     rect.size.width as i32,
+                //     rect.size.height as i32,
+                // );
+                // wl_display_flush(self.display);
+            }
+            
+            // Fallback to GTK IM context (works across X11 and Wayland)
+            if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
+                let gdk_rect = dlopen::GdkRectangle {
+                    x: rect.origin.x as i32,
+                    y: rect.origin.y as i32,
+                    width: rect.size.width as i32,
+                    height: rect.size.height as i32,
+                };
+                
+                unsafe {
+                    (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
+                }
+            }
         }
     }
 }

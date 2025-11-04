@@ -36,6 +36,10 @@ pub struct GlyphRun<T: ParsedFontTrait> {
     pub font_hash: u64,
     /// The font size in pixels.
     pub font_size_px: f32,
+    /// Text decoration (underline, strikethrough, overline)
+    pub text_decoration: crate::text3::cache::TextDecoration,
+    /// Whether this is an IME composition preview (should be rendered with special styling)
+    pub is_ime_preview: bool,
 }
 
 /// Same as `get_glyph_positions`, but returns a list of `GlyphRun`s instead of a flat list of
@@ -60,6 +64,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                     let glyph_color = glyph.style.color;
                     let font_hash = glyph.font.get_hash();
                     let font_size_px = glyph.style.font_size_px;
+                    let text_decoration = glyph.style.text_decoration.clone();
 
                     // Calculate absolute position: baseline position + GPOS offset
                     let absolute_position = LogicalPosition {
@@ -74,11 +79,12 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                         if run.font_hash == font_hash
                             && run.color == glyph_color
                             && run.font_size_px == font_size_px
+                            && run.text_decoration == text_decoration
                         {
                             run.glyphs.push(instance);
                         } else {
-                            // Different font, color, or size: finalize the current run and start a
-                            // new one
+                            // Different font, color, size, or decoration: finalize the current run
+                            // and start a new one
                             runs.push(run.clone());
                             current_run = Some(GlyphRun {
                                 glyphs: vec![instance],
@@ -86,6 +92,8 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                                 font: glyph.font.clone(),
                                 font_hash,
                                 font_size_px,
+                                text_decoration: text_decoration.clone(),
+                                is_ime_preview: false, // TODO: Set from input context
                             });
                         }
                     } else {
@@ -96,6 +104,8 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
                             font: glyph.font.clone(),
                             font_hash,
                             font_size_px,
+                            text_decoration: text_decoration.clone(),
+                            is_ime_preview: false, // TODO: Set from input context
                         });
                     }
 

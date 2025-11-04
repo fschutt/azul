@@ -27,7 +27,7 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     callbacks::{LayoutCallback, LayoutCallbackType, Update},
     dom::{DomId, DomNodeId, NodeHierarchy},
-    geom::{LogicalPosition, LogicalSize, OptionLogicalSize, PhysicalPositionI32, PhysicalSize},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalSize, PhysicalPositionI32, PhysicalSize},
     gl::OptionGlContextPtr,
     hit_test::{ExternalScrollId, OverflowingScrollNode},
     id::{NodeDataContainer, NodeId},
@@ -794,9 +794,10 @@ impl Default for WindowPosition {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
+/// IME composition window rectangle (cursor position + height)
 pub enum ImePosition {
     Uninitialized,
-    Initialized(LogicalPosition),
+    Initialized(LogicalRect),
 }
 
 impl Default for ImePosition {

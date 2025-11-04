@@ -87,6 +87,11 @@ impl ImeManager {
         }
     }
 
+    /// Get the XIC (X Input Context) for setting IME properties
+    pub(super) fn get_xic(&self) -> XIC {
+        self.xic
+    }
+
     /// Filters an event through the IME.
     /// Returns `true` if the event was consumed by the IME.
     pub(super) fn filter_event(&self, event: &mut XEvent) -> bool {

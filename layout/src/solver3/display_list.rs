@@ -151,6 +151,24 @@ pub enum DisplayListItem {
         color: ColorU,
         clip_rect: LogicalRect,
     },
+    /// Underline decoration for text (CSS text-decoration: underline)
+    Underline {
+        bounds: LogicalRect,
+        color: ColorU,
+        thickness: f32,
+    },
+    /// Strikethrough decoration for text (CSS text-decoration: line-through)
+    Strikethrough {
+        bounds: LogicalRect,
+        color: ColorU,
+        thickness: f32,
+    },
+    /// Overline decoration for text (CSS text-decoration: overline)
+    Overline {
+        bounds: LogicalRect,
+        color: ColorU,
+        thickness: f32,
+    },
     Image {
         bounds: LogicalRect,
         key: ImageKey,
@@ -392,6 +410,36 @@ impl DisplayListBuilder {
                 font_size_px,
                 color,
                 clip_rect,
+            });
+        }
+    }
+
+    pub fn push_underline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
+        if color.a > 0 && thickness > 0.0 {
+            self.items.push(DisplayListItem::Underline {
+                bounds,
+                color,
+                thickness,
+            });
+        }
+    }
+
+    pub fn push_strikethrough(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
+        if color.a > 0 && thickness > 0.0 {
+            self.items.push(DisplayListItem::Strikethrough {
+                bounds,
+                color,
+                thickness,
+            });
+        }
+    }
+
+    pub fn push_overline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
+        if color.a > 0 && thickness > 0.0 {
+            self.items.push(DisplayListItem::Overline {
+                bounds,
+                color,
+                thickness,
             });
         }
     }
@@ -1118,6 +1166,73 @@ where
             );
 
             eprintln!("[paint_inline_content] ✓ Pushed text run to display list");
+
+            // Render text decorations if present OR if this is IME composition preview
+            let needs_underline = glyph_run.text_decoration.underline || glyph_run.is_ime_preview;
+            let needs_strikethrough = glyph_run.text_decoration.strikethrough;
+            let needs_overline = glyph_run.text_decoration.overline;
+
+            if needs_underline || needs_strikethrough || needs_overline
+            {
+                // Calculate the bounding box for this glyph run
+                if let (Some(first_glyph), Some(last_glyph)) =
+                    (glyph_run.glyphs.first(), glyph_run.glyphs.last())
+                {
+                    let decoration_start_x = container_rect.origin.x + first_glyph.point.x;
+                    let decoration_end_x = container_rect.origin.x + last_glyph.point.x;
+                    let decoration_width = decoration_end_x - decoration_start_x;
+
+                    // Use font metrics to determine decoration positions
+                    // Standard ratios based on CSS specification
+                    let font_size = glyph_run.font_size_px;
+                    let thickness = (font_size * 0.08).max(1.0); // ~8% of font size, min 1px
+
+                    // Baseline is at glyph.point.y
+                    let baseline_y = container_rect.origin.y + first_glyph.point.y;
+
+                    if needs_underline {
+                        // Underline is typically 10-15% below baseline
+                        // IME composition always gets underlined
+                        let underline_y = baseline_y + (font_size * 0.12);
+                        let underline_bounds = LogicalRect::new(
+                            LogicalPosition::new(decoration_start_x, underline_y),
+                            LogicalSize::new(decoration_width, thickness),
+                        );
+                        builder.push_underline(underline_bounds, glyph_run.color, thickness);
+                        if glyph_run.is_ime_preview {
+                            eprintln!("[paint_inline_content] ✓ Pushed IME composition underline");
+                        } else {
+                            eprintln!("[paint_inline_content] ✓ Pushed underline decoration");
+                        }
+                    }
+
+                    if needs_strikethrough {
+                        // Strikethrough is typically 40% above baseline (middle of x-height)
+                        let strikethrough_y = baseline_y - (font_size * 0.3);
+                        let strikethrough_bounds = LogicalRect::new(
+                            LogicalPosition::new(decoration_start_x, strikethrough_y),
+                            LogicalSize::new(decoration_width, thickness),
+                        );
+                        builder.push_strikethrough(
+                            strikethrough_bounds,
+                            glyph_run.color,
+                            thickness,
+                        );
+                        eprintln!("[paint_inline_content] ✓ Pushed strikethrough decoration");
+                    }
+
+                    if needs_overline {
+                        // Overline is typically at cap-height (75% above baseline)
+                        let overline_y = baseline_y - (font_size * 0.85);
+                        let overline_bounds = LogicalRect::new(
+                            LogicalPosition::new(decoration_start_x, overline_y),
+                            LogicalSize::new(decoration_width, thickness),
+                        );
+                        builder.push_overline(overline_bounds, glyph_run.color, thickness);
+                        eprintln!("[paint_inline_content] ✓ Pushed overline decoration");
+                    }
+                }
+            }
         }
 
         for item in &layout.items {

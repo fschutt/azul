@@ -19,6 +19,7 @@ pub type HICON = *mut std::ffi::c_void;
 pub type HCURSOR = *mut std::ffi::c_void;
 pub type HBRUSH = *mut std::ffi::c_void;
 pub type HDROP = *mut std::ffi::c_void;
+pub type HIMC = *mut std::ffi::c_void; // IME input context handle
 pub type WPARAM = usize;
 pub type LPARAM = isize;
 pub type LRESULT = isize;
@@ -98,6 +99,21 @@ pub struct WNDCLASSW {
     pub lpszMenuName: *const u16,
     pub lpszClassName: *const u16,
 }
+
+/// Win32 COMPOSITIONFORM structure for IME composition window positioning
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct COMPOSITIONFORM {
+    pub dwStyle: u32,
+    pub ptCurrentPos: POINT,
+    pub rcArea: RECT,
+}
+
+// IME Composition Form Styles
+pub const CFS_DEFAULT: u32 = 0x0000;
+pub const CFS_RECT: u32 = 0x0001;
+pub const CFS_POINT: u32 = 0x0002;
+pub const CFS_FORCE_POSITION: u32 = 0x0020;
 
 /// Helper to encode ASCII string for GetProcAddress
 pub fn encode_ascii(input: &str) -> Vec<i8> {
@@ -289,6 +305,7 @@ pub struct User32Functions {
     pub CreatePopupMenu: unsafe extern "system" fn() -> HMENU,
     pub AppendMenuW: unsafe extern "system" fn(HMENU, u32, usize, *const u16) -> i32,
     pub SetMenu: unsafe extern "system" fn(HWND, HMENU) -> i32,
+    pub DrawMenuBar: unsafe extern "system" fn(HWND) -> i32,
     pub DestroyMenu: unsafe extern "system" fn(HMENU) -> i32,
     pub TrackPopupMenu:
         unsafe extern "system" fn(HMENU, u32, i32, i32, i32, HWND, *const core::ffi::c_void) -> i32,
@@ -355,11 +372,21 @@ pub struct User32Functions {
     pub KillTimer: unsafe extern "system" fn(HWND, usize) -> BOOL,
 }
 
-/// Win32 gdi32.dll function pointers
+/// Win32 gdi32.dll function pointers for brushes
 #[derive(Copy, Clone)]
 pub struct Gdi32Functions {
     pub CreateSolidBrush: unsafe extern "system" fn(u32) -> HBRUSH,
     pub DeleteObject: unsafe extern "system" fn(*mut core::ffi::c_void) -> BOOL,
+}
+
+/// Win32 imm32.dll function pointers for IME (Input Method Editor)
+#[derive(Copy, Clone)]
+pub struct Imm32Functions {
+    pub ImmGetContext: unsafe extern "system" fn(HWND) -> HIMC,
+    pub ImmReleaseContext: unsafe extern "system" fn(HWND, HIMC) -> BOOL,
+    pub ImmGetCompositionStringW:
+        unsafe extern "system" fn(HIMC, u32, *mut core::ffi::c_void, u32) -> i32,
+    pub ImmSetCompositionWindow: unsafe extern "system" fn(HIMC, *const COMPOSITIONFORM) -> BOOL,
 }
 
 /// Win32 shell32.dll function pointers for drag-and-drop
@@ -377,6 +404,8 @@ pub struct Win32Libraries {
     pub user32: User32Functions,
     pub gdi32_dll: Option<DynamicLibrary>,
     pub gdi32: Gdi32Functions,
+    pub imm32_dll: Option<DynamicLibrary>,
+    pub imm32: Option<Imm32Functions>,
     pub shell32_dll: Option<DynamicLibrary>,
     pub shell32: Option<Shell32Functions>,
     pub opengl32: Option<DynamicLibrary>,
@@ -404,6 +433,9 @@ impl Win32Libraries {
                 SetMenu: user32_dll
                     .get_symbol("SetMenu")
                     .ok_or_else(|| "SetMenu not found".to_string())?,
+                DrawMenuBar: user32_dll
+                    .get_symbol("DrawMenuBar")
+                    .ok_or_else(|| "DrawMenuBar not found".to_string())?,
                 DestroyMenu: user32_dll
                     .get_symbol("DestroyMenu")
                     .ok_or_else(|| "DestroyMenu not found".to_string())?,
@@ -563,11 +595,39 @@ impl Win32Libraries {
             None
         };
 
+        // Try to load function pointers from imm32.dll (optional - for IME)
+        let imm32_dll = DynamicLibrary::load("imm32.dll").ok();
+        let imm32 = if let Some(ref dll) = imm32_dll {
+            unsafe {
+                let get_context = dll.get_symbol("ImmGetContext");
+                let release_context = dll.get_symbol("ImmReleaseContext");
+                let get_comp_string = dll.get_symbol("ImmGetCompositionStringW");
+                let set_comp_window = dll.get_symbol("ImmSetCompositionWindow");
+
+                if let (Some(get_ctx), Some(rel_ctx), Some(get_str), Some(set_win)) =
+                    (get_context, release_context, get_comp_string, set_comp_window)
+                {
+                    Some(Imm32Functions {
+                        ImmGetContext: get_ctx,
+                        ImmReleaseContext: rel_ctx,
+                        ImmGetCompositionStringW: get_str,
+                        ImmSetCompositionWindow: set_win,
+                    })
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             user32_dll: Some(user32_dll),
             user32,
             gdi32_dll: Some(gdi32_dll),
             gdi32,
+            imm32_dll,
+            imm32,
             shell32_dll,
             shell32,
             opengl32: DynamicLibrary::load("opengl32.dll").ok(),

@@ -325,14 +325,14 @@ impl LayoutWindow {
         // After successful layout, update the accessibility tree
         #[cfg(feature = "accessibility")]
         if result.is_ok() {
-            let _tree_update = crate::managers::a11y::A11yManager::update_tree(
+            let tree_update = crate::managers::a11y::A11yManager::update_tree(
                 self.a11y_manager.root_id,
                 &self.layout_results,
                 &self.current_window_state.title,
                 self.current_window_state.size.dimensions,
             );
-            // TODO: Pass tree_update to platform adapter
-            // The adapter will submit it to the OS accessibility API
+            // Store the tree_update for platform adapter to consume
+            self.a11y_manager.last_tree_update = Some(tree_update);
         }
 
         // After layout, automatically scroll cursor into view if there's a focused text input
@@ -1313,12 +1313,19 @@ impl LayoutWindow {
         ))
     }
 
-    /// Get the cursor rect for the currently focused text input node
+    /// Get the cursor rect for the currently focused text input node in ABSOLUTE coordinates.
+    /// 
+    /// This returns the cursor position in absolute window coordinates (not accounting for
+    /// scroll offsets). This is used for scroll-into-view calculations where you need to
+    /// compare the cursor position with the scrollable container's bounds.
+    /// 
     /// Returns None if:
     /// - No node is focused
     /// - Focused node has no text cursor
     /// - Focused node has no layout
     /// - Text cache cannot find cursor position
+    /// 
+    /// For IME positioning (viewport-relative coordinates), use `get_focused_cursor_rect_viewport()`.
     pub fn get_focused_cursor_rect(&self) -> Option<azul_core::geom::LogicalRect> {
         use azul_core::geom::{LogicalPosition, LogicalRect};
 
@@ -1353,6 +1360,82 @@ impl LayoutWindow {
         // Add layout position to cursor rect (both already in logical units)
         cursor_rect.origin.x += calc_pos.x as f32;
         cursor_rect.origin.y += calc_pos.y as f32;
+
+        // Return ABSOLUTE position (no scroll correction)
+        Some(cursor_rect)
+    }
+
+    /// Get the cursor rect for the currently focused text input node in VIEWPORT coordinates.
+    /// 
+    /// This returns the cursor position accounting for:
+    /// 1. Scroll offsets from all scrollable ancestors
+    /// 2. GPU transforms (CSS transforms, animations) from all transformed ancestors
+    /// 
+    /// The returned position is viewport-relative (what the user actually sees on screen).
+    /// This is used for IME window positioning, where the IME popup needs to appear at the
+    /// visible cursor location, not the absolute layout position.
+    /// 
+    /// Returns None if:
+    /// - No node is focused
+    /// - Focused node has no text cursor
+    /// - Focused node has no layout
+    /// - Text cache cannot find cursor position
+    /// 
+    /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
+    pub fn get_focused_cursor_rect_viewport(&self) -> Option<azul_core::geom::LogicalRect> {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+
+        // Start with absolute position
+        let mut cursor_rect = self.get_focused_cursor_rect()?;
+
+        // Get the focused node
+        let focused_node = self.focus_manager.focused_node?;
+
+        // Get the layout tree from cache
+        let layout_tree = self.layout_cache.tree.as_ref()?;
+
+        // Find the layout node index corresponding to the focused DOM node
+        let target_node_id = focused_node.node.into_crate_internal();
+        let layout_idx = layout_tree
+            .nodes
+            .iter()
+            .position(|node| node.dom_node_id == target_node_id)?;
+
+        // Get the GPU cache for this DOM (if it exists)
+        let gpu_cache = self.gpu_state_manager.caches.get(&focused_node.dom);
+
+        // CRITICAL STEP 1: Apply scroll offsets from all scrollable ancestors
+        // CRITICAL STEP 2: Apply inverse GPU transforms from all transformed ancestors
+        // Walk up the tree and apply both corrections
+        let mut current_layout_idx = layout_idx;
+        
+        while let Some(parent_idx) = layout_tree.nodes.get(current_layout_idx)?.parent {
+            // Get the DOM node ID of the parent (if it's not anonymous)
+            if let Some(parent_dom_node_id) = layout_tree.nodes.get(parent_idx)?.dom_node_id {
+                // STEP 1: Check if this parent is scrollable and has scroll state
+                if let Some(scroll_state) = self.scroll_manager.get_scroll_state(focused_node.dom, parent_dom_node_id) {
+                    // Subtract scroll offset (scrolling down = positive offset, moves content up)
+                    cursor_rect.origin.x -= scroll_state.current_offset.x;
+                    cursor_rect.origin.y -= scroll_state.current_offset.y;
+                }
+
+                // STEP 2: Check if this parent has a GPU transform applied
+                if let Some(cache) = gpu_cache {
+                    if let Some(transform) = cache.current_transform_values.get(&parent_dom_node_id) {
+                        // Apply the INVERSE transform to get back to viewport coordinates
+                        // The transform moves the element, so we need to reverse it for the cursor
+                        let inverse = transform.inverse();
+                        if let Some(transformed_origin) = inverse.transform_point2d(cursor_rect.origin) {
+                            cursor_rect.origin = transformed_origin;
+                        }
+                        // Note: We don't transform the size, only the position
+                    }
+                }
+            }
+            
+            // Move to parent for next iteration
+            current_layout_idx = parent_idx;
+        }
 
         Some(cursor_rect)
     }

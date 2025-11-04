@@ -345,5 +345,5 @@ impl Wayland {
     }
 }
 
-// Re-export Xkb from X11's dlopen module
-pub use super::super::x11::dlopen::Xkb;
+// Re-export Xkb and GTK IM from X11's dlopen module
+pub use super::super::x11::dlopen::{Xkb, Gtk3Im, GtkIMContext, GdkRectangle};
