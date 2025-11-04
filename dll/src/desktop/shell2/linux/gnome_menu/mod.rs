@@ -33,8 +33,11 @@
 
 mod actions_protocol;
 mod dbus_connection;
+mod manager_v2; // New dlopen-based manager
 mod menu_conversion;
 mod menu_protocol;
+mod protocol_impl; // New dlopen-based implementation
+mod shared_dbus; // Shared DBus library instance
 mod x11_properties;
 
 use std::{
@@ -45,10 +48,13 @@ use std::{
     },
 };
 
-pub use actions_protocol::ActionsProtocol;
+pub use actions_protocol::{ActionsProtocol, DbusAction};
 pub use dbus_connection::DbusConnection;
+pub use manager_v2::GnomeMenuManagerV2; // New dlopen-based manager
 pub use menu_conversion::MenuConversion;
-pub use menu_protocol::MenuProtocol;
+pub use menu_protocol::{DbusMenuGroup, DbusMenuItem, MenuProtocol};
+pub use protocol_impl::{register_actions_interface, register_menus_interface};
+pub use shared_dbus::{get_shared_dbus_lib, is_dbus_available}; // Shared DBus library
 pub use x11_properties::X11Properties;
 
 /// Check if GNOME native menus should be used
