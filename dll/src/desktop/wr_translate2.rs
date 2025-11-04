@@ -1011,16 +1011,19 @@ pub fn rebuild_display_list(
             renderer_resources,
             dpi,
             resources_for_dom,
+            &layout_window.layout_results,
+            layout_window.document_id.id,
         ) {
-            Ok((resources_for_dom, built_display_list)) => {
+            Ok((resources_for_dom, built_display_list, nested_pipelines)) => {
                 eprintln!(
                     "[rebuild_display_list] Translated display list for DOM {} ({} resources, {} \
-                     DL items)",
+                     DL items, {} nested pipelines)",
                     dom_id.inner,
                     resources_for_dom.len(),
-                    layout_result.display_list.items.len()
+                    layout_result.display_list.items.len(),
+                    nested_pipelines.len()
                 );
-                // TODO: CACHE (resources_for_dom, built_display_list, pipeline_id)
+                // TODO: CACHE (resources_for_dom, built_display_list, nested_pipelines, pipeline_id)
                 // For now we just log success - generate_frame() will rebuild if needed
             }
             Err(e) => {
@@ -1427,16 +1430,33 @@ pub fn generate_frame(
                 &layout_window.renderer_resources,
                 dpi,
                 Vec::new(), // Resources already added above
+                &layout_window.layout_results,
+                layout_window.document_id.id,
             ) {
-                Ok((_, built_display_list)) => {
+                Ok((_, built_display_list, nested_pipelines)) => {
                     eprintln!(
-                        "[generate_frame] Adding display list for DOM {} to transaction",
-                        dom_id.inner
+                        "[generate_frame] Adding display list for DOM {} to transaction (with {} nested pipelines)",
+                        dom_id.inner,
+                        nested_pipelines.len()
                     );
+                    
+                    // Add main pipeline
                     txn.set_display_list(
                         webrender::api::Epoch(layout_window.epoch.into_u32()),
                         (pipeline_id, built_display_list),
                     );
+                    
+                    // Add all nested iframe pipelines
+                    for (nested_pipeline_id, nested_display_list) in nested_pipelines {
+                        eprintln!(
+                            "[generate_frame] Adding nested pipeline {:?} to transaction",
+                            nested_pipeline_id
+                        );
+                        txn.set_display_list(
+                            webrender::api::Epoch(layout_window.epoch.into_u32()),
+                            (nested_pipeline_id, nested_display_list),
+                        );
+                    }
                 }
                 Err(e) => {
                     eprintln!(
@@ -2078,14 +2098,27 @@ pub fn build_webrender_transaction(
             &layout_window.renderer_resources,
             dpi,
             Vec::new(), // Resources already added above
+            &layout_window.layout_results,
+            layout_window.document_id.id,
         ) {
-            Ok((_, built_display_list)) => {
+            Ok((_, built_display_list, nested_pipelines)) => {
                 let epoch = webrender::api::Epoch(layout_window.epoch.into_u32());
                 eprintln!(
-                    "[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch {:?})",
-                    dom_id.inner, pipeline_id, epoch
+                    "[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch {:?}, {} nested)",
+                    dom_id.inner, pipeline_id, epoch, nested_pipelines.len()
                 );
+                
+                // Add main pipeline
                 txn.set_display_list(epoch, (pipeline_id, built_display_list));
+                
+                // Add all nested iframe pipelines
+                for (nested_pipeline_id, nested_display_list) in nested_pipelines {
+                    eprintln!(
+                        "[build_atomic_txn] Adding nested pipeline {:?} (epoch {:?})",
+                        nested_pipeline_id, epoch
+                    );
+                    txn.set_display_list(epoch, (nested_pipeline_id, nested_display_list));
+                }
             }
             Err(e) => {
                 eprintln!(

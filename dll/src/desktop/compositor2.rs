@@ -3,8 +3,11 @@
 //! This module bridges between azul-layout's DisplayList and WebRender's rendering pipeline.
 //! It handles both GPU (hardware) and CPU (software) rendering paths.
 
+use alloc::collections::BTreeMap;
 use azul_core::{
+    dom::DomId,
     geom::LogicalSize,
+    hit_test::PipelineId as AzulPipelineId,
     resources::{DpiScaleFactor, FontInstanceKey, GlyphOptions, ImageRefHash, PrimitiveFlags},
     ui_solver::GlyphInstance,
 };
@@ -12,7 +15,10 @@ use azul_css::props::{
     basic::{color::ColorU, pixel::PixelValue},
     style::border_radius::StyleBorderRadius,
 };
-use azul_layout::solver3::display_list::{BorderRadius, DisplayList};
+use azul_layout::{
+    solver3::display_list::{BorderRadius, DisplayList},
+    window::DomLayoutResult,
+};
 use webrender::{
     api::{
         units::{
@@ -32,11 +38,12 @@ use webrender::{
 
 use crate::desktop::wr_translate2::{
     translate_image_key, wr_translate_border_radius, wr_translate_color_f,
-    wr_translate_layouted_glyphs, wr_translate_logical_size,
+    wr_translate_layouted_glyphs, wr_translate_logical_size, wr_translate_pipeline_id,
 };
 
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
-/// Returns (resources, display_list) tuple that can be added to a transaction by caller
+/// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
+/// by caller. nested_pipelines contains all child iframe pipelines that were recursively built.
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
@@ -44,7 +51,16 @@ pub fn translate_displaylist_to_wr(
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: DpiScaleFactor,
     wr_resources: Vec<WrResourceUpdate>,
-) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    document_id: u32,
+) -> Result<
+    (
+        Vec<WrResourceUpdate>,
+        WrBuiltDisplayList,
+        Vec<(PipelineId, WrBuiltDisplayList)>,
+    ),
+    String,
+> {
     eprintln!(
         "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, \
          dpi_factor={}, {} resources",
@@ -61,6 +77,9 @@ pub fn translate_displaylist_to_wr(
     // NOTE: Caller (generate_frame) will add resources to transaction
     // NOTE: Caller (generate_frame) will set document_view
     // We just build the display list here
+
+    // Collect nested iframe pipelines as we process them
+    let mut nested_pipelines: Vec<(PipelineId, WrBuiltDisplayList)> = Vec::new();
 
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
@@ -536,31 +555,90 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 clip_rect,
             } => {
-                // IFrames in WebRender require:
-                // 1. A unique PipelineId for the child content
-                // 2. The child display list to be registered separately via set_display_list
-                // 3. A push_iframe call to embed the child pipeline in the parent
+                // IFrame rendering implementation:
+                // 1. Create PipelineId from child_dom_id
+                // 2. Look up child display list from layout_results
+                // 3. Recursively translate child display list
+                // 4. Store child pipeline for later registration
+                // 5. Push iframe to current display list
                 
-                // For now, we'll render a placeholder to show where the iframe would be.
-                // Full implementation requires:
-                // - Looking up the child display list from the layout results
-                // - Recursively translating it to WebRender
-                // - Registering it with its own pipeline ID
-                // - Using push_iframe to reference it
+                let child_pipeline_id = wr_translate_pipeline_id(
+                    AzulPipelineId(child_dom_id.inner as u32, document_id)
+                );
                 
                 eprintln!(
-                    "[compositor2] IFrame: child_dom_id={:?}, bounds={:?}, clip_rect={:?}",
-                    child_dom_id, bounds, clip_rect
+                    "[compositor2] IFrame: child_dom_id={:?}, child_pipeline_id={:?}, bounds={:?}, clip_rect={:?}",
+                    child_dom_id, child_pipeline_id, bounds, clip_rect
                 );
-                eprintln!("[compositor2] WARNING: IFrame rendering not yet fully implemented");
-                eprintln!("[compositor2] NOTE: This requires child display list generation and pipeline management");
                 
-                // TODO: Implement full IFrame rendering:
-                // 1. Get or create PipelineId for this child_dom_id
-                // 2. Look up child display list from layout_results[child_dom_id]
-                // 3. Recursively call translate_displaylist_to_wr for child
-                // 4. Register child display list via transaction.set_display_list(child_pipeline_id, ...)
-                // 5. Call builder.push_iframe(bounds, clip_rect, space_and_clip, child_pipeline_id, false)
+                // Look up child layout result
+                if let Some(child_layout_result) = layout_results.get(child_dom_id) {
+                    eprintln!(
+                        "[compositor2] Found child layout result with {} display list items",
+                        child_layout_result.display_list.items.len()
+                    );
+                    
+                    // Recursively translate child display list
+                    match translate_displaylist_to_wr(
+                        &child_layout_result.display_list,
+                        child_pipeline_id,
+                        viewport_size,
+                        renderer_resources,
+                        dpi,
+                        Vec::new(), // No resources for child - they're already in parent
+                        layout_results,
+                        document_id,
+                    ) {
+                        Ok((_, child_dl, mut child_nested)) => {
+                            eprintln!(
+                                "[compositor2] Successfully translated child display list with {} nested pipelines",
+                                child_nested.len()
+                            );
+                            
+                            // Store this child pipeline
+                            nested_pipelines.push((child_pipeline_id, child_dl));
+                            
+                            // Store all deeply nested pipelines
+                            nested_pipelines.append(&mut child_nested);
+                            
+                            // Push iframe to current display list
+                            let space_and_clip = SpaceAndClipInfo {
+                                spatial_id: *spatial_stack.last().unwrap(),
+                                clip_chain_id: *clip_stack.last().unwrap(),
+                            };
+                            
+                            let wr_bounds = LayoutRect::from_origin_and_size(
+                                LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                                LayoutSize::new(bounds.size.width, bounds.size.height),
+                            );
+                            let wr_clip_rect = LayoutRect::from_origin_and_size(
+                                LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
+                                LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
+                            );
+                            
+                            builder.push_iframe(
+                                wr_bounds,
+                                wr_clip_rect,
+                                &space_and_clip,
+                                child_pipeline_id,
+                                false, // ignore_missing_pipeline
+                            );
+                            
+                            eprintln!("[compositor2] Pushed iframe for pipeline {:?}", child_pipeline_id);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[compositor2] Error translating child display list for dom_id={:?}: {}",
+                                child_dom_id, e
+                            );
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "[compositor2] WARNING: Child DOM {:?} not found in layout_results",
+                        child_dom_id
+                    );
+                }
             }
         }
     }
@@ -574,8 +652,9 @@ pub fn translate_displaylist_to_wr(
     eprintln!("[compositor2] >>>>> builder.end() RETURNED <<<<<");
 
     eprintln!(
-        "[compositor2] Builder finished, returning ({} resources, display_list)",
-        wr_resources.len()
+        "[compositor2] Builder finished, returning ({} resources, display_list, {} nested pipelines)",
+        wr_resources.len(),
+        nested_pipelines.len()
     );
 
     // Print detailed display list summary before returning
@@ -588,7 +667,7 @@ pub fn translate_displaylist_to_wr(
     }
     eprintln!("============================");
 
-    Ok((wr_resources, dl))
+    Ok((wr_resources, dl, nested_pipelines))
 }
 
 /// Software compositor stubs
