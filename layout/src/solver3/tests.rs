@@ -116,6 +116,8 @@ fn test_basic_layout() {
         &selections,
         &mut debug_messages,
         None, // gpu_value_cache
+        &azul_core::resources::RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
     );
 
@@ -167,6 +169,8 @@ fn test_layout_with_empty_font_cache() {
         &selections,
         &mut debug_messages,
         None, // gpu_value_cache
+        &azul_core::resources::RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
     );
 

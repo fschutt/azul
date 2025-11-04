@@ -767,21 +767,12 @@ impl Win32Window {
             .scroll_node_with_id(dom_id, node_id, scroll_x, scroll_y);
         */
 
-        // Update WebRender
-        let mut resource_updates = Vec::new();
-        let mut txn = WrTransaction::new();
-        crate::desktop::wr_translate2::rebuild_display_list(
-            &mut txn,
+        // Generate frame with updated scroll state
+        crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
             &mut self.render_api,
-            &self.image_cache,
-            resource_updates,
-            &mut self.renderer_resources,
-            self.current_window_state.size.get_hidpi_factor(),
+            self.document_id,
         );
-
-        self.render_api
-            .send_transaction(wr_translate_document_id(self.document_id), txn);
         self.render_api.flush_scene_builder();
 
         Ok(())

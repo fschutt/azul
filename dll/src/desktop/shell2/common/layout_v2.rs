@@ -138,20 +138,8 @@ pub fn regenerate_layout(
     // This updates scrollbar geometry (thumb position/size ratios, visibility)
     layout_window.scroll_manager.calculate_scrollbar_states();
 
-    // 5. Rebuild display list and send to WebRender
-    let dpi_factor = current_window_state.size.get_hidpi_factor();
-    let mut txn = WrTransaction::new();
-    wr_translate2::rebuild_display_list(
-        &mut txn,
-        layout_window,
-        render_api,
-        image_cache,
-        Vec::new(),
-        renderer_resources,
-        dpi_factor,
-    );
-
-    // 6. Synchronize scrollbar opacity with GPU cache AFTER display list submission
+    // 5. Synchronize scrollbar opacity with GPU cache
+    // Note: Display list translation happens in generate_frame(), not here
     // This enables smooth fade-in/fade-out without display list rebuild
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     for (dom_id, layout_result) in &layout_window.layout_results {
