@@ -782,9 +782,65 @@ impl PlatformWindowV2 for WaylandWindow {
             }
         }
     }
+
+    // =========================================================================
+    // REQUIRED: Menu Display
+    // =========================================================================
+
+    fn show_menu_from_callback(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Check if native menus are enabled
+        if self.current_window_state.flags.use_native_context_menus {
+            // TODO: Show native Wayland popup via xdg_popup protocol
+            eprintln!(
+                "[Wayland] Native xdg_popup menu at ({}, {}) - not yet implemented, using fallback",
+                position.x, position.y
+            );
+            self.show_fallback_menu(menu, position);
+        } else {
+            // Show fallback DOM-based menu
+            self.show_fallback_menu(menu, position);
+        }
+    }
 }
 
 impl WaylandWindow {
+    /// Show a fallback window-based menu at the given position
+    fn show_fallback_menu(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Get parent window position
+        let parent_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
+            }
+            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
+        };
+
+        // Create menu window options
+        let menu_options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.resources.system_style.clone(),
+            parent_pos,
+            None,           // No trigger rect
+            Some(position), // Position for menu
+            None,           // No parent menu
+        );
+
+        // Queue window creation request
+        eprintln!(
+            "[Wayland] Queuing fallback menu window at ({}, {}) - will be created in event loop",
+            position.x, position.y
+        );
+
+        self.pending_window_creates.push(menu_options);
+    }
+
     pub fn new(
         options: WindowCreateOptions,
         resources: Arc<super::AppResources>,

@@ -542,6 +542,32 @@ pub trait PlatformWindowV2 {
     );
 
     // =========================================================================
+    // REQUIRED: Menu Display (Platform-Specific Implementation)
+    // =========================================================================
+
+    /// Show a menu at the specified position.
+    ///
+    /// This method is called when a callback uses `info.open_menu()` or `info.open_menu_at()`.
+    /// The platform should display the menu either as a native menu or a fallback DOM-based menu
+    /// depending on the window's `use_native_context_menus` flag.
+    ///
+    /// ## Platform Implementation Notes
+    ///
+    /// - **macOS**: Use NSMenu with popUpMenuPositioningItem or show fallback window
+    /// - **Windows**: Use TrackPopupMenu or show fallback window
+    /// - **X11**: Create GTK popup menu or show fallback window
+    /// - **Wayland**: Use xdg_popup protocol or show fallback window
+    ///
+    /// ## Parameters
+    /// * `menu` - The menu structure to display
+    /// * `position` - The position where the menu should appear (logical coordinates)
+    fn show_menu_from_callback(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: azul_core::geom::LogicalPosition,
+    );
+
+    // =========================================================================
     // PROVIDED: Callback Invocation (Cross-Platform Implementation)
     // =========================================================================
 
@@ -1670,6 +1696,21 @@ pub trait PlatformWindowV2 {
                 "[PlatformWindowV2] {} new windows requested (not yet implemented)",
                 result.windows_created.len()
             );
+        }
+
+        // Handle menus requested to be opened
+        if !result.menus_to_open.is_empty() {
+            for (menu, position_override) in &result.menus_to_open {
+                // Use override position if provided, otherwise use (0, 0) as default
+                // The Menu.position field is a MenuPopupPosition enum (AutoCursor, etc.),
+                // not a specific coordinate. For callback-opened menus, the position_override
+                // specifies where to show it.
+                let position = position_override.unwrap_or(LogicalPosition::new(0.0, 0.0));
+
+                // Show menu (native or fallback based on flags)
+                self.show_menu_from_callback(menu, position);
+            }
+            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
         // Process Update screen command

@@ -12,6 +12,7 @@ use std::{
 };
 
 use azul_core::{
+    animation::UpdateImageType,
     callbacks::{FocusTarget, IFrameCallbackReason, Update},
     dom::{Dom, DomId, DomNodeId, NodeId, NodeType},
     events::EasingFunction,
@@ -21,7 +22,8 @@ use azul_core::{
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::RefAny,
     resources::{
-        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageRefHash, RendererResources,
+        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
+        RendererResources,
     },
     selection::SelectionState,
     styled_dom::{NodeHierarchyItemId, StyledDom},
@@ -29,7 +31,11 @@ use azul_core::{
     window::{RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
-use azul_css::{parser2::CssApiWrapper, props::basic::FontRef, LayoutDebugMessage};
+use azul_css::{
+    parser2::CssApiWrapper,
+    props::{basic::FontRef, property::CssProperty},
+    AzString, LayoutDebugMessage,
+};
 use rust_fontconfig::FcFontCache;
 
 use crate::{
@@ -51,7 +57,7 @@ use crate::{
     },
     thread::{OptionThreadReceiveMsg, Thread, ThreadReceiveMsg, ThreadWriteBackMsg},
     timer::Timer,
-    window_state::{FullWindowState, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions, WindowState},
 };
 
 // Global atomic counters for generating unique IDs
@@ -951,6 +957,132 @@ impl LayoutWindow {
     /// Get all thread IDs
     pub fn get_thread_ids(&self) -> Vec<ThreadId> {
         self.threads.keys().copied().collect()
+    }
+
+    // ===== CallbackChange Processing =====
+
+    /// Apply callback changes that were collected during callback execution
+    ///
+    /// This method processes all changes accumulated in the CallbackChange vector
+    /// and applies them to the appropriate state. This is called after a callback
+    /// returns to ensure atomic application of all changes.
+    pub fn apply_callback_changes(
+        &mut self,
+        changes: Vec<crate::callbacks::CallbackChange>,
+        timers_out: &mut FastHashMap<TimerId, Timer>,
+        threads_out: &mut FastHashMap<ThreadId, Thread>,
+        timers_removed_out: &mut FastBTreeSet<TimerId>,
+        threads_removed_out: &mut FastBTreeSet<ThreadId>,
+        new_windows_out: &mut Vec<WindowCreateOptions>,
+        menus_to_open_out: &mut Vec<(azul_core::menu::Menu, Option<LogicalPosition>)>,
+        stop_propagation_out: &mut bool,
+        focus_target_out: &mut Option<FocusTarget>,
+        words_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+        images_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
+        image_masks_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
+        css_properties_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+        nodes_scrolled_out: &mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
+        modifiable_window_state: &mut WindowState,
+        image_cache: &mut ImageCache,
+        system_fonts: &mut FcFontCache,
+    ) {
+        use crate::callbacks::CallbackChange;
+
+        for change in changes {
+            match change {
+                CallbackChange::ModifyWindowState { state } => {
+                    *modifiable_window_state = state;
+                }
+                CallbackChange::CreateNewWindow { options } => {
+                    new_windows_out.push(options);
+                }
+                CallbackChange::CloseWindow => {
+                    // TODO: Implement window close mechanism
+                    // This needs to set a flag that the window should close
+                }
+                CallbackChange::SetFocusTarget { target } => {
+                    *focus_target_out = Some(target);
+                }
+                CallbackChange::StopPropagation => {
+                    *stop_propagation_out = true;
+                }
+                CallbackChange::AddTimer { timer_id, timer } => {
+                    timers_out.insert(timer_id, timer);
+                }
+                CallbackChange::RemoveTimer { timer_id } => {
+                    timers_removed_out.insert(timer_id);
+                }
+                CallbackChange::AddThread { thread_id, thread } => {
+                    threads_out.insert(thread_id, thread);
+                }
+                CallbackChange::RemoveThread { thread_id } => {
+                    threads_removed_out.insert(thread_id);
+                }
+                CallbackChange::ChangeNodeText {
+                    dom_id,
+                    node_id,
+                    text,
+                } => {
+                    words_changed_out
+                        .entry(dom_id)
+                        .or_insert_with(BTreeMap::new)
+                        .insert(node_id, text);
+                }
+                CallbackChange::ChangeNodeImage {
+                    dom_id,
+                    node_id,
+                    image,
+                    update_type,
+                } => {
+                    images_changed_out
+                        .entry(dom_id)
+                        .or_insert_with(BTreeMap::new)
+                        .insert(node_id, (image, update_type));
+                }
+                CallbackChange::ChangeNodeImageMask {
+                    dom_id,
+                    node_id,
+                    mask,
+                } => {
+                    image_masks_changed_out
+                        .entry(dom_id)
+                        .or_insert_with(BTreeMap::new)
+                        .insert(node_id, mask);
+                }
+                CallbackChange::ChangeNodeCssProperties {
+                    dom_id,
+                    node_id,
+                    properties,
+                } => {
+                    css_properties_changed_out
+                        .entry(dom_id)
+                        .or_insert_with(BTreeMap::new)
+                        .insert(node_id, properties);
+                }
+                CallbackChange::ScrollTo {
+                    dom_id,
+                    node_id,
+                    position,
+                } => {
+                    nodes_scrolled_out
+                        .entry(dom_id)
+                        .or_insert_with(BTreeMap::new)
+                        .insert(node_id, position);
+                }
+                CallbackChange::AddImageToCache { id, image } => {
+                    image_cache.add_css_image_id(id, image);
+                }
+                CallbackChange::RemoveImageFromCache { id } => {
+                    image_cache.delete_css_image_id(&id);
+                }
+                CallbackChange::ReloadSystemFonts => {
+                    *system_fonts = FcFontCache::build();
+                }
+                CallbackChange::OpenMenu { menu, position } => {
+                    menus_to_open_out.push((menu, position));
+                }
+            }
+        }
     }
 
     // ===== GPU Value Cache Management =====
@@ -1875,6 +2007,7 @@ impl LayoutWindow {
             timers_removed: None,
             threads_removed: None,
             windows_created: Vec::new(),
+            menus_to_open: Vec::new(),
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -1918,6 +2051,9 @@ impl LayoutWindow {
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
+            // Create changes vector for callback transaction system
+            let mut callback_changes = Vec::new();
+
             let callback_info = CallbackInfo::new(
                 self,
                 renderer_resources,
@@ -1943,17 +2079,37 @@ impl LayoutWindow {
                 &mut ret_css_properties_changed,
                 &current_scroll_states_nested,
                 &mut ret_nodes_scrolled_in_callbacks,
+                &mut callback_changes, // Add changes parameter
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
-            );
-
-            // Now we can borrow the timer mutably
+            ); // Now we can borrow the timer mutably
             let timer = self.timers.get_mut(&TimerId { id: timer_id }).unwrap();
             let tcr = timer.invoke(&callback_info, &system_callbacks.get_system_time_fn);
 
             ret.callbacks_update_screen = tcr.should_update;
             should_terminate = tcr.should_terminate;
+
+            // Apply callback changes collected during timer execution
+            self.apply_callback_changes(
+                callback_changes,
+                &mut ret_timers,
+                &mut ret_threads,
+                &mut ret_timers_removed,
+                &mut ret_threads_removed,
+                &mut ret.windows_created,
+                &mut ret.menus_to_open,
+                &mut stop_propagation,
+                &mut new_focus_target,
+                &mut ret_words_changed,
+                &mut ret_images_changed,
+                &mut ret_image_masks_changed,
+                &mut ret_css_properties_changed,
+                &mut ret_nodes_scrolled_in_callbacks,
+                &mut ret_modified_window_state,
+                image_cache,
+                system_fonts,
+            );
 
             if !ret_timers.is_empty() {
                 ret.timers = Some(ret_timers);
@@ -2047,6 +2203,7 @@ impl LayoutWindow {
             timers_removed: None,
             threads_removed: None,
             windows_created: Vec::new(),
+            menus_to_open: Vec::new(),
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2117,6 +2274,9 @@ impl LayoutWindow {
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
 
+            // Create changes vector for callback transaction system
+            let mut callback_changes = Vec::new();
+
             let mut callback_info = CallbackInfo::new(
                 self,
                 renderer_resources,
@@ -2142,17 +2302,38 @@ impl LayoutWindow {
                 &mut ret_css_properties_changed,
                 &current_scroll_states,
                 &mut ret_nodes_scrolled_in_callbacks,
+                &mut callback_changes, // Add changes parameter
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
             );
-
             let callback_update = (callback.cb)(
                 unsafe { &mut *writeback_data_ptr },
                 &mut data,
                 &mut callback_info,
             );
             ret.callbacks_update_screen.max_self(callback_update);
+
+            // Apply callback changes collected during thread writeback
+            self.apply_callback_changes(
+                callback_changes,
+                &mut ret_timers,
+                &mut ret_threads,
+                &mut ret_timers_removed,
+                &mut ret_threads_removed,
+                &mut ret.windows_created,
+                &mut ret.menus_to_open,
+                &mut stop_propagation,
+                &mut new_focus_target,
+                &mut ret_words_changed,
+                &mut ret_images_changed,
+                &mut ret_image_masks_changed,
+                &mut ret_css_properties_changed,
+                &mut ret_nodes_scrolled_in_callbacks,
+                &mut ret_modified_window_state,
+                image_cache,
+                system_fonts,
+            );
 
             if is_finished {
                 ret.threads_removed
@@ -2247,6 +2428,7 @@ impl LayoutWindow {
             timers_removed: None,
             threads_removed: None,
             windows_created: Vec::new(),
+            menus_to_open: Vec::new(),
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2269,6 +2451,9 @@ impl LayoutWindow {
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
         let cursor_in_viewport = OptionLogicalPosition::None;
+
+        // Create changes vector for callback transaction system
+        let mut callback_changes = Vec::new();
 
         let mut callback_info = CallbackInfo::new(
             self,
@@ -2295,12 +2480,34 @@ impl LayoutWindow {
             &mut ret_css_properties_changed,
             &current_scroll_states,
             &mut ret_nodes_scrolled_in_callbacks,
+            &mut callback_changes, // Add changes parameter
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
         );
 
         ret.callbacks_update_screen = (callback.cb)(data, &mut callback_info);
+
+        // Apply callback changes collected during callback execution
+        self.apply_callback_changes(
+            callback_changes,
+            &mut ret_timers,
+            &mut ret_threads,
+            &mut ret_timers_removed,
+            &mut ret_threads_removed,
+            &mut ret.windows_created,
+            &mut ret.menus_to_open,
+            &mut stop_propagation,
+            &mut new_focus_target,
+            &mut ret_words_changed,
+            &mut ret_images_changed,
+            &mut ret_image_masks_changed,
+            &mut ret_css_properties_changed,
+            &mut ret_nodes_scrolled_in_callbacks,
+            &mut ret_modified_window_state,
+            image_cache,
+            system_fonts,
+        );
 
         if !ret_timers.is_empty() {
             ret.timers = Some(ret_timers);
@@ -2383,6 +2590,7 @@ impl LayoutWindow {
             timers_removed: None,
             threads_removed: None,
             windows_created: Vec::new(),
+            menus_to_open: Vec::new(),
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
@@ -2405,6 +2613,9 @@ impl LayoutWindow {
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
         let cursor_in_viewport = OptionLogicalPosition::None;
+
+        // Create changes vector for callback transaction system
+        let mut callback_changes = Vec::new();
 
         let mut callback_info = CallbackInfo::new(
             self,
@@ -2431,6 +2642,7 @@ impl LayoutWindow {
             &mut ret_css_properties_changed,
             &current_scroll_states,
             &mut ret_nodes_scrolled_in_callbacks,
+            &mut callback_changes, // Add changes parameter
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -2438,6 +2650,27 @@ impl LayoutWindow {
 
         ret.callbacks_update_screen =
             (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
+
+        // Apply callback changes collected during menu callback execution
+        self.apply_callback_changes(
+            callback_changes,
+            &mut ret_timers,
+            &mut ret_threads,
+            &mut ret_timers_removed,
+            &mut ret_threads_removed,
+            &mut ret.windows_created,
+            &mut ret.menus_to_open,
+            &mut stop_propagation,
+            &mut new_focus_target,
+            &mut ret_words_changed,
+            &mut ret_images_changed,
+            &mut ret_image_masks_changed,
+            &mut ret_css_properties_changed,
+            &mut ret_nodes_scrolled_in_callbacks,
+            &mut ret_modified_window_state,
+            image_cache,
+            system_fonts,
+        );
 
         if !ret_timers.is_empty() {
             ret.timers = Some(ret_timers);

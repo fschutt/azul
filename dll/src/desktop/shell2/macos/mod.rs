@@ -1362,6 +1362,26 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
             }
         }
     }
+
+    // =========================================================================
+    // REQUIRED: Menu Display
+    // =========================================================================
+
+    fn show_menu_from_callback(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Check if native menus are enabled
+        if self.current_window_state.flags.use_native_context_menus {
+            // Show native NSMenu
+            self.show_native_menu_at_position(menu, position);
+        } else {
+            // Show fallback DOM-based menu
+            // Make show_window_based_context_menu public or inline its logic
+            self.show_fallback_menu(menu, position);
+        }
+    }
 }
 
 impl MacOSWindow {
@@ -2655,6 +2675,109 @@ impl MacOSWindow {
                 app.setMainMenu(Some(ns_menu));
             }
         }
+    }
+
+    /// Show a native NSMenu at the given position (without NSEvent)
+    ///
+    /// This is used for menus opened from callbacks (info.open_menu()).
+    /// Unlike context menus which need the NSEvent for proper positioning,
+    /// this version shows the menu at an absolute position.
+    fn show_native_menu_at_position(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        use objc2_app_kit::{NSMenu, NSMenuItem};
+        use objc2_foundation::{MainThreadMarker, NSPoint, NSString};
+
+        let mtm = match MainThreadMarker::new() {
+            Some(m) => m,
+            None => {
+                eprintln!("[Menu] Not on main thread, cannot show menu");
+                return;
+            }
+        };
+
+        let ns_menu = NSMenu::new(mtm);
+
+        // Build menu items recursively from Azul menu structure
+        // Call the public(crate) associated function
+        MacOSWindow::recursive_build_nsmenu(
+            &ns_menu,
+            menu.items.as_slice(),
+            &mtm,
+            &mut self.menu_state,
+        );
+
+        // Show the menu at the specified position
+        let view_point = NSPoint {
+            x: position.x as f64,
+            y: position.y as f64,
+        };
+
+        let view = if let Some(ref gl_view) = self.gl_view {
+            Some(&**gl_view as &objc2::runtime::AnyObject)
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            Some(&**cpu_view as &objc2::runtime::AnyObject)
+        } else {
+            None
+        };
+
+        if let Some(view) = view {
+            eprintln!(
+                "[Menu] Showing native menu at position ({}, {}) with {} items",
+                position.x,
+                position.y,
+                menu.items.as_slice().len()
+            );
+
+            unsafe {
+                use objc2::{msg_send_id, rc::Retained, runtime::AnyObject, sel};
+
+                let _: () = msg_send_id![
+                    &ns_menu,
+                    popUpMenuPositioningItem: Option::<&AnyObject>::None,
+                    atLocation: view_point,
+                    inView: view
+                ];
+            }
+        }
+    }
+
+    /// Show a fallback window-based menu at the given position
+    ///
+    /// This uses the same unified menu system as regular menus but for callback-triggered menus.
+    fn show_fallback_menu(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Get parent window position
+        let parent_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
+            }
+            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
+        };
+
+        // Create menu window options using the unified menu system
+        let menu_options = crate::desktop::menu::show_menu(
+            menu.clone(),
+            self.system_style.clone(),
+            parent_pos,
+            None,           // No trigger rect for callback menus
+            Some(position), // Position for menu
+            None,           // No parent menu
+        );
+
+        // Queue window creation request
+        eprintln!(
+            "[macOS] Queuing fallback menu window at screen ({}, {}) - will be created in event \
+             loop",
+            position.x, position.y
+        );
+
+        self.pending_window_creates.push(menu_options);
     }
 
     /// Process an NSEvent and dispatch to appropriate handler

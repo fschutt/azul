@@ -1059,7 +1059,7 @@ impl MacOSWindow {
     /// - Leaf items (no children) -> addItem with callback
     /// - Items with children -> create submenu and recurse
     /// - Separators -> add separator item
-    fn recursive_build_nsmenu(
+    pub(crate) fn recursive_build_nsmenu(
         menu: &objc2_app_kit::NSMenu,
         items: &[azul_core::menu::MenuItem],
         mtm: &objc2::MainThreadMarker,

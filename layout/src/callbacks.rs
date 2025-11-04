@@ -15,6 +15,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
     hit_test::ScrollPosition,
+    menu::Menu,
     refany::RefAny,
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
     styled_dom::{NodeHierarchyItemId, StyledDom},
@@ -35,6 +36,98 @@ use crate::{
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions, WindowState},
 };
+
+/// Represents a change made by a callback that will be applied after the callback returns
+///
+/// This transaction-based system provides:
+/// - Clear separation between read-only queries and modifications
+/// - Atomic application of all changes
+/// - Easy debugging and logging of callback actions
+/// - Future extensibility for new change types
+#[derive(Debug, Clone)]
+pub enum CallbackChange {
+    // ===== Window State Changes =====
+    /// Modify the window state (size, position, title, etc.)
+    ModifyWindowState { state: WindowState },
+    /// Create a new window
+    CreateNewWindow { options: WindowCreateOptions },
+    /// Close the current window (via Update::CloseWindow return value, tracked here for logging)
+    CloseWindow,
+
+    // ===== Focus Management =====
+    /// Change keyboard focus to a specific node or clear focus
+    SetFocusTarget { target: FocusTarget },
+
+    // ===== Event Propagation Control =====
+    /// Stop event from propagating to parent nodes
+    StopPropagation,
+
+    // ===== Timer Management =====
+    /// Add a new timer to the window
+    AddTimer { timer_id: TimerId, timer: Timer },
+    /// Remove an existing timer
+    RemoveTimer { timer_id: TimerId },
+
+    // ===== Thread Management =====
+    /// Add a new background thread
+    AddThread { thread_id: ThreadId, thread: Thread },
+    /// Remove an existing thread
+    RemoveThread { thread_id: ThreadId },
+
+    // ===== Content Modifications =====
+    /// Change the text content of a node
+    ChangeNodeText {
+        dom_id: DomId,
+        node_id: NodeId,
+        text: AzString,
+    },
+    /// Change the image of a node
+    ChangeNodeImage {
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        update_type: UpdateImageType,
+    },
+    /// Change the image mask of a node
+    ChangeNodeImageMask {
+        dom_id: DomId,
+        node_id: NodeId,
+        mask: ImageMask,
+    },
+    /// Change CSS properties of a node
+    ChangeNodeCssProperties {
+        dom_id: DomId,
+        node_id: NodeId,
+        properties: Vec<CssProperty>,
+    },
+
+    // ===== Scroll Management =====
+    /// Scroll a node to a specific position
+    ScrollTo {
+        dom_id: DomId,
+        node_id: NodeHierarchyItemId,
+        position: LogicalPosition,
+    },
+
+    // ===== Image Cache Management =====
+    /// Add an image to the image cache
+    AddImageToCache { id: AzString, image: ImageRef },
+    /// Remove an image from the image cache
+    RemoveImageFromCache { id: AzString },
+
+    // ===== Font Cache Management =====
+    /// Reload system fonts (expensive operation)
+    ReloadSystemFonts,
+
+    // ===== Menu Management =====
+    /// Open a context menu or dropdown menu
+    /// Whether it's native or fallback depends on window.state.flags.use_native_context_menus
+    OpenMenu {
+        menu: Menu,
+        /// Optional position override (if None, uses menu.position)
+        position: Option<LogicalPosition>,
+    },
+}
 
 /// Main callback type for UI event handling
 pub type CallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update;
@@ -131,30 +224,62 @@ impl From<OptionCallback> for Option<Callback> {
 }
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
+///
+/// # Architecture
+///
+/// CallbackInfo uses a transaction-based system:
+/// - **Read-only pointers**: Access to layout data, window state, managers for queries
+/// - **Change vector**: All modifications are recorded as CallbackChange items
+/// - **Processing**: Changes are applied atomically after callback returns
+///
+/// This design provides clear separation between queries and modifications, makes debugging
+/// easier, and allows for future extensibility.
 #[derive(Debug)]
 #[repr(C)]
 pub struct CallbackInfo {
-    /// Pointer to the LayoutWindow containing all layout results (MUTABLE for timer/thread/GPU
-    /// access)
-    layout_window: *mut LayoutWindow,
+    // ===== READ-ONLY DATA (Query Access) =====
+    /// Pointer to the LayoutWindow containing all layout results (READ-ONLY for queries)
+    /// Use Deref/DerefMut traits to access layout data
+    layout_window: *const LayoutWindow,
     /// Necessary to query FontRefs from callbacks
     renderer_resources: *const RendererResources,
-    /// Previous window state
+    /// Previous window state (for detecting changes)
     previous_window_state: *const Option<FullWindowState>,
     /// State of the current window that the callback was called on (read only!)
     current_window_state: *const FullWindowState,
-    /// User-modifiable state of the window that the callback was called on
-    modifiable_window_state: *mut WindowState,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
     gl_context: *const OptionGlContextPtr,
+    /// Immutable reference to where the nodes are currently scrolled (current position)
+    current_scroll_manager: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+    /// Immutable reference to the scroll manager (for querying scroll state)
+    scroll_manager: *const crate::managers::scroll_state::ScrollManager,
+    /// Immutable reference to the gesture/drag manager (for querying gesture state)
+    gesture_drag_manager: *const crate::managers::gesture::GestureAndDragManager,
+    /// Handle of the current window
+    current_window_handle: *const RawWindowHandle,
+    /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
+    system_callbacks: *const ExternalSystemCallbacks,
+    /// Platform-specific system style (colors, spacing, etc.)
+    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
+    system_style: Arc<SystemStyle>,
+
+    // ===== CONTEXT INFO (Immutable Event Data) =====
+    /// The ID of the DOM + the node that was hit
+    hit_dom_node: DomNodeId,
+    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was
+    /// hit**
+    cursor_relative_to_item: OptionLogicalPosition,
+    /// The (x, y) position of the mouse cursor, **relative to top left of the window**
+    cursor_in_viewport: OptionLogicalPosition,
+
+    // ===== LEGACY MUTABLE DATA (Being migrated to changes vec) =====
+    // TODO: These will be removed once all code is migrated to use CallbackChange
+    /// User-modifiable state of the window that the callback was called on
+    modifiable_window_state: *mut WindowState,
     /// Cache to add / remove / query image RefAnys from / to CSS ids
     image_cache: *mut ImageCache,
     /// System font cache (can be regenerated / refreshed in callbacks)
     system_fonts: *mut FcFontCache,
-    /// Platform-specific system style (colors, spacing, etc.)
-    /// Used for CSD rendering and menu windows.
-    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation.
-    system_style: Arc<SystemStyle>,
     /// Currently running timers (polling functions, run on the main thread)
     timers: *mut FastHashMap<TimerId, Timer>,
     /// Currently running threads (asynchronous functions running each on a different thread)
@@ -163,18 +288,11 @@ pub struct CallbackInfo {
     timers_removed: *mut FastBTreeSet<TimerId>,
     /// Threads removed by the callback
     threads_removed: *mut FastBTreeSet<ThreadId>,
-    /// Handle of the current window
-    current_window_handle: *const RawWindowHandle,
-    /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to
-    /// spawn child windows.
+    /// Used to spawn new windows from callbacks
     new_windows: *mut Vec<WindowCreateOptions>,
-    /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
-    system_callbacks: *const ExternalSystemCallbacks,
     /// Sets whether the event should be propagated to the parent hit node or not
     stop_propagation: *mut bool,
-    /// The callback can change the focus_target - note that the focus_target is set before the
-    /// next frames' layout() function is invoked, but the current frames callbacks are not
-    /// affected.
+    /// The callback can change the focus_target
     focus_target: *mut Option<FocusTarget>,
     /// Mutable reference to a list of words / text items that were changed in the callback
     words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
@@ -183,52 +301,44 @@ pub struct CallbackInfo {
         *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
     /// Mutable reference to a list of image clip masks that were changed in the callback
     image_masks_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-    /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS
-    /// properties
+    /// Mutable reference to a list of CSS property changes
     css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    current_scroll_manager: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
-    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next
-    /// frame)
+    /// Mutable map where a user can set where he wants the nodes to be scrolled to
     nodes_scrolled_in_callback:
         *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-    /// Immutable reference to the scroll manager (for querying scroll state)
-    scroll_manager: *const crate::managers::scroll_state::ScrollManager,
-    /// Immutable reference to the gesture/drag manager (for querying gesture state)
-    gesture_drag_manager: *const crate::managers::gesture::GestureAndDragManager,
-    /// The ID of the DOM + the node that was hit. You can use this to query
-    /// information about the node, but please don't hard-code any if / else
-    /// statements based on the `NodeId`
-    hit_dom_node: DomNodeId,
-    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was
-    /// hit**.
-    cursor_relative_to_item: OptionLogicalPosition,
-    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    cursor_in_viewport: OptionLogicalPosition,
+
+    // ===== TRANSACTION CONTAINER (New System) =====
+    /// All changes made by the callback, applied atomically after callback returns
+    /// This is the new system that will eventually replace all the legacy mutable pointers above
+    changes: *mut Vec<CallbackChange>,
 }
 
 impl core::ops::Deref for CallbackInfo {
     type Target = LayoutWindow;
 
     fn deref(&self) -> &Self::Target {
-        // SAFETY: layout_window is a valid mutable pointer for the lifetime of CallbackInfo
+        // SAFETY: layout_window is a valid pointer for the lifetime of CallbackInfo
         // The unsafe code is only to eliminate lifetimes from the callback signature
+        // Note: This is now const to enforce read-only access through Deref
         unsafe { &*self.layout_window }
     }
 }
 
+// TODO: Remove DerefMut once all mutation is migrated to CallbackChange system
+// Currently needed for methods like scroll_selection_into_view that mutate scroll_manager
+#[allow(deprecated)]
 impl core::ops::DerefMut for CallbackInfo {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: layout_window is a valid mutable pointer for the lifetime of CallbackInfo
-        // The unsafe code is only to eliminate lifetimes from the callback signature
-        unsafe { &mut *self.layout_window }
+        // SAFETY: We cast const to mut here - this is a transitional workaround
+        // The layout_window pointer lifetime is valid for CallbackInfo lifetime
+        unsafe { &mut *(self.layout_window as *mut LayoutWindow) }
     }
 }
 
 impl CallbackInfo {
     #[allow(clippy::too_many_arguments)]
     pub fn new<'a>(
-        layout_window: &'a mut LayoutWindow,
+        layout_window: &'a LayoutWindow,
         renderer_resources: &'a RendererResources,
         previous_window_state: &'a Option<FullWindowState>,
         current_window_state: &'a FullWindowState,
@@ -261,27 +371,42 @@ impl CallbackInfo {
             DomId,
             BTreeMap<NodeHierarchyItemId, LogicalPosition>,
         >,
+        changes: &'a mut Vec<CallbackChange>,
         hit_dom_node: DomNodeId,
         cursor_relative_to_item: OptionLogicalPosition,
         cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
-            layout_window: layout_window as *mut LayoutWindow,
+            // Read-only data (query access)
+            layout_window: layout_window as *const LayoutWindow,
             renderer_resources: renderer_resources as *const RendererResources,
             previous_window_state: previous_window_state as *const Option<FullWindowState>,
             current_window_state: current_window_state as *const FullWindowState,
-            modifiable_window_state: modifiable_window_state as *mut WindowState,
             gl_context: gl_context as *const OptionGlContextPtr,
+            current_scroll_manager: current_scroll_manager
+                as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+            scroll_manager: &layout_window.scroll_manager
+                as *const crate::managers::scroll_state::ScrollManager,
+            gesture_drag_manager: &layout_window.gesture_drag_manager
+                as *const crate::managers::gesture::GestureAndDragManager,
+            current_window_handle: current_window_handle as *const RawWindowHandle,
+            system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
+            system_style,
+
+            // Context info (immutable event data)
+            hit_dom_node,
+            cursor_relative_to_item,
+            cursor_in_viewport,
+
+            // Legacy mutable data (TODO: migrate to changes vec)
+            modifiable_window_state: modifiable_window_state as *mut WindowState,
             image_cache: image_cache as *mut ImageCache,
             system_fonts: system_fonts as *mut FcFontCache,
-            system_style,
             timers: timers as *mut FastHashMap<TimerId, Timer>,
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             timers_removed: timers_removed as *mut FastBTreeSet<TimerId>,
             threads_removed: threads_removed as *mut FastBTreeSet<ThreadId>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
-            current_window_handle: current_window_handle as *const RawWindowHandle,
-            system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             words_changed_in_callbacks: words_changed_in_callbacks
@@ -292,30 +417,226 @@ impl CallbackInfo {
                 as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks
                 as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-            current_scroll_manager: current_scroll_manager
-                as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback
                 as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-            scroll_manager: &layout_window.scroll_manager
-                as *const crate::managers::scroll_state::ScrollManager,
-            gesture_drag_manager: &layout_window.gesture_drag_manager
-                as *const crate::managers::gesture::GestureAndDragManager,
-            hit_dom_node,
-            cursor_relative_to_item,
-            cursor_in_viewport,
+
+            // Transaction container (new system)
+            changes: changes as *mut Vec<CallbackChange>,
         }
     }
 
-    // Internal accessors
+    // ===== Helper methods for transaction system =====
+
+    /// Push a change to be applied after the callback returns
+    /// This is the primary method for modifying window state from callbacks
+    pub fn push_change(&mut self, change: CallbackChange) {
+        unsafe { (*self.changes).push(change) }
+    }
+
+    // ===== Modern API (using CallbackChange transactions) =====
+
+    /// Add a timer to this window (applied after callback returns)
+    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
+        self.push_change(CallbackChange::AddTimer { timer_id, timer });
+    }
+
+    /// Remove a timer from this window (applied after callback returns)
+    pub fn remove_timer(&mut self, timer_id: TimerId) {
+        self.push_change(CallbackChange::RemoveTimer { timer_id });
+    }
+
+    /// Add a thread to this window (applied after callback returns)
+    pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
+        self.push_change(CallbackChange::AddThread { thread_id, thread });
+    }
+
+    /// Remove a thread from this window (applied after callback returns)
+    pub fn remove_thread(&mut self, thread_id: ThreadId) {
+        self.push_change(CallbackChange::RemoveThread { thread_id });
+    }
+
+    /// Stop event propagation (applied after callback returns)
+    pub fn stop_propagation(&mut self) {
+        self.push_change(CallbackChange::StopPropagation);
+    }
+
+    /// Set keyboard focus target (applied after callback returns)
+    pub fn set_focus(&mut self, target: FocusTarget) {
+        self.push_change(CallbackChange::SetFocusTarget { target });
+    }
+
+    /// Create a new window (applied after callback returns)
+    pub fn create_window(&mut self, options: WindowCreateOptions) {
+        self.push_change(CallbackChange::CreateNewWindow { options });
+    }
+
+    /// Close the current window (applied after callback returns)
+    pub fn close_window(&mut self) {
+        self.push_change(CallbackChange::CloseWindow);
+    }
+
+    /// Modify the window state (applied after callback returns)
+    pub fn modify_window_state(&mut self, state: WindowState) {
+        self.push_change(CallbackChange::ModifyWindowState { state });
+    }
+
+    /// Change the text content of a node (applied after callback returns)
+    pub fn change_node_text(&mut self, dom_id: DomId, node_id: NodeId, text: AzString) {
+        self.push_change(CallbackChange::ChangeNodeText {
+            dom_id,
+            node_id,
+            text,
+        });
+    }
+
+    /// Change the image of a node (applied after callback returns)
+    pub fn change_node_image(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        update_type: UpdateImageType,
+    ) {
+        self.push_change(CallbackChange::ChangeNodeImage {
+            dom_id,
+            node_id,
+            image,
+            update_type,
+        });
+    }
+
+    /// Change the image mask of a node (applied after callback returns)
+    pub fn change_node_image_mask(&mut self, dom_id: DomId, node_id: NodeId, mask: ImageMask) {
+        self.push_change(CallbackChange::ChangeNodeImageMask {
+            dom_id,
+            node_id,
+            mask,
+        });
+    }
+
+    /// Change CSS properties of a node (applied after callback returns)
+    pub fn change_node_css_properties(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        properties: Vec<CssProperty>,
+    ) {
+        self.push_change(CallbackChange::ChangeNodeCssProperties {
+            dom_id,
+            node_id,
+            properties,
+        });
+    }
+
+    /// Scroll a node to a specific position (applied after callback returns)
+    pub fn scroll_to(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeHierarchyItemId,
+        position: LogicalPosition,
+    ) {
+        self.push_change(CallbackChange::ScrollTo {
+            dom_id,
+            node_id,
+            position,
+        });
+    }
+
+    /// Add an image to the image cache (applied after callback returns)
+    pub fn add_image_to_cache(&mut self, id: AzString, image: ImageRef) {
+        self.push_change(CallbackChange::AddImageToCache { id, image });
+    }
+
+    /// Remove an image from the image cache (applied after callback returns)
+    pub fn remove_image_from_cache(&mut self, id: AzString) {
+        self.push_change(CallbackChange::RemoveImageFromCache { id });
+    }
+
+    /// Reload system fonts (applied after callback returns)
+    ///
+    /// Note: This is an expensive operation that rebuilds the entire font cache
+    pub fn reload_system_fonts(&mut self) {
+        self.push_change(CallbackChange::ReloadSystemFonts);
+    }
+
+    /// Open a menu (context menu or dropdown)
+    ///
+    /// The menu will be displayed either as a native menu or a fallback DOM-based menu
+    /// depending on the window's `use_native_context_menus` flag.
+    /// Uses the position specified in the menu itself.
+    ///
+    /// # Arguments
+    /// * `menu` - The menu to display
+    pub fn open_menu(&mut self, menu: Menu) {
+        self.push_change(CallbackChange::OpenMenu {
+            menu,
+            position: None,
+        });
+    }
+
+    /// Open a menu at a specific position
+    ///
+    /// # Arguments
+    /// * `menu` - The menu to display
+    /// * `position` - The position where the menu should appear (overrides menu's position)
+    pub fn open_menu_at(&mut self, menu: Menu, position: LogicalPosition) {
+        self.push_change(CallbackChange::OpenMenu {
+            menu,
+            position: Some(position),
+        });
+    }
+
+    /// Open a menu positioned relative to a specific DOM node
+    ///
+    /// This is useful for dropdowns, combo boxes, and context menus that should appear
+    /// near a specific UI element. The menu will be positioned below the node by default.
+    ///
+    /// # Arguments
+    /// * `menu` - The menu to display
+    /// * `node_id` - The DOM node to position the menu relative to
+    ///
+    /// # Returns
+    /// * `true` if the menu was queued for opening
+    /// * `false` if the node doesn't exist or has no layout information
+    pub fn open_menu_for_node(&mut self, menu: Menu, node_id: DomNodeId) -> bool {
+        // Get the node's bounding rectangle
+        if let Some(rect) = self.get_node_rect(node_id) {
+            // Position menu at bottom-left of the node
+            let position = LogicalPosition::new(rect.origin.x, rect.origin.y + rect.size.height);
+            self.push_change(CallbackChange::OpenMenu {
+                menu,
+                position: Some(position),
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Open a menu positioned relative to the currently hit node
+    ///
+    /// Convenience method for opening a menu at the element that triggered the callback.
+    /// Equivalent to `open_menu_for_node(menu, info.get_hit_node())`.
+    ///
+    /// # Arguments
+    /// * `menu` - The menu to display
+    ///
+    /// # Returns
+    /// * `true` if the menu was queued for opening
+    /// * `false` if no node is currently hit or it has no layout information
+    pub fn open_menu_for_hit_node(&mut self, menu: Menu) -> bool {
+        let hit_node = self.get_hit_node();
+        self.open_menu_for_node(menu, hit_node)
+    }
+
+    // ===== Internal accessors =====
+
     fn internal_get_layout_window(&self) -> &LayoutWindow {
         unsafe { &*self.layout_window }
     }
 
-    fn internal_get_layout_window_mut(&mut self) -> &mut LayoutWindow {
-        unsafe { &mut *self.layout_window }
-    }
-
-    // Public API methods - delegates to LayoutWindow
+    // ===== Public query API =====
+    // All methods below delegate to LayoutWindow for read-only access
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         self.internal_get_layout_window().get_node_size(node_id)
     }
@@ -343,28 +664,11 @@ impl CallbackInfo {
         self.get_node_rect(hit_node)
     }
 
-    // ===== Timer Management =====
-
-    /// Add a timer to this window
-    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
-        self.internal_get_layout_window_mut()
-            .add_timer(timer_id, timer);
-    }
-
-    /// Remove a timer from this window
-    pub fn remove_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
-        self.internal_get_layout_window_mut().remove_timer(timer_id)
-    }
+    // ===== Timer Management (Query APIs) =====
 
     /// Get a reference to a timer
     pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
         self.internal_get_layout_window().get_timer(timer_id)
-    }
-
-    /// Get a mutable reference to a timer
-    pub fn get_timer_mut(&mut self, timer_id: &TimerId) -> Option<&mut Timer> {
-        self.internal_get_layout_window_mut()
-            .get_timer_mut(timer_id)
     }
 
     /// Get all timer IDs
@@ -372,29 +676,11 @@ impl CallbackInfo {
         self.internal_get_layout_window().get_timer_ids()
     }
 
-    // ===== Thread Management =====
-
-    /// Add a thread to this window
-    pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
-        self.internal_get_layout_window_mut()
-            .add_thread(thread_id, thread);
-    }
-
-    /// Remove a thread from this window
-    pub fn remove_thread(&mut self, thread_id: &ThreadId) -> Option<Thread> {
-        self.internal_get_layout_window_mut()
-            .remove_thread(thread_id)
-    }
+    // ===== Thread Management (Query APIs) =====
 
     /// Get a reference to a thread
     pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
         self.internal_get_layout_window().get_thread(thread_id)
-    }
-
-    /// Get a mutable reference to a thread
-    pub fn get_thread_mut(&mut self, thread_id: &ThreadId) -> Option<&mut Thread> {
-        self.internal_get_layout_window_mut()
-            .get_thread_mut(thread_id)
     }
 
     /// Get all thread IDs
@@ -402,42 +688,18 @@ impl CallbackInfo {
         self.internal_get_layout_window().get_thread_ids()
     }
 
-    // ===== GPU Value Cache Management =====
+    // ===== GPU Value Cache Management (Query APIs) =====
 
     /// Get the GPU value cache for a specific DOM
     pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&azul_core::gpu::GpuValueCache> {
         self.internal_get_layout_window().get_gpu_cache(dom_id)
     }
 
-    /// Get a mutable reference to the GPU value cache for a specific DOM
-    pub fn get_gpu_cache_mut(
-        &mut self,
-        dom_id: &DomId,
-    ) -> Option<&mut azul_core::gpu::GpuValueCache> {
-        self.internal_get_layout_window_mut()
-            .get_gpu_cache_mut(dom_id)
-    }
-
-    /// Get or create a GPU value cache for a specific DOM
-    pub fn get_or_create_gpu_cache(&mut self, dom_id: DomId) -> &mut azul_core::gpu::GpuValueCache {
-        self.internal_get_layout_window_mut()
-            .get_or_create_gpu_cache(dom_id)
-    }
-
-    // ===== Layout Result Access =====
+    // ===== Layout Result Access (Query APIs) =====
 
     /// Get a layout result for a specific DOM
     pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&crate::window::DomLayoutResult> {
         self.internal_get_layout_window().get_layout_result(dom_id)
-    }
-
-    /// Get a mutable layout result for a specific DOM
-    pub fn get_layout_result_mut(
-        &mut self,
-        dom_id: &DomId,
-    ) -> Option<&mut crate::window::DomLayoutResult> {
-        self.internal_get_layout_window_mut()
-            .get_layout_result_mut(dom_id)
     }
 
     /// Get all DOM IDs that have layout results
@@ -625,9 +887,7 @@ impl CallbackInfo {
         node_id: DomNodeId,
         cursor: azul_core::selection::TextCursor,
     ) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
-            .set_cursor(dom_id, node_id, cursor);
+        self.selection_manager.set_cursor(dom_id, node_id, cursor);
     }
 
     /// Set a selection range, replacing all existing selections
@@ -637,9 +897,7 @@ impl CallbackInfo {
         node_id: DomNodeId,
         range: azul_core::selection::SelectionRange,
     ) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
-            .set_range(dom_id, node_id, range);
+        self.selection_manager.set_range(dom_id, node_id, range);
     }
 
     /// Add a selection (for multi-cursor support)
@@ -649,23 +907,18 @@ impl CallbackInfo {
         node_id: DomNodeId,
         selection: azul_core::selection::Selection,
     ) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
+        self.selection_manager
             .add_selection(dom_id, node_id, selection);
     }
 
     /// Clear selection for a specific DOM
     pub fn clear_selection(&mut self, dom_id: &DomId) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
-            .clear_selection(dom_id);
+        self.selection_manager.clear_selection(dom_id);
     }
 
     /// Clear all selections across all DOMs
     pub fn clear_all_selections(&mut self) {
-        self.internal_get_layout_window_mut()
-            .selection_manager
-            .clear_all();
+        self.selection_manager.clear_all();
     }
 
     /// Check if a DOM has any selection
@@ -717,7 +970,7 @@ impl CallbackInfo {
     pub fn get_text_cache_mut(
         &mut self,
     ) -> &mut crate::text3::cache::LayoutCache<azul_css::props::basic::FontRef> {
-        &mut self.internal_get_layout_window_mut().text_cache
+        &mut self.text_cache
     }
 
     // ===== Window State Access =====
@@ -794,14 +1047,6 @@ impl CallbackInfo {
         }
     }
 
-    // ===== Focus Management =====
-
-    pub fn set_focus(&mut self, target: FocusTarget) {
-        unsafe {
-            *self.focus_target = Some(target);
-        }
-    }
-
     // ===== Cursor and Input =====
 
     pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition {
@@ -810,20 +1055,6 @@ impl CallbackInfo {
 
     pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
         self.cursor_in_viewport
-    }
-
-    pub fn stop_propagation(&mut self) {
-        unsafe {
-            *self.stop_propagation = true;
-        }
-    }
-
-    // ===== Window Creation =====
-
-    pub fn create_window(&mut self, window: WindowCreateOptions) {
-        unsafe {
-            (*self.new_windows).push(window);
-        }
     }
 
     pub fn get_current_window_handle(&self) -> RawWindowHandle {
@@ -852,15 +1083,86 @@ impl CallbackInfo {
 
     // ===== CSS Property Access =====
 
+    /// Get the computed CSS property for a specific DOM node
+    ///
+    /// This queries the CSS property cache and returns the resolved property value
+    /// for the given node, taking into account:
+    /// - User overrides (from callbacks)
+    /// - Node state (:hover, :active, :focus)
+    /// - CSS rules from stylesheets
+    /// - Cascaded properties from parents
+    /// - Inline styles
+    ///
+    /// # Arguments
+    /// * `node_id` - The DOM node to query
+    /// * `property_type` - The CSS property type to retrieve
+    ///
+    /// # Returns
+    /// * `Some(CssProperty)` if the property is set on this node
+    /// * `None` if the property is not set (will use default value)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use azul_layout::callbacks::CallbackInfo;
+    /// # use azul_core::dom::DomNodeId;
+    /// # use azul_css::props::property::CssPropertyType;
+    /// # fn example(info: &CallbackInfo) {
+    /// let node = info.get_hit_node();
+    /// if let Some(width) = info.get_computed_css_property(node, CssPropertyType::Width) {
+    ///     println!("Node width: {:?}", width);
+    /// }
+    /// # }
+    /// ```
     pub fn get_computed_css_property(
         &self,
-        _node_id: DomNodeId,
-        _property_type: azul_css::props::property::CssPropertyType,
+        node_id: DomNodeId,
+        property_type: azul_css::props::property::CssPropertyType,
     ) -> Option<azul_css::props::property::CssProperty> {
-        // TODO: Implement CSS property access from the new layout system
-        // The old system used positioned_rectangles.resolved_css_properties
-        // The new system uses layout_tree - needs proper implementation
-        None
+        let layout_window = self.internal_get_layout_window();
+
+        // Get the layout result for this DOM
+        let layout_result = layout_window.layout_results.get(&node_id.dom)?;
+
+        // Get the styled DOM
+        let styled_dom = &layout_result.styled_dom;
+
+        // Convert DomNodeId to NodeId
+        let internal_node_id = azul_core::id::NodeId::from_usize(node_id.node.inner)?;
+
+        // Get the node data
+        let node_data_container = styled_dom.node_data.as_container();
+        let node_data = node_data_container.get(internal_node_id)?;
+
+        // Get the styled node state
+        let styled_nodes_container = styled_dom.styled_nodes.as_container();
+        let styled_node = styled_nodes_container.get(internal_node_id)?;
+        let node_state = &styled_node.state;
+
+        // Query the CSS property cache
+        let css_property_cache = &styled_dom.css_property_cache.ptr;
+        css_property_cache
+            .get_property(node_data, &internal_node_id, node_state, &property_type)
+            .cloned()
+    }
+
+    /// Get the computed width of a node from CSS
+    ///
+    /// Convenience method for getting the CSS width property.
+    pub fn get_computed_width(
+        &self,
+        node_id: DomNodeId,
+    ) -> Option<azul_css::props::property::CssProperty> {
+        self.get_computed_css_property(node_id, azul_css::props::property::CssPropertyType::Width)
+    }
+
+    /// Get the computed height of a node from CSS
+    ///
+    /// Convenience method for getting the CSS height property.
+    pub fn get_computed_height(
+        &self,
+        node_id: DomNodeId,
+    ) -> Option<azul_css::props::property::CssProperty> {
+        self.get_computed_css_property(node_id, azul_css::props::property::CssPropertyType::Height)
     }
 
     // ===== System Callbacks =====
@@ -893,6 +1195,48 @@ impl CallbackInfo {
     /// to callbacks for gesture-aware UI behavior.
     pub fn get_gesture_drag_manager(&self) -> &crate::managers::gesture::GestureAndDragManager {
         unsafe { &*self.gesture_drag_manager }
+    }
+
+    /// Get immutable reference to the focus manager
+    ///
+    /// Use this to query which node currently has focus and whether focus
+    /// is being moved to another node.
+    pub fn get_focus_manager(&self) -> &crate::managers::focus_cursor::FocusManager {
+        &self.internal_get_layout_window().focus_manager
+    }
+
+    /// Get immutable reference to the hover manager
+    ///
+    /// Use this to query which nodes are currently hovered at various input points
+    /// (mouse, touch points, pen).
+    pub fn get_hover_manager(&self) -> &crate::managers::hover::HoverManager {
+        &self.internal_get_layout_window().hover_manager
+    }
+
+    /// Get immutable reference to the text input manager
+    ///
+    /// Use this to query text selection state, cursor positions, and IME composition.
+    pub fn get_text_input_manager(&self) -> &crate::managers::text_input::TextInputManager {
+        &self.internal_get_layout_window().text_input_manager
+    }
+
+    /// Get immutable reference to the selection manager
+    ///
+    /// Use this to query text selections across multiple nodes.
+    pub fn get_selection_manager(&self) -> &crate::managers::selection::SelectionManager {
+        &self.internal_get_layout_window().selection_manager
+    }
+
+    /// Check if a specific node is currently focused
+    pub fn is_node_focused(&self, node_id: DomNodeId) -> bool {
+        self.get_focus_manager().has_focus(&node_id)
+    }
+
+    /// Check if any node in a specific DOM is focused
+    pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
+        self.get_focused_node()
+            .map(|n| n.dom == dom_id)
+            .unwrap_or(false)
     }
 
     // ===== Pen/Stylus Query Methods =====
@@ -1090,13 +1434,6 @@ impl CallbackInfo {
 
     // ===== Hover Manager Access =====
 
-    /// Get immutable reference to the hover manager
-    ///
-    /// Provides access to hit test history over the last 5 frames for gesture detection.
-    pub fn get_hover_manager(&self) -> &crate::managers::hover::HoverManager {
-        &self.internal_get_layout_window().hover_manager
-    }
-
     /// Get the current mouse cursor hit test result (most recent frame)
     pub fn get_current_hit_test(&self) -> Option<&crate::hit_test::FullHitTest> {
         use crate::managers::InputPointId;
@@ -1127,25 +1464,11 @@ impl CallbackInfo {
             .has_sufficient_history_for_gestures(&InputPointId::Mouse)
     }
 
-    // ===== Focus Manager Access =====
-
-    /// Get immutable reference to the focus manager
-    pub fn get_focus_manager(&self) -> &crate::managers::focus_cursor::FocusManager {
-        &self.internal_get_layout_window().focus_manager
-    }
-
     // ===== File Drop Manager Access =====
 
     /// Get immutable reference to the file drop manager
     pub fn get_file_drop_manager(&self) -> &crate::managers::file_drop::FileDropManager {
         &self.internal_get_layout_window().file_drop_manager
-    }
-
-    // ===== Selection Manager Access =====
-
-    /// Get immutable reference to the selection manager
-    pub fn get_selection_manager(&self) -> &crate::managers::selection::SelectionManager {
-        &self.internal_get_layout_window().selection_manager
     }
 
     /// Get all selections across all DOMs
@@ -1335,6 +1658,8 @@ pub struct CallCallbacksResult {
     pub threads_removed: Option<FastBTreeSet<ThreadId>>,
     /// Windows created in callbacks
     pub windows_created: Vec<WindowCreateOptions>,
+    /// Menus to open (context menus or dropdowns)
+    pub menus_to_open: Vec<(Menu, Option<LogicalPosition>)>,
     /// Whether the cursor changed
     pub cursor_changed: bool,
     /// Whether stopPropagation() was called (prevents bubbling up in DOM-style event propagation)
@@ -1360,6 +1685,7 @@ impl Default for CallCallbacksResult {
             timers_removed: None,
             threads_removed: None,
             windows_created: Vec::new(),
+            menus_to_open: Vec::new(),
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
