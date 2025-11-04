@@ -180,7 +180,7 @@ impl GnomeMenuManager {
     /// Update menu structure
     ///
     /// Converts `Menu` to DBus format and updates the menu service.
-    pub fn update_menu(&self, menu: &crate::menu::Menu) -> Result<(), GnomeMenuError> {
+    pub fn update_menu(&self, menu: &azul_core::menu::Menu) -> Result<(), GnomeMenuError> {
         debug_log("Updating GNOME menu structure");
 
         if !self.is_active.load(Ordering::Relaxed) {

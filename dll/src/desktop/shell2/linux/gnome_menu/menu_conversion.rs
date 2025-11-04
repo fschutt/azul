@@ -12,6 +12,7 @@ use super::{
 };
 
 /// Menu conversion utilities
+#[derive(Copy, Clone)]
 pub struct MenuConversion;
 
 impl MenuConversion {

@@ -3,9 +3,11 @@
 //! This is the new implementation that loads DBus dynamically and uses
 //! low-level protocol handlers from protocol_impl.rs
 
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use super::{
     debug_log, register_actions_interface, register_menus_interface, DbusAction, DbusMenuGroup,
@@ -21,13 +23,13 @@ pub struct GnomeMenuManagerV2 {
     app_name: String,
     bus_name: String,
     object_path: String,
-    
+
     // Shared DBus library instance (can be shared across windows)
     dbus_lib: Rc<DBusLib>,
-    
+
     // Raw DBus connection (NOT wrapped in Arc to keep it simple)
     connection: *mut crate::desktop::shell2::linux::dbus::DBusConnection,
-    
+
     // Menu and action state (shared with protocol handlers)
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
@@ -240,6 +242,36 @@ impl GnomeMenuManagerV2 {
         )?;
 
         debug_log("X11 window properties set successfully");
+        Ok(())
+    }
+
+    /// Set Wayland window properties (best-effort)
+    ///
+    /// Unlike X11, Wayland doesn't have window properties. GNOME Shell on Wayland
+    /// uses the app_id from the xdg_toplevel protocol to match windows to DBus services.
+    /// This function exists for API consistency but doesn't set any properties.
+    pub fn set_window_properties_wayland(
+        &self,
+        _surface_id: u32,
+        app_id: &Option<String>,
+    ) -> Result<(), GnomeMenuError> {
+        debug_log("Wayland menu integration (using app_id matching)");
+
+        if let Some(id) = app_id {
+            debug_log(&format!(
+                "App ID: {}, DBus name: {}, path: {}",
+                id, self.bus_name, self.object_path
+            ));
+        } else {
+            debug_log(&format!(
+                "No app_id set. GNOME Shell may not find menus. DBus: {}",
+                self.bus_name
+            ));
+        }
+
+        // Note: GNOME Shell on Wayland automatically discovers DBus menu services
+        // by matching the app_id from xdg_toplevel with the DBus bus name.
+        // No explicit property setting required.
         Ok(())
     }
 

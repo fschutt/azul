@@ -14,7 +14,8 @@ use std::ffi::CString;
 
 use super::{debug_log, GnomeMenuError};
 
-/// X11 property utilities
+/// X11 window properties for GNOME menu integration
+#[derive(Copy, Clone)]
 pub struct X11Properties;
 
 impl X11Properties {

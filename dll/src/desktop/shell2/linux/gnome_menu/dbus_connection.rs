@@ -2,12 +2,13 @@
 //!
 //! Handles connection to the DBus session bus and service registration.
 
-use std::ffi::CString;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::{
+    ffi::CString,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use super::{debug_log, GnomeMenuError};
-
 #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
 use crate::desktop::shell2::linux::dbus::{
     DBusConnection as RawDBusConnection, DBusError, DBusLib, DBUS_BUS_SESSION,
@@ -49,8 +50,9 @@ impl DbusConnection {
         #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
         {
             // Load DBus library dynamically
-            let dbus_lib = DBusLib::new()
-                .map_err(|e| GnomeMenuError::DbusConnectionFailed(format!("Failed to load libdbus-1.so: {}", e)))?;
+            let dbus_lib = DBusLib::new().map_err(|e| {
+                GnomeMenuError::DbusConnectionFailed(format!("Failed to load libdbus-1.so: {}", e))
+            })?;
 
             // Initialize error structure
             let mut error = DBusError {

@@ -191,41 +191,6 @@ impl ActionsProtocol {
             )))
         }
     }
-
-    /// Register with DBus
-    ///
-    /// Sets up the DBus method handlers for org.gtk.Actions interface.
-    ///
-    /// # TODO
-    ///
-    /// This function needs to be reimplemented using the dlopen DBus API
-    /// instead of the dbus crate. Similar to menu_protocol.rs, this requires
-    /// manual object path registration and low-level C API usage.
-    ///
-    /// The implementation should handle these methods:
-    /// - List() → as (array of action names)
-    /// - Describe(s) → (bsav) (enabled, param_type, state)
-    /// - DescribeAll() → a{s(bsav)} (dict of action descriptions)
-    /// - Activate(sava{sv}) → void (action_name, parameter, platform_data)
-    ///
-    /// For now, returns NotImplemented to allow compilation and cross-compilation.
-    pub fn register_with_dbus(
-        &self,
-        connection: &super::DbusConnection,
-    ) -> Result<(), GnomeMenuError> {
-        debug_log("Registering org.gtk.Actions interface with DBus");
-
-        #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
-        {
-            // TODO: Implement using dlopen DBus API
-            // This is a placeholder to allow compilation
-            debug_log("org.gtk.Actions registration not yet implemented with dlopen API");
-            return Err(GnomeMenuError::NotImplemented);
-        }
-
-        #[cfg(not(all(target_os = "linux", feature = "gnome-menus")))]
-        Err(GnomeMenuError::NotImplemented)
-    }
 }
 
 impl Default for ActionsProtocol {

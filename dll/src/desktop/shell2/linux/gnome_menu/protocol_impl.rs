@@ -4,17 +4,20 @@
 //! using the raw libdbus-1 C API loaded via dlopen. This allows GNOME menu
 //! integration without compile-time linking to libdbus.
 
-use std::collections::HashMap;
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    ffi::{CStr, CString},
+    os::raw::{c_char, c_int, c_void},
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use super::{debug_log, DbusAction, DbusMenuGroup, DbusMenuItem, GnomeMenuError};
 use crate::desktop::shell2::linux::dbus::{
     DBusConnection, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
-    DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED, DBUS_TYPE_ARRAY,
-    DBUS_TYPE_STRING, DBUS_TYPE_UINT32, DBUS_TYPE_VARIANT,
+    DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NEED_MEMORY,
+    DBUS_HANDLER_RESULT_NOT_YET_HANDLED, DBUS_TYPE_ARRAY, DBUS_TYPE_STRING, DBUS_TYPE_UINT32,
+    DBUS_TYPE_VARIANT,
 };
 
 /// Shared state for DBus message handlers
@@ -115,7 +118,10 @@ pub fn register_actions_interface(
 }
 
 /// Unregister handler for org.gtk.Menus
-unsafe extern "C" fn menus_unregister_handler(_connection: *mut DBusConnection, user_data: *mut c_void) {
+unsafe extern "C" fn menus_unregister_handler(
+    _connection: *mut DBusConnection,
+    user_data: *mut c_void,
+) {
     if !user_data.is_null() {
         // Reconstruct Box and drop it
         let _state = Box::from_raw(user_data as *mut HandlerState);
@@ -505,7 +511,7 @@ unsafe fn handle_actions_activate(
     }
 
     let action_name = CStr::from_ptr(name_ptr).to_string_lossy().to_string();
-    
+
     // Get and invoke callback
     let callback = {
         let actions = state.actions.lock().unwrap();
@@ -558,11 +564,8 @@ unsafe fn send_error_reply(
     let error_name = CString::new("org.gtk.Error").unwrap();
     let error_text = CString::new(error_msg).unwrap();
 
-    let reply = (state.dbus_lib.dbus_message_new_error)(
-        message,
-        error_name.as_ptr(),
-        error_text.as_ptr(),
-    );
+    let reply =
+        (state.dbus_lib.dbus_message_new_error)(message, error_name.as_ptr(), error_text.as_ptr());
 
     if !reply.is_null() {
         (state.dbus_lib.dbus_connection_send)(connection, reply, std::ptr::null_mut());

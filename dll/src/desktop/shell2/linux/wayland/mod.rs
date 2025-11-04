@@ -119,7 +119,7 @@ pub struct WaylandWindow {
     gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME (fallback)
     gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance (fallback)
     text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>, /* Wayland text-input
-                                                                          * v3 manager */
+                                 * v3 manager */
     text_input: Option<*mut defines::zwp_text_input_v3>, // Wayland text-input v3 instance
     pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
@@ -170,6 +170,9 @@ pub struct WaylandWindow {
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
+
+    // GNOME native menu V2 with dlopen
+    pub gnome_menu_v2: Option<super::gnome_menu::GnomeMenuManagerV2>,
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
@@ -892,6 +895,7 @@ impl WaylandWindow {
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
+            gnome_menu_v2: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
             fc_cache: resources.fc_cache.clone(),
             app_data: resources.app_data.clone(),
@@ -992,6 +996,46 @@ impl WaylandWindow {
         // See: https://wayland.freedesktop.org/docs/html/ch04.html#sect-Protocol-xdg_surface
         window.position_window_on_monitor(&options);
 
+        // Initialize GNOME menu integration V2 (dlopen-based, no compile-time dependency)
+        if options.state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
+            // Get shared DBus library instance (loaded once, shared across all windows)
+            if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
+                let app_name = &options.state.title;
+
+                match super::gnome_menu::GnomeMenuManagerV2::new(app_name, dbus_lib) {
+                    Ok(manager) => {
+                        // Register window with GNOME Shell
+                        // Note: We don't have direct access to wl_surface handle as XID,
+                        // but GNOME Shell may be able to find the window via app ID
+                        let app_id = None; // TODO: Extract from x11_wm_classes if needed
+
+                        if let Err(e) = manager.set_window_properties_wayland(
+                            window.surface as u32, // Use surface pointer as window ID
+                            &app_id,
+                        ) {
+                            eprintln!(
+                                "[Wayland] Failed to set GNOME menu window properties: {}. \
+                                 Falling back to client-side decorations.",
+                                e
+                            );
+                        } else {
+                            window.gnome_menu_v2 = Some(manager);
+                            eprintln!(
+                                "[Wayland] GNOME menu integration V2 initialized successfully"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[Wayland] Failed to initialize GNOME menu integration V2: {}. \
+                             Falling back to client-side decorations.",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
         Ok(window)
     }
 
@@ -1066,6 +1110,11 @@ impl WaylandWindow {
     /// Process events using state-diffing architecture.
     /// V2: Uses cross-platform dispatch system with recursive callback handling.
     pub fn process_events(&mut self) -> ProcessEventResult {
+        // Process GNOME menu DBus messages (non-blocking)
+        if let Some(ref manager) = self.gnome_menu_v2 {
+            manager.process_messages();
+        }
+
         self.process_window_events_recursive_v2(0)
     }
 

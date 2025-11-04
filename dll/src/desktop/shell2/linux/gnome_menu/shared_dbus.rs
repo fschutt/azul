@@ -3,8 +3,10 @@
 //! This module provides a singleton DBusLib that can be shared across
 //! all windows in the application. The library is loaded once at startup.
 
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, Once};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex, Once},
+};
 
 use super::debug_log;
 use crate::desktop::shell2::linux::dbus::DBusLib;
@@ -21,7 +23,7 @@ pub fn get_shared_dbus_lib() -> Option<Rc<DBusLib>> {
     unsafe {
         INIT.call_once(|| {
             debug_log("Attempting to load libdbus-1.so");
-            
+
             match DBusLib::new() {
                 Ok(lib) => {
                     debug_log("Successfully loaded libdbus-1.so");

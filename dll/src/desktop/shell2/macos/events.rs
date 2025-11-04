@@ -1091,7 +1091,12 @@ impl MacOSWindow {
                         submenu.setTitle(&submenu_title);
 
                         // Recursively build submenu items
-                        Self::recursive_build_nsmenu(&submenu, string_item.children.as_ref(), mtm, menu_state);
+                        Self::recursive_build_nsmenu(
+                            &submenu,
+                            string_item.children.as_ref(),
+                            mtm,
+                            menu_state,
+                        );
 
                         // Attach submenu to menu item
                         menu_item.setSubmenu(Some(&submenu));
@@ -1106,7 +1111,7 @@ impl MacOSWindow {
                         if let Some(callback) = string_item.callback.as_option() {
                             let tag = menu_state.register_callback(callback.clone());
                             menu_item.setTag(tag as isize);
-                            
+
                             // Use shared AzulMenuTarget for callback dispatch
                             let target = crate::desktop::shell2::macos::menu::AzulMenuTarget::shared_instance(*mtm);
                             unsafe {
@@ -1117,7 +1122,10 @@ impl MacOSWindow {
 
                         // Set keyboard shortcut if present
                         if let Some(ref accelerator) = string_item.accelerator.into_option() {
-                            crate::desktop::shell2::macos::menu::set_menu_item_accelerator(&menu_item, accelerator);
+                            crate::desktop::shell2::macos::menu::set_menu_item_accelerator(
+                                &menu_item,
+                                accelerator,
+                            );
                         }
                     }
 

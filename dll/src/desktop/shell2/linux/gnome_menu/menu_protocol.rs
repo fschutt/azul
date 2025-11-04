@@ -126,44 +126,6 @@ impl MenuProtocol {
         // In a simple implementation, we don't need to do anything here
         Ok(())
     }
-
-    /// Register with DBus
-    ///
-    /// Sets up the DBus method handlers for org.gtk.Menus interface.
-    ///
-    /// # TODO
-    ///
-    /// This function needs to be reimplemented using the dlopen DBus API
-    /// instead of the dbus crate. This requires manual object path registration
-    /// using `dbus_connection_register_object_path` and implementing message
-    /// handlers using the low-level C API.
-    ///
-    /// The implementation should:
-    /// 1. Create a `DBusObjectPathVTable` with message_function callback
-    /// 2. Parse incoming method calls manually (check interface, member name)
-    /// 3. Parse arguments using `dbus_message_iter_*` functions
-    /// 4. Build response messages using `dbus_message_new_method_return`
-    /// 5. Append return values using `dbus_message_iter_append_*`
-    /// 6. Send response with `dbus_connection_send`
-    ///
-    /// For now, returns NotImplemented to allow compilation and cross-compilation.
-    pub fn register_with_dbus(
-        &self,
-        connection: &super::DbusConnection,
-    ) -> Result<(), GnomeMenuError> {
-        debug_log("Registering org.gtk.Menus interface with DBus");
-
-        #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
-        {
-            // TODO: Implement using dlopen DBus API
-            // This is a placeholder to allow compilation
-            debug_log("org.gtk.Menus registration not yet implemented with dlopen API");
-            return Err(GnomeMenuError::NotImplemented);
-        }
-
-        #[cfg(not(all(target_os = "linux", feature = "gnome-menus")))]
-        Err(GnomeMenuError::NotImplemented)
-    }
 }
 
 impl Default for MenuProtocol {

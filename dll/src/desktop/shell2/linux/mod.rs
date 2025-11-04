@@ -10,8 +10,7 @@ pub mod resources;
 /// DBus dynamic loading (for GNOME menus)
 pub mod dbus;
 
-/// GNOME native menu integration (DBus)
-#[cfg(feature = "gnome-menus")]
+/// GNOME native menu integration (DBus with dlopen)
 pub mod gnome_menu;
 
 /// Wayland implementation

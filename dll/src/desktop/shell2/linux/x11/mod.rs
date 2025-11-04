@@ -93,9 +93,8 @@ pub struct X11Window {
     /// Processed in Phase 3 of the event loop
     pub pending_window_creates: Vec<WindowCreateOptions>,
 
-    // GNOME native menu integration (optional)
-    #[cfg(feature = "gnome-menus")]
-    pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
+    // GNOME native menu V2 with dlopen (no compile-time dependency)
+    pub gnome_menu_v2: Option<super::gnome_menu::GnomeMenuManagerV2>,
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
@@ -551,8 +550,7 @@ impl X11Window {
             last_hovered_node: None,
             frame_needs_regeneration: false,
             pending_window_creates: Vec::new(),
-            #[cfg(feature = "gnome-menus")]
-            gnome_menu: None, // Initialize as None, will be set up if enabled
+            gnome_menu_v2: None, // New dlopen-based implementation
             resources,
             #[cfg(feature = "accessibility")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
@@ -581,35 +579,46 @@ impl X11Window {
         };
         window.position_window_on_monitor(monitor_id_typed, position, size);
 
-        // Initialize GNOME native menus if enabled
-        #[cfg(feature = "gnome-menus")]
-        if options.state.flags.use_native_menus {
-            let app_name = &options.state.title;
-            match super::gnome_menu::GnomeMenuManager::new(app_name) {
-                Some(menu_manager) => {
-                    // Try to set window properties for GNOME Shell integration
-                    match menu_manager.set_window_properties(window.window, display as *mut _) {
-                        Ok(_) => {
-                            super::gnome_menu::debug_log(&format!(
-                                "GNOME menu integration enabled for window: {}",
-                                app_name
-                            ));
-                            window.gnome_menu = Some(menu_manager);
-                        }
-                        Err(e) => {
-                            super::gnome_menu::debug_log(&format!(
-                                "Failed to set GNOME window properties: {} - falling back to CSD \
-                                 menus",
-                                e
-                            ));
-                            // Continue without GNOME menus - will use CSD fallback
+        // Initialize GNOME native menus V2 (dlopen-based)
+        // Only attempt if use_native_menus is true and GNOME is available
+        if options.state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
+            // Get shared DBus library (loaded once, shared across all windows)
+            if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
+                let app_name = &options.state.title;
+
+                match super::gnome_menu::GnomeMenuManagerV2::new(app_name, dbus_lib) {
+                    Ok(menu_manager_v2) => {
+                        // Try to set window properties for GNOME Shell integration
+                        match menu_manager_v2
+                            .set_window_properties(window.window, display as *mut _)
+                        {
+                            Ok(_) => {
+                                super::gnome_menu::debug_log(&format!(
+                                    "GNOME menu V2 integration enabled for window: {}",
+                                    app_name
+                                ));
+                                window.gnome_menu_v2 = Some(menu_manager_v2);
+                            }
+                            Err(e) => {
+                                super::gnome_menu::debug_log(&format!(
+                                    "Failed to set GNOME V2 window properties: {} - falling back \
+                                     to CSD menus",
+                                    e
+                                ));
+                                // Continue without GNOME menus - will use CSD fallback
+                            }
                         }
                     }
+                    Err(e) => {
+                        super::gnome_menu::debug_log(&format!(
+                            "Failed to create GNOME menu V2 manager: {} - using CSD fallback",
+                            e
+                        ));
+                        // Continue without GNOME menus - will use CSD fallback
+                    }
                 }
-                None => {
-                    super::gnome_menu::debug_log("GNOME menus not available - using CSD fallback");
-                    // Continue without GNOME menus - will use CSD fallback
-                }
+            } else {
+                super::gnome_menu::debug_log("DBus library not available - using CSD fallback");
             }
         }
 
@@ -682,6 +691,11 @@ impl X11Window {
     }
 
     fn process_events(&mut self) {
+        // Process GNOME menu DBus messages (non-blocking)
+        if let Some(ref manager) = self.gnome_menu_v2 {
+            manager.process_messages();
+        }
+
         let result = self.process_window_events_recursive_v2(0);
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
