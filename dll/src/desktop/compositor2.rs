@@ -255,7 +255,7 @@ pub fn translate_displaylist_to_wr(
                         *widths,
                         *colors,
                         *styles,
-                        1.0, // TODO: Pass actual HiDPI factor
+                        dpi.inner.get(),
                     )
                 {
                     builder.push_border(&info, rect, border_widths, border_details);
@@ -775,71 +775,6 @@ pub fn translate_displaylist_to_wr(
     eprintln!("============================");
 
     Ok((wr_resources, dl, nested_pipelines))
-}
-
-/// Software compositor stubs
-///
-/// Note: These functions are intentionally stubbed out because WebRender
-/// handles all compositing internally. Software compositing would only be
-/// needed if we were implementing a fallback path without WebRender, which
-/// is not currently planned. The Wayland backend has a CPU fallback that
-/// renders directly to shared memory buffers without using these functions.
-pub mod sw_compositor {
-    use super::*;
-
-    /// Initialize software compositor (stub)
-    ///
-    /// This would set up a software rasterizer for rendering without GPU.
-    /// Currently unused as WebRender provides GPU-accelerated rendering
-    /// and the Wayland CPU fallback handles software rendering directly.
-    pub fn initialize_sw_compositor(viewport_size: DeviceIntSize) -> Result<(), String> {
-        eprintln!("[sw_compositor] Initialize {:?} (stub)", viewport_size);
-        Ok(())
-    }
-
-    /// Composite a frame in software (stub)
-    ///
-    /// This would rasterize the display list to a framebuffer without GPU.
-    /// Currently unused - see initialize_sw_compositor for rationale.
-    pub fn composite_frame_sw(
-        _framebuffer: &mut [u8],
-        width: usize,
-        height: usize,
-    ) -> Result<(), String> {
-        eprintln!("[sw_compositor] Composite {}x{} (stub)", width, height);
-        Ok(())
-    }
-}
-
-/// Hardware compositor stubs
-///
-/// Note: These functions are intentionally stubbed out because WebRender
-/// handles all hardware-accelerated compositing internally. These would only
-/// be needed if we were implementing custom OpenGL/Vulkan compositing logic
-/// outside of WebRender, which is not planned.
-pub mod hw_compositor {
-    use super::*;
-
-    /// Initialize hardware compositor (stub)
-    ///
-    /// This would set up OpenGL/Vulkan context for custom compositing.
-    /// Currently unused as WebRender manages all GPU resources internally.
-    pub fn initialize_hw_compositor(
-        viewport_size: DeviceIntSize,
-        _gl_context: *mut std::ffi::c_void,
-    ) -> Result<(), String> {
-        eprintln!("[hw_compositor] Initialize {:?} (stub)", viewport_size);
-        Ok(())
-    }
-
-    /// Composite a frame using hardware acceleration (stub)
-    ///
-    /// This would render the display list using GPU commands.
-    /// Currently unused - see initialize_hw_compositor for rationale.
-    pub fn composite_frame_hw() -> Result<(), String> {
-        eprintln!("[hw_compositor] Composite (stub)");
-        Ok(())
-    }
 }
 
 // ========== Helper Functions ==========

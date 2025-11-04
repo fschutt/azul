@@ -352,11 +352,6 @@ pub fn translate_hit_test_result(
     }
 }
 
-/// Legacy version that still returns empty for backwards compatibility
-pub fn translate_hit_test_result_empty<T>(_wr_result: T) -> azul_core::hit_test::FullHitTest {
-    azul_core::hit_test::FullHitTest::empty(None)
-}
-
 /// Translate ScrollbarHitId to WebRender ItemTag
 ///
 /// Encoding scheme:
@@ -410,14 +405,6 @@ pub fn translate_item_tag_to_scrollbar_hit_id(
         3 => Some(ScrollbarHitId::HorizontalThumb(dom_id, node_id)),
         _ => None,
     }
-}
-
-/// ScrollClamping is no longer part of WebRender API
-/// Keeping as stub for compatibility
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ScrollClamping {
-    ToContentBounds,
-    NoClamping,
 }
 
 /// Perform WebRender-based hit testing
