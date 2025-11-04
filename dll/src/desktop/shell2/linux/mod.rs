@@ -7,6 +7,9 @@ pub mod common;
 pub mod registry;
 pub mod resources;
 
+/// DBus dynamic loading (for GNOME menus)
+pub mod dbus;
+
 /// GNOME native menu integration (DBus)
 #[cfg(feature = "gnome-menus")]
 pub mod gnome_menu;

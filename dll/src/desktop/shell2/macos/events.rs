@@ -956,7 +956,7 @@ impl MacOSWindow {
 
     /// Show an NSMenu as a context menu at the given screen position.
     fn show_native_context_menu_at_position(
-        &self,
+        &mut self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
         event: &NSEvent,
@@ -975,7 +975,7 @@ impl MacOSWindow {
         let ns_menu = NSMenu::new(mtm);
 
         // Build menu items recursively from Azul menu structure
-        Self::recursive_build_nsmenu(&ns_menu, menu.items.as_slice(), &mtm);
+        Self::recursive_build_nsmenu(&ns_menu, menu.items.as_slice(), &mtm, &mut self.menu_state);
 
         // Show the menu at the specified position
         let view_point = NSPoint {
@@ -1063,6 +1063,7 @@ impl MacOSWindow {
         menu: &objc2_app_kit::NSMenu,
         items: &[azul_core::menu::MenuItem],
         mtm: &objc2::MainThreadMarker,
+        menu_state: &mut crate::desktop::shell2::macos::menu::MenuState,
     ) {
         use objc2_app_kit::{NSMenu, NSMenuItem};
         use objc2_foundation::NSString;
@@ -1090,7 +1091,7 @@ impl MacOSWindow {
                         submenu.setTitle(&submenu_title);
 
                         // Recursively build submenu items
-                        Self::recursive_build_nsmenu(&submenu, string_item.children.as_ref(), mtm);
+                        Self::recursive_build_nsmenu(&submenu, string_item.children.as_ref(), mtm, menu_state);
 
                         // Attach submenu to menu item
                         menu_item.setSubmenu(Some(&submenu));
@@ -1101,23 +1102,23 @@ impl MacOSWindow {
                             string_item.children.as_ref().len()
                         );
                     } else {
-                        // Leaf item - set up keyboard shortcut if present
-                        if let Some(ref _shortcut) = string_item.accelerator.into_option() {
-                            // TODO: Parse accelerator combo and set key equivalent
-                            // let key = NSString::from_str(&shortcut);
-                            // menu_item.setKeyEquivalent(&key);
+                        // Leaf item - wire up callback using the same system as menu bar
+                        if let Some(callback) = string_item.callback.as_option() {
+                            let tag = menu_state.register_callback(callback.clone());
+                            menu_item.setTag(tag as isize);
+                            
+                            // Use shared AzulMenuTarget for callback dispatch
+                            let target = crate::desktop::shell2::macos::menu::AzulMenuTarget::shared_instance(*mtm);
+                            unsafe {
+                                menu_item.setTarget(Some(&target));
+                                menu_item.setAction(Some(objc2::sel!(menuItemAction:)));
+                            }
                         }
 
-                        // TODO: Set up callback mechanism for leaf items
-                        // Native NSMenuItem callbacks require setting a target and action selector
-                        // This needs a delegate object that can bridge to Azul's callback system
-                        //
-                        // Implementation plan:
-                        // 1. Create an NSObject-based delegate class
-                        // 2. Store callback info (callback_ptr, data_ptr) in the delegate
-                        // 3. Set menu_item.setTarget(&delegate)
-                        // 4. Set menu_item.setAction(sel!(menuItemClicked:))
-                        // 5. In menuItemClicked:, extract callback and invoke it
+                        // Set keyboard shortcut if present
+                        if let Some(ref accelerator) = string_item.accelerator.into_option() {
+                            crate::desktop::shell2::macos::menu::set_menu_item_accelerator(&menu_item, accelerator);
+                        }
                     }
 
                     menu.addItem(&menu_item);

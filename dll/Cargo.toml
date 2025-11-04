@@ -42,7 +42,6 @@ accesskit = { version = "0.21.1", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
-dbus = { version = "0.9", optional = true }
 accesskit_unix = { version = "0.17.2", optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
@@ -119,7 +118,7 @@ svg = ["azul-layout", "azul-layout/svg"]
 xml = ["azul-layout", "azul-layout/xml"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
-gnome-menus = ["dbus"]
+gnome-menus = []
 cdylib = []
 rlib = []
 staticlib = []

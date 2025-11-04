@@ -2,12 +2,17 @@
 //!
 //! Handles connection to the DBus session bus and service registration.
 
+use std::ffi::CString;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-#[cfg(all(target_os = "linux", feature = "gnome-menus"))]
-use dbus::blocking::Connection;
-
 use super::{debug_log, GnomeMenuError};
+
+#[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+use crate::desktop::shell2::linux::dbus::{
+    DBusConnection as RawDBusConnection, DBusError, DBusLib, DBUS_BUS_SESSION,
+    DBUS_NAME_FLAG_DO_NOT_QUEUE,
+};
 
 /// DBus connection wrapper
 pub struct DbusConnection {
@@ -15,7 +20,9 @@ pub struct DbusConnection {
     bus_name: String,
     object_path: String,
     #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
-    connection: Arc<Mutex<Connection>>,
+    dbus_lib: Rc<DBusLib>,
+    #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+    connection: Arc<Mutex<*mut RawDBusConnection>>,
     #[cfg(not(all(target_os = "linux", feature = "gnome-menus")))]
     _phantom: std::marker::PhantomData<()>,
 }
@@ -41,14 +48,78 @@ impl DbusConnection {
 
         #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
         {
-            use std::time::Duration;
+            // Load DBus library dynamically
+            let dbus_lib = DBusLib::new()
+                .map_err(|e| GnomeMenuError::DbusConnectionFailed(format!("Failed to load libdbus-1.so: {}", e)))?;
 
-            let conn = Connection::new_session()
-                .map_err(|e| GnomeMenuError::DbusConnectionFailed(e.to_string()))?;
+            // Initialize error structure
+            let mut error = DBusError {
+                name: std::ptr::null(),
+                message: std::ptr::null(),
+                dummy1: 0,
+                dummy2: 0,
+                dummy3: 0,
+                dummy4: 0,
+                dummy5: 0,
+                padding1: std::ptr::null_mut(),
+            };
 
-            // Request the service name with DBUS_NAME_FLAG_DO_NOT_QUEUE
-            conn.request_name(&bus_name, false, true, false)
+            unsafe {
+                (dbus_lib.dbus_error_init)(&mut error);
+            }
+
+            // Get session bus connection
+            let conn = unsafe { (dbus_lib.dbus_bus_get)(DBUS_BUS_SESSION, &mut error) };
+
+            if conn.is_null() {
+                let error_msg = if !error.message.is_null() {
+                    let c_str = unsafe { std::ffi::CStr::from_ptr(error.message) };
+                    c_str.to_string_lossy().into_owned()
+                } else {
+                    "Unknown error".to_string()
+                };
+                unsafe {
+                    (dbus_lib.dbus_error_free)(&mut error);
+                }
+                return Err(GnomeMenuError::DbusConnectionFailed(format!(
+                    "Failed to connect to session bus: {}",
+                    error_msg
+                )));
+            }
+
+            // Request the service name
+            let bus_name_cstr = CString::new(bus_name.clone())
                 .map_err(|e| GnomeMenuError::ServiceRegistrationFailed(e.to_string()))?;
+
+            let result = unsafe {
+                (dbus_lib.dbus_bus_request_name)(
+                    conn,
+                    bus_name_cstr.as_ptr(),
+                    DBUS_NAME_FLAG_DO_NOT_QUEUE,
+                    &mut error,
+                )
+            };
+
+            if result < 0 {
+                let error_msg = if !error.message.is_null() {
+                    let c_str = unsafe { std::ffi::CStr::from_ptr(error.message) };
+                    c_str.to_string_lossy().into_owned()
+                } else {
+                    "Unknown error".to_string()
+                };
+                unsafe {
+                    (dbus_lib.dbus_error_free)(&mut error);
+                    (dbus_lib.dbus_connection_unref)(conn);
+                }
+                return Err(GnomeMenuError::ServiceRegistrationFailed(format!(
+                    "Failed to register service name: {}",
+                    error_msg
+                )));
+            }
+
+            unsafe {
+                (dbus_lib.dbus_error_free)(&mut error);
+            }
 
             debug_log("DBus service registered successfully");
 
@@ -56,6 +127,7 @@ impl DbusConnection {
                 app_name: app_name.to_string(),
                 bus_name,
                 object_path,
+                dbus_lib,
                 connection: Arc::new(Mutex::new(conn)),
             })
         }
@@ -84,9 +156,15 @@ impl DbusConnection {
         format!("{}/menus/MenuBar", self.object_path)
     }
 
-    /// Get the DBus connection
+    /// Get the DBus library handle
     #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
-    pub fn get_connection(&self) -> Arc<Mutex<Connection>> {
+    pub fn get_dbus_lib(&self) -> Rc<DBusLib> {
+        self.dbus_lib.clone()
+    }
+
+    /// Get the raw DBus connection
+    #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+    pub fn get_connection(&self) -> Arc<Mutex<*mut RawDBusConnection>> {
         self.connection.clone()
     }
 }
@@ -97,7 +175,17 @@ impl Drop for DbusConnection {
             "Cleaning up DBus connection for: {}",
             self.app_name
         ));
-        // TODO: Cleanup when dbus crate is added
+
+        #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
+        {
+            let conn = self.connection.lock().unwrap();
+            if !conn.is_null() {
+                unsafe {
+                    (self.dbus_lib.dbus_connection_flush)(*conn);
+                    (self.dbus_lib.dbus_connection_unref)(*conn);
+                }
+            }
+        }
     }
 }
 

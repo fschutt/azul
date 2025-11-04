@@ -130,6 +130,23 @@ impl MenuProtocol {
     /// Register with DBus
     ///
     /// Sets up the DBus method handlers for org.gtk.Menus interface.
+    ///
+    /// # TODO
+    ///
+    /// This function needs to be reimplemented using the dlopen DBus API
+    /// instead of the dbus crate. This requires manual object path registration
+    /// using `dbus_connection_register_object_path` and implementing message
+    /// handlers using the low-level C API.
+    ///
+    /// The implementation should:
+    /// 1. Create a `DBusObjectPathVTable` with message_function callback
+    /// 2. Parse incoming method calls manually (check interface, member name)
+    /// 3. Parse arguments using `dbus_message_iter_*` functions
+    /// 4. Build response messages using `dbus_message_new_method_return`
+    /// 5. Append return values using `dbus_message_iter_append_*`
+    /// 6. Send response with `dbus_connection_send`
+    ///
+    /// For now, returns NotImplemented to allow compilation and cross-compilation.
     pub fn register_with_dbus(
         &self,
         connection: &super::DbusConnection,
@@ -138,76 +155,10 @@ impl MenuProtocol {
 
         #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
         {
-            use std::sync::Arc;
-
-            use dbus::{
-                arg::{Dict, RefArg, Variant},
-                blocking::Connection,
-                tree::{Factory, MethodErr},
-            };
-
-            let conn = connection.get_connection();
-            let conn_lock = conn.lock().unwrap();
-
-            let factory = Factory::new_fn::<()>();
-            let menu_groups_data = self.menu_groups.clone();
-            let menu_groups_data2 = self.menu_groups.clone();
-
-            let interface = factory
-                .interface("org.gtk.Menus", ())
-                .add_m(
-                    factory
-                        .method("Start", (), move |m| {
-                            let subscriptions: Vec<u32> =
-                                m.msg.read1().map_err(|e| MethodErr::failed(&e))?;
-
-                            debug_log(&format!("DBus Start() called with {:?}", subscriptions));
-
-                            let groups = menu_groups_data.lock().unwrap();
-                            let mut result = Vec::new();
-
-                            for group_id in subscriptions {
-                                if let Some(group) = groups.get(&group_id) {
-                                    // Format: (group_id, menu_id, items_array)
-                                    result.push((
-                                        group.group_id,
-                                        group.menu_id,
-                                        Vec::<(String, Variant<Box<dyn RefArg>>)>::new(),
-                                    ));
-                                }
-                            }
-
-                            Ok(vec![m.msg.method_return().append1(result)])
-                        })
-                        .outarg::<Vec<(u32, u32, Vec<(String, Variant<Box<dyn RefArg>>)>)>, _>(
-                            "menus",
-                        ),
-                )
-                .add_m(
-                    factory
-                        .method("End", (), move |m| {
-                            let subscriptions: Vec<u32> =
-                                m.msg.read1().map_err(|e| MethodErr::failed(&e))?;
-
-                            debug_log(&format!("DBus End() called with {:?}", subscriptions));
-
-                            Ok(vec![m.msg.method_return()])
-                        })
-                        .inarg::<Vec<u32>, _>("subscriptions"),
-                );
-
-            let menubar_path = connection.get_menubar_path();
-            let tree = factory.tree(()).add(
-                factory
-                    .object_path(menubar_path, ())
-                    .introspectable()
-                    .add(interface),
-            );
-
-            tree.start_receive(&*conn_lock);
-
-            debug_log("org.gtk.Menus interface registered successfully");
-            Ok(())
+            // TODO: Implement using dlopen DBus API
+            // This is a placeholder to allow compilation
+            debug_log("org.gtk.Menus registration not yet implemented with dlopen API");
+            return Err(GnomeMenuError::NotImplemented);
         }
 
         #[cfg(not(all(target_os = "linux", feature = "gnome-menus")))]

@@ -195,6 +195,20 @@ impl ActionsProtocol {
     /// Register with DBus
     ///
     /// Sets up the DBus method handlers for org.gtk.Actions interface.
+    ///
+    /// # TODO
+    ///
+    /// This function needs to be reimplemented using the dlopen DBus API
+    /// instead of the dbus crate. Similar to menu_protocol.rs, this requires
+    /// manual object path registration and low-level C API usage.
+    ///
+    /// The implementation should handle these methods:
+    /// - List() → as (array of action names)
+    /// - Describe(s) → (bsav) (enabled, param_type, state)
+    /// - DescribeAll() → a{s(bsav)} (dict of action descriptions)
+    /// - Activate(sava{sv}) → void (action_name, parameter, platform_data)
+    ///
+    /// For now, returns NotImplemented to allow compilation and cross-compilation.
     pub fn register_with_dbus(
         &self,
         connection: &super::DbusConnection,
@@ -203,108 +217,10 @@ impl ActionsProtocol {
 
         #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
         {
-            use std::collections::HashMap as StdHashMap;
-
-            use dbus::{
-                arg::{RefArg, Variant},
-                blocking::Connection,
-                tree::{Factory, MethodErr},
-            };
-
-            let conn = connection.get_connection();
-            let conn_lock = conn.lock().unwrap();
-
-            let factory = Factory::new_fn::<()>();
-            let actions_data1 = self.actions.clone();
-            let actions_data2 = self.actions.clone();
-            let actions_data3 = self.actions.clone();
-            let actions_data4 = self.actions.clone();
-
-            let interface = factory
-                .interface("org.gtk.Actions", ())
-                .add_m(factory.method("List", (), move |m| {
-                    debug_log("DBus List() called");
-
-                    let actions = actions_data1.lock().unwrap();
-                    let names: Vec<String> = actions.keys().cloned().collect();
-
-                    Ok(vec![m.msg.method_return().append1(names)])
-                }).outarg::<Vec<String>, _>("actions"))
-                .add_m(factory.method("Describe", (), move |m| {
-                    let action_name: String = m.msg.read1()
-                        .map_err(|e| MethodErr::failed(&e))?;
-
-                    debug_log(&format!("DBus Describe() called for: {}", action_name));
-
-                    let actions = actions_data2.lock().unwrap();
-
-                    if let Some(action) = actions.get(&action_name) {
-                        let param_type = action.parameter_type.clone().unwrap_or_default();
-                        let state: Vec<Variant<Box<dyn RefArg>>> = vec![];
-
-                        Ok(vec![m.msg.method_return().append3(action.enabled, param_type, state)])
-                    } else {
-                        Err(MethodErr::failed(&format!("Action not found: {}", action_name)))
-                    }
-                }).inarg::<String, _>("action")
-                  .outarg::<(bool, String, Vec<Variant<Box<dyn RefArg>>>), _>("description"))
-                .add_m(factory.method("DescribeAll", (), move |m| {
-                    debug_log("DBus DescribeAll() called");
-
-                    let actions = actions_data3.lock().unwrap();
-                    let mut result = StdHashMap::new();
-
-                    for (name, action) in actions.iter() {
-                        let param_type = action.parameter_type.clone().unwrap_or_default();
-                        let state: Vec<Variant<Box<dyn RefArg>>> = vec![];
-                        result.insert(name.clone(), (action.enabled, param_type, state));
-                    }
-
-                    Ok(vec![m.msg.method_return().append1(result)])
-                }).outarg::<StdHashMap<String, (bool, String, Vec<Variant<Box<dyn RefArg>>>)>, _>("actions"))
-                .add_m(factory.method("Activate", (), move |m| {
-                    let (action_name, parameter, _platform_data): (String, Vec<Variant<Box<dyn RefArg>>>, StdHashMap<String, Variant<Box<dyn RefArg>>>) = m.msg.read3().map_err(|e| MethodErr::failed(&e))?;
-
-                    debug_log(&format!("DBus Activate() called for: {}", action_name));
-
-                    let actions = actions_data4.lock().unwrap();
-
-                    if let Some(action) = actions.get(&action_name) {
-                        if action.enabled {
-                            // Extract parameter if present
-                            let param_str = parameter.get(0).and_then(|v| {
-                                v.as_str().map(|s| s.to_string())
-                            });
-
-                            // Invoke callback (drop lock first to avoid deadlock)
-                            let callback = action.callback.clone();
-                            drop(actions);
-
-                            callback(param_str);
-
-                            Ok(vec![m.msg.method_return()])
-                        } else {
-                            Err(MethodErr::failed(&format!("Action is disabled: {}", action_name)))
-                        }
-                    } else {
-                        Err(MethodErr::failed(&format!("Action not found: {}", action_name)))
-                    }
-                }).inarg::<String, _>("action")
-                  .inarg::<Vec<Variant<Box<dyn RefArg>>>, _>("parameter")
-                  .inarg::<StdHashMap<String, Variant<Box<dyn RefArg>>>, _>("platform_data"));
-
-            let object_path = connection.get_object_path();
-            let tree = factory.tree(()).add(
-                factory
-                    .object_path(object_path, ())
-                    .introspectable()
-                    .add(interface),
-            );
-
-            tree.start_receive(&*conn_lock);
-
-            debug_log("org.gtk.Actions interface registered successfully");
-            Ok(())
+            // TODO: Implement using dlopen DBus API
+            // This is a placeholder to allow compilation
+            debug_log("org.gtk.Actions registration not yet implemented with dlopen API");
+            return Err(GnomeMenuError::NotImplemented);
         }
 
         #[cfg(not(all(target_os = "linux", feature = "gnome-menus")))]

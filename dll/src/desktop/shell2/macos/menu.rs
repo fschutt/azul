@@ -134,6 +134,15 @@ impl MenuState {
     pub fn get_callback_for_tag(&self, tag: i64) -> Option<&azul_core::menu::CoreMenuCallback> {
         self.command_map.get(&tag)
     }
+
+    /// Register a callback and return a unique tag for it
+    /// Used by context menus to register callbacks dynamically
+    pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> i64 {
+        // Find next available tag
+        let tag = self.command_map.keys().max().unwrap_or(&1000) + 1;
+        self.command_map.insert(tag, callback);
+        tag
+    }
 }
 
 /// Create an NSMenu from Azul Menu structure
@@ -227,7 +236,7 @@ fn build_menu_items(
 ///
 /// Converts Azul VirtualKeyCodeCombo to macOS key equivalent and modifier mask.
 /// macOS uses single character key equivalents (e.g., "x" for Cmd+X).
-fn set_menu_item_accelerator(
+pub(crate) fn set_menu_item_accelerator(
     menu_item: &NSMenuItem,
     accelerator: &azul_core::window::VirtualKeyCodeCombo,
 ) {
