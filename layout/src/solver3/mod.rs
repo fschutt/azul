@@ -85,6 +85,8 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &azul_core::resources::RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
     let mut ctx = LayoutContext {
@@ -129,6 +131,8 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             scroll_offsets,
             &scroll_ids,
             gpu_value_cache,
+            renderer_resources,
+            id_namespace,
             dom_id,
         );
     }
@@ -218,6 +222,8 @@ pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         scroll_offsets,
         &scroll_ids,
         gpu_value_cache,
+        renderer_resources,
+        id_namespace,
         dom_id,
     )?;
 

@@ -7,7 +7,7 @@
 use azul_core::{
     dom::ScrollbarOrientation,
     geom::LogicalRect,
-    resources::{FontInstanceKey, RendererResources},
+    resources::{FontInstanceKey, ImageKey, RendererResources},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
@@ -167,19 +167,28 @@ fn render_display_list(
                 render_text(
                     glyphs,
                     *font_hash,
+                    *font_size_px,
                     *color,
                     pixmap,
                     clip_rect,
                     *transform,
                     *clip,
                     renderer_resources,
+                    dpi_factor,
                 )?;
             }
             DisplayListItem::Image { bounds, key } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                // TODO: Implement image rendering
-                // Need to look up the image in renderer_resources and draw it
+                render_image(
+                    pixmap,
+                    bounds,
+                    *key,
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                    renderer_resources,
+                )?;
             }
             DisplayListItem::ScrollBar {
                 bounds,
@@ -324,118 +333,115 @@ fn render_rect(
 fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
+    font_size_px: f32,
     color: ColorU,
     pixmap: &mut Pixmap,
     clip_rect: &LogicalRect,
     transform: Transform,
     _clip: Option<Rect>,
     renderer_resources: &RendererResources,
+    dpi_factor: f32,
 ) -> Result<(), String> {
+    if color.a == 0 || glyphs.is_empty() {
+        return Ok(());
+    }
+
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
 
-    // Find the font and font size from the font_hash
-    // TODO: We need to get the font size from somewhere, for now use a default
-    // For CPU rendering, we can just access the font directly without going through the renderer
-    // resources The font should be available in the display list context
+    // Look up the FontKey from the font_hash
+    let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
+        Some(k) => k,
+        None => {
+            // Font not found - this can happen if the font wasn't properly registered
+            eprintln!(
+                "[cpurender] Font hash {} not found in renderer resources",
+                font_hash.font_hash
+            );
+            return Ok(());
+        }
+    };
 
-    // For now, text rendering in CPU mode is disabled
-    // TODO: Implement proper font lookup without renderer_resources
-    Ok(())
+    // Look up the FontRef from currently_registered_fonts
+    let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
+        Some((font_ref, _instances)) => font_ref,
+        None => {
+            eprintln!("[cpurender] FontKey {:?} not found in registered fonts", font_key);
+            return Ok(());
+        }
+    };
 
-    /*
-    // OLD CODE - needs proper font lookup
-    if let Some((font_ref, au, dpi)) = font_instance {
-        // Get the parsed font data
-        let parsed_font = unsafe { &*(font_ref.get_parsed() as *const ParsedFont) };
-        let units_per_em = parsed_font.font_metrics.units_per_em as f32;
+    // Cast the parsed pointer to ParsedFont
+    let parsed_font = unsafe { &*(font_ref.get_parsed() as *const ParsedFont) };
+    let units_per_em = parsed_font.font_metrics.units_per_em as f32;
 
-        // Calculate font scale factor
-        let font_size_px = au.into_px() * dpi.inner.get();
-        let scale_factor = font_size_px / units_per_em;
+    // Use the actual font size from the display list (already adjusted for DPI)
+    let scale_factor = (font_size_px * dpi_factor) / units_per_em;
 
-        // The glyphs already have their absolute positions (baseline coordinates)
-        // Just use the glyph positions directly
+    // Draw each glyph
+    for glyph in glyphs {
+        use azul_core::resources::GlyphOutlineOperation;
 
-        // Draw each glyph
-        for glyph in glyphs {
+        let glyph_index = glyph.index as u16;
 
-            use azul_core::resources::GlyphOutlineOperation;
+        // glyph.point is the absolute baseline position of the glyph
+        let glyph_x = glyph.point.x * dpi_factor;
+        let glyph_baseline_y = glyph.point.y * dpi_factor;
 
-            let glyph_index = glyph.index as u16;
+        // Find the glyph outline in the parsed font
+        if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
+            let mut pb = PathBuilder::new();
 
-            // glyph.point is the absolute baseline position of the glyph
-            let glyph_x = glyph.point.x;
-            let glyph_baseline_y = glyph.point.y;
-
-            // Find the glyph outline in the parsed font
-            if let Some(glyph_data) = parsed_font.glyph_records_decoded.get(&glyph_index) {
-                let mut pb = PathBuilder::new();
-
-                for outline in glyph_data.outline.iter() {
-                    // Create path from outline
-                    let mut is_first = true;
-
-                    for op in outline.operations.as_ref() {
-                        match op {
-                            GlyphOutlineOperation::MoveTo(pt) => {
-                                // Scale and position the point relative to the glyph's baseline
-                                let x = glyph_x + pt.x as f32 * scale_factor;
-                                let y = glyph_baseline_y - pt.y as f32 * scale_factor;
-
-                                if is_first {
-                                    pb.move_to(x, y);
-                                    is_first = false;
-                                } else {
-                                    pb.move_to(x, y);
-                                }
-                            }
-                            GlyphOutlineOperation::LineTo(pt) => {
-                                let x = glyph_x + pt.x as f32 * scale_factor;
-                                let y = glyph_baseline_y - pt.y as f32 * scale_factor;
-                                pb.line_to(x, y);
-                            }
-                            GlyphOutlineOperation::QuadraticCurveTo(qt) => {
-                                let ctrl_x = glyph_x + qt.ctrl_1_x as f32 * scale_factor;
-                                let ctrl_y = glyph_baseline_y - qt.ctrl_1_y as f32 * scale_factor;
-                                let end_x = glyph_x + qt.end_x as f32 * scale_factor;
-                                let end_y = glyph_baseline_y - qt.end_y as f32 * scale_factor;
-                                pb.quad_to(ctrl_x, ctrl_y, end_x, end_y);
-                            }
-                            GlyphOutlineOperation::CubicCurveTo(ct) => {
-                                let ctrl1_x = glyph_x + ct.ctrl_1_x as f32 * scale_factor;
-                                let ctrl1_y = glyph_baseline_y - ct.ctrl_1_y as f32 * scale_factor;
-                                let ctrl2_x = glyph_x + ct.ctrl_2_x as f32 * scale_factor;
-                                let ctrl2_y = glyph_baseline_y - ct.ctrl_2_y as f32 * scale_factor;
-                                let end_x = glyph_x + ct.end_x as f32 * scale_factor;
-                                let end_y = glyph_baseline_y - ct.end_y as f32 * scale_factor;
-                                pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
-                            }
-                            GlyphOutlineOperation::ClosePath => {
-                                pb.close();
-                            }
+            for outline in glyph_data.outline.iter() {
+                for op in outline.operations.as_ref() {
+                    match op {
+                        GlyphOutlineOperation::MoveTo(pt) => {
+                            // Scale and position the point relative to the glyph's baseline
+                            let x = glyph_x + pt.x as f32 * scale_factor;
+                            let y = glyph_baseline_y - pt.y as f32 * scale_factor;
+                            pb.move_to(x, y);
+                        }
+                        GlyphOutlineOperation::LineTo(pt) => {
+                            let x = glyph_x + pt.x as f32 * scale_factor;
+                            let y = glyph_baseline_y - pt.y as f32 * scale_factor;
+                            pb.line_to(x, y);
+                        }
+                        GlyphOutlineOperation::QuadraticCurveTo(qt) => {
+                            let ctrl_x = glyph_x + qt.ctrl_1_x as f32 * scale_factor;
+                            let ctrl_y = glyph_baseline_y - qt.ctrl_1_y as f32 * scale_factor;
+                            let end_x = glyph_x + qt.end_x as f32 * scale_factor;
+                            let end_y = glyph_baseline_y - qt.end_y as f32 * scale_factor;
+                            pb.quad_to(ctrl_x, ctrl_y, end_x, end_y);
+                        }
+                        GlyphOutlineOperation::CubicCurveTo(ct) => {
+                            let ctrl1_x = glyph_x + ct.ctrl_1_x as f32 * scale_factor;
+                            let ctrl1_y = glyph_baseline_y - ct.ctrl_1_y as f32 * scale_factor;
+                            let ctrl2_x = glyph_x + ct.ctrl_2_x as f32 * scale_factor;
+                            let ctrl2_y = glyph_baseline_y - ct.ctrl_2_y as f32 * scale_factor;
+                            let end_x = glyph_x + ct.end_x as f32 * scale_factor;
+                            let end_y = glyph_baseline_y - ct.end_y as f32 * scale_factor;
+                            pb.cubic_to(ctrl1_x, ctrl1_y, ctrl2_x, ctrl2_y, end_x, end_y);
+                        }
+                        GlyphOutlineOperation::ClosePath => {
+                            pb.close();
                         }
                     }
                 }
+            }
 
-                if let Some(path) = pb.finish() {
-                    let transformed_path = path
-                        .transform(transform)
-                        .ok_or_else(|| "Failed to transform text path".to_string())?;
-                    pixmap.fill_path(
-                        &transformed_path,
-                        &paint,
-                        tiny_skia::FillRule::Winding,
-                        Transform::identity(),
-                        None,
-                    );
-                }
+            if let Some(path) = pb.finish() {
+                pixmap.fill_path(
+                    &path,
+                    &paint,
+                    tiny_skia::FillRule::Winding,
+                    Transform::identity(), // Already transformed coordinates
+                    None,
+                );
             }
         }
     }
 
     Ok(())
-    */
 }
 
 fn render_border(
@@ -529,6 +535,59 @@ fn logical_rect_to_tiny_skia_rect(
     let height = bounds.size.height * dpi_factor;
 
     Rect::from_xywh(x, y, width, height)
+}
+
+fn render_image(
+    pixmap: &mut Pixmap,
+    bounds: &LogicalRect,
+    key: ImageKey,
+    transform: Transform,
+    _clip: Option<Rect>,
+    dpi_factor: f32,
+    renderer_resources: &RendererResources,
+) -> Result<(), String> {
+    use azul_core::resources::{DecodedImage, ImageRefHash};
+
+    // Look up the image in renderer_resources
+    let image_ref_hash = ImageRefHash(key.key as usize);
+    
+    let resolved_image = match renderer_resources.get_image(&image_ref_hash) {
+        Some(img) => img,
+        None => {
+            eprintln!("[cpurender] Image {:?} not found in renderer_resources", key);
+            return Ok(()); // Skip rendering this image
+        }
+    };
+
+    // The image data is stored in renderer_resources, but we need to access it through ImageRef
+    // For CPU rendering, we'd need to decode the image data and blit it to the pixmap
+    // This is a complex operation that requires image decoding support in tiny-skia
+    
+    // For now, render a placeholder rectangle to show where the image would be
+    let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
+    let rect = match rect {
+        Some(r) => r,
+        None => return Ok(()),
+    };
+
+    let mut paint = Paint::default();
+    // Light gray placeholder for images
+    paint.set_color(Color::from_rgba8(200, 200, 200, 255));
+    paint.anti_alias = true;
+
+    let path = build_rect_path(rect, &BorderRadius::default(), dpi_factor);
+    if let Some(path) = path {
+        pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+    }
+
+    // TODO: Implement actual image blitting
+    // This would require:
+    // 1. Accessing the ImageRef from renderer_resources
+    // 2. Getting the decoded image data (DecodedImage::Raw or DecodedImage::Gl)
+    // 3. Converting it to a tiny-skia Pixmap
+    // 4. Blitting it to the target pixmap with proper scaling
+    
+    Ok(())
 }
 
 fn build_rect_path(rect: Rect, _border_radius: &BorderRadius, _dpi_factor: f32) -> Option<Path> {

@@ -5,7 +5,7 @@
 
 use azul_core::{
     geom::LogicalSize,
-    resources::{DpiScaleFactor, FontInstanceKey, GlyphOptions, PrimitiveFlags},
+    resources::{DpiScaleFactor, FontInstanceKey, GlyphOptions, ImageRefHash, PrimitiveFlags},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::{
@@ -18,8 +18,9 @@ use webrender::{
         units::{
             DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
         },
-        BorderRadius as WrBorderRadius, BuiltDisplayList as WrBuiltDisplayList,
-        ClipChainId as WrClipChainId, ClipMode as WrClipMode, ColorF, CommonItemProperties,
+        AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
+        BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
+        ClipMode as WrClipMode, ColorF, CommonItemProperties,
         ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
         DocumentId, Epoch, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
         PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo, SpatialId, SpatialTreeItemKey,
@@ -30,8 +31,8 @@ use webrender::{
 };
 
 use crate::desktop::wr_translate2::{
-    wr_translate_border_radius, wr_translate_color_f, wr_translate_layouted_glyphs,
-    wr_translate_logical_size,
+    translate_image_key, wr_translate_border_radius, wr_translate_color_f,
+    wr_translate_layouted_glyphs, wr_translate_logical_size,
 };
 
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
@@ -458,8 +459,48 @@ pub fn translate_displaylist_to_wr(
                 );
             }
 
-            DisplayListItem::Image { .. } => {
-                // TODO: Implement image rendering with push_image
+            DisplayListItem::Image { bounds, key } => {
+                // Look up the ImageKey in renderer_resources
+                let image_ref_hash = ImageRefHash(key.key as usize);
+                
+                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
+                    let wr_image_key = translate_image_key(resolved_image.key);
+                    
+                    let rect = LayoutRect::from_origin_and_size(
+                        LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                        LayoutSize::new(bounds.size.width, bounds.size.height),
+                    );
+                    
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: *clip_stack.last().unwrap(),
+                        spatial_id: *spatial_stack.last().unwrap(),
+                        flags: Default::default(),
+                    };
+                    
+                    eprintln!(
+                        "[compositor2] >>>>> push_image: bounds={:?}, key={:?} <<<<<",
+                        bounds, wr_image_key
+                    );
+                    
+                    // Use push_image from WebRender
+                    // ImageRendering::Auto and PremultipliedAlpha are reasonable defaults
+                    use webrender::api::ImageRendering as WrImageRendering;
+                    
+                    builder.push_image(
+                        &info,
+                        rect,
+                        WrImageRendering::Auto,
+                        WrAlphaType::PremultipliedAlpha,
+                        wr_image_key,
+                        ColorF::WHITE, // No tint by default
+                    );
+                } else {
+                    eprintln!(
+                        "[compositor2] WARNING: Image key {:?} not found in renderer_resources",
+                        key
+                    );
+                }
             }
 
             DisplayListItem::PushStackingContext { z_index, bounds } => {
@@ -490,8 +531,36 @@ pub fn translate_displaylist_to_wr(
                 eprintln!("[compositor2] >>>>> pop_stacking_context RETURNED <<<<<");
             }
 
-            DisplayListItem::IFrame { .. } => {
-                // TODO: Implement iframe embedding (nested pipelines)
+            DisplayListItem::IFrame {
+                child_dom_id,
+                bounds,
+                clip_rect,
+            } => {
+                // IFrames in WebRender require:
+                // 1. A unique PipelineId for the child content
+                // 2. The child display list to be registered separately via set_display_list
+                // 3. A push_iframe call to embed the child pipeline in the parent
+                
+                // For now, we'll render a placeholder to show where the iframe would be.
+                // Full implementation requires:
+                // - Looking up the child display list from the layout results
+                // - Recursively translating it to WebRender
+                // - Registering it with its own pipeline ID
+                // - Using push_iframe to reference it
+                
+                eprintln!(
+                    "[compositor2] IFrame: child_dom_id={:?}, bounds={:?}, clip_rect={:?}",
+                    child_dom_id, bounds, clip_rect
+                );
+                eprintln!("[compositor2] WARNING: IFrame rendering not yet fully implemented");
+                eprintln!("[compositor2] NOTE: This requires child display list generation and pipeline management");
+                
+                // TODO: Implement full IFrame rendering:
+                // 1. Get or create PipelineId for this child_dom_id
+                // 2. Look up child display list from layout_results[child_dom_id]
+                // 3. Recursively call translate_displaylist_to_wr for child
+                // 4. Register child display list via transaction.set_display_list(child_pipeline_id, ...)
+                // 5. Call builder.push_iframe(bounds, clip_rect, space_and_clip, child_pipeline_id, false)
             }
         }
     }

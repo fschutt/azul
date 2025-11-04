@@ -375,6 +375,8 @@ impl LayoutWindow {
             &self.selection_manager.selections,
             debug_messages,
             Some(&gpu_cache),
+            &self.renderer_resources,
+            self.id_namespace,
             dom_id,
         )?;
 

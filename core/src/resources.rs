@@ -570,6 +570,16 @@ pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
     ImageRefHash(ir.data as usize)
 }
 
+/// Convert a stable ImageRefHash directly to an ImageKey.
+/// Since ImageKey is just a (namespace, u32) pair, we can directly use
+/// the hash value as the key. This avoids the need for a separate mapping table.
+pub fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
+    ImageKey {
+        namespace,
+        key: hash.0 as u32,
+    }
+}
+
 pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
     use azul_css::format_rust_code::GetHash;
     fr.get_hash()
@@ -2175,6 +2185,13 @@ pub fn build_add_font_resource_updates(
 /// which image keys are currently not in the `current_registered_images` and
 /// need to be added.
 ///
+/// Returns Vec<(ImageRefHash, AddImageMsg)> where:
+/// - ImageRefHash: Stable hash of the ImageRef pointer  
+/// - AddImageMsg: Message to add the image to WebRender
+///
+/// The ImageKey in AddImageMsg is generated directly from the ImageRefHash using
+/// image_ref_hash_to_image_key(), so no separate mapping table is needed.
+///
 /// Deleting images can only be done after the entire frame has finished drawing,
 /// otherwise (if removing images would happen after every DOM) we'd constantly
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
@@ -2205,7 +2222,7 @@ pub fn build_add_image_resource_updates(
             match image_ref.get_data() {
                 DecodedImage::Gl(texture) => {
                     let descriptor = texture.get_descriptor();
-                    let key = ImageKey::unique(id_namespace);
+                    let key = image_ref_hash_to_image_key(image_ref_hash, id_namespace);
                     // NOTE: The texture is not really cloned here,
                     let external_image_id =
                         (insert_into_active_gl_textures)(*document_id, epoch, texture.clone());
@@ -2226,7 +2243,7 @@ pub fn build_add_image_resource_updates(
                     ))
                 }
                 DecodedImage::Raw((descriptor, data)) => {
-                    let key = ImageKey::unique(id_namespace);
+                    let key = image_ref_hash_to_image_key(image_ref_hash, id_namespace);
                     Some((
                         image_ref_hash,
                         AddImageMsg(AddImage {

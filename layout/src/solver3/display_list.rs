@@ -42,13 +42,14 @@ use azul_core::{
     dom::{NodeId, NodeType, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
-    resources::{ImageKey, ImageRefHash},
+    resources::{IdNamespace, ImageKey, ImageRefHash},
     selection::{Selection, SelectionState},
     styled_dom::StyledDom,
     ui_solver::GlyphInstance,
 };
 use azul_css::{
     css::CssPropertyValue,
+    format_rust_code::GetHash,
     props::{
         basic::{ColorU, FontRef},
         layout::{LayoutOverflow, LayoutPosition},
@@ -408,6 +409,8 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     scroll_ids: &BTreeMap<usize, u64>,
     gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &azul_core::resources::RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
     ctx.debug_log("Generating display list");
@@ -422,6 +425,8 @@ pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         &positioned_tree,
         scroll_ids,
         gpu_value_cache,
+        renderer_resources,
+        id_namespace,
         dom_id,
     );
     let mut builder = DisplayListBuilder::new();
@@ -447,6 +452,8 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     positioned_tree: &'a PositionedTree<'a, T>,
     scroll_ids: &'a BTreeMap<usize, u64>,
     gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
+    renderer_resources: &'a azul_core::resources::RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 }
 
@@ -471,6 +478,8 @@ where
         positioned_tree: &'a PositionedTree<'a, T>,
         scroll_ids: &'a BTreeMap<usize, u64>,
         gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
+        renderer_resources: &'a azul_core::resources::RendererResources,
+        id_namespace: azul_core::resources::IdNamespace,
         dom_id: azul_core::dom::DomId,
     ) -> Self {
         Self {
@@ -479,6 +488,8 @@ where
             positioned_tree,
             scroll_ids,
             gpu_value_cache,
+            renderer_resources,
+            id_namespace,
             dom_id,
         }
     }
@@ -979,9 +990,8 @@ where
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if let NodeType::Image(image_data) = node_data.get_node_type() {
-                if let Some(image_key) = get_image_key_for_src(&image_data.get_hash()) {
-                    builder.push_image(paint_rect, image_key);
-                }
+                let image_key = get_image_key_for_src(&image_data.get_hash(), self.id_namespace);
+                builder.push_image(paint_rect, image_key);
             }
         }
 
@@ -1121,7 +1131,7 @@ where
                         LogicalSize::new(bounds.width, bounds.height),
                     );
                     if let InlineContent::Image(image) = content {
-                        if let Some(image_key) = get_image_key_for_image_source(&image.source) {
+                        if let Some(image_key) = get_image_key_for_image_source(&image.source, self.id_namespace) {
                             builder.push_image(object_bounds, image_key);
                         }
                     }
@@ -1253,9 +1263,13 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<TagId> {
     id.map(|i| i.index() as u64)
 }
 
-fn get_image_key_for_src(_src: &ImageRefHash) -> Option<ImageKey> {
+fn get_image_key_for_src(src: &ImageRefHash, namespace: IdNamespace) -> ImageKey {
+    azul_core::resources::image_ref_hash_to_image_key(*src, namespace)
+}
+
+fn get_image_key_for_image_source(_source: &ImageSource, _namespace: IdNamespace) -> Option<ImageKey> {
+    // TODO: ImageSource needs to be extended to contain ImageRef/ImageRefHash
+    // For now, inline images are not yet supported
     None
 }
-fn get_image_key_for_image_source(_source: &ImageSource) -> Option<ImageKey> {
-    None
-}
+

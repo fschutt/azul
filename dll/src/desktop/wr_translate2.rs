@@ -657,6 +657,86 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
 
 /// Collect all fonts used in layout results and generate ResourceUpdates
 ///
+/// Helper function to store GL textures - used as function pointer
+fn store_gl_texture(
+    _doc_id: azul_core::hit_test::DocumentId,
+    _epoch: azul_core::resources::Epoch,
+    _texture: azul_core::gl::Texture,
+) -> azul_core::resources::ExternalImageId {
+    // TODO: Actually store the texture in gl_texture_cache
+    // For now, just generate a unique ID
+    azul_core::resources::ExternalImageId::new()
+}
+
+/// Collects all ImageRefs from display lists and creates AddImage ResourceUpdates
+/// for images that aren't already registered.
+///
+/// Unlike fonts, ImageKeys are generated directly from ImageRefHash using
+/// image_ref_hash_to_image_key(), so no separate mapping table is needed.
+pub fn collect_image_resource_updates(
+    layout_window: &LayoutWindow,
+    renderer_resources: &azul_core::resources::RendererResources,
+    insert_into_active_gl_textures: azul_core::resources::GlStoreImageFn,
+) -> Vec<(azul_core::resources::ImageRefHash, azul_core::resources::AddImageMsg)> {
+    use azul_core::resources::{build_add_image_resource_updates, image_ref_get_hash};
+    use azul_layout::solver3::display_list::DisplayListItem;
+    use azul_core::FastBTreeSet;
+
+    eprintln!(
+        "[collect_image_resource_updates] Scanning {} DOMs for images",
+        layout_window.layout_results.len()
+    );
+
+    // Collect all unique ImageRefs from display lists
+    let mut images_in_dom = FastBTreeSet::new();
+
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        // Scan display list for Image items
+        for item in &layout_result.display_list.items {
+            if let DisplayListItem::Image { key, .. } = item {
+                // The ImageKey in the display list was generated from an ImageRefHash
+                // We need to look up the actual ImageRef in the image cache
+                // For now, we skip this as we need to track ImageRef → ImageKey mapping
+                // TODO: Store ImageRef directly in DisplayListItem::Image or maintain
+                // a reverse lookup from ImageKey to ImageRef
+            }
+        }
+
+        // Also scan the StyledDom for Image nodes
+        use azul_core::dom::NodeType;
+        let node_data_container = layout_result.styled_dom.node_data.as_container();
+        for i in 0..node_data_container.len() {
+            if let Some(node_data) = node_data_container.get(azul_core::id::NodeId::new(i)) {
+                if let NodeType::Image(image_ref) = node_data.get_node_type() {
+                    images_in_dom.insert(image_ref.clone());
+                }
+            }
+        }
+    }
+
+    eprintln!(
+        "[collect_image_resource_updates] Found {} unique images",
+        images_in_dom.len()
+    );
+
+    // Build AddImage messages for new images
+    let image_updates = build_add_image_resource_updates(
+        renderer_resources,
+        layout_window.id_namespace,
+        layout_window.epoch,
+        &layout_window.document_id,
+        &images_in_dom,
+        insert_into_active_gl_textures,
+    );
+
+    eprintln!(
+        "[collect_image_resource_updates] Generated {} AddImage messages",
+        image_updates.len()
+    );
+
+    image_updates
+}
+
 /// This scans all display lists for Text items, extracts their font_hashes,
 /// loads the fonts from the FontManager, and creates AddFont + AddFontInstance ResourceUpdates.
 ///
@@ -1137,8 +1217,25 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
 }
 
 /// Translate ImageKey from azul-core to WebRender
-fn translate_image_key(key: ImageKey) -> WrImageKey {
+pub fn translate_image_key(key: ImageKey) -> WrImageKey {
     WrImageKey(wr_translate_id_namespace(key.namespace), key.key)
+}
+
+/// Collect all ImageKeys used in a display list
+fn collect_image_keys_from_display_list(
+    display_list: &azul_layout::solver3::display_list::DisplayList,
+) -> Vec<ImageKey> {
+    use azul_layout::solver3::display_list::DisplayListItem;
+    
+    let mut image_keys = Vec::new();
+    
+    for item in &display_list.items {
+        if let DisplayListItem::Image { key, .. } = item {
+            image_keys.push(*key);
+        }
+    }
+    
+    image_keys
 }
 
 /// Translate FontKey from azul-core to WebRender
@@ -1204,6 +1301,39 @@ pub fn generate_frame(
             layout_window.current_window_state.size.get_hidpi_factor(),
         );
 
+        // Collect image resources
+        let image_updates = collect_image_resource_updates(
+            layout_window,
+            &layout_window.renderer_resources,
+            store_gl_texture,
+        );
+
+        eprintln!(
+            "[generate_frame] Collected {} image updates",
+            image_updates.len()
+        );
+
+        // Update currently_registered_images with new images
+        for (image_ref_hash, add_image_msg) in &image_updates {
+            use azul_core::resources::ResolvedImage;
+            
+            let resolved_image = ResolvedImage {
+                key: add_image_msg.0.key,
+                descriptor: add_image_msg.0.descriptor,
+            };
+            
+            layout_window
+                .renderer_resources
+                .currently_registered_images
+                .insert(*image_ref_hash, resolved_image);
+            
+            eprintln!(
+                "[generate_frame] Registered ImageRefHash({}) -> ImageKey {:?}",
+                image_ref_hash.0,
+                add_image_msg.0.key
+            );
+        }
+
         // Update font_hash_map and currently_registered_fonts as we process resources
         // This is CRITICAL for push_text() to look up FontKey from font_hash
         for resource in &font_updates {
@@ -1256,10 +1386,27 @@ pub fn generate_frame(
                 .collect();
 
             eprintln!(
-                "[generate_frame] Adding {} resources to transaction",
+                "[generate_frame] Adding {} font resources to transaction",
                 wr_resources.len()
             );
             txn.update_resources(wr_resources);
+        }
+
+        // Translate image updates to WebRender resources
+        if !image_updates.is_empty() {
+            let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
+                .into_iter()
+                .map(|(_, add_image_msg)| {
+                    translate_resource_update(add_image_msg.into_resource_update())
+                })
+                .filter_map(|x| x)
+                .collect();
+
+            eprintln!(
+                "[generate_frame] Adding {} image resources to transaction",
+                wr_image_resources.len()
+            );
+            txn.update_resources(wr_image_resources);
         }
 
         // Build display lists for all DOMs and add to transaction
