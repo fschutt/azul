@@ -2363,8 +2363,6 @@ pub enum Win32Event {
 // PlatformWindow trait implementation
 // ============================================================================
 
-use azul_layout::window_state::FullWindowState;
-
 use crate::desktop::shell2::common::{PlatformWindow, RenderContext};
 
 impl PlatformWindow for Win32Window {
@@ -2379,7 +2377,7 @@ impl PlatformWindow for Win32Window {
         Self::new(options, fc_cache, app_data)
     }
 
-    fn get_state(&self) -> FullWinddowState {
+    fn get_state(&self) -> FullWindowState {
         self.current_window_state.clone()
     }
 

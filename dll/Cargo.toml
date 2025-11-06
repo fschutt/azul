@@ -156,6 +156,11 @@ name = "menu_rendering_demo"
 path = "examples/menu_rendering_demo.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "kitchen_sink"
+path = "examples/kitchen_sink.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """
