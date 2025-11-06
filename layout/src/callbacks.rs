@@ -98,6 +98,9 @@ pub enum CallbackChange {
     /// Re-render an image callback (for resize/animation)
     /// This triggers re-invocation of the RenderImageCallback
     UpdateImageCallback { dom_id: DomId, node_id: NodeId },
+    /// Trigger re-rendering of an IFrame with a new DOM
+    /// This forces the IFrame to call its callback and update the display list
+    UpdateIFrame { dom_id: DomId, node_id: NodeId },
     /// Change the image mask of a node
     ChangeNodeImageMask {
         dom_id: DomId,
@@ -529,6 +532,26 @@ impl CallbackInfo {
     /// ```
     pub fn update_image_callback(&mut self, dom_id: DomId, node_id: NodeId) {
         self.push_change(CallbackChange::UpdateImageCallback { dom_id, node_id });
+    }
+
+    /// Trigger re-rendering of an IFrame (applied after callback returns)
+    ///
+    /// This forces the IFrame to call its layout callback with reason `DomRecreated`
+    /// and submit a new display list to WebRender. The IFrame's pipeline will be updated
+    /// without affecting other parts of the window.
+    ///
+    /// Useful for:
+    /// - Live preview panes (update when source code changes)
+    /// - Dynamic content that needs manual refresh
+    /// - Editor previews (re-parse and display new DOM)
+    ///
+    /// # Example
+    /// ```ignore
+    /// // After text input changes, update the preview IFrame
+    /// info.trigger_iframe_rerender(preview_dom_id, iframe_node_id);
+    /// ```
+    pub fn trigger_iframe_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::UpdateIFrame { dom_id, node_id });
     }
 
     /// Change the image mask of a node (applied after callback returns)

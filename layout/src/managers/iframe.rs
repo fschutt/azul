@@ -133,6 +133,18 @@ impl IFrameManager {
         }
     }
 
+    /// Force an IFrame to be re-invoked on the next layout pass
+    ///
+    /// This clears the "was_invoked" flag, causing check_reinvoke() to return DomRecreated.
+    /// Used by trigger_iframe_rerender() to manually refresh IFrame content.
+    pub fn force_reinvoke(&mut self, dom_id: DomId, node_id: NodeId) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.iframe_was_invoked = false;
+            state.invoked_for_current_expansion = false;
+            state.invoked_for_current_edge = false;
+        }
+    }
+
     pub fn check_reinvoke(
         &mut self,
         dom_id: DomId,

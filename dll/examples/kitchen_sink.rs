@@ -111,10 +111,15 @@ struct KitchenSinkApp {
     code_content: String,
     /// Code editor scroll offset (line number)
     code_scroll_offset: usize,
+    /// Code editor font size (configurable via zoom)
+    code_font_size: f32,
+    /// Code editor line height (calculated from font size)
+    code_line_height: f32,
 }
 
 impl Default for KitchenSinkApp {
     fn default() -> Self {
+        let font_size = 14.0;
         Self {
             active_tab: 0,
             text_input_1: "Type here...".to_string(),
@@ -127,6 +132,8 @@ impl Default for KitchenSinkApp {
             slider_value: 50.0,
             code_content: Self::generate_sample_code(),
             code_scroll_offset: 0,
+            code_font_size: font_size,
+            code_line_height: font_size * 1.5,
         }
     }
 }
@@ -1187,20 +1194,6 @@ struct CodeLineData {
 }
 
 // Code editor callbacks
-extern "C" fn on_code_save(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
-    // TODO: Implement file save dialog
-    // Will need CallbackInfo::open_save_file_dialog() or similar
-    Update::DoNothing
-}
-
-extern "C" fn on_code_refresh(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
-    // Try to parse the code content as XHTML
-    // For now, just trigger a refresh - actual Dom::from_xhtml will be implemented
-    // when the API is available
-
-    Update::RefreshDom
-}
-
 extern "C" fn on_code_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let mut app_data = data.downcast_mut::<KitchenSinkApp>().unwrap();
 
@@ -1215,9 +1208,8 @@ extern "C" fn on_code_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
 
     if let Some(scroll_state) = info.get_scroll_state(dom_id, node_id) {
         // Calculate which line is at the top based on scroll offset
-        const LINE_HEIGHT: f32 = 21.0; // 14px font-size * 1.5 line-height
         let scroll_y = scroll_state.current_offset.y;
-        let top_line = (scroll_y / LINE_HEIGHT).floor() as usize;
+        let top_line = (scroll_y / app_data.code_line_height).floor() as usize;
 
         // Only update if scroll position changed significantly
         if app_data.code_scroll_offset != top_line {
@@ -1227,6 +1219,32 @@ extern "C" fn on_code_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
     }
 
     Update::DoNothing
+}
+
+extern "C" fn on_code_zoom_in(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+    let mut app_data = data.downcast_mut::<KitchenSinkApp>().unwrap();
+
+    // Increase font size by 2px, max 32px
+    if app_data.code_font_size < 32.0 {
+        app_data.code_font_size += 2.0;
+        app_data.code_line_height = app_data.code_font_size * 1.5;
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+extern "C" fn on_code_zoom_out(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+    let mut app_data = data.downcast_mut::<KitchenSinkApp>().unwrap();
+
+    // Decrease font size by 2px, min 8px
+    if app_data.code_font_size > 8.0 {
+        app_data.code_font_size -= 2.0;
+        app_data.code_line_height = app_data.code_font_size * 1.5;
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 extern "C" fn on_code_text_input(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
@@ -1246,6 +1264,8 @@ fn render_visible_code_lines(
     code: &str,
     scroll_offset: usize,
     window_height_estimate: usize,
+    font_size: f32,
+    line_height: f32,
 ) -> Vec<Dom> {
     let lines: Vec<&str> = code.lines().collect();
     let total_lines = lines.len();
@@ -1255,7 +1275,6 @@ fn render_visible_code_lines(
     }
 
     // Calculate visible range: render 2x window height for smooth scrolling
-    // Estimate: ~40 lines per 800px window height
     let lines_buffer = window_height_estimate * 2;
     let start_line = scroll_offset.saturating_sub(lines_buffer / 2);
     let end_line = (scroll_offset + lines_buffer).min(total_lines);
@@ -1271,7 +1290,10 @@ fn render_visible_code_lines(
                 .with_dataset(OptionRefAny::Some(RefAny::new(CodeLineData {
                     line_number: actual_line_num,
                 })))
-                .with_inline_style("display: flex; line-height: 1.5;")
+                .with_inline_style(&format!(
+                    "display: flex; font-size: {}px; line-height: {}px;",
+                    font_size, line_height
+                ))
                 .with_children(
                     vec![
                         // Line number gutter
@@ -1293,31 +1315,6 @@ fn render_visible_code_lines(
 }
 
 fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
-    const SAVE_HOVER: [StyleBackgroundContent; 1] = [StyleBackgroundContent::Color(ColorU {
-        r: 66,
-        g: 135,
-        b: 245,
-        a: 255,
-    })];
-    const SAVE_ACTIVE: [StyleBackgroundContent; 1] = [StyleBackgroundContent::Color(ColorU {
-        r: 50,
-        g: 100,
-        b: 200,
-        a: 255,
-    })];
-    const REFRESH_HOVER: [StyleBackgroundContent; 1] = [StyleBackgroundContent::Color(ColorU {
-        r: 76,
-        g: 175,
-        b: 80,
-        a: 255,
-    })];
-    const REFRESH_ACTIVE: [StyleBackgroundContent; 1] = [StyleBackgroundContent::Color(ColorU {
-        r: 60,
-        g: 150,
-        b: 70,
-        a: 255,
-    })];
-
     // Split layout: Preview (left) | Editor (right)
     Dom::div()
         .with_inline_style(
@@ -1328,7 +1325,7 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                 // Top: Split panes (preview + editor)
                 Dom::div()
                     .with_inline_style(
-                        "flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; \
+                        "flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; \
                          padding: 10px; min-height: 0; overflow: hidden;",
                     )
                     .with_children(
@@ -1407,14 +1404,15 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                                                     &app_data.code_content,
                                                     app_data.code_scroll_offset,
                                                     40, // Estimate: 40 lines visible at once
+                                                    app_data.code_font_size,
+                                                    app_data.code_line_height,
                                                 );
 
                                                 Dom::div()
                                                     .with_inline_style(
                                                         "flex: 1; font-family: 'Monaco', 'Menlo', \
-                                                         'Courier New', monospace; font-size: \
-                                                         14px; line-height: 1.5; color: #abb2bf; \
-                                                         overflow: auto; outline: none; \
+                                                         'Courier New', monospace; color: \
+                                                         #abb2bf; overflow: auto; outline: none; \
                                                          box-sizing: border-box; padding: 10px;",
                                                     )
                                                     .with_children(visible_lines.into())
@@ -1427,14 +1425,16 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                                                     .with_attribute(AttributeType::TabIndex(
                                                         0.into(),
                                                     ))
-                                                    .with_inline_style(
+                                                    .with_inline_style(&format!(
                                                         "flex: 1; padding: 10px; font-family: \
                                                          'Monaco', 'Menlo', 'Courier New', \
-                                                         monospace; font-size: 14px; line-height: \
-                                                         1.5; color: #abb2bf; overflow: auto; \
+                                                         monospace; font-size: {}px; line-height: \
+                                                         {}px; color: #abb2bf; overflow: auto; \
                                                          white-space: pre; outline: none; \
                                                          box-sizing: border-box;",
-                                                    )
+                                                        app_data.code_font_size,
+                                                        app_data.code_line_height
+                                                    ))
                                                     .with_child(Dom::text(
                                                         app_data.code_content.as_str(),
                                                     ))
@@ -1464,7 +1464,7 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                         ]
                         .into(),
                     ),
-                // Bottom: Toolbar with Save and Refresh buttons
+                // Bottom: Toolbar with Zoom buttons
                 Dom::div()
                     .with_inline_style(
                         "padding: 10px; background: #f5f5f5; border-top: 2px solid #ccc; display: \
@@ -1472,67 +1472,50 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                     )
                     .with_children(
                         vec![
-                            // Save button
+                            // Zoom out button
                             {
-                                let mut save_btn = Dom::div()
+                                let mut zoom_out_btn = Dom::div()
                                     .with_inline_style(
-                                        "padding: 10px 20px; background: #4a90e2; color: white; \
+                                        "padding: 10px 20px; background: #ff9800; color: white; \
                                          border-radius: 4px; cursor: pointer; user-select: none; \
                                          font-weight: bold;",
                                     )
-                                    .with_child(Dom::text("💾 Save to File"));
+                                    .with_child(Dom::text("Zoom Out -"));
 
-                                save_btn.root.add_hover_css_property(
-                                    CssProperty::BackgroundContent(
-                                        StyleBackgroundContentVec::from_const_slice(&SAVE_HOVER)
-                                            .into(),
-                                    ),
-                                );
-                                save_btn.root.add_active_css_property(
-                                    CssProperty::BackgroundContent(
-                                        StyleBackgroundContentVec::from_const_slice(&SAVE_ACTIVE)
-                                            .into(),
-                                    ),
-                                );
-                                save_btn.root.add_callback(
+                                zoom_out_btn.root.add_callback(
                                     EventFilter::Hover(HoverEventFilter::MouseUp),
                                     RefAny::new(KitchenSinkApp::default()),
-                                    on_code_save as usize,
+                                    on_code_zoom_out as usize,
                                 );
 
-                                save_btn
+                                zoom_out_btn
                             },
-                            // Refresh button
+                            // Font size display
+                            Dom::div()
+                                .with_inline_style(
+                                    "padding: 10px 20px; background: #e0e0e0; color: #333; \
+                                     border-radius: 4px; user-select: none; font-weight: bold;",
+                                )
+                                .with_child(Dom::text(
+                                    format!("{}px", app_data.code_font_size as u32).as_str(),
+                                )),
+                            // Zoom in button
                             {
-                                let mut refresh_btn = Dom::div()
+                                let mut zoom_in_btn = Dom::div()
                                     .with_inline_style(
                                         "padding: 10px 20px; background: #4caf50; color: white; \
                                          border-radius: 4px; cursor: pointer; user-select: none; \
                                          font-weight: bold;",
                                     )
-                                    .with_child(Dom::text("🔄 Refresh Preview"));
+                                    .with_child(Dom::text("Zoom In +"));
 
-                                refresh_btn.root.add_hover_css_property(
-                                    CssProperty::BackgroundContent(
-                                        StyleBackgroundContentVec::from_const_slice(&REFRESH_HOVER)
-                                            .into(),
-                                    ),
-                                );
-                                refresh_btn.root.add_active_css_property(
-                                    CssProperty::BackgroundContent(
-                                        StyleBackgroundContentVec::from_const_slice(
-                                            &REFRESH_ACTIVE,
-                                        )
-                                        .into(),
-                                    ),
-                                );
-                                refresh_btn.root.add_callback(
+                                zoom_in_btn.root.add_callback(
                                     EventFilter::Hover(HoverEventFilter::MouseUp),
                                     RefAny::new(KitchenSinkApp::default()),
-                                    on_code_refresh as usize,
+                                    on_code_zoom_in as usize,
                                 );
 
-                                refresh_btn
+                                zoom_in_btn
                             },
                         ]
                         .into(),

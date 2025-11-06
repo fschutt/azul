@@ -202,6 +202,9 @@ pub struct CallbackChangeResult {
     /// Image callback nodes that need to be re-rendered (for resize/animations)
     /// Unlike images_changed, this triggers a callback re-invocation
     pub image_callbacks_changed: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    /// IFrame nodes that need to be re-rendered (for content updates)
+    /// This triggers the IFrame callback to be called with DomRecreated reason
+    pub iframes_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     /// Clip mask changes (for vector animations)
     pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// CSS property changes from callbacks
@@ -1097,6 +1100,13 @@ impl LayoutWindow {
                 CallbackChange::UpdateImageCallback { dom_id, node_id } => {
                     result
                         .image_callbacks_changed
+                        .entry(dom_id)
+                        .or_insert_with(FastBTreeSet::new)
+                        .insert(node_id);
+                }
+                CallbackChange::UpdateIFrame { dom_id, node_id } => {
+                    result
+                        .iframes_to_update
                         .entry(dom_id)
                         .or_insert_with(FastBTreeSet::new)
                         .insert(node_id);
@@ -5478,6 +5488,105 @@ impl LayoutWindow {
         }
 
         updated_textures
+    }
+
+    /// Process IFrame updates requested by callbacks
+    ///
+    /// This method handles manual IFrame re-rendering triggered by `trigger_iframe_rerender()`.
+    /// It invokes the IFrame callback with `DomRecreated` reason and performs layout on the
+    /// returned DOM, then submits a new display list to WebRender for that pipeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `iframes_to_update` - Map of DomId -> Set of NodeIds that need re-rendering
+    /// * `window_state` - Current window state
+    /// * `renderer_resources` - Renderer resources
+    /// * `system_callbacks` - External system callbacks
+    ///
+    /// # Returns
+    ///
+    /// Vector of (DomId, NodeId) tuples for IFrames that were successfully updated
+    pub fn process_iframe_updates(
+        &mut self,
+        iframes_to_update: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+    ) -> Vec<(DomId, NodeId)> {
+        let mut updated_iframes = Vec::new();
+
+        for (dom_id, node_ids) in iframes_to_update {
+            for node_id in node_ids {
+                // Extract iframe bounds from layout result
+                let bounds = match Self::get_iframe_bounds_from_layout(
+                    &self.layout_results,
+                    *dom_id,
+                    *node_id,
+                ) {
+                    Some(b) => b,
+                    None => continue,
+                };
+
+                // Force re-invocation by clearing the "was_invoked" flag
+                self.iframe_manager.force_reinvoke(*dom_id, *node_id);
+
+                // Invoke the IFrame callback
+                if let Some(_child_dom_id) = self.invoke_iframe_callback(
+                    *dom_id,
+                    *node_id,
+                    bounds,
+                    window_state,
+                    renderer_resources,
+                    system_callbacks,
+                    &mut None,
+                ) {
+                    updated_iframes.push((*dom_id, *node_id));
+                }
+            }
+        }
+
+        updated_iframes
+    }
+
+    /// Helper: Extract IFrame bounds from layout results
+    ///
+    /// Returns None if the node is not an IFrame or doesn't have layout info
+    fn get_iframe_bounds_from_layout(
+        layout_results: &BTreeMap<DomId, DomLayoutResult>,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<LogicalRect> {
+        use azul_core::dom::NodeType;
+
+        let layout_result = layout_results.get(&dom_id)?;
+
+        // Check if this is an IFrame node
+        let node_data_container = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data_container.get(node_id)?;
+
+        if !matches!(node_data.get_node_type(), NodeType::IFrame(_)) {
+            return None;
+        }
+
+        // Get layout indices
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
+        if layout_indices.is_empty() {
+            return None;
+        }
+
+        let layout_index = layout_indices[0];
+
+        // Get position
+        let position = *layout_result.calculated_positions.get(&layout_index)?;
+
+        // Get size
+        let layout_node = layout_result.layout_tree.get(layout_index)?;
+        let size = layout_node.used_size?;
+
+        Some(LogicalRect::new(
+            position,
+            LogicalSize::new(size.width as f32, size.height as f32),
+        ))
     }
 }
 

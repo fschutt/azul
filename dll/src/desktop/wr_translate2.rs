@@ -1385,6 +1385,9 @@ pub fn generate_frame(
     // Process image callback updates (if any callbacks requested re-rendering)
     process_image_callback_updates(layout_window, txn);
 
+    // Process IFrame updates (if any callbacks requested re-rendering)
+    process_iframe_updates(layout_window, txn);
+
     // Scroll all nodes to their current positions
     scroll_all_nodes(layout_window, txn);
 
@@ -2094,4 +2097,27 @@ fn process_image_callback_updates(layout_window: &mut LayoutWindow, txn: &mut Wr
     // For now, this is a no-op until the callback result flow is connected
 
     eprintln!("[process_image_callback_updates] Checking for pending image callback updates");
+}
+
+/// Process IFrame updates requested by callbacks
+///
+/// This function handles manual IFrame re-rendering triggered by `trigger_iframe_rerender()`.
+/// It re-invokes IFrame callbacks and rebuilds display lists for updated IFrames.
+///
+/// # Arguments
+///
+/// * `layout_window` - The layout window with IFrame state
+/// * `txn` - The WebRender transaction to add updates to
+fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+    use std::collections::BTreeMap;
+
+    use azul_core::dom::DomId;
+
+    // TODO: Pass CallCallbacksResult.iframes_to_update to this function
+    // For now, check if there are any IFrames marked for update in the iframe_manager
+
+    eprintln!("[process_iframe_updates] Checking for pending IFrame updates");
+
+    // This is a placeholder - in a complete implementation, the iframes_to_update
+    // from CallbackChangeResult would be stored and passed through here
 }
