@@ -142,6 +142,9 @@ pub fn default_renderer_options(
 }
 
 /// Compositor for external image handling (textures, etc.)
+///
+/// This allows WebRender to use externally-managed OpenGL textures (e.g., from ImageCallbacks)
+/// by looking them up in the global texture cache.
 #[derive(Debug, Default, Copy, Clone)]
 pub struct Compositor {}
 
@@ -155,20 +158,39 @@ impl webrender::api::ExternalImageHandler for Compositor {
             units::{DevicePoint as WrDevicePoint, TexelRect as WrTexelRect},
             ExternalImage as WrExternalImage, ExternalImageSource as WrExternalImageSource,
         };
+        use azul_core::resources::ExternalImageId;
 
-        // TODO: Implement proper texture lookup using azul_core::gl::get_opengl_texture
-        // For now, return invalid texture
-        WrExternalImage {
-            uv: WrTexelRect {
-                uv0: WrDevicePoint::zero(),
-                uv1: WrDevicePoint::zero(),
-            },
-            source: WrExternalImageSource::Invalid,
+        // Convert WebRender's external image ID to our type
+        let external_image_id = ExternalImageId { inner: key.0 };
+
+        // Look up the texture in the global cache
+        match crate::desktop::gl_texture_cache::get_texture(&external_image_id) {
+            Some((texture_id, (width, height))) => {
+                // Return the native OpenGL texture
+                WrExternalImage {
+                    uv: WrTexelRect {
+                        uv0: WrDevicePoint::zero(),
+                        uv1: WrDevicePoint::new(width, height),
+                    },
+                    source: WrExternalImageSource::NativeTexture(texture_id),
+                }
+            }
+            None => {
+                // Texture not found, return invalid
+                WrExternalImage {
+                    uv: WrTexelRect {
+                        uv0: WrDevicePoint::zero(),
+                        uv1: WrDevicePoint::zero(),
+                    },
+                    source: WrExternalImageSource::Invalid,
+                }
+            }
         }
     }
 
     fn unlock(&mut self, _key: webrender::api::ExternalImageId, _channel_index: u8) {
         // Single-threaded renderer, nothing to unlock
+        // Textures are managed by the global cache with refcounting
     }
 }
 
